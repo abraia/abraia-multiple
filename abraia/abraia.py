@@ -2,11 +2,11 @@ import os
 import requests
 
 ABRAIA_API_URL = 'https://abraia.me/api'
-ABRAIA_API_KEY = os.environ.get('ABRAIA_API_KEY', None)
+ABRAIA_API_KEY = os.environ.get('ABRAIA_API_KEY', 'demo')
+ABRAIA_API_SECRET = os.environ.get('ABRAIA_API_SECRET', 'abraia')
 
 session = requests.Session()
-# session.params = {}
-# session.params['api_key'] = ABRAIA_API_KEY
+session.auth = (ABRAIA_API_KEY, ABRAIA_API_SECRET)
 
 
 def from_file(filename):
@@ -21,22 +21,23 @@ class Client:
     def __init__(self):
         self.url = ''
         self.params = {}
-        self.response = ''
+        self.resp = ''
 
     def files(self):
         path = '{}/images'.format(ABRAIA_API_URL)
-        response = session.get(path)
-        return response.json()
+        resp = session.get(path)
+        return resp.json()
 
     def from_file(self, filename):
         path = '{}/images'.format(ABRAIA_API_URL)
         files = dict(file=open(filename, 'rb'))
-        response = session.post(path, files=files)
-        if response.status_code == 201:
-            self.response = response.json()
-            self.url = '{}/images/{}'.format(
-                ABRAIA_API_URL, self.response['filename'])
-            self.params = {}
+        resp = session.post(path, files=files)
+        if resp.status_code != 201:
+            raise ApiError('POST {} {}'.format(path, resp.status_code))
+        self.resp = resp.json()
+        self.url = '{}/images/{}'.format(
+            ABRAIA_API_URL, self.resp['filename'])
+        self.params = {}
         return self
 
     def from_url(self, url):
@@ -45,11 +46,12 @@ class Client:
         return self
 
     def to_file(self, filename):
-        response = session.get(self.url, params=self.params)
-        if response.status_code == 200:
-            with open(filename, 'wb') as f:
-                f.write(response.content)
-        return response.status_code
+        resp = session.get(self.url, params=self.params)
+        if resp.status_code != 200:
+            raise ApiError('GET {} {}'.format(self.url, resp.status_code))
+        with open(filename, 'wb') as f:
+            f.write(resp.content)
+        return self
 
     def resize(self, width=None, height=None):
         if width:
@@ -60,5 +62,5 @@ class Client:
 
     def delete(self, filename):
         url = '{}/images/{}'.format(ABRAIA_API_URL, filename)
-        response = session.delete(url)
-        return response.json()
+        resp = session.delete(url)
+        return resp.json()
