@@ -37,12 +37,12 @@ class Client:
         self.resp = resp.json()
         self.url = '{}/images/{}'.format(
             ABRAIA_API_URL, self.resp['filename'])
-        self.params = {}
+        self.params = {'q': 'auto'}
         return self
 
     def from_url(self, url):
         self.url = '{}/images'.format(ABRAIA_API_URL)
-        self.params = {'url': url}
+        self.params = {'url': url, 'q': 'auto'}
         return self
 
     def to_file(self, filename):
