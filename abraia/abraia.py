@@ -17,6 +17,12 @@ def from_url(url):
     return Client().from_url(url)
 
 
+class APIError(Exception):
+    def __init__(self, message):
+        super(APIError, self).__init__(message)
+        self.message = message
+
+
 class Client:
     def __init__(self):
         self.url = ''
@@ -33,7 +39,7 @@ class Client:
         files = dict(file=open(filename, 'rb'))
         resp = session.post(path, files=files)
         if resp.status_code != 201:
-            raise ApiError('POST {} {}'.format(path, resp.status_code))
+            raise APIError('POST {} {}'.format(path, resp.status_code))
         self.resp = resp.json()
         self.url = '{}/images/{}'.format(
             ABRAIA_API_URL, self.resp['filename'])
@@ -48,7 +54,7 @@ class Client:
     def to_file(self, filename):
         resp = session.get(self.url, params=self.params)
         if resp.status_code != 200:
-            raise ApiError('GET {} {}'.format(self.url, resp.status_code))
+            raise APIError('GET {} {}'.format(self.url, resp.status_code))
         with open(filename, 'wb') as f:
             f.write(resp.content)
         return self

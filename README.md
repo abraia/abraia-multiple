@@ -18,7 +18,8 @@ pip install abraia
 ```python
 import abraia
 
-abraia.from_file('original.jpg').resize(width=600, height=600).to_file('resized.jpg')
+abraia.from_file('images/lion.jpg').resize(width=600, height=600).to_file('images/lion_600x600.jpg')
+abraia.from_url('https://abraia.me/images/lion.jpg').resize(width=600, height=400).to_file('images/lion_600x400.jpg')
 ```
 
 ## License
