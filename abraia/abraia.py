@@ -53,6 +53,7 @@ class Client:
 
     def to_file(self, filename):
         resp = session.get(self.url, params=self.params)
+        print(resp)
         if resp.status_code != 200:
             raise APIError('GET {} {}'.format(self.url, resp.status_code))
         with open(filename, 'wb') as f:
