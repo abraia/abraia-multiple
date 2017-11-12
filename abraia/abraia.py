@@ -52,12 +52,12 @@ class Client:
         return self
 
     def to_file(self, filename):
-        resp = session.get(self.url, params=self.params)
-        print(resp)
+        resp = session.get(self.url, params=self.params, stream=True)
         if resp.status_code != 200:
             raise APIError('GET {} {}'.format(self.url, resp.status_code))
         with open(filename, 'wb') as f:
-            f.write(resp.content)
+            for chunk in resp.iter_content(1024):
+                f.write(chunk)
         return self
 
     def resize(self, width=None, height=None):

@@ -1,0 +1,27 @@
+#!/usr/bin/env python
+import os
+import sys
+import glob
+import argparse
+
+import abraia
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('path', nargs='?', help='path of image file or folder')
+args = parser.parse_args()
+
+if args.path is None:
+    parser.print_help()
+    sys.exit()
+
+if os.path.isfile(args.path):
+    filename = args.path
+
+if os.path.isdir(args.path):
+    dirname = args.path
+    filenames = glob.glob(os.path.join(dirname, '*.jpg'))
+    filenames.extend(glob.glob(os.path.join(dirname, '*.jpeg')))
+
+pathname, ext = os.path.splitext(filename)
+abraia.from_file(filename).to_file(pathname + '_o' + ext)
