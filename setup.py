@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='abraia',
-      version='0.1.3',
+      version='0.1.4',
       description='Abraia Python SDK',
       url='https://github.com/abraia/abraia-python',
       author='Jorge Rodriguez Araujo',

@@ -8,20 +8,42 @@ import abraia
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('path', nargs='?', help='path of image file or folder')
+parser.add_argument(
+    'path', nargs='?', help='path of image or directory of images to process')
 args = parser.parse_args()
+
+filenames = []
+dirname = None
 
 if args.path is None:
     parser.print_help()
     sys.exit()
 
 if os.path.isfile(args.path):
-    filename = args.path
+    filenames.append(args.path)
 
 if os.path.isdir(args.path):
     dirname = args.path
-    filenames = glob.glob(os.path.join(dirname, '*.jpg'))
+    filenames.extend(glob.glob(os.path.join(dirname, '*.jpg')))
     filenames.extend(glob.glob(os.path.join(dirname, '*.jpeg')))
+    filenames.extend(glob.glob(os.path.join(dirname, '*.png')))
 
-pathname, ext = os.path.splitext(filename)
-abraia.from_file(filename).to_file(pathname + '_o' + ext)
+if dirname:
+    if dirname.endswith('/'):
+        dirname = dirname[:-1]
+    dirname = dirname+'_o'
+    os.makedirs(dirname, exist_ok=True)
+
+for filename in filenames:
+    print('Uploading:', filename)
+    path, name = os.path.split(filename)
+    name, ext = os.path.splitext(name)
+    fileout = os.path.join(path, name+'_o'+ext)
+    if dirname:
+        fileout = os.path.join(dirname, name+ext)
+    abraia.from_file(filename).to_file(fileout)
+    print('Optimized:', fileout)
+    sizein = os.path.getsize(filename) / 1024
+    sizeout = os.path.getsize(fileout) / 1024
+    print('{0:.2f} KB --> {1:.2f} KB ({2:.2f}%)'.format(
+        sizein, sizeout, 100 * (1 - sizeout) / sizein))
