@@ -3,6 +3,7 @@ import os
 import sys
 import glob
 import argparse
+from tqdm import tqdm
 
 import abraia
 
@@ -34,16 +35,16 @@ if dirname:
     dirname = dirname+'_o'
     os.makedirs(dirname, exist_ok=True)
 
-for filename in filenames:
-    print('Uploading:', filename)
+for filename in tqdm(filenames, unit='files'):
+    tqdm.write('Uploading:', filename)
     path, name = os.path.split(filename)
-    name, ext = os.path.splitext(name)
-    fileout = os.path.join(path, name+'_o'+ext)
+    nam, ext = os.path.splitext(name)
+    fileout = os.path.join(path, nam+'_o'+ext)
     if dirname:
-        fileout = os.path.join(dirname, name+ext)
+        fileout = os.path.join(dirname, nam+ext)
     abraia.from_file(filename).to_file(fileout)
-    print('Optimized:', fileout)
+    tqdm.write('Optimized:', fileout)
     sizein = os.path.getsize(filename) / 1024
     sizeout = os.path.getsize(fileout) / 1024
-    print('{0:.2f} KB --> {1:.2f} KB ({2:.2f}%)'.format(
-        sizein, sizeout, 100 * (1 - sizeout) / sizein))
+    tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
+        name, sizein, sizeout, 100 * (1 - sizeout / sizein)))
