@@ -7,6 +7,8 @@ from tqdm import tqdm
 
 import abraia
 
+FILE_PATTERNS = ['*.jpg', '*.jpeg', '*.png', '*.gif', '*.webp']
+
 
 def main(path):
     filenames = []
@@ -17,9 +19,8 @@ def main(path):
 
     if os.path.isdir(path):
         dirname = path
-        filenames.extend(glob.glob(os.path.join(dirname, '*.jpg')))
-        filenames.extend(glob.glob(os.path.join(dirname, '*.jpeg')))
-        filenames.extend(glob.glob(os.path.join(dirname, '*.png')))
+        [filenames.extend(glob.glob(os.path.join(
+            dirname, pattern))) for pattern in FILE_PATTERNS]
 
     if dirname:
         if dirname.endswith('/'):
