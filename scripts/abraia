@@ -1,0 +1,58 @@
+#!/usr/bin/env python
+import os
+import sys
+import glob
+import argparse
+from tqdm import tqdm
+
+import abraia
+
+
+def main(path):
+    filenames = []
+    dirname = None
+
+    if os.path.isfile(path):
+        filenames.append(path)
+
+    if os.path.isdir(path):
+        dirname = path
+        filenames.extend(glob.glob(os.path.join(dirname, '*.jpg')))
+        filenames.extend(glob.glob(os.path.join(dirname, '*.jpeg')))
+        filenames.extend(glob.glob(os.path.join(dirname, '*.png')))
+
+    if dirname:
+        if dirname.endswith('/'):
+            dirname = dirname[:-1]
+        dirname = dirname+'_o'
+        os.makedirs(dirname, exist_ok=True)
+
+    for filename in tqdm(filenames, unit='file'):
+        path, name = os.path.split(filename)
+        nam, ext = os.path.splitext(name)
+        fileout = os.path.join(path, nam+'_o'+ext)
+        if dirname:
+            fileout = os.path.join(dirname, nam+ext)
+        abraia.from_file(filename).resize(
+            width=args.width, height=args.height).to_file(fileout)
+        sizein = os.path.getsize(filename) / 1024
+        sizeout = os.path.getsize(fileout) / 1024
+        tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
+            name, sizein, sizeout, 100 * (1 - sizeout / sizein)))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='Abraia image optimization tool')
+    parser.add_argument('path', nargs='?',
+                        help='image path or directory of images to process')
+    parser.add_argument('--width', type=int, help='requested image width')
+    parser.add_argument('--height', type=int, help='requested image height')
+    parser.add_argument('-V', '--version', action='version', version='0.1.5')
+    args = parser.parse_args()
+
+    if args.path is None:
+        parser.print_help()
+        sys.exit()
+
+    main(args.path)

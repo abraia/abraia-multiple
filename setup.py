@@ -11,5 +11,5 @@ setup(name='abraia',
       packages=['abraia'],
       tests_require=['pytest'],
       setup_requires=['pytest-runner'],
-      scripts=['scripts/optimize'],
+      scripts=['scripts/abraia'],
       install_requires=['requests', 'tqdm'])
