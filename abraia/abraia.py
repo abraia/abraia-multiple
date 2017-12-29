@@ -1,12 +1,8 @@
-import os
 import requests
-
-ABRAIA_API_URL = 'https://abraia.me/api'
-ABRAIA_API_KEY = os.environ.get('ABRAIA_API_KEY', 'demo')
-ABRAIA_API_SECRET = os.environ.get('ABRAIA_API_SECRET', 'abraia')
+from . import config
 
 session = requests.Session()
-session.auth = (ABRAIA_API_KEY, ABRAIA_API_SECRET)
+session.auth = config.load_auth()
 
 
 def from_file(filename):
@@ -30,24 +26,23 @@ class Client:
         self.resp = ''
 
     def files(self):
-        path = '{}/images'.format(ABRAIA_API_URL)
+        path = '{}/images'.format(config.api_url)
         resp = session.get(path)
         return resp.json()
 
     def from_file(self, filename):
-        path = '{}/images'.format(ABRAIA_API_URL)
+        path = '{}/images'.format(config.api_url)
         files = dict(file=open(filename, 'rb'))
         resp = session.post(path, files=files)
         if resp.status_code != 201:
             raise APIError('POST {} {}'.format(path, resp.status_code))
         self.resp = resp.json()
-        self.url = '{}/images/{}'.format(
-            ABRAIA_API_URL, self.resp['filename'])
+        self.url = '{}/images/{}'.format(config.api_url, self.resp['filename'])
         self.params = {'q': 'auto'}
         return self
 
     def from_url(self, url):
-        self.url = '{}/images'.format(ABRAIA_API_URL)
+        self.url = '{}/images'.format(config.api_url)
         self.params = {'url': url, 'q': 'auto'}
         return self
 
@@ -68,6 +63,6 @@ class Client:
         return self
 
     def delete(self, filename):
-        url = '{}/images/{}'.format(ABRAIA_API_URL, filename)
+        url = '{}/images/{}'.format(config.api_url, filename)
         resp = session.delete(url)
         return resp.json()

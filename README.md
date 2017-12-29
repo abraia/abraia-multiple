@@ -11,7 +11,7 @@ and optimize (compress) images on-line intelligently. Read more at [https://abra
 Install the API client:
 
 ```
-pip install abraia
+pip install -U abraia
 ```
 
 ## Usage
@@ -19,8 +19,10 @@ pip install abraia
 ```python
 import abraia
 
-abraia.from_file('images/lion.jpg').resize(width=600, height=600).to_file('images/lion_600x600.jpg')
-abraia.from_url('https://abraia.me/images/lion.jpg').resize(width=600, height=400).to_file('images/lion_600x400.jpg')
+abraia.from_file('images/lion.jpg').resize(
+  width=600, height=600).to_file('images/lion_600x600.jpg')
+abraia.from_url('https://abraia.me/images/random.jpg').resize(
+  width=600, height=400).to_file('images/random_600x400.jpg')
 ```
 
 ## License

@@ -10,9 +10,10 @@ import abraia
 FILE_PATTERNS = ['*.jpg', '*.jpeg', '*.png', '*.gif', '*.webp']
 
 
-def main(path):
+def main(args):
     filenames = []
     dirname = None
+    path = args['path']
 
     if os.path.isfile(path):
         filenames.append(path)
@@ -34,8 +35,11 @@ def main(path):
         fileout = os.path.join(path, nam+'_o'+ext)
         if dirname:
             fileout = os.path.join(dirname, nam+ext)
-        abraia.from_file(filename).resize(
-            width=args.width, height=args.height).to_file(fileout)
+        if 'width' in args.keys():
+            abraia.from_file(filename).resize(
+                width=args['width'], height=args['height']).to_file(fileout)
+        else:
+            abraia.from_file(filename).to_file(fileout)
         sizein = os.path.getsize(filename) / 1024
         sizeout = os.path.getsize(fileout) / 1024
         tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
@@ -45,15 +49,44 @@ def main(path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Abraia image optimization tool')
-    parser.add_argument('path', nargs='?',
-                        help='image path or directory of images to process')
-    parser.add_argument('--width', type=int, help='requested image width')
-    parser.add_argument('--height', type=int, help='requested image height')
-    parser.add_argument('-V', '--version', action='version', version='0.1.5')
-    args = parser.parse_args()
+    parser.add_argument('-V', '--version', action='version', version='0.2.0')
+    subparsers = parser.add_subparsers(dest='command')
+    parser_configure = subparsers.add_parser(
+        'configure', help='configure the access keys')
+    parser_optimize = subparsers.add_parser(
+        'optimize', help='optimize the image or directory of images')
+    parser_optimize.add_argument(
+        'path', nargs='?', help='image path or directory of images to process')
+    parser_resize = subparsers.add_parser(
+        'resize', help='resize the image or directory of images')
+    parser_resize.add_argument(
+        '--width', type=int, help='requested image width')
+    parser_resize.add_argument(
+        '--height', type=int, help='requested image height')
+    parser_resize.add_argument(
+        'path', nargs='?', help='image path or directory of images to process')
+    args = vars(parser.parse_args())
 
-    if args.path is None:
+    if args['command'] is None:
         parser.print_help()
         sys.exit()
 
-    main(args.path)
+    if args['command'] == 'configure':
+        api_key, api_secret = abraia.config.load_auth()
+        key = input('Abraia Access Key ID [{}]: '.format(api_key))
+        api_key = api_key if key == '' else key
+        secret = input('Abraia Secret Access Key [{}]: '.format(api_secret))
+        api_secret = api_secret if secret == '' else secret
+        abraia.config.save_auth(api_key, api_secret)
+
+    if args['command'] == 'optimize':
+        if args['path'] is None:
+            parser_optimize.print_help()
+            sys.exit()
+        main(args)
+
+    if args['command'] == 'resize':
+        if args['path'] is None:
+            parser_resize.print_help()
+            sys.exit()
+        main(args)
