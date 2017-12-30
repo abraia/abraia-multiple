@@ -10,7 +10,7 @@ import abraia
 FILE_PATTERNS = ['*.jpg', '*.jpeg', '*.png', '*.gif', '*.webp']
 
 
-def main(args):
+def processBatch(args):
     filenames = []
     dirname = None
     path = args['path']
@@ -35,11 +35,8 @@ def main(args):
         fileout = os.path.join(path, nam+'_o'+ext)
         if dirname:
             fileout = os.path.join(dirname, nam+ext)
-        if 'width' in args.keys():
-            abraia.from_file(filename).resize(
-                width=args['width'], height=args['height']).to_file(fileout)
-        else:
-            abraia.from_file(filename).to_file(fileout)
+        abraia.from_file(filename).resize(
+            width=args.get('width'), height=args.get('height')).to_file(fileout)
         sizein = os.path.getsize(filename) / 1024
         sizeout = os.path.getsize(fileout) / 1024
         tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
@@ -73,9 +70,9 @@ if __name__ == '__main__':
 
     if args['command'] == 'configure':
         api_key, api_secret = abraia.config.load_auth()
-        key = input('Abraia Access Key ID [{}]: '.format(api_key))
+        key = input('Abraia Api Key [{}]: '.format(api_key))
         api_key = api_key if key == '' else key
-        secret = input('Abraia Secret Access Key [{}]: '.format(api_secret))
+        secret = input('Abraia Api Secret [{}]: '.format(api_secret))
         api_secret = api_secret if secret == '' else secret
         abraia.config.save_auth(api_key, api_secret)
 
@@ -83,10 +80,10 @@ if __name__ == '__main__':
         if args['path'] is None:
             parser_optimize.print_help()
             sys.exit()
-        main(args)
+        processBatch(args)
 
     if args['command'] == 'resize':
         if args['path'] is None:
             parser_resize.print_help()
             sys.exit()
-        main(args)
+        processBatch(args)
