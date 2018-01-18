@@ -32,9 +32,14 @@ def processBatch(args):
             os.makedirs(os.path.join(dirname+'_o', relpath), exist_ok=True)
             fileout = os.path.join(dirname+'_o', relpath, nam+ext)
         if ext.lower() in IMAGE_EXTS:
-            abraia.from_file(filename).resize(
-                width=args.get('width'),
-                height=args.get('height')).to_file(fileout)
+            try:
+                abraia.from_file(filename).resize(
+                    width=args.get('width'),
+                    height=args.get('height')).to_file(fileout)
+            except:
+                shutil.copy2(filename, fileout)
+            if os.path.getsize(fileout) > os.path.getsize(filename):
+                shutil.copy2(filename, fileout)
             sizein = os.path.getsize(filename) / 1024
             sizeout = os.path.getsize(fileout) / 1024
             tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
@@ -46,7 +51,7 @@ def processBatch(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.2.1')
+    parser.add_argument('-V', '--version', action='version', version='0.2.2')
     subparsers = parser.add_subparsers(dest='command')
     parser_configure = subparsers.add_parser(
         'configure', help='configure the access keys')
