@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='abraia',
-      version='0.2.4',
+      version='0.2.5',
       description='Abraia Python SDK',
       url='https://github.com/abraia/abraia-python',
       author='Jorge Rodriguez Araujo',
@@ -11,5 +11,5 @@ setup(name='abraia',
       packages=['abraia'],
       tests_require=['pytest'],
       setup_requires=['pytest-runner'],
-      scripts=['scripts/abraia'],
+      scripts=['scripts/abraia', 'scripts/abraia.bat'],
       install_requires=['requests', 'tqdm'])
