@@ -51,7 +51,7 @@ def processBatch(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.2.3')
+    parser.add_argument('-V', '--version', action='version', version='0.2.4')
     subparsers = parser.add_subparsers(dest='command')
     parser_configure = subparsers.add_parser(
         'configure', help='configure the access keys')
