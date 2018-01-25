@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+from __future__ import division
+from builtins import input
+
 import os
 import sys
 import shutil
@@ -29,7 +32,8 @@ def processBatch(args):
         fileout = os.path.join(path, nam+'_o'+ext)
         if dirname:
             relpath = os.path.relpath(path, dirname)
-            os.makedirs(os.path.join(dirname+'_o', relpath), exist_ok=True)
+            if not os.path.exists(os.path.join(dirname+'_o', relpath)):
+                os.makedirs(os.path.join(dirname+'_o', relpath))
             fileout = os.path.join(dirname+'_o', relpath, nam+ext)
         if ext.lower() in IMAGE_EXTS:
             try:
@@ -51,7 +55,7 @@ def processBatch(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.2.5')
+    parser.add_argument('-V', '--version', action='version', version='0.2.7')
     subparsers = parser.add_subparsers(dest='command')
     parser_configure = subparsers.add_parser(
         'configure', help='configure the access keys')
