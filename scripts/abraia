@@ -71,6 +71,9 @@ if __name__ == '__main__':
         '--height', type=int, help='requested image height')
     parser_resize.add_argument(
         'path', nargs='?', help='image path or directory of images to process')
+    parser_list = subparsers.add_parser('ls', help='list stored files')
+    parser_remove = subparsers.add_parser('rm', help='remove a stored file')
+    parser_remove.add_argument('path', nargs='?', help='image path to remove')
     args = vars(parser.parse_args())
 
     if args['command'] is None:
@@ -96,3 +99,12 @@ if __name__ == '__main__':
             parser_resize.print_help()
             sys.exit()
         processBatch(args)
+
+    if args['command'] == 'ls':
+        print(abraia.list())
+
+    if args['command'] == 'rm':
+        if args['path'] is None:
+            parser_remove.print_help()
+            sys.exit()
+        print(abraia.remove(args['path']))
