@@ -3,8 +3,7 @@
 
 # Abraia API client for Python
 
-Python client for the Abraia API, used for [Abraia](https://abraia.me) to
-transform and optimize (compress) images on-line intelligently. Read more at
+Python client for the [Abraia](https://abraia.me) API, used to smartly transform and optimize (compress) images on-line. Read more at
 [https://abraia.me/docs](https://abraia.me/docs).
 
 ## Installation
@@ -15,7 +14,7 @@ Install the API client and CLI with a simple command:
 pip install -U abraia
 ```
 
-Verify that the abraia CLI is installed correctly:
+Verify that the abraia CLI is correctly installed:
 
 ```
 abraia --version
@@ -23,8 +22,8 @@ abraia --version
 
 ## Configuration
 
-For configuration you need to create an account and introduce the API KEYS
-using the command bellow:
+For configuration you just need to [create an account](https://abraia.me/login)
+and introduce the API KEYS using the command bellow:
 
 ```
 abraia configure
@@ -33,6 +32,10 @@ abraia configure
 ## Usage
 
 API usage:
+
+The fluent design of the Abraia API makes easy to compress and transform
+images. You just need to define the source of the image, the transformation
+operation, and the sink for the resultant image.
 
 ```python
 import abraia
@@ -45,7 +48,8 @@ abraia.from_url('https://abraia.me/images/random.jpg').resize(
 
 CLI usage:
 
-Compress all the images in a folder with a simple command:
+With the CLI tool you can compress all the images in a folder with a simple
+command:
 
 ```
 abraia optimize images
@@ -53,7 +57,7 @@ abraia optimize images
 
 ![Resized lion](./images/batch_output.png)
 
-Resize or crop your images and folders:
+Or resize or crop your images and folders:
 
 ```
 abraia resize --width 500 images/lion.jpg
