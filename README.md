@@ -9,7 +9,7 @@ transform and optimize (compress) images on-line intelligently. Read more at
 
 ## Installation
 
-Install the API client and CLI (requires Python 3):
+Install the API client and CLI with a simple command:
 
 ```
 pip install -U abraia
@@ -51,11 +51,13 @@ Compress all the images in a folder with a simple command:
 abraia optimize images
 ```
 
+![Resized lion](./images/batch_output.png)
+
 Resize or crop your images and folders:
 
-```console
+```
 abraia resize --width 500 images/lion.jpg
-abraia resize --width 500 --height 500 images/lion.jpg
+abraia resize --width 333 --height 333 images/lion.jpg
 ```
 
 ![Resized lion](./images/resized.jpg)

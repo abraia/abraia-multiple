@@ -44,7 +44,7 @@ def test_smartcrop():
         os.path.dirname(__file__), '../images/cropped.jpg')
     source = abraia.from_file(os.path.join(
         os.path.dirname(__file__), '../images/lion.jpg'))
-    cropped = source.resize(width=500, height=500)
+    cropped = source.resize(width=333, height=333)
     cropped.to_file(output)
     assert os.path.isfile(output)
 

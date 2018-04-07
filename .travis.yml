@@ -17,4 +17,4 @@ deploy:
   distributions: "sdist bdist_wheel"
   on:
     tags: true
-    branch: develop
+    repo: abraia/abraia-python

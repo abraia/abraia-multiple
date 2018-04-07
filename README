@@ -10,7 +10,7 @@ images on-line intelligently. Read more at https://abraia.me/docs.
 Installation
 ------------
 
-Install the API client and CLI (requires Python 3):
+Install the API client and CLI with a simple command:
 
 ::
 
@@ -54,12 +54,17 @@ Compress all the images in a folder with a simple command:
 
     abraia optimize images
 
+.. figure:: ./images/batch_output.png
+   :alt: Resized lion
+
+   Resized lion
+
 Resize or crop your images and folders:
 
-.. code:: console
+::
 
     abraia resize --width 500 images/lion.jpg
-    abraia resize --width 500 --height 500 images/lion.jpg
+    abraia resize --width 333 --height 333 images/lion.jpg
 
 |Resized lion| |Cropped lion|
 
