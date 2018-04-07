@@ -1,0 +1,78 @@
+|Build Status| |Coverage Status|
+
+Abraia API client for Python
+============================
+
+Python client for the Abraia API, used for
+`Abraia <https://abraia.me>`__ to transform and optimize (compress)
+images on-line intelligently. Read more at https://abraia.me/docs.
+
+Installation
+------------
+
+Install the API client and CLI (requires Python 3):
+
+::
+
+    pip install -U abraia
+
+Verify that the abraia CLI is installed correctly:
+
+::
+
+    abraia --version
+
+Configuration
+-------------
+
+For configuration you need to create an account and introduce the API
+KEYS using the command bellow:
+
+::
+
+    abraia configure
+
+Usage
+-----
+
+API usage:
+
+.. code:: python
+
+    import abraia
+
+    abraia.from_file('images/lion.jpg').resize(
+      width=600, height=600).to_file('images/lion_600x600.jpg')
+    abraia.from_url('https://abraia.me/images/random.jpg').resize(
+      width=600, height=400).to_file('images/random_600x400.jpg')
+
+CLI usage:
+
+Compress all the images in a folder with a simple command:
+
+::
+
+    abraia optimize images
+
+Resize or crop your images and folders:
+
+.. code:: console
+
+    abraia resize --width 500 images/lion.jpg
+    abraia resize --width 500 --height 500 images/lion.jpg
+
+|Resized lion| |Cropped lion|
+
+License
+-------
+
+This software is licensed under the MIT License. `View the
+license <LICENSE>`__.
+
+.. |Build Status| image:: https://travis-ci.org/abraia/abraia-python.svg
+   :target: https://travis-ci.org/abraia/abraia-python
+.. |Coverage Status| image:: https://coveralls.io/repos/github/abraia/abraia-python/badge.svg?branch=develop
+   :target: https://coveralls.io/github/abraia/abraia-python?branch=develop
+.. |Resized lion| image:: ./images/resized.jpg
+.. |Cropped lion| image:: ./images/cropped.jpg
+

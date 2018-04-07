@@ -1,11 +1,20 @@
 language: python
 python:
-  - 2.7
-  - 3.6
+- 2.7
+- 3.6
 install:
-  - pip install -r requirements.txt
-  - pip install coveralls pytest-cov
+- pip install -r requirements.txt
+- pip install coveralls pytest-cov
 script:
-  - pytest -v tests/ --cov=abraia
+- pytest -v tests/ --cov=abraia
 after_success:
-  - coveralls
+- coveralls
+deploy:
+  provider: pypi
+  user: jrrodri
+  password:
+    secure: Yo+mLW6J/q/lkkFV8+dTHR2Aa/1oRSNvKWwT/D3K7j0MTVSgLCUCK083LeDSs2D1Yw4RSHFOlwxj8AeJL16P5dmzSVWRkQXYAwzBY+2ZCWt9K6UWX94TDQSRPjbDd0Ruy9wZrvlpf2925E3rDBSxZyWgTNAzUYxnFQWp+6EfkWmxHzX0B5bIJq/SDjI3Rsygs9FPURGvlexvEdN0Dawq4fIHwC2/68tHUYP3GWpXabCD6S5JntcrnBUowsHgw+Z0JQsBpr8SrhI9zWTtAkq1I9MAiC4SBQwO7yDtEwns5G29I2j6RzTry01PDVisc6z5WrWX7NtmDrO10MJHmQeIU42WRvt5xy9w5vw8zjhNMpvCea5VnfZ3swR6454gNB4K2GoHCSU1OvR64dZMcXMCTXxjegObutnDxeKGD/sKKbs/5tbKfz+lKXWmnRNcVd+c3vXZXLkoGjDBm0Xz8KDDwQHxnBCxYcDDoV8eSvwuW3xlGDkMvDcdSdcoZWPaigFvtjQL6JP2bniZFPMsyRPLa9h97xKoiU8Exp0obN3a2CWOuxp423bQae9NOnJACAI3DoIM7tICyv0wmM8icWpLC+qpxdqUX3vqcQu5LtGrVKB+7RhcwBdDAh92/nu3v0O5cL6PrQmfTMLi9BSMB85EfrTwkVVY5ELWs2HMwrcFyGE=
+  distributions: "sdist bdist_wheel"
+  on:
+    tags: true
+    branch: develop

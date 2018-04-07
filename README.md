@@ -45,9 +45,21 @@ abraia.from_url('https://abraia.me/images/random.jpg').resize(
 
 CLI usage:
 
+Compress all the images in a folder with a simple command:
+
 ```
-abraia optimize [path]
+abraia optimize images
 ```
+
+Resize or crop your images and folders:
+
+```console
+abraia resize --width 500 images/lion.jpg
+abraia resize --width 500 --height 500 images/lion.jpg
+```
+
+![Resized lion](./images/resized.jpg)
+![Cropped lion](./images/cropped.jpg)
 
 ## License
 

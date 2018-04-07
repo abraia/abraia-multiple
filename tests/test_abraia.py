@@ -33,8 +33,19 @@ def test_resize():
         os.path.dirname(__file__), '../images/resized.jpg')
     source = abraia.from_file(os.path.join(
         os.path.dirname(__file__), '../images/lion.jpg'))
-    resized = source.resize(width=150, height=150)
+    resized = source.resize(width=500)
     resized.to_file(output)
+    assert os.path.isfile(output)
+
+
+def test_smartcrop():
+    """Test an API call to smartcrop an image"""
+    output = os.path.join(
+        os.path.dirname(__file__), '../images/cropped.jpg')
+    source = abraia.from_file(os.path.join(
+        os.path.dirname(__file__), '../images/lion.jpg'))
+    cropped = source.resize(width=500, height=500)
+    cropped.to_file(output)
     assert os.path.isfile(output)
 
 
