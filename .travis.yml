@@ -17,4 +17,5 @@ deploy:
   distributions: "sdist bdist_wheel"
   on:
     tags: true
-    repo: abraia/abraia-python
+    branch: develop
+    python: '3.6'
