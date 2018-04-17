@@ -13,10 +13,20 @@ import abraia
 IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp']
 
 
-def processBatch(args):
+def process_configure():
+    api_key, api_secret = abraia.config.load_auth()
+    key = input('Abraia Api Key [{}]: '.format(api_key))
+    api_key = api_key if key == '' else key
+    secret = input('Abraia Api Secret [{}]: '.format(api_secret))
+    api_secret = api_secret if secret == '' else secret
+    abraia.config.save_auth(api_key, api_secret)
+
+
+def process_batch(args):
     filenames = []
     dirname = None
     path = args['path']
+    dest = args['dest']
 
     if os.path.isfile(path):
         filenames.append(path)
@@ -35,6 +45,8 @@ def processBatch(args):
             if not os.path.exists(os.path.join(dirname+'_o', relpath)):
                 os.makedirs(os.path.join(dirname+'_o', relpath))
             fileout = os.path.join(dirname+'_o', relpath, nam+ext)
+        if dest is not None:
+            fileout = dest
         if ext.lower() in IMAGE_EXTS:
             try:
                 abraia.from_file(filename).resize(
@@ -52,17 +64,31 @@ def processBatch(args):
             shutil.copy2(filename, fileout)
 
 
-if __name__ == '__main__':
+def process_list():
+    print(abraia.list())
+
+
+def process_remove(args):
+    print(abraia.remove(args['path']))
+
+
+def parse_input():
     parser = argparse.ArgumentParser(
         description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.2.7')
+    parser.add_argument('-V', '--version', action='version', version='0.2.9')
     subparsers = parser.add_subparsers(dest='command')
     parser_configure = subparsers.add_parser(
         'configure', help='configure the access keys')
     parser_optimize = subparsers.add_parser(
         'optimize', help='optimize the image or directory of images')
     parser_optimize.add_argument(
-        'path', nargs='?', help='image path or directory of images to process')
+        '--width', type=int, help='resize to specified width')
+    parser_optimize.add_argument(
+        '--height', type=int, help='resize to specified height')
+    parser_optimize.add_argument(
+        'path', nargs='?', help='image path or directory to process')
+    parser_optimize.add_argument(
+        'dest', nargs='?', help='destination directory or image path')
     parser_resize = subparsers.add_parser(
         'resize', help='resize the image or directory of images')
     parser_resize.add_argument(
@@ -70,7 +96,9 @@ if __name__ == '__main__':
     parser_resize.add_argument(
         '--height', type=int, help='requested image height')
     parser_resize.add_argument(
-        'path', nargs='?', help='image path or directory of images to process')
+        'path', nargs='?', help='image path or directory to process')
+    parser_resize.add_argument(
+        'dest', nargs='?', help='destination directory or image path')
     parser_list = subparsers.add_parser('ls', help='list stored files')
     parser_remove = subparsers.add_parser('rm', help='remove a stored file')
     parser_remove.add_argument('path', nargs='?', help='image path to remove')
@@ -79,32 +107,34 @@ if __name__ == '__main__':
     if args['command'] is None:
         parser.print_help()
         sys.exit()
-
-    if args['command'] == 'configure':
-        api_key, api_secret = abraia.config.load_auth()
-        key = input('Abraia Api Key [{}]: '.format(api_key))
-        api_key = api_key if key == '' else key
-        secret = input('Abraia Api Secret [{}]: '.format(api_secret))
-        api_secret = api_secret if secret == '' else secret
-        abraia.config.save_auth(api_key, api_secret)
-
-    if args['command'] == 'optimize':
+    elif args['command'] == 'optimize':
         if args['path'] is None:
             parser_optimize.print_help()
             sys.exit()
-        processBatch(args)
-
-    if args['command'] == 'resize':
+    elif args['command'] == 'resize':
         if args['path'] is None:
             parser_resize.print_help()
             sys.exit()
-        processBatch(args)
-
-    if args['command'] == 'ls':
-        print(abraia.list())
-
-    if args['command'] == 'rm':
+    elif args['command'] == 'rm':
         if args['path'] is None:
             parser_remove.print_help()
             sys.exit()
-        print(abraia.remove(args['path']))
+    return args
+
+
+def process_input(args):
+    if args['command'] == 'configure':
+        process_configure()
+    elif args['command'] == 'optimize':
+        process_batch(args)
+    elif args['command'] == 'resize':
+        process_batch(args)
+    elif args['command'] == 'ls':
+        process_list()
+    elif args['command'] == 'rm':
+        process_remove(args)
+
+
+if __name__ == "__main__":
+    args = parse_input()
+    process_input(args)
