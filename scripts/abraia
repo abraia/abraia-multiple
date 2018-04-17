@@ -7,6 +7,7 @@ import sys
 import shutil
 import argparse
 from tqdm import tqdm
+from datetime import datetime
 
 import abraia
 
@@ -64,8 +65,17 @@ def process_batch(args):
             shutil.copy2(filename, fileout)
 
 
+def process_analyze(args):
+    result = abraia.from_file(args['path']).analyze()
+    print(result)
+
+
 def process_list():
-    print(abraia.list())
+    json = abraia.list()
+    files = [(datetime.fromtimestamp(
+        f['date']), f['size'], f['name']) for f in json['files']]
+    txt = '\n'.join(['{}  {:>7}  {}'.format(*f) for f in files])
+    print(txt)
 
 
 def process_remove(args):
@@ -75,7 +85,7 @@ def process_remove(args):
 def parse_input():
     parser = argparse.ArgumentParser(
         description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.2.9')
+    parser.add_argument('-V', '--version', action='version', version='0.2.10')
     subparsers = parser.add_subparsers(dest='command')
     parser_configure = subparsers.add_parser(
         'configure', help='configure the access keys')
@@ -89,16 +99,10 @@ def parse_input():
         'path', nargs='?', help='image path or directory to process')
     parser_optimize.add_argument(
         'dest', nargs='?', help='destination directory or image path')
-    parser_resize = subparsers.add_parser(
-        'resize', help='resize the image or directory of images')
-    parser_resize.add_argument(
-        '--width', type=int, help='requested image width')
-    parser_resize.add_argument(
-        '--height', type=int, help='requested image height')
-    parser_resize.add_argument(
+    parser_analyze = subparsers.add_parser(
+        'analyze', help='analyze the image or diretory of images')
+    parser_analyze.add_argument(
         'path', nargs='?', help='image path or directory to process')
-    parser_resize.add_argument(
-        'dest', nargs='?', help='destination directory or image path')
     parser_list = subparsers.add_parser('ls', help='list stored files')
     parser_remove = subparsers.add_parser('rm', help='remove a stored file')
     parser_remove.add_argument('path', nargs='?', help='image path to remove')
@@ -111,9 +115,9 @@ def parse_input():
         if args['path'] is None:
             parser_optimize.print_help()
             sys.exit()
-    elif args['command'] == 'resize':
+    elif args['command'] == 'analyze':
         if args['path'] is None:
-            parser_resize.print_help()
+            parser_analyze.print_help()
             sys.exit()
     elif args['command'] == 'rm':
         if args['path'] is None:
@@ -127,8 +131,8 @@ def process_input(args):
         process_configure()
     elif args['command'] == 'optimize':
         process_batch(args)
-    elif args['command'] == 'resize':
-        process_batch(args)
+    elif args['command'] == 'analyze':
+        process_analyze(args)
     elif args['command'] == 'ls':
         process_list()
     elif args['command'] == 'rm':

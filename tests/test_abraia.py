@@ -38,6 +38,20 @@ def test_resize():
     assert os.path.isfile(output)
 
 
+def test_analyze():
+    """Test an API call to analyze an image"""
+    source = abraia.from_file(os.path.join(
+        os.path.dirname(__file__), '../images/lion.jpg'))
+    json = source.analyze()
+    assert isinstance(json, dict)
+
+
+def test_list():
+    """Test an API call to list stored files"""
+    json = abraia.list()
+    assert isinstance(json, dict)
+
+
 def test_smartcrop():
     """Test an API call to smartcrop an image"""
     output = os.path.join(

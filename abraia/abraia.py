@@ -1,5 +1,4 @@
 import requests
-from datetime import datetime
 
 from . import config
 
@@ -16,10 +15,7 @@ def from_url(url):
 
 
 def list():
-    json = Client().files()
-    files = [(datetime.fromtimestamp(
-        f['date']), f['size'], f['name']) for f in json['files']]
-    return '\n'.join(['{}  {:>7}  {}'.format(*f) for f in files])
+    return Client().list()
 
 
 def remove(path):
@@ -31,13 +27,6 @@ class Client:
         self.url = ''
         self.params = {}
         self.resp = ''
-
-    def files(self):
-        path = '{}/images'.format(config.API_URL)
-        resp = session.get(path)
-        if resp.status_code != 200:
-            raise APIError('GET {} {}'.format(self.url, resp.status_code))
-        return resp.json()
 
     def from_file(self, filename):
         path = '{}/images'.format(config.API_URL)
@@ -70,6 +59,27 @@ class Client:
         if height:
             self.params['h'] = height
         return self
+
+    def format(self, format=None):
+        if format:
+            self.params['fmt'] = format
+        return self
+
+    def analyze(self):
+        url = '{}/analysis'.format(config.API_URL)
+        if 'url' not in self.params:
+            self.params['url'] = self.url
+        resp = session.get(url, params=self.params)
+        if resp.status_code != 200:
+            raise APIError('GET {} {}'.format(url, resp.status_code))
+        return resp.json()
+
+    def list(self):
+        url = '{}/images'.format(config.API_URL)
+        resp = session.get(url)
+        if resp.status_code != 200:
+            raise APIError('GET {} {}'.format(url, resp.status_code))
+        return resp.json()
 
     def delete(self, filename):
         url = '{}/images/{}'.format(config.API_URL, filename)
