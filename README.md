@@ -7,6 +7,22 @@ Python client for the [Abraia](https://abraia.me) API, used to smartly
 transform and optimize (compress) images on-line. Read more at
 [https://abraia.me/docs](https://abraia.me/docs).
 
+Optimize images for web with no quality damage based on perception-driven
+technology.
+
+* Optimal image compression with our perceptual adjustment to preserve the
+quality and maximize the compression.
+* Smart crop and resize images with our saliency and aesthetic based model
+which balances between content and aesthetics.
+
+```
+abraia optimize --width 800 --height 400 https://images.pexels.com/photos/700948/pexels-photo-700948.jpeg images/skater.jpg
+```
+
+![Optimized and smart cropped skater](./images/skater.jpg)
+
+[Original image by Willian Was from Pexels (Size: 4865x3321 | Weight: 10.1MB)](https://www.pexels.com/photo/f-s-flip-700948/)
+
 ## Installation
 
 Install the API client and CLI with a simple command:

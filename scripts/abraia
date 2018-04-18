@@ -49,34 +49,52 @@ def process_batch(args):
     filenames = input_files(path)
     dirname = path.rstrip('/').rstrip('\\') if os.path.isdir(path) else None
 
-    for filename in tqdm(filenames, unit='file'):
-        path, name = os.path.split(filename)
-        nam, ext = os.path.splitext(name)
-        ext = format if format is not None else ext
-        fileout = os.path.join(path, nam+'_o'+ext)
-        if dirname:
-            relpath = os.path.relpath(path, dirname)
-            if not os.path.exists(os.path.join(dirname+'_o', relpath)):
-                os.makedirs(os.path.join(dirname+'_o', relpath))
-            fileout = os.path.join(dirname+'_o', relpath, nam+ext)
-        if dest is not None:
-            fileout = dest
-        if ext.lower() in IMAGE_EXTS:
-            try:
-                abraia.from_file(filename).resize(
-                    width=args.get('width'),
-                    height=args.get('height')
-                    ).format(format).to_file(fileout)
-            except:
+    if len(filenames):
+        for filename in tqdm(filenames, unit='file'):
+            path, name = os.path.split(filename)
+            nam, ext = os.path.splitext(name)
+            ext = format if format is not None else ext
+            fileout = os.path.join(path, nam+'_o'+ext)
+            if dirname:
+                relpath = os.path.relpath(path, dirname)
+                if not os.path.exists(os.path.join(dirname+'_o', relpath)):
+                    os.makedirs(os.path.join(dirname+'_o', relpath))
+                fileout = os.path.join(dirname+'_o', relpath, nam+ext)
+            if dest is not None:
+                fileout = dest
+            if ext.lower() in IMAGE_EXTS:
+                try:
+                    abraia.from_file(filename).resize(
+                        width=args.get('width'),
+                        height=args.get('height')
+                        ).format(format).to_file(fileout)
+                except:
+                    shutil.copy2(filename, fileout)
+                if format is None and os.path.getsize(fileout) > os.path.getsize(filename):
+                    shutil.copy2(filename, fileout)
+                sizein = os.path.getsize(filename) / 1024
+                sizeout = os.path.getsize(fileout) / 1024
+                tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
+                    name, sizein, sizeout, 100 * (1 - sizeout / sizein)))
+            else:
                 shutil.copy2(filename, fileout)
-            if format is None and os.path.getsize(fileout) > os.path.getsize(filename):
-                shutil.copy2(filename, fileout)
-            sizein = os.path.getsize(filename) / 1024
-            sizeout = os.path.getsize(fileout) / 1024
-            tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
-                name, sizein, sizeout, 100 * (1 - sizeout / sizein)))
-        else:
-            shutil.copy2(filename, fileout)
+    else:
+        process_url(args)
+
+
+def process_url(args):
+    path = args['path']
+    dest = args.get('dest')
+    format = args.get('format')
+    fileout = os.path.split(path) if dest is None else dest
+    try:
+        abraia.from_url(path).resize(
+            width=args.get('width'),
+            height=args.get('height')
+            ).format(format).to_file(fileout)
+        print('New image saved:', dest)
+    except:
+        print('Error to processing:', path)
 
 
 def process_analyze(args):
@@ -99,7 +117,7 @@ def process_remove(args):
 def parse_input():
     parser = argparse.ArgumentParser(
         description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.2.11')
+    parser.add_argument('-V', '--version', action='version', version='0.2.12')
     subparsers = parser.add_subparsers(dest='command')
     parser_configure = subparsers.add_parser(
         'configure', help='configure the access keys')
