@@ -56,7 +56,7 @@ a simple command:
 abraia optimize images
 ```
 
-![Resized lion](./images/batch_output.png)
+![Batch output](./images/batch_output.png)
 
 Or you can resize and [automatically crop](https://abraia.me/docs/smartcrop)
 all your images and folders, just adding the image size parameters:

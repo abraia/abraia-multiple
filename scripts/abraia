@@ -11,7 +11,7 @@ from datetime import datetime
 
 import abraia
 
-IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp']
+IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
 
 
 def process_configure():
@@ -23,23 +23,36 @@ def process_configure():
     abraia.config.save_auth(api_key, api_secret)
 
 
-def process_batch(args):
-    filenames = []
-    dirname = None
-    path = args['path']
-    dest = args['dest']
+# def patterns_to_paths(input_pattern):
+#     input_files = []
+#     for pat in input_pattern:
+#         # Expand ~ to $HOME, then pass to glob
+#         input_files += glob.glob(os.path.expanduser(pat))
+#     return input_files
 
+
+def input_files(path):
+    filenames = []
     if os.path.isfile(path):
         filenames.append(path)
-
-    if os.path.isdir(path):
-        dirname = path.rstrip('/').rstrip('\\')
+    elif os.path.isdir(path):
         for root, subdirs, files in os.walk(path):
             filenames.extend([os.path.join(root, file) for file in files])
+    return filenames
+
+
+def process_batch(args):
+    path = args['path']
+    dest = args.get('dest')
+    format = args.get('format')
+
+    filenames = input_files(path)
+    dirname = path.rstrip('/').rstrip('\\') if os.path.isdir(path) else None
 
     for filename in tqdm(filenames, unit='file'):
         path, name = os.path.split(filename)
         nam, ext = os.path.splitext(name)
+        ext = format if format is not None else ext
         fileout = os.path.join(path, nam+'_o'+ext)
         if dirname:
             relpath = os.path.relpath(path, dirname)
@@ -52,10 +65,11 @@ def process_batch(args):
             try:
                 abraia.from_file(filename).resize(
                     width=args.get('width'),
-                    height=args.get('height')).to_file(fileout)
+                    height=args.get('height')
+                    ).format(format).to_file(fileout)
             except:
                 shutil.copy2(filename, fileout)
-            if os.path.getsize(fileout) > os.path.getsize(filename):
+            if format is None and os.path.getsize(fileout) > os.path.getsize(filename):
                 shutil.copy2(filename, fileout)
             sizein = os.path.getsize(filename) / 1024
             sizeout = os.path.getsize(fileout) / 1024
@@ -85,7 +99,7 @@ def process_remove(args):
 def parse_input():
     parser = argparse.ArgumentParser(
         description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.2.10')
+    parser.add_argument('-V', '--version', action='version', version='0.2.11')
     subparsers = parser.add_subparsers(dest='command')
     parser_configure = subparsers.add_parser(
         'configure', help='configure the access keys')
@@ -95,6 +109,8 @@ def parse_input():
         '--width', type=int, help='resize to specified width')
     parser_optimize.add_argument(
         '--height', type=int, help='resize to specified height')
+    parser_optimize.add_argument(
+        '--format', type=str, help='convert to specified image format. Allowed output extensions: %s' % str(IMAGE_EXTS))
     parser_optimize.add_argument(
         'path', nargs='?', help='image path or directory to process')
     parser_optimize.add_argument(
