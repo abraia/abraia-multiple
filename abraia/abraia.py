@@ -1,3 +1,4 @@
+import os
 import requests
 
 from . import config
@@ -45,6 +46,8 @@ class Client:
         return self
 
     def to_file(self, filename):
+        root, ext = os.path.splitext(filename)
+        self.params['fmt'] = ext.lower() if ext != '' else None
         resp = session.get(self.url, params=self.params, stream=True)
         if resp.status_code != 200:
             raise APIError('GET {} {}'.format(self.url, resp.status_code))
@@ -58,11 +61,6 @@ class Client:
             self.params['w'] = width
         if height:
             self.params['h'] = height
-        return self
-
-    def format(self, format=None):
-        if format:
-            self.params['fmt'] = format
         return self
 
     def analyze(self):
