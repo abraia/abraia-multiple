@@ -1,7 +1,16 @@
 import os
 
-API_URL = 'https://abraia.me/api'
+# API_URL = 'https://abraia.me/api'
+API_URL = 'https://api.abraia.me'
 CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.abraia')
+
+MIME_TYPES = {'jpg': 'image/jpeg',
+              'jpeg': 'image/jpeg',
+              'png': 'image/png',
+              'gif': 'image/gif',
+              'webp': 'image/webp',
+              'bmp': 'image/bmp',
+              'pdf': 'application/pdf'}
 
 
 def load_auth():

@@ -70,7 +70,6 @@ def process_batch(args):
                         height=args.get('height')).to_file(fileout)
                 except:
                     shutil.copy2(filename, fileout)
-                print(ext, oext)
                 if ext == oext and os.path.getsize(fileout) > os.path.getsize(filename):
                     shutil.copy2(filename, fileout)
                 sizein = os.path.getsize(filename) / 1024
@@ -102,8 +101,8 @@ def process_analyze(args):
 
 
 def process_list():
-    json = abraia.list()
-    files = [(f['date'], f['size'], f['name']) for f in json['files']]
+    files = abraia.list()
+    files = [(f['date'], f['size'], f['name']) for f in files]
     txt = '\n'.join(['{}  {:>7}  {}'.format(
         datetime.fromtimestamp(f[0]), *f[1:]) for f in files])
     txt += '\ntotal {}'.format(len(files))
