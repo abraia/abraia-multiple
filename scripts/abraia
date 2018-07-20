@@ -121,7 +121,7 @@ def process_remove(path):
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.3.0')
+    parser.add_argument('-V', '--version', action='version', version='0.3.1')
     subparser = parser.add_subparsers(dest='command')
     subparser.add_parser('configure', help='configure the access keys')
     parser_optimize = subparser.add_parser('optimize', help='optimize an image or a directory of images')
