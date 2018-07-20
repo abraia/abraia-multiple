@@ -34,8 +34,8 @@ def from_store(path):
     return Client().from_store(path)
 
 
-def list():
-    return Client().list()
+def list(path=''):
+    return Client().list(path=path)
 
 
 def remove(path):
@@ -48,7 +48,7 @@ class Client:
         self.params = {}
 
     def from_file(self, file):
-        url = '{}/images'.format(config.API_URL)
+        url = '{}/images/'.format(config.API_URL)
         file = file if isinstance(file, BytesIO) else open(file, 'rb')
         files = dict(file=file)
         resp = session.post(url, files=files)
@@ -86,6 +86,21 @@ class Client:
             self.params['h'] = height
         return self
 
+    def list(self, path=''):
+        url = '{}/images/{}'.format(config.API_URL, path)
+        resp = session.get(url)
+        if resp.status_code != 200:
+            raise APIError('GET {} {}'.format(url, resp.status_code))
+        resp = resp.json()
+        return resp['files'], resp['folders']
+
+    def delete(self, path):
+        url = '{}/images/{}'.format(config.API_URL, path)
+        resp = session.delete(url)
+        if resp.status_code != 200:
+            raise APIError('DELETE {} {}'.format(url, resp.status_code))
+        return resp.json()
+
     def analyze(self):
         url = '{}/analysis/{}'.format(config.API_URL, self.path)
         resp = session.get(url, params=self.params)
@@ -93,19 +108,11 @@ class Client:
             raise APIError('GET {} {}'.format(url, resp.status_code))
         return resp.json()
 
-    def list(self):
-        url = '{}/images'.format(config.API_URL)
-        resp = session.get(url)
+    def aesthetics(self):
+        url = '{}/aesthetics/{}'.format(config.API_URL, self.path)
+        resp = session.get(url, params=self.params)
         if resp.status_code != 200:
             raise APIError('GET {} {}'.format(url, resp.status_code))
-        files = resp.json()['files']
-        return files
-
-    def delete(self, path):
-        url = '{}/images/{}'.format(config.API_URL, path)
-        resp = session.delete(url)
-        if resp.status_code != 200:
-            raise APIError('DELETE {} {}'.format(url, resp.status_code))
         return resp.json()
 
 

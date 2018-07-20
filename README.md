@@ -1,3 +1,4 @@
+[![PyPI version](https://badge.fury.io/py/abraia.svg)](https://badge.fury.io/py/abraia)
 [![Build Status](https://travis-ci.org/abraia/abraia-python.svg)](https://travis-ci.org/abraia/abraia-python)
 [![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg?branch=develop)](https://coveralls.io/github/abraia/abraia-python?branch=develop)
 
@@ -21,10 +22,10 @@ abraia optimize --width 800 --height 400 https://images.pexels.com/photos/700948
 
 ![Optimized and smart cropped skater](./images/skater.jpg)
 
-The example takes an [image by Willian Was from Pexels](https://www.pexels.com/photo/f-s-flip-700948/)
-with a size of 4865x3321 pixels and a weight of 10.1MB and automatically
-generates a header of 800x400 pixels cropping, resizing, and optimizing the
-image to directly be used on Web.
+The example takes a 10.1MB [image by Willian Was from Pexels](https://www.pexels.com/photo/f-s-flip-700948/)
+with a size of 4865x3321 pixels and automatically generates a 94.4kB header of
+800x400 pixels, cropping, resizing, and optimizing the image to directly be
+used on Web.
 
 ## Installation
 
@@ -56,9 +57,9 @@ abraia configure
 
 ### API usage:
 
-The fluent design of the Abraia API makes easy to compress and transform
-images. You just need to define the source of the image, the transformation
-operation, and the sink for the resultant image.
+Abraia API makes easy to compress and transform images. You just need to define
+the source of the image, the transformation operation, and the sink for the
+resultant image.
 
 ```python
 import abraia

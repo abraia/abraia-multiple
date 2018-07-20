@@ -3,6 +3,13 @@ import pytest
 from abraia import abraia
 
 
+def test_list():
+    """Test an API call to list stored files and folders"""
+    files, folders = abraia.list()
+    assert isinstance(files, list)
+    assert isinstance(folders, list)
+
+
 def test_from_file():
     """Tests an API call to upload a local file"""
     source = abraia.from_file(os.path.join(
@@ -32,24 +39,10 @@ def test_resize():
     output = os.path.join(
         os.path.dirname(__file__), '../images/resized.jpg')
     source = abraia.from_file(os.path.join(
-        os.path.dirname(__file__), '../images/tiger.jpg'))
+        os.path.dirname(__file__), '../images/lion.jpg'))
     resized = source.resize(width=500)
     resized.to_file(output)
     assert os.path.isfile(output)
-
-
-def test_analyze():
-    """Test an API call to analyze an image"""
-    source = abraia.from_file(os.path.join(
-        os.path.dirname(__file__), '../images/lion.jpg'))
-    json = source.analyze()
-    assert isinstance(json, dict)
-
-
-def test_list():
-    """Test an API call to list stored files"""
-    files = abraia.list()
-    assert isinstance(files, list)
 
 
 def test_smartcrop():
@@ -61,6 +54,22 @@ def test_smartcrop():
     cropped = source.resize(width=333, height=333)
     cropped.to_file(output)
     assert os.path.isfile(output)
+
+
+def test_analyze():
+    """Test an API call to analyze an image"""
+    source = abraia.from_file(os.path.join(
+        os.path.dirname(__file__), '../images/lion.jpg'))
+    json = source.analyze()
+    assert isinstance(json, dict)
+
+
+def test_aesthetics():
+    """Test an API call to predict image aeshetics"""
+    source = abraia.from_file(os.path.join(
+        os.path.dirname(__file__), '../images/lion.jpg'))
+    json = source.aesthetics()
+    assert isinstance(json, dict)
 
 
 # def test_exception():

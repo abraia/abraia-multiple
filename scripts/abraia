@@ -100,22 +100,28 @@ def process_analyze(args):
     print(result)
 
 
-def process_list():
-    files = abraia.list()
-    files = [(f['date'], f['size'], f['name']) for f in files]
-    txt = '\n'.join(['{}  {:>7}  {}'.format(
-        datetime.fromtimestamp(f[0]), *f[1:]) for f in files])
+def process_aesthetics(args):
+    result = abraia.from_file(args['path']).aesthetics()
+    print(result)
+
+
+def process_list(path):
+    files, folders = abraia.list(path=path)
+    txt = '\n'.join(['{:>28}  {}/'.format(
+        '', f['name']) for f in folders]) + '\n'
+    txt += '\n'.join(['{}  {:>7}  {}'.format(
+        datetime.fromtimestamp(f['date']), f['size'], f['name']) for f in files])
     txt += '\ntotal {}'.format(len(files))
     print(txt)
 
 
-def process_remove(args):
-    print(abraia.remove(args['path']))
+def process_remove(path):
+    print(abraia.remove(path))
 
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.2.13')
+    parser.add_argument('-V', '--version', action='version', version='0.3.0')
     subparser = parser.add_subparsers(dest='command')
     subparser.add_parser('configure', help='configure the access keys')
     parser_optimize = subparser.add_parser('optimize', help='optimize an image or a directory of images')
@@ -126,9 +132,12 @@ def parse_input():
     parser_optimize.add_argument('dest', nargs='?', help='destination directory or image path')
     parser_analyze = subparser.add_parser('analyze', help='analyze an image or a diretory of images')
     parser_analyze.add_argument('path', nargs='?', help='image path or directory to process')
+    parser_aesthetics = subparser.add_parser('aesthetics', help='predict aesthetics of an image or a diretory of images')
+    parser_aesthetics.add_argument('path', nargs='?', help='image path or directory to process')
     parser_store = subparser.add_parser('store', help='work with the cloud stored files')
     subparser_store = parser_store.add_subparsers(dest='subcommand')
-    subparser_store.add_parser('ls', help='list stored files')
+    parser_list = subparser_store.add_parser('ls', help='list stored files')
+    parser_list.add_argument('path', nargs='?', help='folder path to list')
     parser_remove = subparser_store.add_parser('rm', help='remove a stored file')
     parser_remove.add_argument('path', nargs='?', help='image path to remove')
     args = vars(parser.parse_args())
@@ -143,6 +152,10 @@ def parse_input():
     elif args['command'] == 'analyze':
         if args['path'] is None:
             parser_analyze.print_help()
+            sys.exit()
+    elif args['command'] == 'aesthetics':
+        if args['path'] is None:
+            parser_aesthetics.print_help()
             sys.exit()
     elif args['command'] == 'store':
         if args['subcommand'] is None:
@@ -162,11 +175,15 @@ def process_input(args):
         process_batch(args)
     elif args['command'] == 'analyze':
         process_analyze(args)
+    elif args['command'] == 'aesthetics':
+        process_aesthetics(args)
     elif args['command'] == 'store':
         if args['subcommand'] == 'ls':
-            process_list()
+            path = args.get('path')
+            path = '' if path is None else path
+            process_list(path)
         elif args['subcommand'] == 'rm':
-            process_remove(args)
+            process_remove(args['path'])
 
 
 if __name__ == "__main__":
