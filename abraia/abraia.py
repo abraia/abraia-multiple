@@ -2,6 +2,8 @@ import os
 
 from .client import Client
 
+__metaclass__ = type
+
 
 class Abraia(Client):
     def __init__(self):

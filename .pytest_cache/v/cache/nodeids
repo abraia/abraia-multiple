@@ -11,6 +11,5 @@
   "tests/test_client.py::test_remote_file",
   "tests/test_client.py::test_transform",
   "tests/test_client.py::test_aesthetics",
-  "tests/test_client.py::test_transcode",
-  "tests/test_client.py::test_remove_file"
+  "tests/test_client.py::test_transcode"
 ]
