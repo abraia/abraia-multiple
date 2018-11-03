@@ -38,14 +38,14 @@ def test_remote_file():
 
 def test_transform():
     """Test an API call to transform an image"""
-    resp = client.transform(os.path.join(userid, filename), '')
+    resp = client.transform(os.path.join(userid, filename))
     assert resp.status_code == 200
 
 
-def test_analyze():
-    """Test an API call to analyze an image"""
-    json = client.analyze(os.path.join(userid, filename))
-    assert isinstance(json, dict)
+# def test_analyze():
+#     """Test an API call to analyze an image"""
+#     json = client.analyze(os.path.join(userid, filename))
+#     assert isinstance(json, dict)
 
 
 def test_aesthetics():
@@ -57,10 +57,10 @@ def test_aesthetics():
 def test_transcode():
     """Test an API call to transcode a video file"""
     with pytest.raises(APIError):
-        client.transcode(os.path.join(userid, filename), '')
+        client.transcode(os.path.join(userid, filename))
 
 
-# def test_remove_file():
-#     """Test an API call to remove an stored file"""
-#     resp = client.remove(os.path.join(userid, filename))
-#     assert isinstance(resp, dict)
+def test_remove_file():
+    """Test an API call to remove an stored file"""
+    resp = client.remove(os.path.join(userid, filename))
+    assert isinstance(resp, dict)
