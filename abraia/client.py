@@ -11,7 +11,7 @@ class APIError(Exception):
         self.message = message
 
 
-class Client:
+class Client(object):
     def __init__(self):
         self.auth = config.load_auth()
 
