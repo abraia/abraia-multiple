@@ -60,7 +60,7 @@ def test_transcode():
         client.transcode(os.path.join(userid, filename))
 
 
-def test_remove_file():
-    """Test an API call to remove an stored file"""
-    resp = client.remove(os.path.join(userid, filename))
-    assert isinstance(resp, dict)
+# def test_remove_file():
+#     """Test an API call to remove an stored file"""
+#     resp = client.remove(os.path.join(userid, filename))
+#     assert isinstance(resp, dict)
