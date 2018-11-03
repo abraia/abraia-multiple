@@ -5,7 +5,7 @@ from .client import Client
 
 class Abraia(Client):
     def __init__(self):
-        super().__init__()
+        super(Abraia, self).__init__()
         self.userid = self.check()
         self.path = ''
         self.params = {}
