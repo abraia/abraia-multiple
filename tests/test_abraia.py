@@ -56,25 +56,9 @@ def test_smartcrop():
     assert os.path.isfile(output)
 
 
-def test_analyze():
-    """Test an API call to analyze an image"""
-    source = abraia.from_file(os.path.join(
-        os.path.dirname(__file__), '../images/lion.jpg'))
-    json = source.analyze()
-    assert isinstance(json, dict)
-
-
-def test_aesthetics():
-    """Test an API call to predict image aeshetics"""
-    source = abraia.from_file(os.path.join(
-        os.path.dirname(__file__), '../images/lion.jpg'))
-    json = source.aesthetics()
-    assert isinstance(json, dict)
-
-
 # def test_exception():
 #     """Test an API exception to save no file"""
 #     source = abraia.from_url('https://abraia.me/images/tiger.jpg')
-#     with pytest.raises(abraia.APIError):
+#     with pytest.raises(APIError):
 #         source.to_file(os.path.join(
 #             os.path.dirname(__file__), '../images/error.jpg'))

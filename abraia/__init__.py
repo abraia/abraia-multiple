@@ -1,4 +1,7 @@
 from . import config
-from .abraia import from_file, from_url, list, remove, Client, APIError
+from .client import Client, APIError
+from .abraia import from_file, from_url, list, remove
 
-__all__ = ['config', 'from_file', 'from_url', 'list', 'remove', 'Client', 'APIError']
+__all__ = [
+    'config', 'Client', 'APIError',
+    'from_file', 'from_url', 'list', 'remove']

@@ -1,0 +1,7 @@
+{
+  "tests/test_abraia.py::test_aesthetics": true,
+  "tests/test_abraia.py::test_analyze": true,
+  "tests/test_abraia.py::test_exception": true,
+  "tests/test_client.py::test_exception": true,
+  "tests/test_client.py::test_from_url": true
+}

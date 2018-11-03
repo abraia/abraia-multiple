@@ -1,61 +1,18 @@
 import os
-import requests
-from io import BytesIO
 
-from . import config
-
-session = requests.Session()
-session.auth = config.load_auth()
+from .client import Client
 
 
-def _remote_file(url):
-    imgbuf = None
-    try:
-        response = requests.get(url)
-        content_type = response.headers['content-type']
-        if content_type in config.MIME_TYPES.values():
-            imgbuf = BytesIO(response.content)
-    except requests.exceptions.RequestException as e:
-        print(e)
-    if imgbuf is None:
-        raise APIError('Resource not found: {}'.format(url))
-    return imgbuf
-
-
-def from_file(filename):
-    return Client().from_file(filename)
-
-
-def from_url(url):
-    return Client().from_url(url)
-
-
-def from_store(path):
-    return Client().from_store(path)
-
-
-def list(path=''):
-    return Client().list(path=path)
-
-
-def remove(path):
-    return Client().delete(path)
-
-
-class Client:
+class Abraia(Client):
     def __init__(self):
+        super().__init__()
+        self.userid = self.check()
         self.path = ''
         self.params = {}
 
     def from_file(self, file):
-        url = '{}/images/'.format(config.API_URL)
-        file = file if isinstance(file, BytesIO) else open(file, 'rb')
-        files = dict(file=file)
-        resp = session.post(url, files=files)
-        if resp.status_code != 201:
-            raise APIError('POST {} {}'.format(url, resp.status_code))
-        file = resp.json()['file']
-        self.path = file.get('source')
+        resp = self.upload(file, self.userid+'/')
+        self.path = resp['source']
         self.params = {'q': 'auto'}
         return self
 
@@ -65,15 +22,15 @@ class Client:
         return self
 
     def from_url(self, url):
-        return self.from_file(_remote_file(url))
+        resp = self.remote(url, self.userid+'/')
+        self.path = resp['source']
+        self.params = {'q': 'auto'}
+        return self
 
     def to_file(self, filename):
         root, ext = os.path.splitext(filename)
         self.params['fmt'] = ext.lower()[1:] if ext != '' else None
-        url = '{}/images/{}'.format(config.API_URL, self.path)
-        resp = session.get(url, params=self.params, stream=True)
-        if resp.status_code != 200:
-            raise APIError('GET {} {}'.format(url, resp.status_code))
+        resp = self.transform(self.path, self.params)
         with open(filename, 'wb') as f:
             for chunk in resp.iter_content(1024):
                 f.write(chunk)
@@ -86,37 +43,22 @@ class Client:
             self.params['h'] = height
         return self
 
-    def list(self, path=''):
-        url = '{}/images/{}'.format(config.API_URL, path)
-        resp = session.get(url)
-        if resp.status_code != 200:
-            raise APIError('GET {} {}'.format(url, resp.status_code))
-        resp = resp.json()
-        return resp['files'], resp['folders']
 
-    def delete(self, path):
-        url = '{}/images/{}'.format(config.API_URL, path)
-        resp = session.delete(url)
-        if resp.status_code != 200:
-            raise APIError('DELETE {} {}'.format(url, resp.status_code))
-        return resp.json()
-
-    def analyze(self):
-        url = '{}/analysis/{}'.format(config.API_URL, self.path)
-        resp = session.get(url, params=self.params)
-        if resp.status_code != 200:
-            raise APIError('GET {} {}'.format(url, resp.status_code))
-        return resp.json()
-
-    def aesthetics(self):
-        url = '{}/aesthetics/{}'.format(config.API_URL, self.path)
-        resp = session.get(url, params=self.params)
-        if resp.status_code != 200:
-            raise APIError('GET {} {}'.format(url, resp.status_code))
-        return resp.json()
+def from_file(filename):
+    return Abraia().from_file(filename)
 
 
-class APIError(Exception):
-    def __init__(self, message):
-        super(APIError, self).__init__(message)
-        self.message = message
+def from_url(url):
+    return Abraia().from_url(url)
+
+
+def from_store(path):
+    return Abraia().from_store(path)
+
+
+def list(path=''):
+    return Abraia().list(path=path)
+
+
+def remove(path):
+    return Abraia().delete(path)
