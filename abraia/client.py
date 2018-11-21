@@ -68,6 +68,13 @@ class Client(object):
             raise APIError('GET {} {}'.format(url, resp.status_code))
         return resp
 
+    def move(self, old_path, new_path):
+        url = '{}/files/{}'.format(config.API_URL, new_path)
+        resp = requests.post(url, json={'store': old_path}, auth=self.auth)
+        if resp.status_code != 201:
+            raise APIError('POST {} {}'.format(url, resp.status_code))
+        return resp.json()
+
     def remove(self, path):
         url = '{}/files/{}'.format(config.API_URL, path)
         resp = requests.delete(url, auth=self.auth)

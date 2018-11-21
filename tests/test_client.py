@@ -28,12 +28,19 @@ def test_download_file():
     assert resp.status_code == 200
 
 
+def test_move_file():
+    """Test an API call to move a stored file"""
+    client.move(userid + '/' + filename, userid + '/test/' + filename)
+    resp = client.move(userid + '/test/' + filename, userid + '/' + filename)
+    assert isinstance(resp, dict)
+    assert resp['file']['source'] == userid + '/' + filename
+
+
 def test_remote_file():
     """Test an API call to upload a remote file"""
     url = 'https://abraia.me/images/random.jpg'
     resp = client.remote(url, userid+'/')
     assert isinstance(resp, dict)
-    # assert source.path == 'random.jpg'
 
 
 def test_transform():
