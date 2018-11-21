@@ -1,6 +1,6 @@
 [![PyPI version](https://badge.fury.io/py/abraia.svg)](https://badge.fury.io/py/abraia)
 [![Build Status](https://travis-ci.org/abraia/abraia-python.svg)](https://travis-ci.org/abraia/abraia-python)
-[![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg?branch=develop)](https://coveralls.io/github/abraia/abraia-python?branch=develop)
+[![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg)](https://coveralls.io/github/abraia/abraia-python)
 
 # Abraia API client for Python
 
@@ -20,7 +20,7 @@ which balances between content and aesthetics.
 abraia optimize --width 800 --height 400 https://images.pexels.com/photos/700948/pexels-photo-700948.jpeg images/skater.jpg
 ```
 
-![Optimized and smart cropped skater](https://github.com/abraia/abraia-python/raw/develop/images/skater.jpg)
+![Optimized and smart cropped skater](https://github.com/abraia/abraia-python/raw/master/images/skater.jpg)
 
 The example takes a 10.1MB [image by Willian Was from Pexels](https://www.pexels.com/photo/f-s-flip-700948/)
 with a size of 4865x3321 pixels and automatically generates a 94.4kB header of
@@ -79,7 +79,7 @@ a simple command:
 abraia optimize images
 ```
 
-![Batch output](https://github.com/abraia/abraia-python/raw/develop/images/batch_output.png)
+![Batch output](https://github.com/abraia/abraia-python/raw/master/images/batch_output.png)
 
 Or you can resize and [automatically crop](https://abraia.me/docs/smartcrop)
 all your images and folders, just adding the image size parameters:
@@ -89,8 +89,10 @@ abraia optimize --width 500 images/lion.jpg images/resized.jpg
 abraia optimize --width 333 --height 333 images/lion.jpg images/cropped.jpg
 ```
 
-![Resized lion](https://github.com/abraia/abraia-python/raw/develop/images/resized.jpg)
-![Cropped lion](https://github.com/abraia/abraia-python/raw/develop/images/cropped.jpg)
+<center>
+![Resized lion](https://github.com/abraia/abraia-python/raw/master/images/resized.jpg)
+![Cropped lion](https://github.com/abraia/abraia-python/raw/master/images/cropped.jpg)
+</center>
 
 ## License
 
