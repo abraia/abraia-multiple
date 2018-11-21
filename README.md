@@ -89,10 +89,8 @@ abraia optimize --width 500 images/lion.jpg images/resized.jpg
 abraia optimize --width 333 --height 333 images/lion.jpg images/cropped.jpg
 ```
 
-<center>
 ![Resized lion](https://github.com/abraia/abraia-python/raw/master/images/resized.jpg)
 ![Cropped lion](https://github.com/abraia/abraia-python/raw/master/images/cropped.jpg)
-</center>
 
 ## License
 
