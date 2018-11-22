@@ -66,8 +66,11 @@ import abraia
 
 abraia.from_file('images/lion.jpg').resize(
     width=600, height=600).to_file('images/lion_600x600.jpg')
+
 abraia.from_url('https://abraia.me/images/random.jpg').resize(
-    width=600, height=400).to_file('images/random_600x400.jpg')
+    height=400).to_file('images/random_x400.jpg')
+
+abraia.from_store('demo/birds.jpg').to_file('images/birds.jpg')
 ```
 
 ### CLI usage:

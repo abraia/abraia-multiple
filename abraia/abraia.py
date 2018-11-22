@@ -11,7 +11,7 @@ class Abraia(Client):
         self.params = {}
 
     def from_file(self, file):
-        resp = self.upload(file, self.userid+'/')
+        resp = self.upload_file(file, self.userid+'/')
         self.path = resp['source']
         self.params = {'q': 'auto'}
         return self
@@ -30,7 +30,7 @@ class Abraia(Client):
     def to_file(self, filename):
         root, ext = os.path.splitext(filename)
         self.params['fmt'] = ext.lower()[1:] if ext != '' else None
-        resp = self.transform(self.path, self.params)
+        resp = self.transform_image(self.path, self.params)
         with open(filename, 'wb') as f:
             for chunk in resp.iter_content(1024):
                 f.write(chunk)
@@ -57,8 +57,8 @@ def from_store(path):
 
 
 def list(path=''):
-    return Abraia().list(path=path)
+    return Abraia().list_files(path=path)
 
 
 def remove(path):
-    return Abraia().delete(path)
+    return Abraia().remove_file(path)

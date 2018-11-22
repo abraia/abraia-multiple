@@ -9,14 +9,14 @@ filename = 'tiger.jpg'
 
 def test_list_files():
     """Test an API call to list stored files and folders"""
-    files, folders = client.list()
+    files, folders = client.list_files()
     assert isinstance(files, list)
     assert isinstance(folders, list)
 
 
 def test_upload_file():
     """Tests an API call to upload a local file"""
-    resp = client.upload(
+    resp = client.upload_file(
         os.path.join('images', filename),
         userid+'/', type='image/jpeg')
     assert isinstance(resp, dict)
@@ -24,14 +24,14 @@ def test_upload_file():
 
 def test_download_file():
     """Tests an API call to download an stored file"""
-    resp = client.download(userid+'/'+filename)
+    resp = client.download_file(userid+'/'+filename)
     assert resp.status_code == 200
 
 
 def test_move_file():
     """Test an API call to move a stored file"""
-    client.move(userid + '/' + filename, userid + '/test/' + filename)
-    resp = client.move(userid + '/test/' + filename, userid + '/' + filename)
+    client.move_file(os.path.join(userid, filename), userid + '/test/' + filename)
+    resp = client.move_file(userid + '/test/' + filename, os.path.join(userid, filename))
     assert isinstance(resp, dict)
     assert resp['file']['source'] == userid + '/' + filename
 
@@ -43,31 +43,31 @@ def test_remote_file():
     assert isinstance(resp, dict)
 
 
-def test_transform():
+def test_transform_image():
     """Test an API call to transform an image"""
-    resp = client.transform(os.path.join(userid, filename))
+    resp = client.transform_image(os.path.join(userid, filename))
     assert resp.status_code == 200
 
 
-# def test_analyze():
+# def test_analyze_image():
 #     """Test an API call to analyze an image"""
-#     json = client.analyze(os.path.join(userid, filename))
+#     json = client.analyze_image(os.path.join(userid, filename))
 #     assert isinstance(json, dict)
 
 
-def test_aesthetics():
+def test_aesthetics_image():
     """Test an API call to predict image aeshetics"""
-    json = client.aesthetics(os.path.join(userid, filename))
+    json = client.aesthetics_image(os.path.join(userid, filename))
     assert isinstance(json, dict)
 
 
-def test_transcode():
-    """Test an API call to transcode a video file"""
+def test_process_video():
+    """Test an API call to process a video file"""
     with pytest.raises(APIError):
-        client.transcode(os.path.join(userid, filename))
+        client.process_video(os.path.join(userid, filename))
 
 
-# def test_remove_file():
-#     """Test an API call to remove an stored file"""
-#     resp = client.remove(os.path.join(userid, filename))
-#     assert isinstance(resp, dict)
+def test_remove_file():
+    """Test an API call to remove an stored file"""
+    resp = client.remove_file(os.path.join(userid, filename))
+    assert isinstance(resp, dict)

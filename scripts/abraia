@@ -116,7 +116,7 @@ def process_list(path):
 
 
 def process_remove(path):
-    print(abraia.remove(path))
+    print(abraia.remove_file(path))
 
 
 def parse_input():
