@@ -15,7 +15,7 @@ IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
 
 
 def process_info():
-    print('Abraia CLI v0.3.4')
+    print('Abraia CLI v0.3.5')
 
 
 def process_configure():
@@ -68,12 +68,9 @@ def process_optimize(args):
                 fileout = dest
                 root, oext = os.path.splitext(fileout)
             if ext.lower() in IMAGE_EXTS and oext.lower() in IMAGE_EXTS:
-                try:
-                    abraia.from_file(filename).resize(
-                        width=args.get('width'),
-                        height=args.get('height')).filter(args.get('filter')).to_file(fileout)
-                except:
-                    shutil.copy2(filename, fileout)
+                abraia.from_file(filename).resize(
+                    width=args.get('width'),
+                    height=args.get('height')).filter(args.get('filter')).to_file(fileout)
                 if ext == oext and os.path.getsize(fileout) > os.path.getsize(filename):
                     shutil.copy2(filename, fileout)
                 sizein = os.path.getsize(filename) / 1024
@@ -158,7 +155,7 @@ def add_parser_aesthetics(subparser):
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.3.4')
+    parser.add_argument('-V', '--version', action='version', version='0.3.5')
     subparser = parser.add_subparsers(dest='command')
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)
