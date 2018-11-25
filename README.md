@@ -64,16 +64,31 @@ abraia optimize images
 
 ![Batch output](https://github.com/abraia/abraia-python/raw/master/images/batch_output.png)
 
-To [automatically crop and resize](https://abraia.me/docs/smart-cropping) all
-the images in a folder, you just need to specify the image size parameters:
+To resize an image you just need to specify the `width` or the `height` of
+the image:
 
 ```sh
 abraia optimize --width 500 images/lion.jpg images/resized.jpg
-abraia optimize --width 333 --height 333 images/lion.jpg images/cropped.jpg
 ```
 
 ![Resized lion](https://github.com/abraia/abraia-python/raw/master/images/resized.jpg)
-![Cropped lion](https://github.com/abraia/abraia-python/raw/master/images/cropped.jpg)
+
+To [automatically crop and resize](https://abraia.me/docs/smart-cropping)
+specify both the `width` and `height` size parameters:
+
+```sh
+abraia optimize --width 333 --height 333 images/lion.jpg images/cropped.jpg
+```
+
+![Smart cropped lion](https://github.com/abraia/abraia-python/raw/master/images/cropped.jpg)
+
+To filter and image specify some of the [available filters](https://abraia.me/docs/image/filters):
+
+```sh
+abraia optimize --width 333 --height 333 --filter desaturate images/lion.jpg images/filtered.jpg
+```
+
+![Filtered lion](https://github.com/abraia/abraia-python/raw/master/images/filtered.jpg)
 
 ## Fluent API
 

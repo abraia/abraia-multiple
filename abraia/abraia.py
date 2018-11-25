@@ -36,11 +36,17 @@ class Abraia(Client):
                 f.write(chunk)
         return self
 
-    def resize(self, width=None, height=None):
+    def resize(self, width=None, height=None, mode=None):
         if width:
             self.params['w'] = width
         if height:
             self.params['h'] = height
+        if mode:
+            self.params['m'] = mode
+        return self
+
+    def filter(self, filter):
+        self.params['f'] = filter
         return self
 
 

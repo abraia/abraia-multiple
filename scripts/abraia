@@ -14,6 +14,10 @@ import abraia
 IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
 
 
+def process_info():
+    print('Abraia CLI v0.3.4')
+
+
 def process_configure():
     api_key, api_secret = abraia.config.load_auth()
     key = input('Abraia Api Key [{}]: '.format(api_key))
@@ -41,7 +45,7 @@ def input_files(path):
     return filenames
 
 
-def process_batch(args):
+def process_optimize(args):
     path = args['path']
     dest = args.get('dest')
     format = args.get('format')
@@ -67,7 +71,7 @@ def process_batch(args):
                 try:
                     abraia.from_file(filename).resize(
                         width=args.get('width'),
-                        height=args.get('height')).to_file(fileout)
+                        height=args.get('height')).filter(args.get('filter')).to_file(fileout)
                 except:
                     shutil.copy2(filename, fileout)
                 if ext == oext and os.path.getsize(fileout) > os.path.getsize(filename):
@@ -119,21 +123,48 @@ def process_remove(path):
     print(abraia.remove_file(path))
 
 
-def parse_input():
-    parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.3.4')
-    subparser = parser.add_subparsers(dest='command')
-    subparser.add_parser('configure', help='configure the access keys')
+def add_parser_info(subparser):
+    parser_info = subparser.add_parser('info', help='show user account information')
+    return parser_info
+
+
+def add_parser_configure(subparser):
+    parser_configure = subparser.add_parser('configure', help='configure the access keys')
+    return parser_configure
+
+
+def add_parser_optimize(subparser):
     parser_optimize = subparser.add_parser('optimize', help='optimize an image or a directory of images')
     parser_optimize.add_argument('--width', type=int, help='resize to specified width')
     parser_optimize.add_argument('--height', type=int, help='resize to specified height')
     parser_optimize.add_argument('--format', type=str, help='convert to specified image format. Allowed output extensions: %s' % str(IMAGE_EXTS))
+    parser_optimize.add_argument('--filter', type=str, help='apply the specified filter')
     parser_optimize.add_argument('path', nargs='?', help='image path or directory to process')
     parser_optimize.add_argument('dest', nargs='?', help='destination directory or image path')
+    return parser_optimize
+
+
+def add_parser_analyze(subparser):
     parser_analyze = subparser.add_parser('analyze', help='analyze an image or a diretory of images')
     parser_analyze.add_argument('path', nargs='?', help='image path or directory to process')
+    return parser_analyze
+
+
+def add_parser_aesthetics(subparser):
     parser_aesthetics = subparser.add_parser('aesthetics', help='predict aesthetics of an image or a diretory of images')
     parser_aesthetics.add_argument('path', nargs='?', help='image path or directory to process')
+    return parser_aesthetics
+
+
+def parse_input():
+    parser = argparse.ArgumentParser(description='Abraia image optimization tool')
+    parser.add_argument('-V', '--version', action='version', version='0.3.4')
+    subparser = parser.add_subparsers(dest='command')
+    parser_info = add_parser_info(subparser)
+    parser_configure = add_parser_configure(subparser)
+    parser_optimize = add_parser_optimize(subparser)
+    # parser_analyze = add_parser_analyze(subparser)
+    # parser_aesthetics = add_parser_aesthetics)
     parser_store = subparser.add_parser('store', help='work with the cloud stored files')
     subparser_store = parser_store.add_subparsers(dest='subcommand')
     parser_list = subparser_store.add_parser('ls', help='list stored files')
@@ -149,14 +180,14 @@ def parse_input():
         if args['path'] is None:
             parser_optimize.print_help()
             sys.exit()
-    elif args['command'] == 'analyze':
-        if args['path'] is None:
-            parser_analyze.print_help()
-            sys.exit()
-    elif args['command'] == 'aesthetics':
-        if args['path'] is None:
-            parser_aesthetics.print_help()
-            sys.exit()
+    # elif args['command'] == 'analyze':
+    #     if args['path'] is None:
+    #         parser_analyze.print_help()
+    #         sys.exit()
+    # elif args['command'] == 'aesthetics':
+    #     if args['path'] is None:
+    #         parser_aesthetics.print_help()
+    #         sys.exit()
     elif args['command'] == 'store':
         if args['subcommand'] is None:
             parser_store.print_help()
@@ -169,14 +200,16 @@ def parse_input():
 
 
 def process_input(args):
+    if args['command'] == 'info':
+        process_info()
     if args['command'] == 'configure':
         process_configure()
     elif args['command'] == 'optimize':
-        process_batch(args)
-    elif args['command'] == 'analyze':
-        process_analyze(args)
-    elif args['command'] == 'aesthetics':
-        process_aesthetics(args)
+        process_optimize(args)
+    # elif args['command'] == 'analyze':
+    #     process_analyze(args)
+    # elif args['command'] == 'aesthetics':
+    #     process_aesthetics(args)
     elif args['command'] == 'store':
         if args['subcommand'] == 'ls':
             path = args.get('path')
