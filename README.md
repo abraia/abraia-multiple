@@ -90,6 +90,13 @@ abraia optimize --width 333 --height 333 --filter desaturate images/lion.jpg ima
 
 ![Filtered lion](https://github.com/abraia/abraia-python/raw/master/images/filtered.jpg)
 
+Moreover, images can be converted from one format to another changing the
+filename extension for the destination file.
+
+```sh
+abraia optimize images/jaguar.png images/jaguar.jpg
+```
+
 ## Fluent API
 
 Abraia fluent API is the easiest way to compress and transform images with
@@ -117,12 +124,18 @@ abraia.from_store('demo/birds.jpg').resize(
 All the operation parameters are automatically chosen to provide the best
 results balancing quality and file size for a perfectly responsive website.
 
-PNG images can significantly optimized also.
+PNG and WebP images can significantly optimized also.
+
+```python
+abraia.from_file('images/jaguar.png').to_file('jaguar_o.jpg')
+abraia.from_file('images/jaguar.png').to_file('jaguar.jpg')
+```
 
 ![PNG Jaguar original](https://github.com/abraia/abraia-python/raw/master/images/jaguar.png)
 ![PNG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar_o.png)
+![JPEG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.jpg)
 
-*Original PNG image (45KB) vs optimized PNG image (15.8KB)*
+*Original PNG (45KB) vs optimized PNG (15.8KB) vs optimized JPEG (14.1KB)*
 
 ## License
 
