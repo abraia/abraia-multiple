@@ -1,5 +1,6 @@
 import os
 import pytest
+from abraia import client
 from abraia import abraia
 
 
@@ -15,6 +16,7 @@ def test_from_file():
     source = abraia.from_file(os.path.join(
         os.path.dirname(__file__), '../images/tiger.jpg'))
     assert isinstance(source, abraia.Client)
+    assert source.path.endswith('tiger.jpg')
 
 
 def test_from_url():
@@ -22,7 +24,7 @@ def test_from_url():
     url = 'https://abraia.me/images/random.jpg'
     source = abraia.from_url(url)
     assert isinstance(source, abraia.Client)
-    # assert source.path == 'random.jpg'
+    assert source.path.endswith('random.jpg')
 
 
 def test_to_file():
@@ -59,6 +61,6 @@ def test_smartcrop():
 # def test_exception():
 #     """Test an API exception to save no file"""
 #     source = abraia.from_url('https://abraia.me/images/tiger.jpg')
-#     with pytest.raises(APIError):
+#     with pytest.raises(client.APIError):
 #         source.to_file(os.path.join(
 #             os.path.dirname(__file__), '../images/error.jpg'))

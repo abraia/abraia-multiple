@@ -1,4 +1,4 @@
-[![PyPI version](https://badge.fury.io/py/abraia.svg)](https://badge.fury.io/py/abraia)
+[![PyPI](https://img.shields.io/pypi/v/abraia.svg)](https://pypi.org/project/abraia/)
 [![Build Status](https://travis-ci.org/abraia/abraia-python.svg)](https://travis-ci.org/abraia/abraia-python)
 [![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg)](https://coveralls.io/github/abraia/abraia-python)
 

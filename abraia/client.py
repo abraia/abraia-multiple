@@ -19,6 +19,13 @@ class Client(object):
         files, folders = self.list_files()
         return folders[0]['name']
 
+    def load_user(self):
+        url = '{}/users'.format(config.API_URL)
+        resp = requests.get(url, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError('GET {} {}'.format(url, resp.status_code))
+        return resp.json()
+
     def list_files(self, path=''):
         url = '{}/files/{}'.format(config.API_URL, path)
         resp = requests.get(url, auth=self.auth)
@@ -26,6 +33,15 @@ class Client(object):
             raise APIError('GET {} {}'.format(url, resp.status_code))
         resp = resp.json()
         return resp['files'], resp['folders']
+
+    def upload_remote(self, url, path):
+        json = {'url': url}
+        url = '{}/files/{}'.format(config.API_URL, path)
+        resp = requests.post(url, json=json, auth=self.auth)
+        if resp.status_code != 201:
+            raise APIError('POST {} {}'.format(url, resp.status_code))
+        resp = resp.json()
+        return resp['file']
 
     def upload_file(self, file, path, type=''):
         source = path + os.path.basename(file) if path.endswith('/') else path
@@ -40,26 +56,15 @@ class Client(object):
         resp = requests.put(url, data=data, headers={'Content-Type': type})
         if resp.status_code != 200:
             raise APIError('PUT {} {}'.format(url, resp.status_code))
-        return {
-            'name': name,
-            'source': source,
-            'thumbnail': os.path.dirname(source) + '/tb_' + name
-        }
+        return {'name': name, 'source': source}
 
-    def remote(self, url, path):
-        name = os.path.basename(url)
-        path = os.path.join(path, name)
-        imgbuf = None
-        try:
-            response = requests.get(url)
-            content_type = response.headers['content-type']
-            if content_type in config.MIME_TYPES.values():
-                imgbuf = BytesIO(response.content)
-        except requests.exceptions.RequestException as e:
-            print(e)
-        if imgbuf is None:
-            raise APIError('Resource not found: {}'.format(url))
-        return self.upload_file(imgbuf, path)
+    def move_file(self, old_path, new_path):
+        url = '{}/files/{}'.format(config.API_URL, new_path)
+        resp = requests.post(url, json={'store': old_path}, auth=self.auth)
+        if resp.status_code != 201:
+            raise APIError('POST {} {}'.format(url, resp.status_code))
+        resp = resp.json()
+        return resp['file']
 
     def download_file(self, path):
         url = '{}/files/{}'.format(config.API_URL, path)
@@ -68,19 +73,13 @@ class Client(object):
             raise APIError('GET {} {}'.format(url, resp.status_code))
         return resp
 
-    def move_file(self, old_path, new_path):
-        url = '{}/files/{}'.format(config.API_URL, new_path)
-        resp = requests.post(url, json={'store': old_path}, auth=self.auth)
-        if resp.status_code != 201:
-            raise APIError('POST {} {}'.format(url, resp.status_code))
-        return resp.json()
-
     def remove_file(self, path):
         url = '{}/files/{}'.format(config.API_URL, path)
         resp = requests.delete(url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError('DELETE {} {}'.format(url, resp.status_code))
-        return resp.json()
+        resp = resp.json()
+        return resp['file']
 
     def transform_image(self, path, params=''):
         url = '{}/images/{}'.format(config.API_URL, path)

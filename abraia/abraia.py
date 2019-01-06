@@ -22,7 +22,7 @@ class Abraia(Client):
         return self
 
     def from_url(self, url):
-        resp = self.remote(url, self.userid+'/')
+        resp = self.upload_remote(url, self.userid+'/')
         self.path = resp['source']
         self.params = {'q': 'auto'}
         return self
