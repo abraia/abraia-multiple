@@ -1,6 +1,4 @@
 import os
-import pytest
-from abraia import client
 from abraia import abraia
 
 
@@ -13,10 +11,9 @@ def test_list():
 
 def test_from_file():
     """Tests an API call to upload a local file"""
-    source = abraia.from_file(os.path.join(
-        os.path.dirname(__file__), '../images/tiger.jpg'))
-    assert isinstance(source, abraia.Client)
-    assert source.path.endswith('tiger.jpg')
+    resp = abraia.from_file('images/tiger.jpg')
+    assert isinstance(resp, abraia.Client)
+    assert resp.path.endswith('tiger.jpg')
 
 
 def test_from_url():
@@ -27,35 +24,32 @@ def test_from_url():
     assert source.path.endswith('random.jpg')
 
 
-def test_to_file():
-    """Test an API call to save to local file"""
-    output = os.path.join(
-        os.path.dirname(__file__), '../images/optimized.jpg')
-    source = abraia.from_url('https://abraia.me/images/random.jpg')
-    source.to_file(output)
-    assert os.path.isfile(output)
+def test_optimize_image_from_url():
+    abraia.from_url('https://abraia.me/images/random.jpg').to_file(
+        'images/optimized.jpg')
+    assert os.path.isfile('images/optimized.jpg')
 
 
-def test_resize():
-    """Test an API call to resize an image"""
-    output = os.path.join(
-        os.path.dirname(__file__), '../images/resized.jpg')
-    source = abraia.from_file(os.path.join(
-        os.path.dirname(__file__), '../images/lion.jpg'))
-    resized = source.resize(width=500)
-    resized.to_file(output)
-    assert os.path.isfile(output)
+def test_resize_image_from_file():
+    abraia.from_file('images/lion.jpg').resize(
+        width=500).to_file('images/resized.jpg')
+    assert os.path.isfile('images/resized.jpg')
 
 
-def test_smartcrop():
-    """Test an API call to smartcrop an image"""
-    output = os.path.join(
-        os.path.dirname(__file__), '../images/cropped.jpg')
-    source = abraia.from_file(os.path.join(
-        os.path.dirname(__file__), '../images/lion.jpg'))
-    cropped = source.resize(width=333, height=333)
-    cropped.to_file(output)
-    assert os.path.isfile(output)
+def test_smartcrop_image_from_file():
+    abraia.from_file('images/lion.jpg').resize(
+        width=333, height=333).to_file('images/cropped.jpg')
+    assert os.path.isfile('images/cropped.jpg')
+
+
+def test_restore_stored_image():
+    abraia.from_store('0/birds.jpg').to_file('images/birds.bak.jpg')
+    assert os.path.isfile('images/birds.bak.jpg')
+
+
+def test_remove_stored_image():
+    resp = abraia.from_store('0/tiger.jpg').remove()
+    assert resp['name'] == 'tiger.jpg'
 
 
 # def test_exception():

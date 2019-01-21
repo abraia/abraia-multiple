@@ -3,6 +3,22 @@ import os
 from .client import Client
 
 
+def list(path=''):
+    return Abraia().list_files(path=path)
+
+
+def from_file(filename):
+    return Abraia().from_file(filename)
+
+
+def from_url(url):
+    return Abraia().from_url(url)
+
+
+def from_store(path):
+    return Abraia().from_store(path)
+
+
 class Abraia(Client):
     def __init__(self):
         super(Abraia, self).__init__()
@@ -16,20 +32,21 @@ class Abraia(Client):
         self.params = {'q': 'auto'}
         return self
 
-    def from_store(self, path):
-        self.path = path
-        self.params = {'q': 'auto'}
-        return self
-
     def from_url(self, url):
         resp = self.upload_remote(url, self.userid+'/')
         self.path = resp['source']
         self.params = {'q': 'auto'}
         return self
 
+    def from_store(self, path):
+        self.path = path
+        self.params = {}
+        return self
+
     def to_file(self, filename):
         root, ext = os.path.splitext(filename)
-        self.params['fmt'] = ext.lower()[1:] if ext != '' else None
+        if self.params and ext:
+            self.params['fmt'] = ext.lower()[1:]
         resp = self.transform_image(self.path, self.params)
         with open(filename, 'wb') as f:
             for chunk in resp.iter_content(1024):
@@ -49,22 +66,5 @@ class Abraia(Client):
         self.params['f'] = filter
         return self
 
-
-def from_file(filename):
-    return Abraia().from_file(filename)
-
-
-def from_url(url):
-    return Abraia().from_url(url)
-
-
-def from_store(path):
-    return Abraia().from_store(path)
-
-
-def list(path=''):
-    return Abraia().list_files(path=path)
-
-
-def remove(path):
-    return Abraia().remove_file(path)
+    def remove(self):
+        return self.remove_file(self.path)

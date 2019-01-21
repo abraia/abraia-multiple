@@ -60,18 +60,6 @@ def test_transform_image():
     assert resp.status_code == 200
 
 
-# def test_analyze_image():
-#     """Test an API call to analyze an image"""
-#     json = client.analyze_image(os.path.join(userid, filename))
-#     assert isinstance(json, dict)
-
-
-# def test_aesthetics_image():
-#     """Test an API call to predict image aeshetics"""
-#     json = client.aesthetics_image(os.path.join(userid, filename))
-#     assert isinstance(json, dict)
-
-
 def test_process_video():
     """Test an API call to process a video file"""
     with pytest.raises(APIError):

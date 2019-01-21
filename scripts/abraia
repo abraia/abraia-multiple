@@ -141,16 +141,10 @@ def add_parser_optimize(subparser):
     return parser_optimize
 
 
-def add_parser_analyze(subparser):
-    parser_analyze = subparser.add_parser('analyze', help='analyze an image or a diretory of images')
-    parser_analyze.add_argument('path', nargs='?', help='image path or directory to process')
-    return parser_analyze
-
-
-def add_parser_aesthetics(subparser):
-    parser_aesthetics = subparser.add_parser('aesthetics', help='predict aesthetics of an image or a diretory of images')
-    parser_aesthetics.add_argument('path', nargs='?', help='image path or directory to process')
-    return parser_aesthetics
+# TODO: Rename store to storage
+def add_parser_store(subparser):
+    parser_store = subparser.add_parser('store', help='work with the cloud stored files')
+    return parser_store
 
 
 def parse_input():
@@ -160,9 +154,7 @@ def parse_input():
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)
     parser_optimize = add_parser_optimize(subparser)
-    # parser_analyze = add_parser_analyze(subparser)
-    # parser_aesthetics = add_parser_aesthetics)
-    parser_store = subparser.add_parser('store', help='work with the cloud stored files')
+    parser_store = add_parser_store(subparser)
     subparser_store = parser_store.add_subparsers(dest='subcommand')
     parser_list = subparser_store.add_parser('ls', help='list stored files')
     parser_list.add_argument('path', nargs='?', help='folder path to list')
@@ -177,14 +169,6 @@ def parse_input():
         if args['path'] is None:
             parser_optimize.print_help()
             sys.exit()
-    # elif args['command'] == 'analyze':
-    #     if args['path'] is None:
-    #         parser_analyze.print_help()
-    #         sys.exit()
-    # elif args['command'] == 'aesthetics':
-    #     if args['path'] is None:
-    #         parser_aesthetics.print_help()
-    #         sys.exit()
     elif args['command'] == 'store':
         if args['subcommand'] is None:
             parser_store.print_help()
@@ -203,10 +187,6 @@ def process_input(args):
         process_configure()
     elif args['command'] == 'optimize':
         process_optimize(args)
-    # elif args['command'] == 'analyze':
-    #     process_analyze(args)
-    # elif args['command'] == 'aesthetics':
-    #     process_aesthetics(args)
     elif args['command'] == 'store':
         if args['subcommand'] == 'ls':
             path = args.get('path')

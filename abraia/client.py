@@ -88,20 +88,6 @@ class Client(object):
             raise APIError('GET {} {}'.format(url, resp.status_code))
         return resp
 
-    def analyze_image(self, path, params=''):
-        url = '{}/analysis/{}'.format(config.API_URL, path)
-        resp = requests.get(url, params=params, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError('GET {} {}'.format(url, resp.status_code))
-        return resp.json()
-
-    def aesthetics_image(self, path, params=''):
-        url = '{}/aesthetics/{}'.format(config.API_URL, path)
-        resp = requests.get(url, params=params, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError('GET {} {}'.format(url, resp.status_code))
-        return resp.json()
-
     def process_video(self, path, params=''):
         url = '{}/videos/{}'.format(config.API_URL, path)
         resp = requests.get(url, params=params, auth=self.auth)
