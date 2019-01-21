@@ -15,7 +15,7 @@ IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']
 
 
 def process_info():
-    print('Abraia CLI v0.4.0')
+    print('Abraia CLI v0.4.1')
 
 
 def process_configure():
@@ -149,7 +149,7 @@ def add_parser_store(subparser):
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.4.0')
+    parser.add_argument('-V', '--version', action='version', version='0.4.1')
     subparser = parser.add_subparsers(dest='command')
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)
