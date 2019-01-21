@@ -26,7 +26,6 @@ def test_upload_remote():
     resp = client.upload_remote(url, userid+'/')
     assert isinstance(resp, dict)
     assert resp['name'] == 'birds.jpg'
-    assert resp['source'] == '0/birds.jpg'
 
 
 def test_upload_file():
@@ -36,7 +35,6 @@ def test_upload_file():
         userid+'/', type='image/jpeg')
     assert isinstance(resp, dict)
     assert resp['name'] == 'tiger.jpg'
-    assert resp['source'] == '0/tiger.jpg'
 
 
 def test_move_file():
@@ -45,7 +43,6 @@ def test_move_file():
     resp = client.move_file(userid + '/test/tiger.jpg', os.path.join(userid, filename))
     assert isinstance(resp, dict)
     assert resp['name'] == 'tiger.jpg'
-    assert resp['source'] == '0/tiger.jpg'
 
 
 def test_download_file():
@@ -71,4 +68,3 @@ def test_remove_file():
     resp = client.remove_file(os.path.join(userid, filename))
     assert isinstance(resp, dict)
     assert resp['name'] == 'tiger.jpg'
-    assert resp['source'] == '0/tiger.jpg'

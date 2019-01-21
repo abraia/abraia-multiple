@@ -68,19 +68,19 @@ To resize an image you just need to specify the `width` or the `height` of
 the image:
 
 ```sh
-abraia optimize --width 500 images/lion.jpg images/resized.jpg
+abraia optimize --width 500 images/lion.jpg images/lion_500.jpg
 ```
 
-![Resized lion](https://github.com/abraia/abraia-python/raw/master/images/resized.jpg)
+![Resized lion](https://github.com/abraia/abraia-python/raw/master/images/lion_500.jpg)
 
 To [automatically crop and resize](https://abraia.me/docs/smart-cropping)
 specify both the `width` and `height` size parameters:
 
 ```sh
-abraia optimize --width 333 --height 333 images/lion.jpg images/cropped.jpg
+abraia optimize --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
 ```
 
-![Smart cropped lion](https://github.com/abraia/abraia-python/raw/master/images/cropped.jpg)
+![Smart cropped lion](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
 
 To filter and image specify some of the [available filters](https://abraia.me/docs/image/filters):
 
@@ -112,7 +112,7 @@ abraia.from_file('images/bird.jpeg').resize(
 abraia.from_url('https://api.abraia.me/files/demo/birds.jpg').resize(
     width=750).to_file('images/birds_750.jpg')
 
-abraia.from_store('demo/birds.jpg').resize(
+abraia.from_store('birds.jpg').resize(
     width=375, height=375).to_file('images/birds_375x375.jpg')
 ```
 

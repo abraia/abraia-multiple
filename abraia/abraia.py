@@ -27,19 +27,19 @@ class Abraia(Client):
         self.params = {}
 
     def from_file(self, file):
-        resp = self.upload_file(file, self.userid+'/')
+        resp = self.upload_file(file, self.userid + '/')
         self.path = resp['source']
         self.params = {'q': 'auto'}
         return self
 
     def from_url(self, url):
-        resp = self.upload_remote(url, self.userid+'/')
+        resp = self.upload_remote(url, self.userid + '/')
         self.path = resp['source']
         self.params = {'q': 'auto'}
         return self
 
     def from_store(self, path):
-        self.path = path
+        self.path = self.userid + '/' + path
         self.params = {}
         return self
 

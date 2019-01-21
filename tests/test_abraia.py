@@ -25,30 +25,30 @@ def test_from_url():
 
 
 def test_optimize_image_from_url():
-    abraia.from_url('https://abraia.me/images/random.jpg').to_file(
-        'images/optimized.jpg')
-    assert os.path.isfile('images/optimized.jpg')
+    abraia.from_url('https://api.abraia.me/files/demo/birds.jpg').to_file(
+        'images/birds_o.jpg')
+    assert os.path.isfile('images/birds_o.jpg')
 
 
 def test_resize_image_from_file():
     abraia.from_file('images/lion.jpg').resize(
-        width=500).to_file('images/resized.jpg')
-    assert os.path.isfile('images/resized.jpg')
+        width=500).to_file('images/lion_500.jpg')
+    assert os.path.isfile('images/lion_500.jpg')
 
 
 def test_smartcrop_image_from_file():
-    abraia.from_file('images/lion.jpg').resize(
-        width=333, height=333).to_file('images/cropped.jpg')
-    assert os.path.isfile('images/cropped.jpg')
+    abraia.from_file('images/birds.jpg').resize(
+        width=375, height=375).to_file('images/birds_375x375.jpg')
+    assert os.path.isfile('images/birds_375x375.jpg')
 
 
 def test_restore_stored_image():
-    abraia.from_store('0/birds.jpg').to_file('images/birds.bak.jpg')
+    abraia.from_store('birds.jpg').to_file('images/birds.bak.jpg')
     assert os.path.isfile('images/birds.bak.jpg')
 
 
 def test_remove_stored_image():
-    resp = abraia.from_store('0/tiger.jpg').remove()
+    resp = abraia.from_store('tiger.jpg').remove()
     assert resp['name'] == 'tiger.jpg'
 
 
