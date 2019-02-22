@@ -3,7 +3,7 @@ import pytest
 from abraia import Client, APIError
 
 client = Client()
-userid = client.check()
+userid = client.load_user()['user']['id']
 filename = 'tiger.jpg'
 
 

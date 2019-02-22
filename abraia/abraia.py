@@ -4,7 +4,8 @@ from .client import Client
 
 
 def list(path=''):
-    return Abraia().list_files(path=path)
+    abraia = Abraia()
+    return abraia.list_files(path=abraia.userid+'/'+path)
 
 
 def from_file(filename):
@@ -22,7 +23,7 @@ def from_store(path):
 class Abraia(Client):
     def __init__(self):
         super(Abraia, self).__init__()
-        self.userid = self.check()
+        self.userid = self.load_user()['user']['id']
         self.path = ''
         self.params = {}
 

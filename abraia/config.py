@@ -1,4 +1,5 @@
 import os
+import base64
 
 API_URL = 'https://api.abraia.me'
 CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.abraia')
@@ -7,21 +8,26 @@ MIME_TYPES = {'jpg': 'image/jpeg',
               'jpeg': 'image/jpeg',
               'png': 'image/png',
               'gif': 'image/gif',
+              'svg': 'image/svg+xml',
               'webp': 'image/webp',
               'bmp': 'image/bmp',
-              'pdf': 'application/pdf'}
+              'pdf': 'application/pdf',
+              'psd': 'image/vnd.adobe.photoshop'}
 
 
 def load_auth():
-    api_key = os.environ.get('ABRAIA_API_KEY')
-    api_secret = os.environ.get('ABRAIA_API_SECRET')
-    config = {'abraia_api_key': api_key, 'abraia_api_secret': api_secret}
-    if os.path.isfile(CONFIG_FILE) and (api_key is None or api_secret is None):
+    abraia_key = os.environ.get('ABRAIA_KEY')
+    if os.path.isfile(CONFIG_FILE) and (abraia_key is None):
+        config = {}
         with open(CONFIG_FILE, 'r') as f:
             for line in f:
                 key, value = list(map(lambda v: v.strip(), line.split(':')))
                 config[key] = value
-    return config['abraia_api_key'], config['abraia_api_secret']
+        return config['abraia_api_key'], config['abraia_api_secret']
+    elif abraia_key:
+        api_key, api_secret = base64.b64decode(abraia_key).split(':')
+        return api_key, api_secret
+    return '', ''
 
 
 def save_auth(api_key, api_secret):

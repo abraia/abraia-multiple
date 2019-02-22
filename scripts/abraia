@@ -5,34 +5,27 @@ from builtins import input
 import os
 import sys
 import shutil
+import base64
 import argparse
 from tqdm import tqdm
 from datetime import datetime
 
 import abraia
 
-IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']
+IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.psd']
 
 
 def process_info():
-    print('Abraia CLI v0.4.1')
+    print('Abraia CLI v0.4.2')
 
 
 def process_configure():
     api_key, api_secret = abraia.config.load_auth()
-    key = input('Abraia Api Key [{}]: '.format(api_key))
-    api_key = api_key if key == '' else key
-    secret = input('Abraia Api Secret [{}]: '.format(api_secret))
-    api_secret = api_secret if secret == '' else secret
+    abraia_key = '{}:{}'.format(api_key, api_secret).encode('base64') if api_key and api_secret else ''
+    key = input('Abraia Key [{}]: '.format(abraia_key))
+    abraia_key = abraia_key if key == '' else key
+    api_key, api_secret = base64.b64decode(abraia_key).split(':')
     abraia.config.save_auth(api_key, api_secret)
-
-
-# def patterns_to_paths(input_pattern):
-#     input_files = []
-#     for pat in input_pattern:
-#         # Expand ~ to $HOME, then pass to glob
-#         input_files += glob.glob(os.path.expanduser(pat))
-#     return input_files
 
 
 def input_files(path):
@@ -49,10 +42,8 @@ def process_optimize(args):
     path = args['path']
     dest = args.get('dest')
     format = args.get('format')
-
     filenames = input_files(path)
     dirname = path.rstrip('/').rstrip('\\') if os.path.isdir(path) else None
-
     if len(filenames):
         for filename in tqdm(filenames, unit='file'):
             path, name = os.path.split(filename)
@@ -96,16 +87,6 @@ def process_url(args):
         print('Error to processing:', path)
 
 
-def process_analyze(args):
-    result = abraia.from_file(args['path']).analyze()
-    print(result)
-
-
-def process_aesthetics(args):
-    result = abraia.from_file(args['path']).aesthetics()
-    print(result)
-
-
 def process_list(path):
     files, folders = abraia.list(path=path)
     txt = '\n'.join(['{:>28}  {}/'.format(
@@ -117,7 +98,7 @@ def process_list(path):
 
 
 def process_remove(path):
-    print(abraia.remove_file(path))
+    print(abraia.from_store(path).remove())
 
 
 def add_parser_info(subparser):
@@ -141,7 +122,6 @@ def add_parser_optimize(subparser):
     return parser_optimize
 
 
-# TODO: Rename store to storage
 def add_parser_store(subparser):
     parser_store = subparser.add_parser('store', help='work with the cloud stored files')
     return parser_store
@@ -149,7 +129,7 @@ def add_parser_store(subparser):
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.4.1')
+    parser.add_argument('-V', '--version', action='version', version='0.4.2')
     subparser = parser.add_subparsers(dest='command')
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)
@@ -161,7 +141,6 @@ def parse_input():
     parser_remove = subparser_store.add_parser('rm', help='remove a stored file')
     parser_remove.add_argument('path', nargs='?', help='image path to remove')
     args = vars(parser.parse_args())
-
     if args['command'] is None:
         parser.print_help()
         sys.exit()

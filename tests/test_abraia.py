@@ -18,10 +18,10 @@ def test_from_file():
 
 def test_from_url():
     """Test an API call to upload a remote file"""
-    url = 'https://abraia.me/images/random.jpg'
+    url = 'https://upload.wikimedia.org/wikipedia/commons/f/f1/100_m_final_Berlin_2009.JPG'
     source = abraia.from_url(url)
     assert isinstance(source, abraia.Client)
-    assert source.path.endswith('random.jpg')
+    assert source.path.endswith('100_m_final_Berlin_2009.JPG')
 
 
 def test_optimize_image_from_url():

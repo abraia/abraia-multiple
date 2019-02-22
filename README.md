@@ -16,7 +16,7 @@ quality and maximize the compression.
 * Smart crop and resize images with our saliency and aesthetic based model
 which balances between content and aesthetics.
 
-```
+```sh
 abraia optimize --width 800 --height 400 https://images.pexels.com/photos/700948/pexels-photo-700948.jpeg images/skater.jpg
 ```
 
@@ -44,13 +44,20 @@ Verify that the abraia CLI is correctly installed:
 abraia --version
 ```
 
-Finally, configure your API Keys using the command bellow:
+If you get a message of command not found try to uninstall the package and
+install it again globally:
+
+```sh
+pip uninstall abraia
+sudo pip install abraia
+```
+
+Finally, configure your [free API Key](https://abraia.me/docs/getting-started)
+using the command bellow:
 
 ```sh
 abraia configure
 ```
-
-You can [create a free account](https://abraia.me/login) to get your API Keys.
 
 ## Command line interface
 

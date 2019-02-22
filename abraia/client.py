@@ -15,10 +15,6 @@ class Client(object):
     def __init__(self):
         self.auth = config.load_auth()
 
-    def check(self):
-        files, folders = self.list_files()
-        return folders[0]['name']
-
     def load_user(self):
         url = '{}/users'.format(config.API_URL)
         resp = requests.get(url, auth=self.auth)
