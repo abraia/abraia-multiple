@@ -5,10 +5,11 @@ from builtins import input
 import os
 import sys
 import shutil
-import base64
 import argparse
 from tqdm import tqdm
 from datetime import datetime
+
+from abraia.config import base64encode, base64decode
 
 import abraia
 
@@ -21,10 +22,11 @@ def process_info():
 
 def process_configure():
     api_key, api_secret = abraia.config.load_auth()
-    abraia_key = '{}:{}'.format(api_key, api_secret).encode('base64') if api_key and api_secret else ''
+    abraia_key = base64encode(
+        '{}:{}'.format(api_key, api_secret)) if api_key and api_secret else ''
     key = input('Abraia Key [{}]: '.format(abraia_key))
     abraia_key = abraia_key if key == '' else key
-    api_key, api_secret = base64.b64decode(abraia_key).split(':')
+    api_key, api_secret = base64decode(abraia_key).split(':')
     abraia.config.save_auth(api_key, api_secret)
 
 
