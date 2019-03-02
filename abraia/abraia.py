@@ -1,45 +1,30 @@
 import os
 
-from . import config
 from .client import Client
 
 
-def user():
-    return Abraia().load_user()
-
-
-def list(path=''):
-    abraia = Abraia()
-    return abraia.list_files(path=abraia.userid+'/'+path)
-
-
-def from_file(filename):
-    return Abraia().from_file(filename)
-
-
-def from_url(url):
-    return Abraia().from_url(url)
-
-
-def from_store(path):
-    return Abraia().from_store(path)
-
-
 class Abraia(Client):
-    def __init__(self):
+    def __init__(self, folder=''):
         super(Abraia, self).__init__()
         self.userid = self.load_user()['user']['id']
         self.path = ''
         self.params = {}
+        self.folder = folder
+
+    def user(self):
+        return self.load_user()['user']
+
+    def files(self, path=''):
+        return self.list_files(path=self.userid+'/'+path)
 
     def from_file(self, file):
-        resp = self.upload_file(file, self.userid + '/' + config.folder)
+        resp = self.upload_file(file, self.userid + '/' + self.folder)
         self.path = resp['source']
         self.params = {'q': 'auto'}
         return self
 
     def from_url(self, url):
-        resp = self.upload_remote(url, self.userid + '/' + config.folder)
+        resp = self.upload_remote(url, self.userid + '/' + self.folder)
         self.path = resp['source']
         self.params = {'q': 'auto'}
         return self

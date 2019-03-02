@@ -111,7 +111,9 @@ python. You just need to define the source of the image, the transformation
 operation, and the sink for the resultant image.
 
 ```python
-import abraia
+from abraia import Abraia
+
+abraia = Abraia()
 
 abraia.from_file('images/bird.jpeg').resize(
     width=375, height=375).to_file('images/bird_375x375.jpg')

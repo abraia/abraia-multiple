@@ -10,16 +10,15 @@ import argparse
 from tqdm import tqdm
 from datetime import datetime
 
-from abraia.config import base64encode, base64decode
+from abraia import config
+from abraia import Abraia
 
-import abraia
-
-abraia.config.folder = 'batch/'
+abraia = Abraia(folder='batch/')
 
 
 def process_info():
-    print('Abraia CLI v0.4.3')
-    user = abraia.user()['user']
+    print('Abraia CLI v0.4.4')
+    user = abraia.user()
     print('Email:', user['email'])
     print('Credits:', user['credits'])
     print('Transformations:', user['transforms'])
@@ -27,13 +26,13 @@ def process_info():
 
 
 def process_configure():
-    api_key, api_secret = abraia.config.load_auth()
-    abraia_key = base64encode(
+    api_key, api_secret = config.load_auth()
+    abraia_key = config.base64encode(
         '{}:{}'.format(api_key, api_secret)) if api_key and api_secret else ''
     key = input('Abraia Key [{}]: '.format(abraia_key))
     abraia_key = abraia_key if key == '' else key
-    api_key, api_secret = base64decode(abraia_key).split(':')
-    abraia.config.save_auth(api_key, api_secret)
+    api_key, api_secret = config.base64decode(abraia_key).split(':')
+    config.save_auth(api_key, api_secret)
 
 
 def input_files(path):
@@ -66,7 +65,7 @@ def process_optimize(args):
             if dest is not None:
                 fileout = dest
                 root, oext = os.path.splitext(fileout)
-            if ext.lower() in abraia.config.IMAGE_EXTS and oext.lower() in abraia.config.IMAGE_EXTS:
+            if ext.lower() in config.IMAGE_EXTS and oext.lower() in config.IMAGE_EXTS:
                 abraia.from_file(filename).resize(
                     width=args.get('width'),
                     height=args.get('height')).filter(args.get('filter')).to_file(fileout)
@@ -96,7 +95,7 @@ def process_url(args):
 
 
 def process_list(path):
-    files, folders = abraia.list(path=path)
+    files, folders = abraia.files(path=path)
     txt = '\n'.join(['{:>28}  {}/'.format(
         '', f['name']) for f in folders]) + '\n'
     txt += '\n'.join(['{}  {:>7}  {}'.format(
@@ -123,7 +122,7 @@ def add_parser_optimize(subparser):
     parser_optimize = subparser.add_parser('optimize', help='optimize an image or a directory of images')
     parser_optimize.add_argument('--width', type=int, help='resize to specified width')
     parser_optimize.add_argument('--height', type=int, help='resize to specified height')
-    parser_optimize.add_argument('--format', type=str, help='convert to specified image format. Allowed output extensions: %s' % str(abraia.config.IMAGE_EXTS))
+    parser_optimize.add_argument('--format', type=str, help='convert to specified image format. Allowed output extensions: %s' % str(config.IMAGE_EXTS))
     parser_optimize.add_argument('--filter', type=str, help='apply the specified filter')
     parser_optimize.add_argument('path', nargs='?', help='image path or directory to process')
     parser_optimize.add_argument('dest', nargs='?', help='destination directory or image path')
@@ -137,7 +136,7 @@ def add_parser_store(subparser):
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.4.3')
+    parser.add_argument('-V', '--version', action='version', version='0.4.4')
     subparser = parser.add_subparsers(dest='command')
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)

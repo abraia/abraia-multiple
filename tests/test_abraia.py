@@ -1,11 +1,13 @@
 import os
 
-from abraia import abraia
+from abraia import Client, Abraia
+
+abraia = Abraia()
 
 
 def test_list():
     """Test an API call to list stored files and folders"""
-    files, folders = abraia.list()
+    files, folders = abraia.files()
     assert isinstance(files, list)
     assert isinstance(folders, list)
 
@@ -13,7 +15,7 @@ def test_list():
 def test_from_file():
     """Tests an API call to upload a local file"""
     resp = abraia.from_file('images/tiger.jpg')
-    assert isinstance(resp, abraia.Client)
+    assert isinstance(resp, Client)
     assert resp.path.endswith('tiger.jpg')
 
 
@@ -21,7 +23,7 @@ def test_from_url():
     """Test an API call to upload a remote file"""
     url = 'https://upload.wikimedia.org/wikipedia/commons/f/f1/100_m_final_Berlin_2009.JPG'
     source = abraia.from_url(url)
-    assert isinstance(source, abraia.Client)
+    assert isinstance(source, Client)
     assert source.path.endswith('100_m_final_Berlin_2009.JPG')
 
 

@@ -16,8 +16,6 @@ MIME_TYPES = {'jpg': 'image/jpeg',
               'pdf': 'application/pdf',
               'psd': 'image/vnd.adobe.photoshop'}
 
-folder = ''
-
 
 def base64encode(str):
     str = str.encode('utf-8') if sys.version_info[0] == 3 else str
