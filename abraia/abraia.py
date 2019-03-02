@@ -1,6 +1,11 @@
 import os
 
+from . import config
 from .client import Client
+
+
+def user():
+    return Abraia().load_user()
 
 
 def list(path=''):
@@ -28,13 +33,13 @@ class Abraia(Client):
         self.params = {}
 
     def from_file(self, file):
-        resp = self.upload_file(file, self.userid + '/')
+        resp = self.upload_file(file, self.userid + '/' + config.folder)
         self.path = resp['source']
         self.params = {'q': 'auto'}
         return self
 
     def from_url(self, url):
-        resp = self.upload_remote(url, self.userid + '/')
+        resp = self.upload_remote(url, self.userid + '/' + config.folder)
         self.path = resp['source']
         self.params = {'q': 'auto'}
         return self

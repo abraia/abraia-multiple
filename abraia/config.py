@@ -5,6 +5,7 @@ import base64
 API_URL = 'https://api.abraia.me'
 CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.abraia')
 
+IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.psd']
 MIME_TYPES = {'jpg': 'image/jpeg',
               'jpeg': 'image/jpeg',
               'png': 'image/png',
@@ -14,6 +15,8 @@ MIME_TYPES = {'jpg': 'image/jpeg',
               'bmp': 'image/bmp',
               'pdf': 'application/pdf',
               'psd': 'image/vnd.adobe.photoshop'}
+
+folder = ''
 
 
 def base64encode(str):
