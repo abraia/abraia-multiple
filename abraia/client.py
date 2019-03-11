@@ -52,7 +52,7 @@ class Client(object):
         data = file if isinstance(file, BytesIO) else open(file, 'rb')
         resp = requests.put(url, data=data, headers={'Content-Type': type})
         if resp.status_code != 200:
-            raise APIError('PUT {} {}'.format(url, resp), resp.status_code)
+            raise APIError(resp.text, resp.status_code)
         return {'name': name, 'source': source}
 
     def move_file(self, old_path, new_path):
@@ -74,7 +74,7 @@ class Client(object):
         url = '{}/files/{}'.format(config.API_URL, path)
         resp = requests.delete(url, auth=self.auth)
         if resp.status_code != 200:
-            raise APIError('DELETE {} {}'.format(url, resp), resp.status_code)
+            raise APIError(resp.text, resp.status_code)
         resp = resp.json()
         return resp['file']
 

@@ -1,6 +1,7 @@
 import os
+import pytest
 
-from abraia import Client, Abraia
+from abraia import Abraia, Client, APIError
 
 abraia = Abraia()
 
@@ -55,9 +56,8 @@ def test_remove_stored_image():
     assert resp['name'] == 'tiger.jpg'
 
 
-# def test_exception():
-#     """Test an API exception to save no file"""
-#     source = abraia.from_url('https://abraia.me/images/tiger.jpg')
-#     with pytest.raises(client.APIError):
-#         source.to_file(os.path.join(
-#             os.path.dirname(__file__), '../images/error.jpg'))
+def test_server_error():
+    with pytest.raises(APIError) as excinfo:
+        abraia.from_file('images/fake.jpg')
+    error = excinfo.value
+    assert error.code == 501

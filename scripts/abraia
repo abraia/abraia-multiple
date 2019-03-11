@@ -12,12 +12,13 @@ from datetime import datetime
 
 from abraia import config
 from abraia import Abraia
+from abraia import APIError
 
 abraia = Abraia(folder='batch/')
 
 
 def process_info():
-    print('Abraia CLI v0.4.4')
+    print('Abraia CLI v0.4.5')
     user = abraia.user()
     print('Email:', user['email'])
     print('Credits:', user['credits'])
@@ -66,32 +67,37 @@ def process_optimize(args):
                 fileout = dest
                 root, oext = os.path.splitext(fileout)
             if ext.lower() in config.IMAGE_EXTS and oext.lower() in config.IMAGE_EXTS:
-                abraia.from_file(filename).resize(
-                    width=args.get('width'),
-                    height=args.get('height')).filter(args.get('filter')).to_file(fileout)
-                if ext == oext and os.path.getsize(fileout) > os.path.getsize(filename):
-                    shutil.copy2(filename, fileout)
-                sizein = os.path.getsize(filename) / 1024
-                sizeout = os.path.getsize(fileout) / 1024
-                tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
-                    os.path.split(fileout)[1], sizein, sizeout, 100 * (1 - sizeout / sizein)))
+                try:
+                    source = abraia.from_file(filename)
+                    source = source.resize(
+                        width=args.get('width'), height=args.get('height'))
+                    source = source.filter(args.get('filter'))
+                    source.to_file(fileout)
+                    if ext == oext and os.path.getsize(fileout) > os.path.getsize(filename):
+                        shutil.copy2(filename, fileout)
+                    sizein = os.path.getsize(filename) / 1024
+                    sizeout = os.path.getsize(fileout) / 1024
+                    tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
+                        os.path.split(fileout)[1], sizein, sizeout, 100 * (1 - sizeout / sizein)))
+                except APIError as error:
+                    print('Error', error.code, error.message)
             else:
                 shutil.copy2(filename, fileout)
     else:
-        process_url(args)
+        fileout = os.path.split(path) if dest is None else dest
+        process_url(path, fileout, args)
 
 
-def process_url(args):
-    path = args['path']
-    dest = args.get('dest')
-    fileout = os.path.split(path) if dest is None else dest
+def process_url(path, fileout, args):
     try:
-        abraia.from_url(path).resize(
-            width=args.get('width'),
-            height=args.get('height')).to_file(fileout)
-        print('New image saved:', dest)
-    except:
-        print('Error to processing:', path)
+        source = abraia.from_url(path)
+        source = source.resize(
+            width=args.get('width'), height=args.get('height'))
+        source = source.filter(args.get('filter'))
+        source.to_file(fileout)
+        print('New image saved:', fileout)
+    except APIError as error:
+        print('Error', error.code, error.message)
 
 
 def process_list(path):
@@ -136,7 +142,7 @@ def add_parser_store(subparser):
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.4.4')
+    parser.add_argument('-V', '--version', action='version', version='0.4.5')
     subparser = parser.add_subparsers(dest='command')
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)
