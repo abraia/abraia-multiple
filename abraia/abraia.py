@@ -6,10 +6,16 @@ from .client import Client
 class Abraia(Client):
     def __init__(self, folder=''):
         super(Abraia, self).__init__()
-        self.userid = self.load_user()['user']['id']
-        self.path = ''
-        self.params = {}
+        self.userid = self.userid()
         self.folder = folder
+        self.params = {}
+        self.path = ''
+
+    def userid(self):
+        try:
+            return self.user()['id']
+        except Exception:
+            return None
 
     def user(self):
         return self.load_user()['user']

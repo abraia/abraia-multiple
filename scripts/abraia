@@ -18,12 +18,15 @@ abraia = Abraia(folder='batch/')
 
 
 def process_info():
-    print('Abraia CLI v0.4.5')
-    user = abraia.user()
-    print('Email:', user['email'])
-    print('Credits:', user['credits'])
-    print('Transformations:', user['transforms'])
-    print('Processed data:', user['bandwidth'])
+    print('Abraia CLI v0.4.6')
+    try:
+        user = abraia.user()
+        print('Email:', user['email'])
+        print('Credits:', user['credits'])
+        print('Transformations:', user['transforms'])
+        print('Processed data:', user['bandwidth'])
+    except APIError as error:
+        print('Error', error.code, error.message)
 
 
 def process_configure():
@@ -142,7 +145,7 @@ def add_parser_store(subparser):
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.4.5')
+    parser.add_argument('-V', '--version', action='version', version='0.4.6')
     subparser = parser.add_subparsers(dest='command')
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)
