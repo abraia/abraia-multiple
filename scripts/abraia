@@ -18,7 +18,7 @@ abraia = Abraia(folder='batch/')
 
 
 def process_info():
-    print('Abraia CLI v0.4.6')
+    print('Abraia CLI v0.4.7')
     try:
         user = abraia.user()
         print('Email:', user['email'])
@@ -70,20 +70,13 @@ def process_optimize(args):
                 fileout = dest
                 root, oext = os.path.splitext(fileout)
             if ext.lower() in config.IMAGE_EXTS and oext.lower() in config.IMAGE_EXTS:
-                try:
-                    source = abraia.from_file(filename)
-                    source = source.resize(
-                        width=args.get('width'), height=args.get('height'))
-                    source = source.filter(args.get('filter'))
-                    source.to_file(fileout)
-                    if ext == oext and os.path.getsize(fileout) > os.path.getsize(filename):
-                        shutil.copy2(filename, fileout)
-                    sizein = os.path.getsize(filename) / 1024
-                    sizeout = os.path.getsize(fileout) / 1024
-                    tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
-                        os.path.split(fileout)[1], sizein, sizeout, 100 * (1 - sizeout / sizein)))
-                except APIError as error:
-                    print('Error', error.code, error.message)
+                process_file(filename, fileout, args)
+                if ext == oext and os.path.getsize(fileout) > os.path.getsize(filename):
+                    shutil.copy2(filename, fileout)
+                sizein = os.path.getsize(filename) / 1024
+                sizeout = os.path.getsize(fileout) / 1024
+                tqdm.write('[{3:04.1f}%] {1:6.1f}KB -> {2:6.1f}KB ({0})'.format(
+                    os.path.split(fileout)[1], sizein, sizeout, 100 * (1 - sizeout / sizein)))
             else:
                 shutil.copy2(filename, fileout)
     else:
@@ -91,11 +84,20 @@ def process_optimize(args):
         process_url(path, fileout, args)
 
 
+def process_file(path, fileout, args):
+    try:
+        source = abraia.from_file(path)
+        source = source.resize(width=args.get('width'), height=args.get('height'))
+        source = source.filter(args.get('filter'))
+        source.to_file(fileout)
+    except APIError as error:
+        print('Error', error.code, error.message)
+
+
 def process_url(path, fileout, args):
     try:
         source = abraia.from_url(path)
-        source = source.resize(
-            width=args.get('width'), height=args.get('height'))
+        source = source.resize(width=args.get('width'), height=args.get('height'))
         source = source.filter(args.get('filter'))
         source.to_file(fileout)
         print('New image saved:', fileout)
@@ -113,7 +115,7 @@ def process_list(path):
     print(txt)
 
 
-def process_remove(path):
+def process_delete(path):
     print(abraia.from_store(path).remove())
 
 
@@ -138,24 +140,27 @@ def add_parser_optimize(subparser):
     return parser_optimize
 
 
-def add_parser_store(subparser):
-    parser_store = subparser.add_parser('store', help='work with the cloud stored files')
-    return parser_store
+def add_parser_list(subparser):
+    parser_list = subparser.add_parser('list', help='list stored files')
+    parser_list.add_argument('path', nargs='?', default='', help='folder path to list')
+    return parser_list
+
+
+def add_parser_delete(subparser):
+    parser_delete = subparser.add_parser('delete', help='delete a stored file')
+    parser_delete.add_argument('path', nargs='?', help='file path to delete')
+    return parser_delete
 
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.4.6')
+    parser.add_argument('-V', '--version', action='version', version='0.4.7')
     subparser = parser.add_subparsers(dest='command')
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)
     parser_optimize = add_parser_optimize(subparser)
-    parser_store = add_parser_store(subparser)
-    subparser_store = parser_store.add_subparsers(dest='subcommand')
-    parser_list = subparser_store.add_parser('ls', help='list stored files')
-    parser_list.add_argument('path', nargs='?', help='folder path to list')
-    parser_remove = subparser_store.add_parser('rm', help='remove a stored file')
-    parser_remove.add_argument('path', nargs='?', help='image path to remove')
+    parser_list = add_parser_list(subparser)
+    parser_delete = add_parser_delete(subparser)
     args = vars(parser.parse_args())
     if args['command'] is None:
         parser.print_help()
@@ -164,14 +169,10 @@ def parse_input():
         if args['path'] is None:
             parser_optimize.print_help()
             sys.exit()
-    elif args['command'] == 'store':
-        if args['subcommand'] is None:
-            parser_store.print_help()
+    elif args['command'] == 'delete':
+        if args['path'] is None:
+            parser_delete.print_help()
             sys.exit()
-        elif args['subcommand'] == 'rm':
-            if args['path'] is None:
-                parser_remove.print_help()
-                sys.exit()
     return args
 
 
@@ -182,13 +183,10 @@ def process_input(args):
         process_configure()
     elif args['command'] == 'optimize':
         process_optimize(args)
-    elif args['command'] == 'store':
-        if args['subcommand'] == 'ls':
-            path = args.get('path')
-            path = '' if path is None else path
-            process_list(path)
-        elif args['subcommand'] == 'rm':
-            process_remove(args['path'])
+    elif args['command'] == 'list':
+        process_list(args.get('path'))
+    elif args['command'] == 'delete':
+        process_delete(args.get('path'))
 
 
 if __name__ == "__main__":
