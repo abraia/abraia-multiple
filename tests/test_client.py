@@ -15,7 +15,7 @@ def test_load_user():
 
 def test_list_files():
     """Test an API call to list stored files and folders"""
-    files, folders = client.list_files()
+    files, folders = client.list_files(userid+'/')
     assert isinstance(files, list)
     assert isinstance(folders, list)
 

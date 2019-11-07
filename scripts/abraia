@@ -115,6 +115,20 @@ def process_list(path):
     print(txt)
 
 
+def process_upload(path):
+    try:
+        print(abraia.from_file(path))
+    except APIError as error:
+        print('Error', error.code, error.message)
+        
+
+def process_download(path):
+    try:
+        print(abraia.from_store(path).to_file(path))
+    except APIError as error:
+        print('Error', error.code, error.message)
+
+
 def process_delete(path):
     print(abraia.from_store(path).remove())
 
@@ -145,6 +159,16 @@ def add_parser_list(subparser):
     parser_list.add_argument('path', nargs='?', default='', help='folder path to list')
     return parser_list
 
+def add_parser_upload(subparser):
+    parser_download = subparser.add_parser('upload', help='upload a stored file')
+    parser_download.add_argument('path', nargs='?', help='file path to upload')
+    return parser_download
+
+def add_parser_download(subparser):
+    parser_download = subparser.add_parser('download', help='download a stored file')
+    parser_download.add_argument('path', nargs='?', help='file path to download')
+    return parser_download
+
 
 def add_parser_delete(subparser):
     parser_delete = subparser.add_parser('delete', help='delete a stored file')
@@ -160,6 +184,8 @@ def parse_input():
     parser_configure = add_parser_configure(subparser)
     parser_optimize = add_parser_optimize(subparser)
     parser_list = add_parser_list(subparser)
+    parser_upload = add_parser_upload(subparser)
+    parser_download = add_parser_download(subparser)
     parser_delete = add_parser_delete(subparser)
     args = vars(parser.parse_args())
     if args['command'] is None:
@@ -168,6 +194,14 @@ def parse_input():
     elif args['command'] == 'optimize':
         if args['path'] is None:
             parser_optimize.print_help()
+            sys.exit()
+    elif args['command'] == 'upload':
+        if args['path'] is None:
+            parser_upload.print_help()
+            sys.exit()
+    elif args['command'] == 'download':
+        if args['path'] is None:
+            parser_download.print_help()
             sys.exit()
     elif args['command'] == 'delete':
         if args['path'] is None:
@@ -185,6 +219,10 @@ def process_input(args):
         process_optimize(args)
     elif args['command'] == 'list':
         process_list(args.get('path'))
+    elif args['command'] == 'upload':
+        process_upload(args.get('path'))
+    elif args['command'] == 'download':
+        process_download(args.get('path'))
     elif args['command'] == 'delete':
         process_delete(args.get('path'))
 

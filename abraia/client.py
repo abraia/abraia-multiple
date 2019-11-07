@@ -17,11 +17,13 @@ class Client(object):
         self.auth = config.load_auth()
 
     def load_user(self):
-        url = '{}/users'.format(config.API_URL)
-        resp = requests.get(url, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        return resp.json()
+        if self.auth[0] and self.auth[1]:
+            url = '{}/users'.format(config.API_URL)
+            resp = requests.get(url, auth=self.auth)
+            if resp.status_code != 200:
+                raise APIError(resp.text, resp.status_code)
+            return resp.json()
+        raise APIError('Unauthorized', 401)
 
     def list_files(self, path=''):
         url = '{}/files/{}'.format(config.API_URL, path)
