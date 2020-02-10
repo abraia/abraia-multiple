@@ -46,6 +46,12 @@ def test_smartcrop_image_from_file():
     assert os.path.isfile('images/birds_375x375.jpg')
 
 
+def test_process_branded_image():
+    abraia.from_store('lion.jpg').process(
+        {'action': 'test.atn', 'height': 333}).to_file('images/lion_brand.jpg')
+    assert os.path.isfile('images/lion_brand.jpg')
+
+
 def test_restore_stored_image():
     abraia.from_store('birds.jpg').to_file('images/birds.bak.jpg')
     assert os.path.isfile('images/birds.bak.jpg')

@@ -47,24 +47,25 @@ def test_move_file():
 
 def test_download_file():
     """Tests an API call to download an stored file"""
-    resp = client.download_file(userid+'/'+filename)
+    resp = client.download_file(os.path.join(userid, 'tiger.jpg'))
     assert resp.status_code == 200
 
 
 def test_transform_image():
     """Test an API call to transform an image"""
-    resp = client.transform_image(os.path.join(userid, filename))
+    resp = client.transform_image(os.path.join(userid, 'tiger.jpg'), {'width': 333})
     assert resp.status_code == 200
 
 
 def test_process_video():
     """Test an API call to process a video file"""
-    with pytest.raises(APIError):
-        client.process_video(os.path.join(userid, filename))
+    resp = client.process_video(os.path.join(userid, 'videos/bigbuckbunny.mp4'), {'format': 'jpg'})
+    print(resp)
+    assert isinstance(resp, dict)
 
 
 def test_remove_file():
     """Test an API call to remove an stored file"""
-    resp = client.remove_file(os.path.join(userid, filename))
+    resp = client.remove_file(os.path.join(userid, 'tiger.jpg'))
     assert isinstance(resp, dict)
     assert resp['name'] == 'tiger.jpg'

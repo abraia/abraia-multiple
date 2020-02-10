@@ -44,6 +44,7 @@ class Abraia(Client):
         root, ext = os.path.splitext(filename)
         if self.params and ext:
             self.params['fmt'] = ext.lower()[1:]
+        print(self.path, self.params)
         resp = self.transform_image(self.path, self.params)
         with open(filename, 'wb') as f:
             for chunk in resp.iter_content(1024):
@@ -52,15 +53,19 @@ class Abraia(Client):
 
     def resize(self, width=None, height=None, mode=None):
         if width:
-            self.params['w'] = width
+            self.params['width'] = width
         if height:
-            self.params['h'] = height
+            self.params['height'] = height
         if mode:
-            self.params['m'] = mode
+            self.params['mode'] = mode
         return self
 
     def filter(self, filter):
         self.params['f'] = filter
+        return self
+
+    def process(self, params={}):
+        self.params.update(params)
         return self
 
     def remove(self):
