@@ -86,7 +86,6 @@ class Client(object):
             if params.get('fmt') is None:
                 params['fmt'] = params['background'].split('.').pop()
             path = '{}/{}'.format(path.split('/')[0], params['action'])
-        print(path, params)
         url = '{}/images/{}'.format(config.API_URL, path)
         resp = requests.get(url, params=params, stream=True, auth=self.auth)
         if resp.status_code != 200:

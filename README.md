@@ -89,20 +89,27 @@ abraia optimize --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
 
 ![Smart cropped lion](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
 
-To filter and image specify some of the [available filters](https://abraia.me/docs/image/filters):
-
-```sh
-abraia optimize --width 333 --height 333 --filter desaturate images/lion.jpg images/filtered.jpg
-```
-
-![Filtered lion](https://github.com/abraia/abraia-python/raw/master/images/filtered.jpg)
-
 Moreover, images can be converted from one format to another changing the
 filename extension for the destination file.
 
 ```sh
 abraia optimize images/jaguar.png images/jaguar.jpg
 ```
+
+## Image editing
+
+Using templates images can be easily edited and consistently branded. You just need
+to use or [create a template in the web editor](https://abraia.me/console/editor) to
+edit a batch of images from the command line.
+
+```sh
+abraia optimize --action test.atn --width 333 images/lion.jpg images/branded.jpg
+```
+
+![Branded lion](https://github.com/abraia/abraia-python/raw/master/images/branded.jpg)
+
+As a result you get a perfectly branded and optimized image ready to be used on your
+website, ecommerce, marketplace, or social media.
 
 ## Fluent API
 

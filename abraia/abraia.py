@@ -44,7 +44,6 @@ class Abraia(Client):
         root, ext = os.path.splitext(filename)
         if self.params and ext:
             self.params['fmt'] = ext.lower()[1:]
-        print(self.path, self.params)
         resp = self.transform_image(self.path, self.params)
         with open(filename, 'wb') as f:
             for chunk in resp.iter_content(1024):
