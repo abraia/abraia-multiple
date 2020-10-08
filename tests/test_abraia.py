@@ -1,5 +1,8 @@
 import os
+import sys
 import pytest
+
+from io import BytesIO
 
 from abraia import Abraia, Client, APIError
 
@@ -53,8 +56,10 @@ def test_process_branded_image():
 
 
 def test_restore_stored_image():
-    abraia.from_store('birds.jpg').to_file('images/birds.bak.jpg')
-    assert os.path.isfile('images/birds.bak.jpg')
+    buffer = abraia.from_store('birds.jpg').to_buffer()
+    with open('images/birds.jpg', 'rb') as f:
+        buff = BytesIO(f.read())
+    assert sys.getsizeof(buff) == sys.getsizeof(buffer)
 
 
 def test_remove_stored_image():

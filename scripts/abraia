@@ -18,7 +18,7 @@ abraia = Abraia(folder='batch/')
 
 
 def process_info():
-    print('Abraia CLI v0.5.0')
+    print('Abraia CLI v0.6')
     try:
         user = abraia.user()
         print('Name:', user.get('name'))
@@ -174,7 +174,7 @@ def add_parser_delete(subparser):
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.5.0')
+    parser.add_argument('-V', '--version', action='version', version='0.6')
     subparser = parser.add_subparsers(dest='command')
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)

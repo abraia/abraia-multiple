@@ -1,7 +1,7 @@
 import os
 import requests
-from io import BytesIO
 
+from io import BytesIO
 from . import config
 
 
@@ -70,7 +70,7 @@ class Client(object):
         resp = requests.get(url, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        return resp
+        return BytesIO(resp.content)
 
     def remove_file(self, path):
         url = '{}/files/{}'.format(config.API_URL, path)
@@ -79,6 +79,20 @@ class Client(object):
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
         return resp['file']
+
+    def load_metadata(self, path):
+        url = '{}/metadata/{}'.format(config.API_URL, path)
+        resp = requests.get(url, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        return resp.json()
+    
+    def analyze_image(self, path, params={}):
+        url = '{}/analysis/{}'.format(config.API_URL, path)
+        resp = requests.get(url, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        return resp.json()
 
     def transform_image(self, path, params={}):
         if params.get('action'):
@@ -90,9 +104,10 @@ class Client(object):
         resp = requests.get(url, params=params, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        return resp
+        return BytesIO(resp.content)
 
-    def process_video(self, path, params={}):
+
+    def transform_video(self, path, params={}):
         url = '{}/videos/{}'.format(config.API_URL, path)
         resp = requests.get(url, params=params, auth=self.auth)
         if resp.status_code != 200:

@@ -40,14 +40,19 @@ class Abraia(Client):
         self.params = {}
         return self
 
+    def to_buffer(self, format=None):
+        if format and self.params:
+            self.params['format'] = format.lower()
+        buffer = self.transform_image(self.path, self.params)
+        return buffer
+
     def to_file(self, filename):
         root, ext = os.path.splitext(filename)
-        if self.params and ext:
-            self.params['fmt'] = ext.lower()[1:]
-        resp = self.transform_image(self.path, self.params)
+        if ext and self.params:
+            self.params['format'] = ext.lower()[1:]
+        buffer = self.transform_image(self.path, self.params)
         with open(filename, 'wb') as f:
-            for chunk in resp.iter_content(1024):
-                f.write(chunk)
+            f.write(buffer.getbuffer())
         return self
 
     def resize(self, width=None, height=None, mode=None):
@@ -59,6 +64,7 @@ class Abraia(Client):
             self.params['mode'] = mode
         return self
 
+    # TODO: Remove filter option
     def filter(self, filter):
         self.params['f'] = filter
         return self
