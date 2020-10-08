@@ -11,7 +11,7 @@ abraia = Abraia()
 
 def test_list():
     """Test an API call to list stored files and folders"""
-    files, folders = abraia.files()
+    files, folders = abraia.list()
     assert isinstance(files, list)
     assert isinstance(folders, list)
 

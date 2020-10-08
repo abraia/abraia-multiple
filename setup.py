@@ -5,7 +5,7 @@ with open('README.md') as f:
 
 setup(
     name='abraia',
-    version='0.6',
+    version='0.6.1',
     description='Abraia Python SDK',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -18,5 +18,5 @@ setup(
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0', 'pytest-runner'],
     scripts=['scripts/abraia', 'scripts/abraia.bat'],
-    install_requires=['requests', 'tqdm', 'future']
+    install_requires=['requests', 'tqdm']
 )

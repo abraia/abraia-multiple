@@ -1,6 +1,7 @@
 import os
+import base64
 import requests
-
+from datetime import datetime
 from io import BytesIO
 from . import config
 
@@ -31,6 +32,8 @@ class Client(object):
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
+        for f in resp['files']:
+            f['date'] = datetime.fromtimestamp(f['date'])
         return resp['files'], resp['folders']
 
     def upload_remote(self, url, path):
@@ -92,7 +95,10 @@ class Client(object):
         resp = requests.get(url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        return resp.json()
+        resp = resp.json()
+        if resp.get('salmap'):
+            resp['salmap'] = BytesIO(base64.b64decode(resp['salmap'][23:]))
+        return resp
 
     def transform_image(self, path, params={}):
         if params.get('action'):

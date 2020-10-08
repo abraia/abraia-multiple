@@ -20,8 +20,13 @@ class Abraia(Client):
     def user(self):
         return self.load_user()['user']
 
-    def files(self, path=''):
-        return self.list_files(path=self.userid+'/'+path)
+    def list(self, folder=''):
+        length = len(self.userid) + 1
+        files, folders = self.list_files(path=self.userid + '/' + folder)
+        files = map(lambda f: {'name': f['name'], 'size': f['size'],
+                               'date': f['date'], 'path': f['source'][length:]}, files)
+        folders = map(lambda f: {'name': f['name'], 'path': f['source'][length:]}, folders) 
+        return list(files), list(folders)
 
     def from_file(self, file):
         resp = self.upload_file(file, self.userid + '/' + self.folder)
@@ -62,11 +67,6 @@ class Abraia(Client):
             self.params['height'] = height
         if mode:
             self.params['mode'] = mode
-        return self
-
-    # TODO: Remove filter option
-    def filter(self, filter):
-        self.params['f'] = filter
         return self
 
     def process(self, params={}):

@@ -1,14 +1,10 @@
 #!/usr/bin/env python
-from __future__ import print_function
-from __future__ import division
-from builtins import input
-
 import os
 import sys
 import shutil
 import argparse
+from glob import glob
 from tqdm import tqdm
-from datetime import datetime
 
 from abraia import config
 from abraia import Abraia
@@ -18,14 +14,12 @@ abraia = Abraia(folder='batch/')
 
 
 def process_info():
-    print('Abraia CLI v0.6')
+    print('Abraia CLI v0.6.1')
     try:
         user = abraia.user()
         print('Name:', user.get('name'))
         print('Email:', user.get('email'))
         print('Credits:', user.get('credits'))
-        print('Transformations:', user['transforms'])
-        print('Processed data:', user['bandwidth'])
     except APIError as error:
         print('Error', error.code, error.message)
 
@@ -41,13 +35,8 @@ def process_configure():
 
 
 def input_files(path):
-    filenames = []
-    if os.path.isfile(path):
-        filenames.append(path)
-    elif os.path.isdir(path):
-        for root, subdirs, files in os.walk(path):
-            filenames.extend([os.path.join(root, file) for file in files])
-    return filenames
+    path = os.path.join(path, '**/*') if os.path.isdir(path) else path
+    return glob(path, recursive=True)
 
 
 def process_optimize(args):
@@ -102,10 +91,9 @@ def process_url(path, fileout, args):
 
 
 def process_list(path):
-    files, folders = abraia.files(path=path)
+    files, folders = abraia.list(path)
     txt = '\n'.join(['{:>28}  {}/'.format('', f['name']) for f in folders]) + '\n'
-    txt += '\n'.join(['{}  {:>7}  {}'.format(
-        datetime.fromtimestamp(f['date']), f['size'], f['name']) for f in files])
+    txt += '\n'.join(['{}  {:>7}  {}'.format(f['date'], f['size'], f['name']) for f in files])
     txt += '\ntotal {}'.format(len(files))
     print(txt)
 
@@ -119,12 +107,12 @@ def process_upload(path):
 
 def process_download(path):
     try:
-        print(abraia.from_store(path).to_file(path))
+        abraia.from_store(path).to_file(path)
     except APIError as error:
         print('Error', error.code, error.message)
 
 
-def process_delete(path):
+def process_remove(path):
     print(abraia.from_store(path).remove())
 
 
@@ -143,7 +131,6 @@ def add_parser_optimize(subparser):
     parser_optimize.add_argument('--width', type=int, help='resize to specified width')
     parser_optimize.add_argument('--height', type=int, help='resize to specified height')
     parser_optimize.add_argument('--format', type=str, help='convert to specified image format. Allowed output extensions: %s' % str(config.IMAGE_EXTS))
-    parser_optimize.add_argument('--filter', type=str, help='apply the specified filter')
     parser_optimize.add_argument('--action', type=str, help='apply the specified action')
     parser_optimize.add_argument('path', nargs='?', help='image path or directory to process')
     parser_optimize.add_argument('dest', nargs='?', help='destination directory or image path')
@@ -166,15 +153,15 @@ def add_parser_download(subparser):
     return parser_download
 
 
-def add_parser_delete(subparser):
-    parser_delete = subparser.add_parser('delete', help='delete a stored file')
-    parser_delete.add_argument('path', nargs='?', help='file path to delete')
-    return parser_delete
+def add_parser_remove(subparser):
+    parser_remove = subparser.add_parser('remove', help='remove a stored file')
+    parser_remove.add_argument('path', nargs='?', help='file path to remove')
+    return parser_remove
 
 
 def parse_input():
     parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.6')
+    parser.add_argument('-V', '--version', action='version', version='0.6.1')
     subparser = parser.add_subparsers(dest='command')
     parser_info = add_parser_info(subparser)
     parser_configure = add_parser_configure(subparser)
@@ -182,7 +169,7 @@ def parse_input():
     parser_list = add_parser_list(subparser)
     parser_upload = add_parser_upload(subparser)
     parser_download = add_parser_download(subparser)
-    parser_delete = add_parser_delete(subparser)
+    parser_remove = add_parser_remove(subparser)
     args = vars(parser.parse_args())
     if args['command'] is None:
         parser.print_help()
@@ -199,9 +186,9 @@ def parse_input():
         if args['path'] is None:
             parser_download.print_help()
             sys.exit()
-    elif args['command'] == 'delete':
+    elif args['command'] == 'remove':
         if args['path'] is None:
-            parser_delete.print_help()
+            parser_remove.print_help()
             sys.exit()
     return args
 
@@ -219,8 +206,8 @@ def process_input(args):
         process_upload(args.get('path'))
     elif args['command'] == 'download':
         process_download(args.get('path'))
-    elif args['command'] == 'delete':
-        process_delete(args.get('path'))
+    elif args['command'] == 'remove':
+        process_remove(args.get('path'))
 
 
 if __name__ == "__main__":
