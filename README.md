@@ -5,19 +5,13 @@
 
 # Abraia API client for Python
 
-Python client for the [Abraia](https://abraia.me) API, used to smartly optimize images for web with no quality damage based on perception-driven
+Python client for the [Abraia API](https://abraia.me/api/). Batch optimize images for web with no quality damage based on perception-driven
 technology.
 
 * Optimal image compression with our perceptual adjustment to preserve the quality and maximize the compression.
 * Smart crop and resize images with our saliency and aesthetic based model which balances between content and aesthetics.
 
-```sh
-abraia optimize --width 800 --height 400 https://images.pexels.com/photos/700948/pexels-photo-700948.jpeg images/skater.jpg
-```
-
-![Optimized and smart cropped skater](https://github.com/abraia/abraia-python/raw/master/images/skater.jpg)
-
-The example takes a 10.1MB [image by Willian Was from Pexels](https://www.pexels.com/photo/f-s-flip-700948/) with a size of 4865x3321 pixels and automatically generates a 94.4kB header of 800x400 pixels, cropping, resizing, and optimizing the image to directly be used on Web.
+Automatically crop, resize, and compress images for web.
 
 ## Installation
 
@@ -27,110 +21,90 @@ The Abraia python client and CLI works in Windows, Mac, and Linux with Python 3,
 pip install -U abraia
 ```
 
-Verify that the abraia CLI is correctly installed:
+Get your [API Key](https://abraia.me/console/settings) and configure it as an environment variable:
 
 ```sh
-abraia --version
+export ABRAIA_KEY=api_key
 ```
 
-If you get a message of command not found try to uninstall the package and install it again globally:
+## Fluent API
 
-```sh
-pip uninstall abraia
-sudo pip install abraia
+The Abraia fluent API is the easiest way to resize and compress images with Python. You just need to define the source of the image, the transformation operation, and the sink for the resultant image.
+
+For instance, to optimize a batch of JPEG images limiting the maximum size to 2000 pixels width:
+
+```python
+from glob import glob
+from abraia import Abraia
+
+abraia = Abraia()
+
+paths = glob('images/*.jpg')
+for path in paths:
+    abraia.from_file(path).resize(width=2000).to_file(path+'o')
 ```
 
-Finally, configure your [free API Key](https://abraia.me/docs/getting-started)
-using the command bellow:
+### Compress images
 
-```sh
-abraia configure
+To compress an image you just need to specify the input and output paths for the image:
+
+```python
+abraia.from_file('images/lion.jpg').to_file('images/lion_o.jpg')
+abraia.from_file('images/jaguar.png').to_file('images/jaguar_o.png')
 ```
 
-## Command line interface
+You can also compress and image directly from an URL
 
-With the CLI tool you can optimize and resize images by batches.
-
-You can easily compress a folder of images with a simple command:
-
-```sh
-abraia optimize images
+```python
+abraia.from_url('https://api.abraia.me/files/demo/birds.jpg').to_file('images/birds_o.jpg')
 ```
 
-![Batch output](https://github.com/abraia/abraia-python/raw/master/images/batch_output.png)
+![Image compressed from url](https://github.com/abraia/abraia-python/raw/master/images/birds_o.jpg)
+
+### Resize images
 
 To resize an image you just need to specify the `width` or the `height` of the image:
 
-```sh
-abraia optimize --width 500 images/lion.jpg images/lion_500.jpg
+```python
+abraia.from_file('images/lion.jpg').resize(width=500).to_file('images/lion_500.jpg')
 ```
 
-![Resized lion](https://github.com/abraia/abraia-python/raw/master/images/lion_500.jpg)
+![Image lion resized](https://github.com/abraia/abraia-python/raw/master/images/lion_500.jpg)
 
-To [automatically crop and resize](https://abraia.me/docs/smart-cropping) specify both the `width` and `height` size parameters:
+You can also [automatically crop and resize](https://abraia.me/docs/smart-cropping) and image to change the aspect ratio specifying both `width` and `height` size parameters:
 
-```sh
-abraia optimize --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
+```python
+abraia.from_file('images/lion.jpg').resize(width=333, height=333).to_file('images/lion_333x333.jpg')
 ```
 
-![Smart cropped lion](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
+![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
 
-Moreover, images can be converted from one format to another changing the filename extension for the destination file.
+### Convert images
 
-```sh
-abraia optimize images/jaguar.png images/jaguar.jpg
+To convert images to a web format (JPEG, PNG, WebP, GIF) or between these formats you just need to change the filename extension for the destination file:
+
+```python
+abraia.from_file('images/jaguar.png').to_file('jaguar.webp')
+abraia.from_file('images/jaguar.png').to_file('jaguar.jpg')
 ```
 
-## Image editing
+![PNG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar_o.png)
+![WEBP Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.webp)
+![JPEG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.jpg)
 
-Using templates images can be easily edited and consistently branded. You just need to use or [create a template in the web editor](https://abraia.me/console/editor) to edit a batch of images from the command line.
+*Optimized PNG (16.1KB) vs optimized WebP (6.5KB) vs optimized JPEG (14.4KB)*
 
-```sh
-abraia optimize --action test.atn --width 333 images/lion.jpg images/branded.jpg
+### Watermark images
+
+Using templates images can be easily edited and consistently branded. You just need to [create a template in the web editor](https://abraia.me/console/editor) to watermark your images.
+
+```python
+abraia.from_file('images/lion.jpg').process({'action': 'test.atn'}).resize(width=333).to_file('images/lion_brand.jpg')
 ```
 
 ![Branded lion](https://github.com/abraia/abraia-python/raw/master/images/branded.jpg)
 
 As a result you get a perfectly branded and optimized image ready to be used on your website, ecommerce, marketplace, or social media.
-
-## Fluent API
-
-Abraia fluent API is the easiest way to compress and transform images with python. You just need to define the source of the image, the transformation operation, and the sink for the resultant image.
-
-```python
-from abraia import Abraia
-
-abraia = Abraia()
-
-abraia.from_file('images/bird.jpeg').resize(
-    width=375, height=375).to_file('images/bird_375x375.jpg')
-
-abraia.from_url('https://api.abraia.me/files/demo/birds.jpg').resize(
-    width=750).to_file('images/birds_750.jpg')
-
-abraia.from_store('birds.jpg').resize(
-    width=375, height=375).to_file('images/birds_375x375.jpg')
-```
-
-![Smart croppend bird](https://github.com/abraia/abraia-python/raw/master/images/bird_375x375.jpeg)
-![Smart cropped birds](https://github.com/abraia/abraia-python/raw/master/images/birds_375x375.jpg)
-
-*Smart cropped image examples*
-
-All the operation parameters are automatically chosen to provide the best results balancing quality and file size for a perfectly responsive website.
-
-PNG and WebP images can significantly optimized also.
-
-```python
-abraia.from_file('images/jaguar.png').to_file('jaguar_o.jpg')
-abraia.from_file('images/jaguar.png').to_file('jaguar.jpg')
-```
-
-![PNG Jaguar original](https://github.com/abraia/abraia-python/raw/master/images/jaguar.png)
-![PNG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar_o.png)
-![JPEG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.jpg)
-
-*Original PNG (45KB) vs optimized PNG (15.8KB) vs optimized JPEG (14.1KB)*
 
 ## License
 
