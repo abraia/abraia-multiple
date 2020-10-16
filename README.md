@@ -15,17 +15,25 @@ Automatically crop, resize, and compress images for web.
 
 ## Installation
 
-The Abraia python client and CLI works in Windows, Mac, and Linux with Python 3, and can be installed with a simple command:
+The Abraia python client and CLI works in Windows, Mac, and Linux with Python 2 and 3 (python>=2.6.5), and can be installed and upgraded with a simple command:
 
 ```sh
-pip install -U abraia
+python -m pip install -U abraia
 ```
 
-Get your [API Key](https://abraia.me/console/settings) and configure it as an environment variable:
+Moreover, you have to configure your [ABRAIA_KEY](https://abraia.me/console/settings) as an environment variable:
 
 ```sh
 export ABRAIA_KEY=api_key
 ```
+
+On Windows you need to use set instead of export:
+
+```sh
+set ABRAIA_KEY=api_key
+```
+
+NOTE: To persist the configuration use your system options to set your ABRAIA_KEY environment variable and avoid to run the previous command every time you start a terminal/console session.
 
 ## Fluent API
 

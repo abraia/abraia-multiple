@@ -19,7 +19,7 @@ abraia = Abraia(folder='batch/')
 
 
 @click.group('abraia')
-@click.version_option('0.6.1')
+@click.version_option('0.6.2')
 def cli():
     """Abraia CLI tool"""
     pass
@@ -40,7 +40,7 @@ def configure():
 @cli.command()
 def info():
     """Show user account information"""
-    click.echo('abraia, version 0.6.1')
+    click.echo('abraia, version 0.6.2')
     try:
         user = abraia.load_user()
         click.echo('Name: %s' % user.get('name'))
@@ -136,7 +136,6 @@ def metadata(src):
 @click.argument('src')
 def detect(src, mode):
     """Detect image data"""
-    print(mode)  # Refactor to fix src and path
     path = abraia.userid + '/' + abraia.folder
     resp = abraia.upload_file(src, path)
     labels = abraia.detect_labels(resp['source'])
