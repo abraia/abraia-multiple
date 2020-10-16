@@ -6,19 +6,10 @@ from .client import Client
 class Abraia(Client):
     def __init__(self, folder=''):
         super(Abraia, self).__init__()
-        self.userid = self.userid()
+        self.userid = self.load_user()['id']
         self.folder = folder
         self.params = {}
         self.path = ''
-
-    def userid(self):
-        try:
-            return self.user()['id']
-        except Exception:
-            return None
-
-    def user(self):
-        return self.load_user()['user']
 
     def list(self, folder=''):
         length = len(self.userid) + 1
@@ -57,7 +48,7 @@ class Abraia(Client):
             self.params['format'] = ext.lower()[1:]
         buffer = self.transform_image(self.path, self.params)
         with open(filename, 'wb') as f:
-            f.write(buffer.getbuffer())
+            f.write(buffer.getvalue())
         return self
 
     def resize(self, width=None, height=None, mode=None):

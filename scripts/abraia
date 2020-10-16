@@ -1,10 +1,15 @@
 #!/usr/bin/env python
+from __future__ import print_function
+from __future__ import division
+from builtins import input
+
 import os
 import sys
 import shutil
-import argparse
 from glob import glob
 from tqdm import tqdm
+
+import click
 
 from abraia import config
 from abraia import Abraia
@@ -13,18 +18,16 @@ from abraia import APIError
 abraia = Abraia(folder='batch/')
 
 
-def process_info():
-    print('Abraia CLI v0.6.1')
-    try:
-        user = abraia.user()
-        print('Name:', user.get('name'))
-        print('Email:', user.get('email'))
-        print('Credits:', user.get('credits'))
-    except APIError as error:
-        print('Error', error.code, error.message)
+@click.group('abraia')
+@click.version_option('0.6.1')
+def cli():
+    """Abraia CLI tool"""
+    pass
 
 
-def process_configure():
+@cli.command()
+def configure():
+    """Configure the abraia api key"""
     api_key, api_secret = config.load_auth()
     abraia_key = config.base64encode(
         '{}:{}'.format(api_key, api_secret)) if api_key and api_secret else ''
@@ -34,14 +37,40 @@ def process_configure():
     config.save_auth(api_key, api_secret)
 
 
-def input_files(path):
-    path = os.path.join(path, '**/*') if os.path.isdir(path) else path
-    return glob(path, recursive=True)
+@cli.command()
+def info():
+    """Show user account information"""
+    click.echo('abraia, version 0.6.1')
+    try:
+        user = abraia.load_user()
+        click.echo('Name: %s' % user.get('name'))
+        click.echo('Email: %s' % user.get('email'))
+        click.echo('Credits: %s' % user.get('credits'))
+    except APIError as error:
+        print('Error', error.code, error.message)
 
 
-def process_optimize(args):
-    path = args['path']
-    dest = args.get('dest')
+def input_files(src):
+    src = os.path.join(src, '**/*') if os.path.isdir(src) else src
+    return glob(src, recursive=True)
+
+
+def process_file(path, dest, args):
+    try:
+        abraia.from_file(path).process(args).to_file(dest)
+    except APIError as error:
+        print('Error', error.code, error.message)
+
+
+def process_url(path, dest, args):
+    try:
+        abraia.from_url(path).process(args).to_file(dest)
+        print('New image saved:', dest)
+    except APIError as error:
+        print('Error', error.code, error.message)
+
+
+def process_optimize(path, dest, args):  # path would be src
     format = args.get('format')
     filenames = input_files(path)
     dirname = path.rstrip('/').rstrip('\\') if os.path.isdir(path) else None
@@ -49,14 +78,15 @@ def process_optimize(args):
         for filename in tqdm(filenames, unit='file'):
             # TODO: Add parse_output function
             path, name = os.path.split(filename)
-            nam, ext = os.path.splitext(name)
+            nam, ext = name.split('.')
             oext = format if format is not None else ext
-            fileout = os.path.join(path, nam+'_o'+oext)
+            fileout = os.path.join(path, nam + '_o.' + oext)
             if dirname:
                 relpath = os.path.relpath(path, dirname)
-                if not os.path.exists(os.path.join(dirname+'_o', relpath)):
-                    os.makedirs(os.path.join(dirname+'_o', relpath))
-                fileout = os.path.join(dirname+'_o', relpath, nam+oext)
+                if not os.path.exists(os.path.join(dirname + '_o', relpath)):
+                    os.makedirs(os.path.join(dirname + '_o', relpath))
+                fileout = os.path.join(
+                    dirname + '_o', relpath, nam + '.' + oext)
             if dest is not None:
                 fileout = dest
                 root, oext = os.path.splitext(fileout)
@@ -75,141 +105,88 @@ def process_optimize(args):
         process_url(path, fileout, args)
 
 
-def process_file(path, fileout, args):
-    try:
-        abraia.from_file(path).process(args).to_file(fileout)
-    except APIError as error:
-        print('Error', error.code, error.message)
+@cli.command()
+@click.option('--width', help='Resize to specified width', type=int)
+@click.option('--height', help='Resize to specified height', type=int)
+@click.option('--format', help='Convert to specified image format', type=click.Choice(['jpeg', 'png', 'webp']))
+@click.option('--action', help='Apply an action template', type=click.Path())
+@click.argument('src')
+@click.argument('dest', required=False)
+def optimize(src, dest, width, height, format, action):
+    """Optimize an image or set of images"""
+    args = {'width': width, 'height': height,
+            'format': format, 'action': action}
+    process_optimize(src, dest, args)
 
 
-def process_url(path, fileout, args):
-    try:
-        abraia.from_url(path).process(args).to_file(fileout)
-        print('New image saved:', fileout)
-    except APIError as error:
-        print('Error', error.code, error.message)
+@cli.command()
+@click.argument('src')
+def metadata(src):
+    """Load file metadata"""
+    path = abraia.userid + '/' + abraia.folder
+    resp = abraia.upload_file(src, path)
+    meta = abraia.load_metadata(resp['source'])
+    click.echo(meta)
 
 
-def process_list(path):
+@cli.command()
+@click.option('--labels', 'mode', flag_value='labels', default=True, help='Detect image labels')
+@click.option('--faces', 'mode', flag_value='faces', help='Detect image faces')
+@click.option('--text', 'mode', flag_value='text', help='Detect image text')
+@click.argument('src')
+def detect(src, mode):
+    """Detect image data"""
+    print(mode)  # Refactor to fix src and path
+    path = abraia.userid + '/' + abraia.folder
+    resp = abraia.upload_file(src, path)
+    labels = abraia.detect_labels(resp['source'])
+    click.echo(labels)
+
+
+@cli.command()
+@click.argument('path', required=False)
+def list(path):
+    """List the files in abraia"""
+    path = path if path else ''
     files, folders = abraia.list(path)
-    txt = '\n'.join(['{:>28}  {}/'.format('', f['name']) for f in folders]) + '\n'
-    txt += '\n'.join(['{}  {:>7}  {}'.format(f['date'], f['size'], f['name']) for f in files])
+    txt = '\n'.join(['{:>28}  {}/'.format('', f['name'])
+                     for f in folders]) + '\n'
+    txt += '\n'.join(['{}  {:>7}  {}'.format(f['date'],
+                                             f['size'], f['name']) for f in files])
     txt += '\ntotal {}'.format(len(files))
-    print(txt)
+    click.echo(txt)
 
 
-def process_upload(path):
-    try:
-        print(abraia.from_file(path))
-    except APIError as error:
-        print('Error', error.code, error.message)
-        
+@cli.command()
+@click.argument('src', type=click.Path())
+# @click.argument('dest', required=False)
+def upload(src):
+    """Upload a file to abraia"""
+    files = input_files(src)
+    with click.progressbar(files) as _files:
+        for file in _files:
+            path = abraia.userid + '/' + abraia.folder
+            resp = abraia.upload_file(file, path)
+            click.echo(resp)
 
-def process_download(path):
+
+@cli.command()
+@click.argument('path')
+def download(path):
+    """Download a file from abraia"""
     try:
         abraia.from_store(path).to_file(path)
     except APIError as error:
         print('Error', error.code, error.message)
 
 
-def process_remove(path):
-    print(abraia.from_store(path).remove())
+@cli.command()
+@click.argument('path')
+@click.confirmation_option(prompt='Are you sure you want to remove the file?')
+def remove(path):
+    """Remove a file from abraia"""
+    click.echo(abraia.from_store(path).remove())
 
 
-def add_parser_info(subparser):
-    parser_info = subparser.add_parser('info', help='show user account information')
-    return parser_info
-
-
-def add_parser_configure(subparser):
-    parser_configure = subparser.add_parser('configure', help='configure the access keys')
-    return parser_configure
-
-
-def add_parser_optimize(subparser):
-    parser_optimize = subparser.add_parser('optimize', help='optimize an image or a directory of images')
-    parser_optimize.add_argument('--width', type=int, help='resize to specified width')
-    parser_optimize.add_argument('--height', type=int, help='resize to specified height')
-    parser_optimize.add_argument('--format', type=str, help='convert to specified image format. Allowed output extensions: %s' % str(config.IMAGE_EXTS))
-    parser_optimize.add_argument('--action', type=str, help='apply the specified action')
-    parser_optimize.add_argument('path', nargs='?', help='image path or directory to process')
-    parser_optimize.add_argument('dest', nargs='?', help='destination directory or image path')
-    return parser_optimize
-
-
-def add_parser_list(subparser):
-    parser_list = subparser.add_parser('list', help='list stored files')
-    parser_list.add_argument('path', nargs='?', default='', help='folder path to list')
-    return parser_list
-
-def add_parser_upload(subparser):
-    parser_download = subparser.add_parser('upload', help='upload a stored file')
-    parser_download.add_argument('path', nargs='?', help='file path to upload')
-    return parser_download
-
-def add_parser_download(subparser):
-    parser_download = subparser.add_parser('download', help='download a stored file')
-    parser_download.add_argument('path', nargs='?', help='file path to download')
-    return parser_download
-
-
-def add_parser_remove(subparser):
-    parser_remove = subparser.add_parser('remove', help='remove a stored file')
-    parser_remove.add_argument('path', nargs='?', help='file path to remove')
-    return parser_remove
-
-
-def parse_input():
-    parser = argparse.ArgumentParser(description='Abraia image optimization tool')
-    parser.add_argument('-V', '--version', action='version', version='0.6.1')
-    subparser = parser.add_subparsers(dest='command')
-    parser_info = add_parser_info(subparser)
-    parser_configure = add_parser_configure(subparser)
-    parser_optimize = add_parser_optimize(subparser)
-    parser_list = add_parser_list(subparser)
-    parser_upload = add_parser_upload(subparser)
-    parser_download = add_parser_download(subparser)
-    parser_remove = add_parser_remove(subparser)
-    args = vars(parser.parse_args())
-    if args['command'] is None:
-        parser.print_help()
-        sys.exit()
-    elif args['command'] == 'optimize':
-        if args['path'] is None:
-            parser_optimize.print_help()
-            sys.exit()
-    elif args['command'] == 'upload':
-        if args['path'] is None:
-            parser_upload.print_help()
-            sys.exit()
-    elif args['command'] == 'download':
-        if args['path'] is None:
-            parser_download.print_help()
-            sys.exit()
-    elif args['command'] == 'remove':
-        if args['path'] is None:
-            parser_remove.print_help()
-            sys.exit()
-    return args
-
-
-def process_input(args):
-    if args['command'] == 'info':
-        process_info()
-    if args['command'] == 'configure':
-        process_configure()
-    elif args['command'] == 'optimize':
-        process_optimize(args)
-    elif args['command'] == 'list':
-        process_list(args.get('path'))
-    elif args['command'] == 'upload':
-        process_upload(args.get('path'))
-    elif args['command'] == 'download':
-        process_download(args.get('path'))
-    elif args['command'] == 'remove':
-        process_remove(args.get('path'))
-
-
-if __name__ == "__main__":
-    args = parse_input()
-    process_input(args)
+if __name__ == '__main__':
+    cli()

@@ -18,5 +18,5 @@ setup(
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0', 'pytest-runner'],
     scripts=['scripts/abraia', 'scripts/abraia.bat'],
-    install_requires=['requests', 'tqdm']
+    install_requires=['requests', 'click', 'tqdm', 'future']
 )

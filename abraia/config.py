@@ -2,7 +2,7 @@ import os
 import sys
 import base64
 
-API_URL = 'https://api.abraia.me'
+API_URL = 'https://api2.abraia.me'
 CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.abraia')
 
 IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.psd']

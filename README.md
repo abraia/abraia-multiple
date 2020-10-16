@@ -5,7 +5,7 @@
 
 # Abraia API client for Python
 
-Python client for the [Abraia API](https://abraia.me/api/). Batch optimize images for web with no quality damage based on perception-driven
+Python client for the [Abraia API](https://abraia.me/docs/api/). Batch optimize images for web with no quality damage based on perception-driven
 technology.
 
 * Optimal image compression with our perceptual adjustment to preserve the quality and maximize the compression.
@@ -53,7 +53,7 @@ abraia.from_file('images/lion.jpg').to_file('images/lion_o.jpg')
 abraia.from_file('images/jaguar.png').to_file('images/jaguar_o.png')
 ```
 
-You can also compress and image directly from an URL
+You can also compress and image directly from an url:
 
 ```python
 abraia.from_url('https://api.abraia.me/files/demo/birds.jpg').to_file('images/birds_o.jpg')

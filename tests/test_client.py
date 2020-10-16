@@ -4,14 +4,14 @@ from io import BytesIO
 from abraia import Client, APIError
 
 client = Client()
-userid = client.load_user()['user']['id']
+userid = client.load_user()['id']
 filename = 'tiger.jpg'
 
 
 def test_load_user():
     """Test an API call to load user info"""
-    resp = client.load_user()
-    assert isinstance(resp, dict)
+    user = client.load_user()
+    assert isinstance(user, dict)
 
 
 def test_list_files():
@@ -30,7 +30,7 @@ def test_upload_remote():
 
 def test_upload_file():
     """Tests an API call to upload a local file"""
-    resp = client.upload_file(os.path.join('images', filename), userid+'/', type='image/jpeg')
+    resp = client.upload_file(os.path.join('images', filename), userid+'/')
     assert resp['name'] == 'tiger.jpg'
 
 

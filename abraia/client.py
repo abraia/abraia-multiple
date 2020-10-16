@@ -1,6 +1,7 @@
 import os
 import base64
 import requests
+import mimetypes
 from datetime import datetime
 from io import BytesIO
 from . import config
@@ -23,7 +24,7 @@ class Client(object):
             resp = requests.get(url, auth=self.auth)
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
-            return resp.json()
+            return resp.json()['user']
         raise APIError('Unauthorized', 401)
 
     def list_files(self, path=''):
@@ -45,11 +46,13 @@ class Client(object):
         resp = resp.json()
         return resp['file']
 
-    def upload_file(self, file, path, type=''):
+    def upload_file(self, file, path):
         source = path + os.path.basename(file) if path.endswith('/') else path
         name = os.path.basename(source)
-        url = '{}/files/{}'.format(config.API_URL, source)
+        type = mimetypes.guess_type(name)[0] or 'binary/octet-stream'
+        # json = {'name': name, 'type': type, 'md5': md5}  if md5 else {'name': name, 'type': type}
         json = {'name': name, 'type': type}
+        url = '{}/files/{}'.format(config.API_URL, source)
         resp = requests.post(url, json=json, auth=self.auth)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
@@ -68,7 +71,8 @@ class Client(object):
         resp = resp.json()
         return resp['file']
 
-    def download_file(self, path):
+    def download_file(self, path, dest=''):
+        # T0D0 Add dest ptina paramater to save file
         url = '{}/files/{}'.format(config.API_URL, path)
         resp = requests.get(url, stream=True, auth=self.auth)
         if resp.status_code != 200:
@@ -99,6 +103,13 @@ class Client(object):
         if resp.get('salmap'):
             resp['salmap'] = BytesIO(base64.b64decode(resp['salmap'][23:]))
         return resp
+
+    def detect_labels(self, path, params={}):
+        url = '{}/rekognition/{}'.format(config.API_URL, path)
+        resp = requests.get(url, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        return resp.json()
 
     def transform_image(self, path, params={}):
         if params.get('action'):
