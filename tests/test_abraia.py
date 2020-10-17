@@ -138,8 +138,8 @@ def test_restore_stored_image():
 
 
 def test_remove_stored_image():
-    resp = abraia.from_store('tiger.jpg').remove()
-    assert resp['name'] == 'tiger.jpg'
+    resp = abraia.remove('tiger.jpg')
+    assert resp['path'] == 'tiger.jpg'
 
 
 def test_server_error():

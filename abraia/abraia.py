@@ -1,5 +1,6 @@
 import os
 import base64
+import hashlib
 import requests
 import mimetypes
 
@@ -7,6 +8,14 @@ from fnmatch import fnmatch
 from datetime import datetime
 from io import BytesIO
 from . import config
+
+
+def md5sum(src):
+    hash_md5 = hashlib.md5()
+    with open(src, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b''):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
 
 class APIError(Exception):
@@ -51,18 +60,20 @@ class Client(object):
     def upload_file(self, file, path):
         source = path + os.path.basename(file) if path.endswith('/') else path
         name = os.path.basename(source)
+        md5 = md5sum(file) # TODO: Refactor names to src, dest, path (cloud)
         type = mimetypes.guess_type(name)[0] or 'binary/octet-stream'
-        # json = {'name': name, 'type': type, 'md5': md5}  if md5 else {'name': name, 'type': type}
-        json = {'name': name, 'type': type}
+        json = {'name': name, 'type': type, 'md5': md5}  if md5 else {'name': name, 'type': type}
         url = '{}/files/{}'.format(config.API_URL, source)
-        resp = requests.post(url, json=json, auth=self.auth)
+        resp = requests.post(url, json=json, auth=self.auth) # TODO: Refactor to reduce requests code (like with client.js)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
-        url = resp.json()['uploadURL']
-        data = file if isinstance(file, BytesIO) else open(file, 'rb')
-        resp = requests.put(url, data=data, headers={'Content-Type': type})
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
+        resp = resp.json()
+        url = resp.get('uploadURL')
+        if url:
+            data = file if isinstance(file, BytesIO) else open(file, 'rb')
+            resp = requests.put(url, data=data, headers={'Content-Type': type})
+            if resp.status_code != 200:
+                raise APIError(resp.text, resp.status_code)
         return {'name': name, 'source': source}
 
     def move_file(self, old_path, new_path):
@@ -148,13 +159,40 @@ class Abraia(Client):
         self.params = {}
         self.path = ''
 
-    def list(self, folder=''):
+    def list(self, path=''):
         length = len(self.userid) + 1
+        dirname = os.path.dirname(path)
+        basename = os.path.basename(path)
+        folder = dirname + '/' if dirname else dirname
+        # TODO: Change path to manage userid
         files, folders = self.list_files(path=self.userid + '/' + folder)
-        files = map(lambda f: {'name': f['name'], 'size': f['size'],
-                               'date': f['date'], 'path': f['source'][length:]}, files)
-        folders = map(lambda f: {'name': f['name'], 'path': f['source'][length:]}, folders) 
-        return list(files), list(folders)
+        files = list(map(lambda f: {'path': f['source'][length:], 'name': f['name'], 'size': f['size'], 'date': f['date']}, files))
+        folders = list(map(lambda f: {'path': f['source'][length:], 'name': f['name']}, folders))
+        if basename:
+            files = list(filter(lambda f: fnmatch(f['path'], path), files))
+            folders = list(filter(lambda f: fnmatch(f['path'], path), folders))
+        return files, folders
+
+    def upload(self, src, path=''):
+        length = len(self.userid) + 1
+        if isinstance(src, str) and src.startswith('http'):
+            f = self.upload_remote(src, self.userid + '/')
+            return {'path': f['source'][length:]}
+        f = self.upload_file(src, self.userid + '/' + path)
+        return {'path': f['source'][length:]}
+
+    def download(self, path, dest=''):
+        buffer = self.download_file(self.userid + '/' + path)
+        if dest:
+            with open(dest, 'wb') as f:
+                f.write(buffer.getbuffer())
+            return dest
+        return buffer
+
+    def remove(self, path):
+        length = len(self.userid) + 1
+        f = self.remove_file(self.userid + '/' + path)
+        return {'path': f['source'][length:]}
 
     def from_file(self, file):
         resp = self.upload_file(file, self.userid + '/' + self.folder)
@@ -200,6 +238,3 @@ class Abraia(Client):
     def process(self, params={}):
         self.params.update(params)
         return self
-
-    def remove(self):
-        return self.remove_file(self.path)

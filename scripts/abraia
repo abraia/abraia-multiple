@@ -5,6 +5,7 @@ from builtins import input
 
 import os
 import sys
+import json
 import shutil
 from glob import glob
 from tqdm import tqdm
@@ -19,7 +20,7 @@ abraia = Abraia(folder='batch/')
 
 
 @click.group('abraia')
-@click.version_option('0.6.2')
+@click.version_option('0.6.3')
 def cli():
     """Abraia CLI tool"""
     pass
@@ -40,7 +41,7 @@ def configure():
 @cli.command()
 def info():
     """Show user account information"""
-    click.echo('abraia, version 0.6.2')
+    click.echo('abraia, version 0.6.3')
     try:
         user = abraia.load_user()
         click.echo('Name: %s' % user.get('name'))
@@ -55,22 +56,16 @@ def input_files(src):
     return glob(src, recursive=True)
 
 
-def process_file(path, dest, args):
+def process_file(src, dest, args):
     try:
-        abraia.from_file(path).process(args).to_file(dest)
+        if isinstance(src, str) and src.startswith('http'):
+            return abraia.from_url(src).process(args).to_file(dest)
+        return abraia.from_file(src).process(args).to_file(dest)
     except APIError as error:
         print('Error', error.code, error.message)
 
 
-def process_url(path, dest, args):
-    try:
-        abraia.from_url(path).process(args).to_file(dest)
-        print('New image saved:', dest)
-    except APIError as error:
-        print('Error', error.code, error.message)
-
-
-def process_optimize(path, dest, args):  # path would be src
+def process_optimize(path, dest, args): # path would be src
     format = args.get('format')
     filenames = input_files(path)
     dirname = path.rstrip('/').rstrip('\\') if os.path.isdir(path) else None
@@ -85,8 +80,7 @@ def process_optimize(path, dest, args):  # path would be src
                 relpath = os.path.relpath(path, dirname)
                 if not os.path.exists(os.path.join(dirname + '_o', relpath)):
                     os.makedirs(os.path.join(dirname + '_o', relpath))
-                fileout = os.path.join(
-                    dirname + '_o', relpath, nam + '.' + oext)
+                fileout = os.path.join(dirname + '_o', relpath, nam + '.' + oext)
             if dest is not None:
                 fileout = dest
                 root, oext = os.path.splitext(fileout)
@@ -101,8 +95,8 @@ def process_optimize(path, dest, args):  # path would be src
             else:
                 shutil.copy2(filename, fileout)
     else:
-        fileout = os.path.split(path) if dest is None else dest
-        process_url(path, fileout, args)
+        basename = os.path.basename(path) if dest is None else dest
+        process_file(path, basename, args)
 
 
 @cli.command()
@@ -114,19 +108,26 @@ def process_optimize(path, dest, args):  # path would be src
 @click.argument('dest', required=False)
 def optimize(src, dest, width, height, format, action):
     """Optimize an image or set of images"""
-    args = {'width': width, 'height': height,
-            'format': format, 'action': action}
+    args = {'width': width, 'height': height, 'format': format, 'action': action}
     process_optimize(src, dest, args)
 
 
 @cli.command()
+@click.option('--remove', help='Remove file metadata', is_flag=True)
 @click.argument('src')
-def metadata(src):
+def metadata(src, remove):
     """Load file metadata"""
     path = abraia.userid + '/' + abraia.folder
     resp = abraia.upload_file(src, path)
-    meta = abraia.load_metadata(resp['source'])
-    click.echo(meta)
+    if remove:
+        print('remove', remove)
+        print(abraia.remove_metadata(resp['source']))
+        buffer = abraia.download_file(resp['source'])
+        with open(src+'.output', 'wb') as f:
+            f.write(buffer.getvalue())
+    else:
+        meta = abraia.load_metadata(resp['source'])
+        click.echo(json.dumps(meta, indent=2))
 
 
 @cli.command()
@@ -136,10 +137,11 @@ def metadata(src):
 @click.argument('src')
 def detect(src, mode):
     """Detect image data"""
+    print(mode) # Refactor to fix src and path
     path = abraia.userid + '/' + abraia.folder
     resp = abraia.upload_file(src, path)
     labels = abraia.detect_labels(resp['source'])
-    click.echo(labels)
+    click.echo(json.dumps(labels, indent=2))
 
 
 @cli.command()
@@ -148,10 +150,8 @@ def list(path):
     """List the files in abraia"""
     path = path if path else ''
     files, folders = abraia.list(path)
-    txt = '\n'.join(['{:>28}  {}/'.format('', f['name'])
-                     for f in folders]) + '\n'
-    txt += '\n'.join(['{}  {:>7}  {}'.format(f['date'],
-                                             f['size'], f['name']) for f in files])
+    txt = '\n'.join(['{:>28}  {}/'.format('', f['name']) for f in folders]) + '\n'
+    txt += '\n'.join(['{}  {:>7}  {}'.format(f['date'], f['size'], f['name']) for f in files])
     txt += '\ntotal {}'.format(len(files))
     click.echo(txt)
 
@@ -161,12 +161,11 @@ def list(path):
 # @click.argument('dest', required=False)
 def upload(src):
     """Upload a file to abraia"""
-    files = input_files(src)
+    files = [src] if isinstance(src, str) and src.startswith('http') else input_files(src)
     with click.progressbar(files) as _files:
         for file in _files:
-            path = abraia.userid + '/' + abraia.folder
-            resp = abraia.upload_file(file, path)
-            click.echo(resp)
+            path = abraia.folder
+            click.echo(abraia.upload(file, path))
 
 
 @cli.command()
@@ -174,7 +173,8 @@ def upload(src):
 def download(path):
     """Download a file from abraia"""
     try:
-        abraia.from_store(path).to_file(path)
+        dest = os.path.basename(path)
+        click.echo(abraia.download(path, dest))
     except APIError as error:
         print('Error', error.code, error.message)
 
@@ -184,7 +184,7 @@ def download(path):
 @click.confirmation_option(prompt='Are you sure you want to remove the file?')
 def remove(path):
     """Remove a file from abraia"""
-    click.echo(abraia.from_store(path).remove())
+    click.echo(abraia.remove(path))
 
 
 if __name__ == '__main__':
