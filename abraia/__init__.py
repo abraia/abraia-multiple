@@ -1,5 +1,4 @@
 from . import config
-from .client import Client, APIError
-from .abraia import Abraia
+from .abraia import Abraia, APIError
 
-__all__ = ['config', 'Client', 'APIError', 'Abraia']
+__all__ = ['config', 'Abraia', 'APIError']
