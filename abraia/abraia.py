@@ -36,7 +36,7 @@ class Client(object):
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
             return resp.json()['user']
-        raise APIError('Unauthorized', 401)
+        return {}
 
     def list_files(self, path=''):
         url = '{}/files/{}'.format(config.API_URL, path)
@@ -154,7 +154,7 @@ class Client(object):
 class Abraia(Client):
     def __init__(self, folder=''):
         super(Abraia, self).__init__()
-        self.userid = self.load_user()['id']
+        self.userid = self.load_user().get('id')
         self.folder = folder
         self.params = {}
         self.path = ''

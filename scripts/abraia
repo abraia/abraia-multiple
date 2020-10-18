@@ -20,7 +20,7 @@ abraia = Abraia(folder='batch/')
 
 
 @click.group('abraia')
-@click.version_option('0.6.3')
+@click.version_option('0.6.4')
 def cli():
     """Abraia CLI tool"""
     pass
@@ -41,7 +41,7 @@ def configure():
 @cli.command()
 def info():
     """Show user account information"""
-    click.echo('abraia, version 0.6.3')
+    click.echo('abraia, version 0.6.4')
     try:
         user = abraia.load_user()
         click.echo('Name: %s' % user.get('name'))
@@ -52,6 +52,8 @@ def info():
 
 
 def input_files(src):
+    if isinstance(src, str) and src.startswith('http'):
+        return [src]
     src = os.path.join(src, '**/*') if os.path.isdir(src) else src
     return glob(src, recursive=True)
 
@@ -161,9 +163,8 @@ def list(path):
 # @click.argument('dest', required=False)
 def upload(src):
     """Upload a file to abraia"""
-    files = [src] if isinstance(src, str) and src.startswith('http') else input_files(src)
-    with click.progressbar(files) as _files:
-        for file in _files:
+    with click.progressbar(input_files(src)) as files:
+        for file in files:
             path = abraia.folder
             click.echo(abraia.upload(file, path))
 
