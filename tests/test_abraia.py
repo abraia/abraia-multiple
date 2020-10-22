@@ -130,13 +130,6 @@ def test_process_branded_image():
     assert os.path.isfile('images/lion_brand.jpg')
 
 
-def test_restore_stored_image():
-    buffer = abraia.from_store('birds.jpg').to_buffer()
-    with open('images/birds.jpg', 'rb') as f:
-        buff = BytesIO(f.read())
-    assert sys.getsizeof(buff) == sys.getsizeof(buffer)
-
-
 def test_remove_stored_image():
     resp = abraia.remove('tiger.jpg')
     assert resp['path'] == 'tiger.jpg'

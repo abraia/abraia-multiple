@@ -21,8 +21,11 @@ def md5sum(src):
 class APIError(Exception):
     def __init__(self, message, code=0):
         super(APIError, self).__init__(message, code)
-        self.message = message
         self.code = code
+        try:
+            self.message = message.json()['message']
+        except:
+            self.message = ''
 
 
 class Client(object):
@@ -211,14 +214,8 @@ class Abraia(Client):
         self.params = {}
         return self
 
-    def to_buffer(self, format=None):
-        if format and self.params:
-            self.params['format'] = format.lower()
-        buffer = self.transform_image(self.path, self.params)
-        return buffer
-
     def to_file(self, filename):
-        root, ext = os.path.splitext(filename)
+        root, ext = os.path.split(filename)
         if ext and self.params:
             self.params['format'] = ext.lower()[1:]
         buffer = self.transform_image(self.path, self.params)

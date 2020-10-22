@@ -3,7 +3,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg)](https://coveralls.io/github/abraia/abraia-python)
 ![Analytics](https://ga-beacon.appspot.com/UA-108018608-1/github/python?pixel)
 
-# Abraia API client for Python
+# Abraia API client
 
 Python client for the [Abraia API](https://abraia.me/docs/api/). Batch optimize images for web with no quality damage based on perception-driven
 technology.
@@ -35,7 +35,7 @@ set ABRAIA_KEY=api_key
 
 NOTE: To persist the configuration use your system options to set your ABRAIA_KEY environment variable and avoid to run the previous command every time you start a terminal/console session.
 
-## Fluent API
+## Usage
 
 The Abraia fluent API is the easiest way to resize and compress images with Python. You just need to define the source of the image, the transformation operation, and the sink for the resultant image.
 

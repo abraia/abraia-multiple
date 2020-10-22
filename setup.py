@@ -5,7 +5,7 @@ with open('README.md') as f:
 
 setup(
     name='abraia',
-    version='0.6.4',
+    version='0.6.5',
     description='Abraia Python SDK',
     long_description=long_description,
     long_description_content_type='text/markdown',
