@@ -215,9 +215,8 @@ class Abraia(Client):
         return self
 
     def to_file(self, filename):
-        root, ext = os.path.split(filename)
-        if ext and self.params:
-            self.params['format'] = ext.lower()[1:]
+        ext = filename.split('.').pop().lower()
+        self.params['format'] = self.params.get('format') or ext
         buffer = self.transform_image(self.path, self.params)
         with open(filename, 'wb') as f:
             f.write(buffer.getvalue())
