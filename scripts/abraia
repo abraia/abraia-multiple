@@ -146,7 +146,7 @@ def detect(src, mode):
     try:
         path = abraia.userid + '/' + abraia.folder
         resp = abraia.upload_file(src, path)
-        labels = abraia.detect_labels(resp['source'])
+        labels = abraia.detect_labels(resp['source'], {'mode': mode})
         click.echo(json.dumps(labels, indent=2))
     except APIError as error:
         echo_error(error)

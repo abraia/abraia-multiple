@@ -129,7 +129,7 @@ class Client(object):
 
     def detect_labels(self, path, params={}):
         url = '{}/rekognition/{}'.format(config.API_URL, path)
-        resp = requests.get(url, auth=self.auth)
+        resp = requests.get(url, params=params, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         return resp.json()
