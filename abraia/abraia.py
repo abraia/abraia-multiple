@@ -117,15 +117,15 @@ class Client(object):
             raise APIError(resp.text, resp.status_code)
         return resp.json()
 
-    def analyze_image(self, path, params={}):
-        url = '{}/analysis/{}'.format(config.API_URL, path)
-        resp = requests.get(url, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        resp = resp.json()
-        if resp.get('salmap'):
-            resp['salmap'] = BytesIO(base64.b64decode(resp['salmap'][23:]))
-        return resp
+    # def analyze_image(self, path, params={}):
+    #     url = '{}/analysis/{}'.format(config.API_URL, path)
+    #     resp = requests.get(url, auth=self.auth)
+    #     if resp.status_code != 200:
+    #         raise APIError(resp.text, resp.status_code)
+    #     resp = resp.json()
+    #     if resp.get('salmap'):
+    #         resp['salmap'] = BytesIO(base64.b64decode(resp['salmap'][23:]))
+    #     return resp
 
     def detect_labels(self, path, params={}):
         url = '{}/rekognition/{}'.format(config.API_URL, path)
@@ -203,16 +203,12 @@ class Abraia(Client):
         self.params = {'q': 'auto'}
         return self
 
-    def from_url(self, url):
-        resp = self.upload_remote(url, self.userid + '/' + self.folder)
-        self.path = resp['source']
-        self.params = {'q': 'auto'}
-        return self
-
-    def from_store(self, path):
-        self.path = self.userid + '/' + path
-        self.params = {}
-        return self
+    def transform(self, path, dest, params={'q': 'auto'}):
+        ext = dest.split('.').pop().lower()
+        params['format'] = self.params.get('format') or ext
+        buffer = self.transform_image(self.userid + '/' + path, params=params)
+        with open(dest, 'wb') as f:
+            f.write(buffer.getvalue())
 
     def to_file(self, filename):
         ext = filename.split('.').pop().lower()
@@ -222,15 +218,13 @@ class Abraia(Client):
             f.write(buffer.getvalue())
         return self
 
-    def resize(self, width=None, height=None, mode=None):
+    def resize(self, width=None, height=None, mode=None, action=None):
         if width:
             self.params['width'] = width
         if height:
             self.params['height'] = height
         if mode:
             self.params['mode'] = mode
-        return self
-
-    def process(self, params={}):
-        self.params.update(params)
+        if action:
+            self.params['action'] = action
         return self

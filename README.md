@@ -106,7 +106,7 @@ abraia.from_file('images/jaguar.png').to_file('jaguar.jpg')
 Using templates images can be easily edited and consistently branded. You just need to [create a template in the web editor](https://abraia.me/console/editor) to watermark your images.
 
 ```python
-abraia.from_file('images/lion.jpg').process({'action': 'test.atn'}).resize(width=333).to_file('images/lion_brand.jpg')
+abraia.from_file('images/lion.jpg').resize(width=333, action='test.atn').to_file('images/lion_brand.jpg')
 ```
 
 ![Branded lion](https://github.com/abraia/abraia-python/raw/master/images/branded.jpg)
