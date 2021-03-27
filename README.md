@@ -113,43 +113,9 @@ abraia.from_file('images/lion.jpg').resize(width=333, action='test.atn').to_file
 
 As a result you get a perfectly branded and optimized image ready to be used on your website, ecommerce, marketplace, or social media.
 
-## REST API
+## Files storage
 
-### Introduction
-
-There are three main endpoints to handle the API in `https://api.abraia.me`:
-
-* The `files` endpoint (`https://api.abraia.me/files/`) handles files.
-* The `images` endpoint (`https://api.abraia.me/images/`) handles image transformations.
-* The `videos` endpoint (`https://api.abraia.me/videos/`) handles video transformations.
-
-### Authentication
-
-Authentication is performed with API Keys via HTTP Basic Auth. Provide your API Key as the basic auth username value and the API Secret as the password value. You can manage your API keys in the [console](https://abraia.me/console).
-
-<article class="message is-danger">
-  <div class="message-body">
-    Do not share your secret API keys in publicly accessible areas such GitHub,
-    client-side code, and so forth.
-  </div>
-</article>
-
-All API requests must be made over HTTPS. Calls made over plain HTTP will fail. API requests without authentication will also fail.
-
-Example request:
-
-```sh
-curl -u apiKey:apiSecret https://api.abraia.me/files/
-```
-
-curl uses the -u flag to pass basic auth credentials (user:password).
-
-To test request you must use your account API keys, replacing `apiKey` and `apiSecret` with your actual API keys. Curl uses the `-u` flag to pass basic
-auth credentials (apiKey:apiSecret).
-
-### Files storage api
-
-#### List files
+### List files
 
 Retrieve information about all the files stored in a cloud folder using the following URL:
 
@@ -157,7 +123,7 @@ Retrieve information about all the files stored in a cloud folder using the foll
 
 This endpoint retrieves all the file data as a JSON structure with a list of `files` and `folders`.
 
-##### Example
+#### Example
 
 ```sh
 curl -u apiKey:apiSecret https://api.abraia.me/files/demo/
@@ -194,7 +160,7 @@ The above command returns JSON structured like this:
 }
 ```
 
-#### Upload file
+### Upload file
 
 Upload a local or a remote file using the following URL:
 
@@ -204,7 +170,7 @@ This URL creates the resource on the cloud and returns the signed URL to upload 
 
 A JSON object specifies the `name` and `type` of the file or the remote `url`.
 
-##### Example
+#### Example
 
 ```sh
 curl -u apiKey:apiSecret -X POST -d '{"name": "tiger.jpg", "type": "image/jpeg"}' https://api.abraia.me/files/userid/
@@ -234,7 +200,7 @@ It is also possible to upload a remote URL. For instance, an image of Usain Bolt
 curl -u apiKey:apiSecret -X POST -d '{"url": "http://upload.wikimedia.org/wikipedia/commons/1/13/Usain_Bolt_16082009_Berlin.JPG"}' https://api.abraia.me/files/userid/
 ```
 
-#### Download file
+### Download file
 
 Retrieve an stored file using the following URL:
 
@@ -242,19 +208,19 @@ Retrieve an stored file using the following URL:
 
 Replace `{userid}` and `{path}` with your user id and file path. The API call will return an 307 status code with the signed URL redirection to download the file data.
 
-##### Example
+#### Example
 
 ```sh
 curl -u apiKey:apiSecret -L https://api.abraia.me/files/demo/bird.jpg -o bird.jpg
 ```
 
-#### Delete file
+### Delete file
 
 Delete a stored resource specified by its `path`.
 
 	DELETE /files/{userid}/{path}
 
-#### Move file
+### Move file
 
 Move a stored file from an `oldPath` to a `newPath` using the following URL:
 
@@ -262,7 +228,7 @@ Move a stored file from an `oldPath` to a `newPath` using the following URL:
 
 This URL creates the new resource from the one specified in the JSON object with the `store` parameter.
 
-##### Example
+#### Example
 
 ```sh
 curl -u apiKey:apiSecret -X POST -d '{"store": "demo/bird.jpg"}' https://api.abraia.me/files/demo/test/bird.jpg
@@ -279,7 +245,7 @@ The above command returns a response as bellow:
 }
 ```
 
-### Image compression api
+## Image compression
 
 The image compression API provides powerful algorithms to achieve the best quality results resizing and [optimizing images](timizing images](/docs/image-optimization/), in order to adapt them to the graphic design of your website or mobile application.
 
@@ -318,7 +284,7 @@ curl -u apiKey:apiSecret https://api.abraia.me/images/demo/Usain_Bolt_16082009_B
 
 <img src="https://store.abraia.me/demo/public/api/usaint-bolt_500x500.jpeg" alt="Usain Bolt from Wikimedia Commons Smartly Cropped to 500x500" />
 
-##### Image transformations
+#### Image transformations
 
 <div class="columns is-multiline">
   <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
@@ -368,7 +334,7 @@ curl -u apiKey:apiSecret https://api.abraia.me/images/demo/Usain_Bolt_16082009_B
   </div>
 </div>
 
-##### Enhancement filters
+#### Enhancement filters
 
 <div class="columns is-multiline">
   <div class="column is-full-mobile is-half-tablet is-half-desktop">
@@ -392,7 +358,7 @@ curl -u apiKey:apiSecret https://api.abraia.me/images/demo/Usain_Bolt_16082009_B
   </div>
 </div>
 
-##### Filter effects
+#### Filter effects
 
 <img src="https://store.abraia.me/demo/public/api/beach-bungalow-caribbean-jetty_500.jpg" alt="beach bungalow original" />
 <center><i>Original beach bungalow image</i></center><br>
@@ -480,7 +446,7 @@ curl -u apiKey:apiSecret https://api.abraia.me/images/demo/Usain_Bolt_16082009_B
   </div>
 </div>
 
-##### Action filters
+#### Action filters
 
 Actions are an experimental feature to provide a powerful content-based edition tool. They are going to be developed to enable smart actions like adaptive watermarking. For instance, changing the text color based on the background color, or using the negative space to place the watermark.
 
@@ -488,7 +454,7 @@ Actions are an experimental feature to provide a powerful content-based edition 
 <p class="has-text-centered">Parameters: <code>atn=blur-faces</code></p>
 <p class="has-text-centered">Description: Anonymize pictures using Abraia's face detection feature.</p>
 
-### Video optimization api
+## Video optimization
 
 The video optimization API provides powerful algorithms to achiveve the best quality results to transcode and [optimizate videos](timizate videos](/docs/video-optimization).
 
