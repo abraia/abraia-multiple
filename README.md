@@ -5,36 +5,135 @@
 
 # Abraia API client
 
-Batch optimize images for web with no quality damage based on perception-driven technology.
+Automatically crop, resize, convert, and compress images for web.
 
-* Optimal image compression with our perceptual adjustment to preserve the quality and maximize the compression.
-* Smart crop and resize images with our saliency and aesthetic based model which balances between content and aesthetics.
+> No more complex ImageMagick parametrizations. Simple convert and resize your master images from the command line and get perfectly optimized images for web and mobile apps.
 
-Automatically crop, resize, and compress images for web.
+Batch resize and optimize images with no quality damage based on perception-driven technology.
 
-## Installation
+* Automatically crop and resize images to an specific size with smart cropping technology (our saliency and aesthetic based model balances between content and aesthetics).
+* Convert SVGs to PNG or WebP images preserving the transparent background, or add a color to generate JPEG or WebP images.
+* Automatically optimize image compression with our perceptual adjustment to preserve the quality and maximize the compression.
 
-The Abraia python client and CLI works in Windows, Mac, and Linux with Python 2 and 3 (python>=2.6.5), and can be installed and upgraded with a simple command:
+Choose an specific size, select the background color, and convert and optimize images for web (JPEG, PNG, WebP).
+
+## Abraia command line
+
+The Abraia CLI tool provides a simple way to bulk resize, convert, and optimize your images and photos for web. Enabling the conversion from different input formats to get images in the right formats to be used in the web - JPEG, WebP, or PNG -. Moreover, it supports a number of transformations that can be applied to image batches. So you can easily convert your images to be directly published on the web.
+
+![batch resize command](https://github.com/abraia/abraia-python/raw/master/images/batch-resize-command.gif)
+
+For instance you can optimize all the images in a folder with the simple command bellow:
+
+```sh
+abraia optimize images
+```
+
+### Installation
+
+The Abraia CLI is a multiplatform tool (Windows, Mac, Linux) based on Python (Python 2.6.5 or higher), that can be be installed with a simple command:
 
 ```sh
 python -m pip install -U abraia
 ```
 
-Moreover, you have to configure your [ABRAIA_KEY](https://abraia.me/console/settings) as an environment variable:
+If you are on Windows install <a href="https://www.python.org/downloads/">Python</a> first, otherwise open a terminal or command line and write the previous command to install or upgrade the Abraia CLI.
+
+The first time you run Abraia CLI you need to configure your API key, just write the command bellow and paste your key.
 
 ```sh
-export ABRAIA_KEY=api_key
+abraia configure
 ```
 
-On Windows you need to use set instead of export:
+Now, you are ready to bulk resize and convert your images for web.
+
+### Convert SVG to PNG
+
+Converting a SVG image to PNG, now is so simple as to type the command bellow:
 
 ```sh
-set ABRAIA_KEY=api_key
+abraia convert bat.svg bat.png
 ```
 
-NOTE: To persist the configuration use your system options to set your ABRAIA_KEY environment variable and avoid to run the previous command every time you start a terminal/console session.
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.svg" alt="bat svg">
 
-## Usage
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.png" alt="bat png">
+
+The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
+
+### Convert image to WebP
+
+The JPEG image format is still the most common format to publish photos on the web. However, converting images to WebP provides a significant improvement for web publishing. To convert an image to WebP just write a simple command like bellow:
+
+```sh
+abraia convert garlic.jpg garlic.webp
+```
+
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.jpg" alt="garlic jpeg">
+
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.webp" alt="garlic webp">
+
+The same can be used to convert a GIF animation to WebP and save several bytes.
+
+```sh
+abraia convert bob-sponge.gif bob-sponge.webp
+```
+
+<img src="https://github.com/abraia/abraia-python/raw/master/images/bob-sponge.gif" alt="bob sponge gif">
+
+<img src="https://github.com/abraia/abraia-python/raw/master/images/bob-sponge.webp" alt="bob sponge webp">
+
+### Convert PSD to JPG<!-- ## Convert PSD to SVG -->
+
+A .PSD file is a layered image file used in Adobe PhotoShop for saving data. You can easily convert then, and get the result of flattening all the visible layers with a command like bellow:
+
+```sh
+abraia convert strawberry.psd strawberry.jpg
+```
+
+The previous command just convert a PSD file to JPEG, automatically adding a white background, in this case, because the JPEG format does not support transparency. Instead, using the PNG format you can preserve the transparent background.
+
+```sh
+abraia convert strawberry.psd strawberry.png
+```
+
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.jpg" alt="white background strawberry">
+
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.png" alt="transparent strawberry">
+
+<!--         
+  Take web screenshots from the command line just specifying and ur and get the capture.
+  
+  Convert a batch of Photoshop files with a simple command.
+
+  Just copy your PSD files to a folder, for instance the `photoshop` folder, and convert all the files in that folder.
+
+  ```sh
+  abraia convert photoshop
+  ```
+-->
+
+### Resize and compress images for web
+
+To resize your images just specify the target `width` or `height`.
+
+For example, get a set of images with a fixed width of 300px preserving the aspect ratio of each image:</p>
+
+```sh
+abraia optimize --width 300 [path] [dest]
+```
+
+To automatically crop all your images contained in a folder using our smart cropping technology, you just need to specify both `width` and `height` of the output image.
+
+```sh
+abraia optimize --width 300 --height 300 [path] [dest]
+```
+
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg" alt="beauty casual resized">
+
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_500x500.jpg" alt="beauty casual smart cropped">
+
+## Abraia python API
 
 The Abraia fluent API is the easiest way to resize and compress images with Python. You just need to define the source of the image, the transformation operation, and the sink for the resultant image.
 
@@ -50,6 +149,22 @@ paths = glob('images/*.jpg')
 for path in paths:
     abraia.from_file(path).resize(width=2000).to_file(path+'o')
 ```
+
+### Configuration
+
+To use the API, you have to configure your [ABRAIA_KEY](https://abraia.me/console/settings) as an environment variable:
+
+```sh
+export ABRAIA_KEY=api_key
+```
+
+On Windows you need to use set instead of export:
+
+```sh
+set ABRAIA_KEY=api_key
+```
+
+NOTE: To persist the configuration use your system options to set your ABRAIA_KEY environment variable and avoid to run the previous command every time you start a terminal/console session.
 
 ### Compress images
 
@@ -113,21 +228,18 @@ abraia.from_file('images/lion.jpg').resize(width=333, action='test.atn').to_file
 
 As a result you get a perfectly branded and optimized image ready to be used on your website, ecommerce, marketplace, or social media.
 
-## Files storage
+### Files storage API
 
-### List files
+#### List files
 
-Retrieve information about all the files stored in a cloud folder using the following URL:
+Retrieve information about all the files stored in a cloud folder.
 
-	GET /files/{userid}/
-
-This endpoint retrieves all the file data as a JSON structure with a list of `files` and `folders`.
-
-#### Example
-
-```sh
-curl -u apiKey:apiSecret https://api.abraia.me/files/demo/
+```python
+folder = ''
+files, folders = abraia.list(folder)
 ```
+
+Return the list of `files` and `folders` on the specified cloud `folder`.
 
 The above command returns JSON structured like this:
 
@@ -160,102 +272,58 @@ The above command returns JSON structured like this:
 }
 ```
 
-### Upload file
+#### Upload file
 
-Upload a local or a remote file using the following URL:
+Upload a local (`src`) or a remote (`url`) file to the cloud.
 
-   POST /files/{userid}/{path}
-
-This URL creates the resource on the cloud and returns the signed URL to upload the file.
-
-A JSON object specifies the `name` and `type` of the file or the remote `url`.
-
-#### Example
-
-```sh
-curl -u apiKey:apiSecret -X POST -d '{"name": "tiger.jpg", "type": "image/jpeg"}' https://api.abraia.me/files/userid/
+```python
+src = 'test.png'
+path = 'test/test.png'
+abraia.upload(src, path)
 ```
 
-The above command returns JSON structured with the upload URL like this:
-
-```json
-{
-   "uploadURL": "https://s3.eu-west-1.amazonaws.com/store.abraia.me/demo/tiger.jpg?AWSAccessKeyId=ASIAWYD4NR3V2Q3QGRHM&Content-Type=image%2Fjpeg&Expires=1539444387&Signature=PtC917pbwI33Yy%2BHLvCRUquW3Z4%3D&x-amz-security-token=FQoGZXIvYXdzEPn%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaDAydZFATwU34O1CCNCLvAaQESCzuGMJjBdvp6A5rLvlfGN%2BlvdqUoTm52fwBH0Pjaf3Pq7bD2gNXk34RvbRCrG1GKMyq6nEDiMuzReJdl%2F4R7uMLhr2es%2FcvvHqYqopgsYpIwQRqVfEOCi9uxuLwOmbiuDl137QkTG9LcxnI4qc%2BswakShQZkdZ1RtkJrWluWfl0qN6LVMvDVIhFb74%2BWojy8asgw%2BvtNRV%2FAv9aaCPUjzNGmsmd%2FuLU9Vc%2Fsj0CSOns%2BD3%2BQmFKPGz5D6P4ihWqxfqhzm4i23Oq93XfiGqgrA%2FKMPNP06zfL%2F3qVpJLHZRhnkJRv27jObGVa0GoKJ2WiN4F"
-}
-```
-
-This `uploadURL` needs to be used to upload the file data.
-
-```sh
-curl -H 'Content-Type: image/jpeg' -T tiger.jpg 'ttps://s3.eu-west-1.amazonaws.com/store.abraia.me/demo/tiger.jpg?AWSAccessKeyId=ASIAWYD4NR3V2Q3QGRHM&Content-Type=image%2Fjpeg&Expires=1539444387&Signature=PtC917pbwI33Yy%2BHLvCRUquW3Z4%3D&x-amz-security-token=FQoGZXIvYXdzEPn%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaDAydZFATwU34O1CCNCLvAaQESCzuGMJjBdvp6A5rLvlfGN%2BlvdqUoTm52fwBH0Pjaf3Pq7bD2gNXk34RvbRCrG1GKMyq6nEDiMuzReJdl%2F4R7uMLhr2es%2FcvvHqYqopgsYpIwQRqVfEOCi9uxuLwOmbiuDl137QkTG9LcxnI4qc%2BswakShQZkdZ1RtkJrWluWfl0qN6LVMvDVIhFb74%2BWojy8asgw%2BvtNRV%2FAv9aaCPUjzNGmsmd%2FuLU9Vc%2Fsj0CSOns%2BD3%2BQmFKPGz5D6P4ihWqxfqhzm4i23Oq93XfiGqgrA%2FKMPNP06zfL%2F3qVpJLHZRhnkJRv27jObGVa0GoKJ2WiN4F'
-```
+This creates the resource on the cloud and returns the file data, when the process is finished.
 
 It is also possible to upload a remote URL. For instance, an image of Usain Bolt from wikimedia.
 
-<a href="http://upload.wikimedia.org/wikipedia/commons/1/13/Usain_Bolt_16082009_Berlin.JPG">
-  <img src="https://github.com/abraia/abraia-python/raw/master/images/usaint-bolt_qauto.jpeg" alt="Usain Bolt from Wikimedia Commons" />
-</a>
-
-```sh
-curl -u apiKey:apiSecret -X POST -d '{"url": "http://upload.wikimedia.org/wikipedia/commons/1/13/Usain_Bolt_16082009_Berlin.JPG"}' https://api.abraia.me/files/userid/
+```python
+url = 'http://upload.wikimedia.org/wikipedia/commons/1/13/Usain_Bolt_16082009_Berlin.JPG'
+abraia.upload(url, 'usain.jpg')
 ```
 
-### Download file
+<img src="https://github.com/abraia/abraia-python/raw/master/images/usaint-bolt_qauto.jpeg" alt="Usain Bolt from Wikimedia Commons" />
 
-Retrieve an stored file using the following URL:
+#### Download file
 
-   GET /files/{userid}/{path}
+Retrieve an stored file.
 
-Replace `{userid}` and `{path}` with your user id and file path. The API call will return an 307 status code with the signed URL redirection to download the file data.
-
-#### Example
-
-```sh
-curl -u apiKey:apiSecret -L https://api.abraia.me/files/demo/bird.jpg -o bird.jpg
+```python
+path = 'test/bird.jpg'
+dest = 'bird.jpg'
+abraia.download(path, dest)
 ```
 
-### Delete file
+#### Delete file
 
 Delete a stored resource specified by its `path`.
 
-	DELETE /files/{userid}/{path}
-
-### Move file
-
-Move a stored file from an `oldPath` to a `newPath` using the following URL:
-
-   POST /files/{newPath}
-
-This URL creates the new resource from the one specified in the JSON object with the `store` parameter.
-
-#### Example
-
-```sh
-curl -u apiKey:apiSecret -X POST -d '{"store": "demo/bird.jpg"}' https://api.abraia.me/files/demo/test/bird.jpg
+```python
+abraia.delete(path)
 ```
 
-The above command returns a response as bellow:
+#### Move file
 
-```json
-{
-  "file": {
-    "name": "bird.jpg",
-    "source": "demo/test/bird.jpg"
-  }
-}
+Move a stored file from an `old_path` to a `new_path`.
+
+```python
+abraia.move_file(old_path, new_path)
 ```
 
-## Image compression
+### Image optimization API
 
-The image compression API provides powerful algorithms to achieve the best quality results resizing and [optimizing images](timizing images](/docs/image-optimization/), in order to adapt them to the graphic design of your website or mobile application.
+The image optimization API provides powerful algorithms to achieve the best quality results resizing and [optimizing images](https://abraia.me/docs/image-optimization/), in order to adapt them to the graphic design of your website or mobile application.
 
-To retrieve an optimized image is as simple as using the following URL:
-
-   GET /images/{userid}/{path}?q=auto
-
-Replace `{userid}` and `{path}` with the image path and filename, and the API call will transform the image on-the-fly to return the optimized result. We chose and optimize every compression parameter to provide the best result based on the perceptive analysis of the original image.
-
-#### Query parameters
+To retrieve an optimized image is as simple as using the image path and the `quality` parameter set to 'auto'. The service will automatically choose and optimize every compression parameter to provide the best result based on the perceptive analysis of the original image.
 
 Parameter | Description
 ----------|------------
@@ -268,7 +336,7 @@ background | Change background color in padded mode (white by default)
 
 #### Examples
 
-To optimize and resize an image maintaining the aspect ratio is enough to specify the width (`w`) or the height (`h`) of the new image. `w=500` sets the width of the image to 500 pixels and maintains the aspect ratio of the image adapting the height.
+To optimize and resize an image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image. `w=500` sets the width of the image to 500 pixels and maintains the aspect ratio of the image adapting the height.
 
 ```sh
 curl -u apiKey:apiSecret https://api.abraia.me/images/demo/Usain_Bolt_16082009_Berlin.JPG?w=500 -o UsainBolt.jpg
@@ -344,7 +412,7 @@ curl -u apiKey:apiSecret https://api.abraia.me/images/demo/Usain_Bolt_16082009_B
   <div class="column is-full-mobile is-half-tablet is-half-desktop">
     <img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_cbalance.jpg" alt="house color balanced" />
     <p>Parameters: <code>f=cbalance</code></p>
-    <p>Description: Applies a simplest color balance..</p><br>
+    <p>Description: Applies a simplest color balance.</p><br>
   </div>
   <div class="column is-full-mobile is-half-tablet is-half-desktop">
     <img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_ibalance.jpg" alt="house intensity balanced" />
@@ -415,11 +483,6 @@ curl -u apiKey:apiSecret https://api.abraia.me/images/demo/Usain_Bolt_16082009_B
     <p>Description: Applies a country effect to the image.</p>
   </div>
   <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_cartoonify.jpg" alt="beach cartoonify filter" />
-    <p>Parameters: <code>f=cartoonify</code></p>
-    <p>Description: Applies a cartoonify effect to the image.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
     <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sketch.jpg" alt="beach sketch filter" />
     <p>Parameters: <code>f=sketch</code></p>
     <p>Description: Applies a sketch effect to the image.</p>
@@ -454,9 +517,9 @@ Actions are an experimental feature to provide a powerful content-based edition 
 <p class="has-text-centered">Parameters: <code>atn=blur-faces</code></p>
 <p class="has-text-centered">Description: Anonymize pictures using Abraia's face detection feature.</p>
 
-## Video optimization
+### Video optimization API
 
-The video optimization API provides powerful algorithms to achiveve the best quality results to transcode and [optimizate videos](timizate videos](/docs/video-optimization).
+The video optimization API provides powerful algorithms to achiveve the best quality results to transcode and [optimizate videos](https://abraia.me/docs/video-optimization).
 
 Run a video transcoding task using the following URL:
 
