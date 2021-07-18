@@ -21,13 +21,13 @@ Choose an specific size, select the background color, and convert and optimize i
 
 The Abraia CLI tool provides a simple way to bulk resize, convert, and optimize your images and photos for web. Enabling the conversion from different input formats to get images in the right formats to be used in the web - JPEG, WebP, or PNG -. Moreover, it supports a number of transformations that can be applied to image batches. So you can easily convert your images to be directly published on the web.
 
-![batch resize command](https://github.com/abraia/abraia-python/raw/master/images/batch-resize-command.gif)
-
-For instance you can optimize all the images in a folder with the simple command bellow:
+For instance, you can optimize all the images in a folder with the simple command bellow:
 
 ```sh
 abraia optimize images
 ```
+
+![batch resize command](https://github.com/abraia/abraia-python/raw/master/images/batch-resize-command.gif)
 
 ### Installation
 
@@ -37,7 +37,7 @@ The Abraia CLI is a multiplatform tool (Windows, Mac, Linux) based on Python (Py
 python -m pip install -U abraia
 ```
 
-If you are on Windows install <a href="https://www.python.org/downloads/">Python</a> first, otherwise open a terminal or command line and write the previous command to install or upgrade the Abraia CLI.
+If you are on Windows install [Python](https://www.python.org/downloads/) first, otherwise open a terminal or command line and write the previous command to install or upgrade the Abraia CLI.
 
 The first time you run Abraia CLI you need to configure your API key, just write the command bellow and paste your key.
 
@@ -47,7 +47,40 @@ abraia configure
 
 Now, you are ready to bulk resize and convert your images for web.
 
-### Convert SVG to PNG
+### Resize images
+
+To resize an image you just need to specify the `width` or the `height` of the image:
+
+```sh
+abraia optimize --width 500 images/lion.jpg images/lion_500.jpg
+```
+
+![Image lion resized](https://github.com/abraia/abraia-python/raw/master/images/lion_500.jpg)
+
+You can also [automatically crop and resize](https://abraia.me/docs/smart-cropping) and image to change the aspect ratio specifying both `width` and `height` size parameters:
+
+```sh
+abraia optimize --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
+```
+
+![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
+
+### Convert images
+
+To convert images to a web format (JPEG, PNG, WebP, GIF) or between these formats you just need to change the filename extension for the destination file:
+
+```sh
+abraia optimize images/jaguar.png jaguar.webp
+abraia optimize images/jaguar.png jaguar.jpg
+```
+
+![PNG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar_o.png)
+![WEBP Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.webp)
+![JPEG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.jpg)
+
+*Optimized PNG (16.1KB) vs optimized WebP (6.5KB) vs optimized JPEG (14.4KB)*
+
+#### Convert SVG to PNG
 
 Converting a SVG image to PNG, now is so simple as to type the command bellow:
 
@@ -61,7 +94,7 @@ abraia convert bat.svg bat.png
 
 The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
 
-### Convert image to WebP
+#### Convert image to WebP
 
 The JPEG image format is still the most common format to publish photos on the web. However, converting images to WebP provides a significant improvement for web publishing. To convert an image to WebP just write a simple command like bellow:
 
@@ -83,7 +116,7 @@ abraia convert bob-sponge.gif bob-sponge.webp
 
 <img src="https://github.com/abraia/abraia-python/raw/master/images/bob-sponge.webp" alt="bob sponge webp">
 
-### Convert PSD to JPG<!-- ## Convert PSD to SVG -->
+#### Convert PSD to JPG<!-- ## Convert PSD to SVG -->
 
 A .PSD file is a layered image file used in Adobe PhotoShop for saving data. You can easily convert then, and get the result of flattening all the visible layers with a command like bellow:
 
@@ -115,9 +148,16 @@ abraia convert strawberry.psd strawberry.png
 
 ### Resize and compress images for web
 
-To resize your images just specify the target `width` or `height`.
+To compress an image you just need to specify the input and output paths for the image:
 
-For example, get a set of images with a fixed width of 300px preserving the aspect ratio of each image:</p>
+```sh
+abraia optimize images/birds.jpg images/birds_o.jpg
+abraia optimize images/jaguar.png images/jaguar_o.png
+```
+
+![Image compressed from url](https://github.com/abraia/abraia-python/raw/master/images/birds_o.jpg)
+
+To resize your images just specify the target `width` or `height`. So, to get a set of images with a fixed width of 300px preserving the aspect ratio of each image:</p>
 
 ```sh
 abraia optimize --width 300 [path] [dest]
@@ -132,6 +172,18 @@ abraia optimize --width 300 --height 300 [path] [dest]
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg" alt="beauty casual resized">
 
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_500x500.jpg" alt="beauty casual smart cropped">
+
+### Watermark images
+
+Using templates images can be easily edited and consistently branded. You just need to [create a template in the web editor](https://abraia.me/console/editor) to watermark your images.
+
+```python
+abraia.from_file('images/lion.jpg').resize(width=333, action='test.atn').to_file('images/lion_brand.jpg')
+```
+
+![Branded lion](https://github.com/abraia/abraia-python/raw/master/images/branded.jpg)
+
+As a result you get a perfectly branded and optimized image ready to be used on your website, ecommerce, marketplace, or social media.
 
 ## Abraia python API
 
@@ -165,68 +217,6 @@ set ABRAIA_KEY=api_key
 ```
 
 NOTE: To persist the configuration use your system options to set your ABRAIA_KEY environment variable and avoid to run the previous command every time you start a terminal/console session.
-
-### Compress images
-
-To compress an image you just need to specify the input and output paths for the image:
-
-```python
-abraia.from_file('images/lion.jpg').to_file('images/lion_o.jpg')
-abraia.from_file('images/jaguar.png').to_file('images/jaguar_o.png')
-```
-
-You can also compress and image directly from an url:
-
-```python
-abraia.from_url('https://api.abraia.me/files/demo/birds.jpg').to_file('images/birds_o.jpg')
-```
-
-![Image compressed from url](https://github.com/abraia/abraia-python/raw/master/images/birds_o.jpg)
-
-### Resize images
-
-To resize an image you just need to specify the `width` or the `height` of the image:
-
-```python
-abraia.from_file('images/lion.jpg').resize(width=500).to_file('images/lion_500.jpg')
-```
-
-![Image lion resized](https://github.com/abraia/abraia-python/raw/master/images/lion_500.jpg)
-
-You can also [automatically crop and resize](https://abraia.me/docs/smart-cropping) and image to change the aspect ratio specifying both `width` and `height` size parameters:
-
-```python
-abraia.from_file('images/lion.jpg').resize(width=333, height=333).to_file('images/lion_333x333.jpg')
-```
-
-![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
-
-### Convert images
-
-To convert images to a web format (JPEG, PNG, WebP, GIF) or between these formats you just need to change the filename extension for the destination file:
-
-```python
-abraia.from_file('images/jaguar.png').to_file('jaguar.webp')
-abraia.from_file('images/jaguar.png').to_file('jaguar.jpg')
-```
-
-![PNG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar_o.png)
-![WEBP Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.webp)
-![JPEG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.jpg)
-
-*Optimized PNG (16.1KB) vs optimized WebP (6.5KB) vs optimized JPEG (14.4KB)*
-
-### Watermark images
-
-Using templates images can be easily edited and consistently branded. You just need to [create a template in the web editor](https://abraia.me/console/editor) to watermark your images.
-
-```python
-abraia.from_file('images/lion.jpg').resize(width=333, action='test.atn').to_file('images/lion_brand.jpg')
-```
-
-![Branded lion](https://github.com/abraia/abraia-python/raw/master/images/branded.jpg)
-
-As a result you get a perfectly branded and optimized image ready to be used on your website, ecommerce, marketplace, or social media.
 
 ### Files storage API
 
@@ -516,48 +506,6 @@ Actions are an experimental feature to provide a powerful content-based edition 
 <img src="https://github.com/abraia/abraia-python/raw/master/images/pexels-photo-289224_500_blur-faces.jpeg" alt="anonymized couple picture" />
 <p class="has-text-centered">Parameters: <code>atn=blur-faces</code></p>
 <p class="has-text-centered">Description: Anonymize pictures using Abraia's face detection feature.</p>
-
-### Video optimization API
-
-The video optimization API provides powerful algorithms to achiveve the best quality results to transcode and [optimizate videos](https://abraia.me/docs/video-optimization).
-
-Run a video transcoding task using the following URL:
-
-   GET /videos/{userid}/{path}
-
-Replace `{userid}` and `{path}` with the video path. The API call returns the
-path where the video will be placed.
-
-#### Query parameters
-
-Parameter | Description
-----------|------------
-format | Set video format codec: mp4, webm, gif, jpeg, h264, vp9, h265, hls (mp4 by default)
-quality | Set video quality CRF (23 by default)
-width | Video width (original width by default)
-height | Video height (original height by default)
-mode | Resize and crop mode: thumb, pad, crop, blur (thumb by default)
-background | Change background color in padded mode (white by default)
-overlay | Path to the image to be overlayed (none by default)
-mute | Remove audio when is true (false by default)
-subtitles | Path to the srt subtitles file (none by default)
-frame | Time in seconds to the frame from start (none by default)
-from | Start time in seconds (0 by default)
-to | End time in seconds (duration by default)
-
-#### Example
-
-```sh
-curl -u apiKey:apiSecret https://api.abraia.me/videos/demo/videos/zara.mp4?format=mp4&width=600
-```
-
-The above command returns JSON structured like this:
-
-```json
-{
-   "path": "demo/videos/zara/zara_600.mp4"
-}
-```
 
 ### Errors
 

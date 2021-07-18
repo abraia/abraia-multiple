@@ -74,11 +74,6 @@ def test_screenshot_webpage():
     assert isinstance(resp, BytesIO)
 
 
-def test_transform_video():
-    resp = abraia.transform_video(os.path.join(userid, 'videos/bigbuckbunny.mp4'), {'format': 'jpg'})
-    assert isinstance(resp, dict)
-
-
 def test_remove_file():
     resp = abraia.remove_file(os.path.join(userid, 'tiger.jpg'))
     assert resp['name'] == 'tiger.jpg'
