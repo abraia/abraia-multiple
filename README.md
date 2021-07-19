@@ -24,7 +24,7 @@ The Abraia CLI tool provides a simple way to bulk resize, convert, and optimize 
 For instance, you can optimize all the images in a folder with the simple command bellow:
 
 ```sh
-abraia optimize images
+abraia convert images
 ```
 
 ![batch resize command](https://github.com/abraia/abraia-python/raw/master/images/batch-resize-command.gif)
@@ -49,29 +49,32 @@ Now, you are ready to bulk resize and convert your images for web.
 
 ### Resize images
 
-To resize an image you just need to specify the `width` or the `height` of the image:
+To resize and optimize and image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image:
 
 ```sh
-abraia optimize --width 500 images/lion.jpg images/lion_500.jpg
+abraia convert --width 500 images/usain-bolt.jpeg images/usaint-bolt_500.jpeg
+```
+
+![Usain Bolt resized](https://github.com/abraia/abraia-python/raw/master/images/usaint-bolt_500.jpeg)
+
+You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
+
+```sh
+abraia convert --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
+abraia convert --width 333 --height 333 --mode pad images/lion.jpg images/lion_333x333.jpg
 ```
 
 ![Image lion resized](https://github.com/abraia/abraia-python/raw/master/images/lion_500.jpg)
-
-You can also [automatically crop and resize](https://abraia.me/docs/smart-cropping) and image to change the aspect ratio specifying both `width` and `height` size parameters:
-
-```sh
-abraia optimize --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
-```
-
 ![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
+![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333_pad.jpg)
 
 ### Convert images
 
 To convert images to a web format (JPEG, PNG, WebP, GIF) or between these formats you just need to change the filename extension for the destination file:
 
 ```sh
-abraia optimize images/jaguar.png jaguar.webp
-abraia optimize images/jaguar.png jaguar.jpg
+abraia convert images/jaguar.png jaguar.webp
+abraia convert images/jaguar.png jaguar.jpg
 ```
 
 ![PNG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar_o.png)
@@ -151,8 +154,8 @@ abraia convert strawberry.psd strawberry.png
 To compress an image you just need to specify the input and output paths for the image:
 
 ```sh
-abraia optimize images/birds.jpg images/birds_o.jpg
-abraia optimize images/jaguar.png images/jaguar_o.png
+abraia convert images/birds.jpg images/birds_o.jpg
+abraia convert images/jaguar.png images/jaguar_o.png
 ```
 
 ![Image compressed from url](https://github.com/abraia/abraia-python/raw/master/images/birds_o.jpg)
@@ -160,13 +163,13 @@ abraia optimize images/jaguar.png images/jaguar_o.png
 To resize your images just specify the target `width` or `height`. So, to get a set of images with a fixed width of 300px preserving the aspect ratio of each image:</p>
 
 ```sh
-abraia optimize --width 300 [path] [dest]
+abraia convert --width 300 [path] [dest]
 ```
 
 To automatically crop all your images contained in a folder using our smart cropping technology, you just need to specify both `width` and `height` of the output image.
 
 ```sh
-abraia optimize --width 300 --height 300 [path] [dest]
+abraia convert --width 300 --height 300 [path] [dest]
 ```
 
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg" alt="beauty casual resized">
@@ -177,8 +180,8 @@ abraia optimize --width 300 --height 300 [path] [dest]
 
 Using templates images can be easily edited and consistently branded. You just need to [create a template in the web editor](https://abraia.me/console/editor) to watermark your images.
 
-```python
-abraia.from_file('images/lion.jpg').resize(width=333, action='test.atn').to_file('images/lion_brand.jpg')
+```sh
+abraia convert --width 333 --action 'test.atn' lion.jpg lion_brand.jpg
 ```
 
 ![Branded lion](https://github.com/abraia/abraia-python/raw/master/images/branded.jpg)
@@ -311,7 +314,7 @@ abraia.move_file(old_path, new_path)
 
 ### Image optimization API
 
-The image optimization API provides powerful algorithms to achieve the best quality results resizing and [optimizing images](https://abraia.me/docs/image-optimization/), in order to adapt them to the graphic design of your website or mobile application.
+The image optimization API provides powerful algorithms to achieve the best quality results resizing and [optimizing images](https://abraia.me/docs/image-optimization/).
 
 To retrieve an optimized image is as simple as using the image path and the `quality` parameter set to 'auto'. The service will automatically choose and optimize every compression parameter to provide the best result based on the perceptive analysis of the original image.
 
@@ -324,180 +327,50 @@ height | Image height (original height by default)
 mode | Resize and crop mode: crop, face, thumb, resize (smart crop by default)
 background | Change background color in padded mode (white by default)
 
-#### Examples
-
-To optimize and resize an image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image. `w=500` sets the width of the image to 500 pixels and maintains the aspect ratio of the image adapting the height.
-
-```sh
-curl -u apiKey:apiSecret https://api.abraia.me/images/demo/Usain_Bolt_16082009_Berlin.JPG?w=500 -o UsainBolt.jpg
-```
-
-<img src="https://github.com/abraia/abraia-python/raw/master/images/usaint-bolt_500.jpeg" alt="Usain Bolt from Wikimedia Commons Resized to width 500" />
-
-To adapt the image to the required aspect ratio is enough to specify the width and height parameters. `w=500&h=500` sets the width and the height to 500 pixels changing the aspect ratio to 1:1, automatically selecting the best cropping area.
-
-```sh
-curl -u apiKey:apiSecret https://api.abraia.me/images/demo/Usain_Bolt_16082009_Berlin.JPG?w=500&h=500 -o UsainBolt.jpg
-```
-
-<img src="https://github.com/abraia/abraia-python/raw/master/images/usaint-bolt_500x500.jpeg" alt="Usain Bolt from Wikimedia Commons Smartly Cropped to 500x500" />
-
 #### Image transformations
 
-<div class="columns is-multiline">
-  <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300.jpg" alt="flowers resize width" />
-    <p class="has-text-centered">Parameters: <code>w=300</code></p>
-    <p>Description: Resizes the image maintaining the aspect ratio.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_x192.jpg" alt="flowers resize height" />
-    <p class="has-text-centered">Parameters: <code>h=192</code></p>
-    <p>Description: Resizes the image maintaining the aspect ratio.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x192.jpg" alt="flowers forced crop" />
-    <p class="has-text-centered">Parameters: <code>w=300&h=192&m=crop</code></p>
-    <p>Description: Forces the crop of the image when the aspect ratio is the original one.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x300.jpg" alt="flowers smart crop" />
-    <p class="has-text-centered">Parameters: <code>w=300&h=300</code></p>
-    <p>Description: Smartly crops and resize the image to adopt the new aspect ratio.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x300_resize.jpg" alt="flowers forces resize" />
-    <p class="has-text-centered">Parameters: <code>w=300&h=300&m=resize</code></p>
-    <p>Description: Forces the resize of the image when the aspect ratio is different from the one in the original image.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x300_ar.jpg" alt="flowers resize aspect ratio" />
-    <p class="has-text-centered">Parameters: <code>w=300&ar=1:1</code> or <code>h=300&ar=1</code></p>
-    <p>Description: Smartly crops and resize the image to adopt the new aspect ratio.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300_ar15.jpg" alt="flowers resize aspect ratio" />
-    <p class="has-text-centered">Parameters: <code>w=300&ar=1.5</code></p>
-    <p>Description: Smartly crops and resize the image to adopt the new aspect ratio.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_150_ar15_dpr2.jpg" alt="flowers resize dpr" />
-    <p class="has-text-centered">Parameters: <code>w=150&ar=1.5&dpr=2</code></p>
-    <p>Description: Adapts the image for retina displays, adopting the specified device pixel ratio (1, 2, 3).</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-one-third-desktop has-text-centered">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300_ar15.jpg" alt="flowers quality" />
-    <p class="has-text-centered">Parameters: <code>w=300&ar=1.5&q=50</code></p>
-    <p>Description: Sets the quality of the delivered jpg or webp image to 50 in the range (1, 100) - 1 is the lowest quality and 100 is the highest.</p>
-  </div>
-</div>
+Image | Parameters | Description
+------|------------|------------
+<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300.jpg" alt="flowers resize width" /> | <code>width=300</code> | Resizes the image maintaining the aspect ratio.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_x192.jpg" alt="flowers resize height" /> | <code>height=192</code> | Resizes the image maintaining the aspect ratio.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x192.jpg" alt="flowers forced crop" /> | <code>width=300&height=192&mode=crop</code> | Forces the crop of the image when the aspect ratio is the original one.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x300.jpg" alt="flowers smart crop" /> | <code>width=300&height=300</code> | Smartly crops and resize the image to adopt the new aspect ratio.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x300_pad.jpg" alt="flowers forces resize" /> | <code>width=300&height=300&mode=pad</code> | Resize the image adding some pad to adopt the new aspect ratio.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300.jpg" alt="flowers quality" /> | <code>width=300&quality=50</code> | Sets the quality of the delivered jpg or webp image to 50 in the range (1, 100) - 1 is the lowest quality and 100 is the highest.
 
 #### Enhancement filters
 
-<div class="columns is-multiline">
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500.jpg" alt="building wall house architecture original" />
-    <p class="has-text-centered"><i>Original building wall house image</i></p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_cbalance.jpg" alt="house color balanced" />
-    <p>Parameters: <code>f=cbalance</code></p>
-    <p>Description: Applies a simplest color balance.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_ibalance.jpg" alt="house intensity balanced" />
-    <p>Parameters: <code>f=ibalance</code></p>
-    <p>Description: Applies a simplest intensity balance.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_sharpen.jpg" alt="house sharpen" />
-    <p>Parameters: <code>f=sharpen</code></p>
-    <p>Description: Applies a sharpen filter to the image.</p>
-  </div>
-</div>
+<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500.jpg" alt="building wall house architecture original" />
+<center><i>Original building wall house image</i></center><br>
+
+Example | Parameters | Description
+--------|------------|------------
+<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_cbalance.jpg" alt="house color balanced" /> | <code>f=cbalance</code> | Applies a simplest color balance.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_ibalance.jpg" alt="house intensity balanced" /> | <code>f=ibalance</code> | Applies a simplest intensity balance.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_sharpen.jpg" alt="house sharpen" /> | <code>f=sharpen</code> | Applies a sharpen filter to the image.
 
 #### Filter effects
 
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500.jpg" alt="beach bungalow original" />
 <center><i>Original beach bungalow image</i></center><br>
 
-<div class="columns is-multiline">
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_blur.jpg" alt="beach blur filter" />
-    <p>Parameters: <code>f=blur</code></p>
-    <p>Description: Applies a Gaussian blur filter to the image.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_pixelate.jpg" alt="beach pixelate filter" />
-    <p>Parameters: <code>f=pixelate</code></p>
-    <p>Description: Applies a pixelizer filter to the image.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_grayscale.jpg" alt="beach grayscale filter" />
-    <p>Parameters: <code>f=grayscale</code></p>
-    <p>Description: Converts the image to grayscale.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_desaturate.jpg" alt="beach desaturate filter" />
-    <p>Parameters: <code>f=desaturate</code></p>
-    <p>Description: Desaturates the image.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_brighten.jpg" alt="beach brighten filter" />
-    <p>Parameters: <code>f=brighten</code></p>
-    <p>Description: Applies a brighten effect to the image.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_contrast.jpg" alt="beach contrast filter" />
-    <p>Parameters: <code>f=contrast</code></p>
-    <p>Description: Applies a contrast effect to the image.</p>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sepia.jpg" alt="beach sepia filter" />
-    <p>Parameters: <code>f=sepia</code></p>
-    <p>Description: Applies a sepia effect.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sunlight.jpg" alt="beach sunlight filter" />
-    <p>Parameters: <code>f=sunlight</code></p>
-    <p>Description: Applies a sunlight effect to the image.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_lumo.jpg" alt="beach lumo filter" />
-    <p>Parameters: <code>f=lumo</code></p>
-    <p>Description: Applies a lumo effect to the image.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_country.jpg" alt="beach country filter" />
-    <p>Parameters: <code>f=country</code></p>
-    <p>Description: Applies a country effect to the image.</p>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sketch.jpg" alt="beach sketch filter" />
-    <p>Parameters: <code>f=sketch</code></p>
-    <p>Description: Applies a sketch effect to the image.</p>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_crossprocess.jpg" alt="beach crossprocess filter" />
-    <p>Parameters: <code>f=crossprocess</code></p>
-    <p>Description: Applies the crossprocess film effect filter.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_velviaesque.jpg" alt="beach velviaesque filter" />
-    <p>Parameters: <code>f=velviaesque</code></p>
-    <p>Description: Applies the velviaesque film effect filter.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-    <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_proviaesque.jpg" alt="beach proviaesque filter" />
-    <p>Parameters: <code>f=proviaesque</code></p>
-    <p>Description: Applies the proviaesque film effect filter.</p><br>
-  </div>
-  <div class="column is-full-mobile is-half-tablet is-half-desktop">
-   <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_portraesque.jpg" alt="beach portraesque filter" />
-    <p>Parameters: <code>f=portraesque</code></p>
-    <p>Description: Applies the portraesque film effect filter.</p>
-  </div>
-</div>
+Example | Parameters | Description
+--------|------------|------------
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_blur.jpg" alt="beach blur filter" /> | <code>f=blur</code> | Description: Applies a Gaussian blur filter to the image.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_pixelate.jpg" alt="beach pixelate filter" /> | <code>f=pixelate</code> | Applies a pixelizer filter to the image.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_grayscale.jpg" alt="beach grayscale filter" /> | <code>f=grayscale</code> | Converts the image to grayscale.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_desaturate.jpg" alt="beach desaturate filter" /> | <code>f=desaturate</code> | Desaturates the image.</p>
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_brighten.jpg" alt="beach brighten filter" /> | <code>f=brighten</code> | Applies a brighten effect to the image.</p>
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_contrast.jpg" alt="beach contrast filter" /> | <code>f=contrast</code> | Applies a contrast effect to the image.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sepia.jpg" alt="beach sepia filter" /> | <code>f=sepia</code> | Applies a sepia effect.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sunlight.jpg" alt="beach sunlight filter" /> | <code>f=sunlight</code> | Applies a sunlight effect to the image.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_lumo.jpg" alt="beach lumo filter" /> | <code>f=lumo</code> | Applies a lumo effect to the image.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_country.jpg" alt="beach country filter" /> | <code>f=country</code> | Applies a country effect to the image.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sketch.jpg" alt="beach sketch filter" /> | <code>f=sketch</code> | Applies a sketch effect to the image.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_crossprocess.jpg" alt="beach crossprocess filter" /> | <code>f=crossprocess</code> | Applies the crossprocess film effect filter.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_velviaesque.jpg" alt="beach velviaesque filter" /> | <code>f=velviaesque</code> | Applies the velviaesque film effect filter.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_proviaesque.jpg" alt="beach proviaesque filter" /> | <code>f=proviaesque</code> | Applies the proviaesque film effect filter.
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_portraesque.jpg" alt="beach portraesque filter" /> | <code>f=portraesque</code> | Applies the portraesque film effect filter.
 
 #### Action filters
 
@@ -506,24 +379,6 @@ Actions are an experimental feature to provide a powerful content-based edition 
 <img src="https://github.com/abraia/abraia-python/raw/master/images/pexels-photo-289224_500_blur-faces.jpeg" alt="anonymized couple picture" />
 <p class="has-text-centered">Parameters: <code>atn=blur-faces</code></p>
 <p class="has-text-centered">Description: Anonymize pictures using Abraia's face detection feature.</p>
-
-### Errors
-
-Abraia uses conventional HTTP response codes to indicate the success or failure of an API request. In general, codes in the 2xx range indicate success, codes in the 4xx range indicate an error that failed given the information (e.g., a required parameter was omitted, a not found resource, etc.), and codes in the 5xx range indicate an error with Abraia's servers (these are rare).
-
-#### HTTP status code summary
-
-Code | Status | Description
------|--------|------------
-200 | OK. Successful | Everything worked as expected.
-201 | Created | A new resource was successfully created.
-307 | Temporal Redirect | The resource requested has been temporarily moved to the URL given by the Location headers.
-400 | Bad Request | The request was unacceptable, often due to missing a required parameter.
-401 | Unauthorized | No valid API key provided.
-402 | Payment Required | No credits available.
-403 | Not allowed | The service is not available for your account.
-404 | Not Found | The resource requested does not exist.
-500 | Server Error | Something went wrong on the service.
 
 ## License
 

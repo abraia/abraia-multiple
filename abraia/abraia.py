@@ -146,13 +146,6 @@ class Client(object):
             raise APIError(resp.text, resp.status_code)
         return BytesIO(resp.content)
 
-    def transform_video(self, path, params={}):
-        url = '{}/videos/{}'.format(config.API_URL, path)
-        resp = requests.get(url, params=params, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        return resp.json()
-
 
 class Abraia(Client):
     def __init__(self, folder=''):

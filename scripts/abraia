@@ -80,50 +80,15 @@ def info():
 @cli.command()
 @click.option('--width', help='Resize to specified width', type=int)
 @click.option('--height', help='Resize to specified height', type=int)
+@click.option('--mode', help='Select the resize mode', type=click.Choice(['pad', 'crop', 'thumb']))
 @click.option('--format', help='Convert to specified image format', type=click.Choice(['jpeg', 'png', 'webp']))
 @click.option('--action', help='Apply an action template', type=click.Path())
 @click.argument('src')
 @click.argument('dest', required=False)
-def optimize(src, dest, width, height, format, action):
-    """Optimize an image or set of images"""
-    try:
-        args = {'width': width, 'height': height, 'format': format, 'action': action}
-        filenames = input_files(src)
-        dirname = src.rstrip('/').rstrip('\\') if os.path.isdir(src) else None
-        for filename in tqdm(filenames, unit='file'):
-            if filename.startswith('http'):
-                path, name = '', os.path.basename(filename)
-            else:
-                path, name = os.path.split(filename)
-            nam, ext = name.split('.')
-            oext = format if format is not None else ext
-            fileout = dest if dest else os.path.join(path, nam + '_o.' + oext)
-            if dirname:
-                relpath = os.path.relpath(path, dirname)
-                if not os.path.exists(os.path.join(dirname + '_o', relpath)):
-                    os.makedirs(os.path.join(dirname + '_o', relpath))
-                fileout = os.path.join(
-                    dirname + '_o', relpath, nam + '.' + oext)
-            if ext.lower() in config.MIME_TYPES.keys():
-                resp = abraia.upload(filename)
-                abraia.transform(resp['path'], fileout, args)
-            else:
-                shutil.copy2(filename, fileout)
-    except APIError as error:
-        echo_error(error)
-
-
-@cli.command()
-@click.option('--width', help='Resize to specified width', type=int)
-@click.option('--height', help='Resize to specified height', type=int)
-@click.option('--format', help='Convert to specified image format', type=click.Choice(['jpeg', 'png', 'webp']))
-@click.option('--action', help='Apply an action template', type=click.Path())
-@click.argument('src')
-@click.argument('dest', required=False)
-def convert(src, dest, width, height, format, action):
+def convert(src, dest, width, height, mode, format, action):
     """Convert an image or set of images"""
     try:
-        args = {'width': width, 'height': height, 'format': format, 'action': action}
+        args = {'width': width, 'height': height, 'mode': mode, 'format': format, 'action': action, 'quality': 'auto'}
         filenames = input_files(src)
         dirname = src.rstrip('/').rstrip('\\') if os.path.isdir(src) else None
         for filename in tqdm(filenames, unit='file'):
@@ -144,7 +109,7 @@ def convert(src, dest, width, height, format, action):
                 path = filename
                 args['url'] = filename
             else:
-                resp = abraia.from_file(filename)
+                resp = abraia.upload(filename)
                 path = resp['path']
             # print(path, fileout, args)
             abraia.transform(path, fileout, args)
