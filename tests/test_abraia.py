@@ -86,11 +86,11 @@ def test_list():
     assert isinstance(folders, list)
 
 
-def test_from_file():
+def test_upload_file():
     """Tests an API call to upload a local file"""
-    resp = abraia.from_file('images/tiger.jpg')
-    assert isinstance(resp, Abraia)
-    assert resp.path.endswith('tiger.jpg')
+    resp = abraia.upload('images/tiger.jpg')
+    assert isinstance(resp, dict)
+    assert resp['path'].endswith('tiger.jpg')
 
 
 def test_upload_from_url():
@@ -100,7 +100,7 @@ def test_upload_from_url():
 
 
 def test_smartcrop_image_from_file():
-    abraia.from_file('images/birds.jpg').resize(width=375, height=375).to_file('images/birds_375x375.jpg')
+    abraia.upload('images/birds.jpg').resize(width=375, height=375).to_file('images/birds_375x375.jpg')
     assert os.path.isfile('images/birds_375x375.jpg')
 
 
@@ -116,6 +116,6 @@ def test_remove_stored_image():
 
 def test_server_error():
     with pytest.raises(APIError) as excinfo:
-        abraia.from_file('images/fake.jpg')
+        abraia.upload('images/fake.jpg')
     error = excinfo.value
     assert error.code == 501

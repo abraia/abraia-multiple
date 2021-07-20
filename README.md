@@ -152,9 +152,7 @@ As a result you get a perfectly branded and optimized image ready to be used on 
 
 ## Abraia python API
 
-The Abraia fluent API is the easiest way to resize and compress images with Python. You just need to define the source of the image, the transformation operation, and the sink for the resultant image.
-
-For instance, to optimize a batch of JPEG images limiting the maximum size to 2000 pixels width:
+The Abraia python API provides and easy way to automate image transformations. For instance, to optimize a batch of JPEG images limiting the maximum size to 2000 pixels width:
 
 ```python
 from glob import glob
@@ -164,7 +162,8 @@ abraia = Abraia()
 
 paths = glob('images/*.jpg')
 for path in paths:
-    abraia.from_file(path).resize(width=2000).to_file(path+'o')
+    res = abraia.upload(path)
+    abraia.transform(res['path'], path+'o', {'width': 2000})
 ```
 
 ### Configuration

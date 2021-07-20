@@ -190,13 +190,7 @@ class Abraia(Client):
         f = self.remove_file(self.userid + '/' + path)
         return {'path': f['source'][length:]}
 
-    def from_file(self, file):
-        resp = self.upload_file(file, self.userid + '/' + self.folder)
-        self.path = resp['source']
-        self.params = {'q': 'auto'}
-        return self
-
-    def transform(self, path, dest, params={'q': 'auto'}):
+    def transform(self, path, dest, params={'quality': 'auto'}):
         ext = dest.split('.').pop().lower()
         params['format'] = self.params.get('format') or ext
         buffer = self.transform_image(self.userid + '/' + path, params=params)
