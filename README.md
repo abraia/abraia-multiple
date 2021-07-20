@@ -49,6 +49,14 @@ Now, you are ready to bulk resize and convert your images for web.
 
 ### Resize images
 
+To compress an image you just need to specify the input and output paths for the image:
+
+```sh
+abraia convert images/birds.jpg images/birds_o.jpg
+```
+
+![Image compressed from url](https://github.com/abraia/abraia-python/raw/master/images/birds_o.jpg)
+
 To resize and optimize and image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image:
 
 ```sh
@@ -60,121 +68,75 @@ abraia convert --width 500 images/usain-bolt.jpeg images/usaint-bolt_500.jpeg
 You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
 
 ```sh
-abraia convert --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
 abraia convert --width 333 --height 333 --mode pad images/lion.jpg images/lion_333x333.jpg
+abraia convert --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
 ```
 
-![Image lion resized](https://github.com/abraia/abraia-python/raw/master/images/lion_500.jpg)
-![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
 ![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333_pad.jpg)
+![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
+
+So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
+
+```sh
+abraia convert --width 300 [path] [dest]
+```
+
+Or, automatically pad or crop all the images contained in the folder specifying both `width` and `height`:
+
+```sh
+abraia convert --width 300 --height 300 --mode crop [path] [dest]
+```
+
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg" alt="beauty casual resized">
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_500x500.jpg" alt="beauty casual smart cropped">
 
 ### Convert images
 
-To convert images to a web format (JPEG, PNG, WebP, GIF) or between these formats you just need to change the filename extension for the destination file:
+The JPEG image format is still the most common format to publish photos on the web. However, converting images to WebP provides a significant improvement for web publishing.
 
-```sh
-abraia convert images/jaguar.png jaguar.webp
-abraia convert images/jaguar.png jaguar.jpg
-```
-
-![PNG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar_o.png)
-![WEBP Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.webp)
-![JPEG Jaguar optimized](https://github.com/abraia/abraia-python/raw/master/images/jaguar.jpg)
-
-*Optimized PNG (16.1KB) vs optimized WebP (6.5KB) vs optimized JPEG (14.4KB)*
-
-#### Convert SVG to PNG
-
-Converting a SVG image to PNG, now is so simple as to type the command bellow:
-
-```sh
-abraia convert bat.svg bat.png
-```
-
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.svg" alt="bat svg">
-
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.png" alt="bat png">
-
-The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
-
-#### Convert image to WebP
-
-The JPEG image format is still the most common format to publish photos on the web. However, converting images to WebP provides a significant improvement for web publishing. To convert an image to WebP just write a simple command like bellow:
+To convert images to a web format (JPEG, PNG, WebP) or between these formats you just need to change the filename extension for the destination file:
 
 ```sh
 abraia convert garlic.jpg garlic.webp
 ```
 
 <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.jpg" alt="garlic jpeg">
-
 <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.webp" alt="garlic webp">
 
-The same can be used to convert a GIF animation to WebP and save several bytes.
+In addition, you can also convert SVG and PSD files. For instance, converting a SVG to PNG is so simple as to type the command bellow:
 
 ```sh
-abraia convert bob-sponge.gif bob-sponge.webp
+abraia convert bat.svg bat.png
 ```
 
-<img src="https://github.com/abraia/abraia-python/raw/master/images/bob-sponge.gif" alt="bob sponge gif">
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.svg" alt="bat svg">
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.png" alt="bat png">
 
-<img src="https://github.com/abraia/abraia-python/raw/master/images/bob-sponge.webp" alt="bob sponge webp">
+> The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
 
-#### Convert PSD to JPG<!-- ## Convert PSD to SVG -->
-
-A .PSD file is a layered image file used in Adobe PhotoShop for saving data. You can easily convert then, and get the result of flattening all the visible layers with a command like bellow:
+Moreover, you can easily convert a PSD file (the layered image file used in Adobe Photoshop for saving data) flattening all the visible layers with a command like bellow:
 
 ```sh
 abraia convert strawberry.psd strawberry.jpg
-```
-
-The previous command just convert a PSD file to JPEG, automatically adding a white background, in this case, because the JPEG format does not support transparency. Instead, using the PNG format you can preserve the transparent background.
-
-```sh
 abraia convert strawberry.psd strawberry.png
 ```
 
 <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.jpg" alt="white background strawberry">
-
 <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.png" alt="transparent strawberry">
 
-<!--         
-  Take web screenshots from the command line just specifying and ur and get the capture.
-  
-  Convert a batch of Photoshop files with a simple command.
+> When the PSD file is converted to JPEG a white background is added automatically, because the JPEG format does not support transparency. Instead, using the PNG or the WebP format you can preserve the transparent background.
 
-  Just copy your PSD files to a folder, for instance the `photoshop` folder, and convert all the files in that folder.
-
-  ```sh
-  abraia convert photoshop
-  ```
--->
-
-### Resize and compress images for web
-
-To compress an image you just need to specify the input and output paths for the image:
+Or, convert a batch of Photoshop files with a simple command. Just copy your PSD files to a folder, for instance the `photoshop` folder, and convert all the files in that folder.
 
 ```sh
-abraia convert images/birds.jpg images/birds_o.jpg
-abraia convert images/jaguar.png images/jaguar_o.png
+abraia convert photoshop
 ```
 
-![Image compressed from url](https://github.com/abraia/abraia-python/raw/master/images/birds_o.jpg)
-
-To resize your images just specify the target `width` or `height`. So, to get a set of images with a fixed width of 300px preserving the aspect ratio of each image:</p>
+You can also take web from the command line just specifying and url to get the capture.
 
 ```sh
-abraia convert --width 300 [path] [dest]
+abraia convert https://abraia.me screenshot.jpg
 ```
-
-To automatically crop all your images contained in a folder using our smart cropping technology, you just need to specify both `width` and `height` of the output image.
-
-```sh
-abraia convert --width 300 --height 300 [path] [dest]
-```
-
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg" alt="beauty casual resized">
-
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_500x500.jpg" alt="beauty casual smart cropped">
 
 ### Watermark images
 
@@ -291,8 +253,8 @@ abraia.upload(url, 'usain.jpg')
 Retrieve an stored file.
 
 ```python
-path = 'test/bird.jpg'
-dest = 'bird.jpg'
+path = 'test/birds.jpg'
+dest = 'birds.jpg'
 abraia.download(path, dest)
 ```
 
@@ -326,17 +288,6 @@ width | Image width (original width by default)
 height | Image height (original height by default)
 mode | Resize and crop mode: crop, face, thumb, resize (smart crop by default)
 background | Change background color in padded mode (white by default)
-
-#### Image transformations
-
-Image | Parameters | Description
-------|------------|------------
-<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300.jpg" alt="flowers resize width" /> | <code>width=300</code> | Resizes the image maintaining the aspect ratio.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_x192.jpg" alt="flowers resize height" /> | <code>height=192</code> | Resizes the image maintaining the aspect ratio.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x192.jpg" alt="flowers forced crop" /> | <code>width=300&height=192&mode=crop</code> | Forces the crop of the image when the aspect ratio is the original one.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x300.jpg" alt="flowers smart crop" /> | <code>width=300&height=300</code> | Smartly crops and resize the image to adopt the new aspect ratio.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300x300_pad.jpg" alt="flowers forces resize" /> | <code>width=300&height=300&mode=pad</code> | Resize the image adding some pad to adopt the new aspect ratio.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/cornflower-ladybug-siebenpunkt-blue_300.jpg" alt="flowers quality" /> | <code>width=300&quality=50</code> | Sets the quality of the delivered jpg or webp image to 50 in the range (1, 100) - 1 is the lowest quality and 100 is the highest.
 
 #### Enhancement filters
 
