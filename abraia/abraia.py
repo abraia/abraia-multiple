@@ -196,22 +196,3 @@ class Abraia(Client):
         buffer = self.transform_image(self.userid + '/' + path, params=params)
         with open(dest, 'wb') as f:
             f.write(buffer.getvalue())
-
-    def to_file(self, filename):
-        ext = filename.split('.').pop().lower()
-        self.params['format'] = self.params.get('format') or ext
-        buffer = self.transform_image(self.path, self.params)
-        with open(filename, 'wb') as f:
-            f.write(buffer.getvalue())
-        return self
-
-    def resize(self, width=None, height=None, mode=None, action=None):
-        if width:
-            self.params['width'] = width
-        if height:
-            self.params['height'] = height
-        if mode:
-            self.params['mode'] = mode
-        if action:
-            self.params['action'] = action
-        return self

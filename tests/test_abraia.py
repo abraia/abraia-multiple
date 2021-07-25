@@ -7,16 +7,22 @@ from abraia import Abraia, APIError
 
 abraia = Abraia()
 userid = abraia.load_user()['id']
-filename = 'tiger.jpg'
 
 
 def test_load_user_info():
     user = abraia.load_user()
     assert isinstance(user, dict)
 
-
+#TODO: Remove and replace by list
 def test_list_files():
     files, folders = abraia.list_files(userid+'/')
+    assert isinstance(files, list)
+    assert isinstance(folders, list)
+
+
+def test_list():
+    """Test an API call to list stored files and folders"""
+    files, folders = abraia.list()
     assert isinstance(files, list)
     assert isinstance(folders, list)
 
@@ -28,14 +34,15 @@ def test_upload_remote():
 
 
 def test_upload_file():
-    resp = abraia.upload_file(os.path.join('images', filename), userid+'/')
-    assert resp['name'] == 'tiger.jpg'
+    resp = abraia.upload('images/tiger.jpg')
+    assert isinstance(resp, dict)
+    assert resp['path'].endswith('tiger.jpg')
 
 
-def test_move_file():
-    abraia.move_file(os.path.join(userid, filename), userid + '/test/tiger.jpg')
-    resp = abraia.move_file(userid + '/test/tiger.jpg', os.path.join(userid, filename))
-    assert resp['name'] == 'tiger.jpg'
+# def test_move_file():
+#     abraia.move_file(os.path.join(userid, 'tiger.jpg'), userid + '/test/tiger.jpg')
+#     resp = abraia.move_file(userid + '/test/tiger.jpg', os.path.join(userid, filename))
+#     assert resp['name'] == 'tiger.jpg'
 
 
 def test_download_file():
@@ -44,7 +51,7 @@ def test_download_file():
 
 
 def test_load_metadata():
-    resp = abraia.load_metadata(os.path.join(userid, 'tiger.jpg'))
+    resp = abraia.load_metadata(os.path.join(userid, 'lion.jpg'))
     assert resp['MIMEType'] == 'image/jpeg'
 
 
@@ -59,7 +66,7 @@ def test_optimize_image():
 
 
 def test_resize_image():
-    resp = abraia.transform_image(os.path.join(userid, 'tiger.jpg'), {'width': 333})
+    resp = abraia.transform_image(os.path.join(userid, 'lion.jpg'), {'width': 333})
     assert isinstance(resp, BytesIO)
 
 
@@ -79,20 +86,6 @@ def test_remove_file():
     assert resp['name'] == 'tiger.jpg'
 
 
-def test_list():
-    """Test an API call to list stored files and folders"""
-    files, folders = abraia.list()
-    assert isinstance(files, list)
-    assert isinstance(folders, list)
-
-
-def test_upload_file():
-    """Tests an API call to upload a local file"""
-    resp = abraia.upload('images/tiger.jpg')
-    assert isinstance(resp, dict)
-    assert resp['path'].endswith('tiger.jpg')
-
-
 def test_upload_from_url():
     resp = abraia.upload(
         'https://upload.wikimedia.org/wikipedia/commons/f/f1/100_m_final_Berlin_2009.JPG')
@@ -100,7 +93,8 @@ def test_upload_from_url():
 
 
 def test_smartcrop_image_from_file():
-    abraia.upload('images/birds.jpg').resize(width=375, height=375).to_file('images/birds_375x375.jpg')
+    resp = abraia.upload('images/birds.jpg')
+    abraia.transform(resp['path'], 'images/birds_375x375.jpg', {'width': 375, 'height': 375})
     assert os.path.isfile('images/birds_375x375.jpg')
 
 

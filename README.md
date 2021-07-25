@@ -195,37 +195,6 @@ files, folders = abraia.list(folder)
 
 Return the list of `files` and `folders` on the specified cloud `folder`.
 
-The above command returns JSON structured like this:
-
-```json
-{
-   "files": [
-      {
-         "date": 1513537440.0,
-         "md5": "9f1f07e9884c4b11b048614561eebd89",
-         "name": "random_97.jpg",
-         "size": 112594,
-         "source": "demo/random_97.jpg",
-         "thumbnail": "demo/tb_random_97.jpg"
-      },
-      {
-         "date": 1513533727.0,
-         "md5": "7ac57ee27b4474c7109e3c643948a9de",
-         "name": "random_96.jpg",
-         "size": 70232,
-         "source": "demo/random_96.jpg",
-         "thumbnail": "demo/tb_random_96.jpg"
-      }
-   ],
-   "folders": [
-      {
-         "name": "videos",
-         "source":"demo/videos/"
-      }
-   ]
-}
-```
-
 #### Upload file
 
 Upload a local (`src`) or a remote (`url`) file to the cloud.
