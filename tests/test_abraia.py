@@ -86,10 +86,10 @@ def test_remove_file():
     assert resp['name'] == 'tiger.jpg'
 
 
-def test_upload_from_url():
-    resp = abraia.upload(
-        'https://upload.wikimedia.org/wikipedia/commons/f/f1/100_m_final_Berlin_2009.JPG')
-    assert resp['path'] == '100_m_final_Berlin_2009.JPG'
+# def test_upload_from_url():
+#     resp = abraia.upload(
+#         'https://upload.wikimedia.org/wikipedia/commons/f/f1/100_m_final_Berlin_2009.JPG')
+#     assert resp['path'] == '100_m_final_Berlin_2009.JPG'
 
 
 def test_smartcrop_image_from_file():

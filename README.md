@@ -1,5 +1,5 @@
-[![PyPI](https://img.shields.io/pypi/v/abraia.svg)](https://pypi.org/project/abraia/)
-[![Build Status](https://travis-ci.org/abraia/abraia-python.svg)](https://travis-ci.org/abraia/abraia-python)
+[![Build Status](https://github.com/abraia/abraia-python/actions/workflows/build.yml/badge.svg)](https://github.com/abraia/abraia-python/actions/workflows/build.yml)
+[![Python Package](https://img.shields.io/pypi/v/abraia.svg)](https://pypi.org/project/abraia/)
 [![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg)](https://coveralls.io/github/abraia/abraia-python)
 ![Analytics](https://ga-beacon.appspot.com/UA-108018608-1/github/python?pixel)
 
