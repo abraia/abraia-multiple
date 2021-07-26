@@ -1,4 +1,5 @@
 import os
+import io
 import base64
 import hashlib
 import requests
@@ -196,3 +197,13 @@ class Abraia(Client):
         buffer = self.transform_image(self.userid + '/' + path, params=params)
         with open(dest, 'wb') as f:
             f.write(buffer.getvalue())
+
+    def load(self, path):
+        return self.download_file(self.userid + '/' + path)
+
+    def metadata(self, path):
+        return self.load_metadata(self.userid + '/' + path)
+
+    def save(self, path, buffer):
+         self.upload(io.BytesIO(buffer), path)
+    

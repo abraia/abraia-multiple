@@ -13,12 +13,6 @@ def test_load_user_info():
     user = abraia.load_user()
     assert isinstance(user, dict)
 
-#TODO: Remove and replace by list
-def test_list_files():
-    files, folders = abraia.list_files(userid+'/')
-    assert isinstance(files, list)
-    assert isinstance(folders, list)
-
 
 def test_list():
     """Test an API call to list stored files and folders"""
@@ -34,7 +28,7 @@ def test_upload_remote():
 
 
 def test_upload_file():
-    resp = abraia.upload('images/tiger.jpg')
+    resp = abraia.upload('images/tiger.jpg', 'tiger.jpg')
     assert isinstance(resp, dict)
     assert resp['path'].endswith('tiger.jpg')
 
@@ -46,12 +40,22 @@ def test_upload_file():
 
 
 def test_download_file():
-    resp = abraia.download_file(os.path.join(userid, 'tiger.jpg'))
+    resp = abraia.download('tiger.jpg')
+    assert isinstance(resp, BytesIO)
+
+
+# def test_remove_file():
+#     resp = abraia.remove('tiger.jpg')
+#     assert resp['name'] == 'tiger.jpg'
+
+
+def test_load_file():
+    resp = abraia.load('lion.jpg')
     assert isinstance(resp, BytesIO)
 
 
 def test_load_metadata():
-    resp = abraia.load_metadata(os.path.join(userid, 'lion.jpg'))
+    resp = abraia.metadata('lion.jpg')
     assert resp['MIMEType'] == 'image/jpeg'
 
 
@@ -80,12 +84,6 @@ def test_screenshot_webpage():
         os.path.join(userid, 'screenshot.jpg'), {'url': 'https://www.bbc.com'})
     assert isinstance(resp, BytesIO)
 
-
-def test_remove_file():
-    resp = abraia.remove_file(os.path.join(userid, 'tiger.jpg'))
-    assert resp['name'] == 'tiger.jpg'
-
-
 # def test_upload_from_url():
 #     resp = abraia.upload(
 #         'https://upload.wikimedia.org/wikipedia/commons/f/f1/100_m_final_Berlin_2009.JPG')
@@ -101,11 +99,6 @@ def test_smartcrop_image_from_file():
 def test_process_branded_image():
     abraia.transform('lion.jpg', 'images/lion_brand.jpg', {'action': 'test.atn', 'height': 333})
     assert os.path.isfile('images/lion_brand.jpg')
-
-
-def test_remove_stored_image():
-    resp = abraia.remove('tiger.jpg')
-    assert resp['path'] == 'tiger.jpg'
 
 
 def test_server_error():

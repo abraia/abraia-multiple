@@ -9,7 +9,7 @@ Automatically crop, resize, convert, and compress images for web.
 
 > No more complex ImageMagick parametrizations. Simple convert and resize your master images from the command line and get perfectly optimized images for web and mobile apps.
 
-Batch resize and optimize images with no quality damage based on perception-driven technology.
+Batch resize and [optimize images](https://abraia.me/docs/image-optimization/) with no quality damage based on perception-driven technology.
 
 * Automatically crop and resize images to an specific size with smart cropping technology (our saliency and aesthetic based model balances between content and aesthetics).
 * Convert SVGs to PNG or WebP images preserving the transparent background, or add a color to generate JPEG or WebP images.
@@ -87,8 +87,8 @@ Or, automatically pad or crop all the images contained in the folder specifying 
 abraia convert --width 300 --height 300 --mode crop [path] [dest]
 ```
 
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg" alt="beauty casual resized">
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_500x500.jpg" alt="beauty casual smart cropped">
+![beauty casual resized](https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg)
+![beauty casual smart cropped](https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_500x500.jpg)
 
 ### Convert images
 
@@ -166,15 +166,19 @@ for path in paths:
     abraia.transform(res['path'], path+'o', {'width': 2000})
 ```
 
-### Configuration
+You can directly start from your browser with one of the notebooks available. Just click on notebook link bellow:
 
-To use the API, you have to configure your [ABRAIA_KEY](https://abraia.me/console/settings) as an environment variable:
+* Getting started [![Getting started](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/main/notebooks/started.ipynb)
+
+## Configuration
+
+Installed the package, you have to configure your [ABRAIA KEY](https://abraia.me/console/settings) as environment variable:
 
 ```sh
 export ABRAIA_KEY=api_key
 ```
 
-On Windows you need to use set instead of export:
+On Windows you need to use `set` instead of `export`:
 
 ```sh
 set ABRAIA_KEY=api_key
@@ -182,9 +186,37 @@ set ABRAIA_KEY=api_key
 
 NOTE: To persist the configuration use your system options to set your ABRAIA_KEY environment variable and avoid to run the previous command every time you start a terminal/console session.
 
-### Files storage API
+## Usage
 
-#### List files
+Abraia provides a direct interface to directly load and save images. You can easily load the image data and the file metadata, or save a new image.
+
+```python
+from abraia import Abraia
+
+abraia = Abraia()
+f = abraia.load('test.jpg')
+meta = abraia.metadata('test.jpg')
+abraia.save('test.jpg', f)
+```
+
+You can directly visualize the image using Matplotlib.
+
+```python
+from PIL import Image
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+img = np.asarray(Image.open(f))
+
+plt.figure()
+plt.title('Image')
+plt.imshow(img)
+plt.axis('off')
+plt.show()
+```
+
+### List files
 
 Retrieve information about all the files stored in a cloud folder.
 
@@ -195,7 +227,7 @@ files, folders = abraia.list(folder)
 
 Return the list of `files` and `folders` on the specified cloud `folder`.
 
-#### Upload file
+### Upload files
 
 Upload a local (`src`) or a remote (`url`) file to the cloud.
 
@@ -207,16 +239,12 @@ abraia.upload(src, path)
 
 This creates the resource on the cloud and returns the file data, when the process is finished.
 
-It is also possible to upload a remote URL. For instance, an image of Usain Bolt from wikimedia.
-
 ```python
 url = 'http://upload.wikimedia.org/wikipedia/commons/1/13/Usain_Bolt_16082009_Berlin.JPG'
 abraia.upload(url, 'usain.jpg')
 ```
 
-<img src="https://github.com/abraia/abraia-python/raw/master/images/usaint-bolt_qauto.jpeg" alt="Usain Bolt from Wikimedia Commons" />
-
-#### Download file
+### Download files
 
 Retrieve an stored file.
 
@@ -226,7 +254,7 @@ dest = 'birds.jpg'
 abraia.download(path, dest)
 ```
 
-#### Delete file
+### Delete files
 
 Delete a stored resource specified by its `path`.
 
@@ -234,17 +262,7 @@ Delete a stored resource specified by its `path`.
 abraia.delete(path)
 ```
 
-#### Move file
-
-Move a stored file from an `old_path` to a `new_path`.
-
-```python
-abraia.move_file(old_path, new_path)
-```
-
-### Image optimization API
-
-The image optimization API provides powerful algorithms to achieve the best quality results resizing and [optimizing images](https://abraia.me/docs/image-optimization/).
+### Transform images
 
 To retrieve an optimized image is as simple as using the image path and the `quality` parameter set to 'auto'. The service will automatically choose and optimize every compression parameter to provide the best result based on the perceptive analysis of the original image.
 
