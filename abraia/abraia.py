@@ -1,6 +1,6 @@
 import os
 import io
-import base64
+import urllib
 import hashlib
 import requests
 import mimetypes
@@ -173,8 +173,9 @@ class Abraia(Client):
     def upload(self, src, path=''):
         length = len(self.userid) + 1
         if isinstance(src, str) and src.startswith('http'):
-            f = self.upload_remote(src, self.userid + '/')
-            return {'path': f['source'][length:]}
+            # f = self.upload_remote(src, self.userid + '/' + path)
+            # return {'path': f['source'][length:]}
+            src = urllib.request.urlretrieve(src)[0]
         f = self.upload_file(src, self.userid + '/' + path)
         return {'path': f['source'][length:]}
 
