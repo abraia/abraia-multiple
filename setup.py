@@ -1,7 +1,14 @@
+import pathlib
+import pkg_resources
+
 from setuptools import setup
 
 with open('README.md') as f:
     long_description = f.read()
+
+with pathlib.Path('requirements.txt').open() as requirements_txt:
+    install_requires = [str(requirement) for requirement
+        in pkg_resources.parse_requirements(requirements_txt)]
 
 setup(
     name='abraia',
@@ -18,5 +25,5 @@ setup(
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0', 'pytest-runner'],
     scripts=['scripts/abraia', 'scripts/abraia.bat'],
-    install_requires=['requests', 'click', 'tqdm', 'future']
+    install_requires=install_requires
 )
