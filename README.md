@@ -168,7 +168,7 @@ for path in paths:
 
 You can directly start from your browser with one of the notebooks available. Just click on notebook link bellow:
 
-* Getting started [![Getting started](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/main/notebooks/started.ipynb)
+* Getting started [![Getting started](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/started.ipynb)
 
 ## Configuration
 
@@ -264,35 +264,34 @@ abraia.delete(path)
 
 ### Transform images
 
-To retrieve an optimized image is as simple as using the image path and the `quality` parameter set to 'auto'. The service will automatically choose and optimize every compression parameter to provide the best result based on the perceptive analysis of the original image.
+Transform and optimize images. The service will automatically choose every compression parameter to provide the best result based on the perceived analysis of the original image.
+
+```python
+path = 'test/birds.jpg'
+dest = 'birds_o.jpg'
+params = {'width': 300, 'height': 300, 'mode': 'pad'}
+abraia.transform(path, dest, params)
+```
 
 Parameter | Description
 ----------|------------
-format | Set the image format: jpeg, png, gif, webp (original format by default)
-quality | Set the image quality (auto by default)
 width | Image width (original width by default)
 height | Image height (original height by default)
 mode | Resize and crop mode: crop, face, thumb, resize (smart crop by default)
 background | Change background color in padded mode (white by default)
+action | Path to the action file to be used as template
+format | Set the image format: jpeg, png, gif, webp (original format by default)
+quality | Set the image quality (auto by default)
 
-#### Enhancement filters
-
-<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500.jpg" alt="building wall house architecture original" />
-<center><i>Original building wall house image</i></center><br>
+#### Legacy filters
 
 Example | Parameters | Description
 --------|------------|------------
+<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500.jpg" alt="building wall house architecture original" /> | | Original building wall house image.
 <img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_cbalance.jpg" alt="house color balanced" /> | <code>f=cbalance</code> | Applies a simplest color balance.
 <img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_ibalance.jpg" alt="house intensity balanced" /> | <code>f=ibalance</code> | Applies a simplest intensity balance.
 <img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_sharpen.jpg" alt="house sharpen" /> | <code>f=sharpen</code> | Applies a sharpen filter to the image.
-
-#### Filter effects
-
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500.jpg" alt="beach bungalow original" />
-<center><i>Original beach bungalow image</i></center><br>
-
-Example | Parameters | Description
---------|------------|------------
+<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500.jpg" alt="beach bungalow original" /> | | Original beach bungalow image
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_blur.jpg" alt="beach blur filter" /> | <code>f=blur</code> | Description: Applies a Gaussian blur filter to the image.
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_pixelate.jpg" alt="beach pixelate filter" /> | <code>f=pixelate</code> | Applies a pixelizer filter to the image.
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_grayscale.jpg" alt="beach grayscale filter" /> | <code>f=grayscale</code> | Converts the image to grayscale.
@@ -308,14 +307,7 @@ Example | Parameters | Description
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_velviaesque.jpg" alt="beach velviaesque filter" /> | <code>f=velviaesque</code> | Applies the velviaesque film effect filter.
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_proviaesque.jpg" alt="beach proviaesque filter" /> | <code>f=proviaesque</code> | Applies the proviaesque film effect filter.
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_portraesque.jpg" alt="beach portraesque filter" /> | <code>f=portraesque</code> | Applies the portraesque film effect filter.
-
-#### Action filters
-
-Actions are an experimental feature to provide a powerful content-based edition tool. They are going to be developed to enable smart actions like adaptive watermarking. For instance, changing the text color based on the background color, or using the negative space to place the watermark.
-
-<img src="https://github.com/abraia/abraia-python/raw/master/images/pexels-photo-289224_500_blur-faces.jpeg" alt="anonymized couple picture" />
-<p class="has-text-centered">Parameters: <code>atn=blur-faces</code></p>
-<p class="has-text-centered">Description: Anonymize pictures using Abraia's face detection feature.</p>
+<img src="https://github.com/abraia/abraia-python/raw/master/images/pexels-photo-289224_500_blur-faces.jpeg" alt="anonymized couple picture" /> | <code>atn=blur-faces</code> | Anonymize pictures using Abraia's face detection feature.
 
 ## License
 
