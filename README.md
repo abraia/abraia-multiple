@@ -5,15 +5,11 @@
 
 # Abraia API client
 
-Automatically crop, resize, convert, and compress images for web.
+Batch resize, crop, convert, and compress images from the command line and get perfectly optimized images for web and mobile apps.
 
-> No more complex ImageMagick parametrizations. Simple convert and resize your master images from the command line and get perfectly optimized images for web and mobile apps.
-
-Batch resize and [optimize images](https://abraia.me/docs/image-optimization/) with no quality damage based on perception-driven technology.
-
-* Automatically crop and resize images to an specific size with smart cropping technology (our saliency and aesthetic based model balances between content and aesthetics).
+* Automatically resize and crop images to an specific size with smart cropping technology balancing content and aesthetics.
 * Convert SVGs to PNG or WebP images preserving the transparent background, or add a color to generate JPEG or WebP images.
-* Automatically optimize image compression with our perceptual adjustment to preserve the quality and maximize the compression.
+* Automatically [optimize images](https://abraia.me/docs/image-optimization/) with no quality damage based perception-driven technology.
 
 Choose an specific size, select the background color, and convert and optimize images for web (JPEG, PNG, WebP).
 
@@ -31,21 +27,17 @@ abraia convert images
 
 ### Installation
 
-The Abraia CLI is a multiplatform tool (Windows, Mac, Linux) based on Python (Python 2.6.5 or higher), that can be be installed with a simple command:
+The Abraia CLI is a Python tool which can be installed on Windows, Mac, and Linux:
 
 ```sh
 python -m pip install -U abraia
 ```
-
-If you are on Windows install [Python](https://www.python.org/downloads/) first, otherwise open a terminal or command line and write the previous command to install or upgrade the Abraia CLI.
 
 The first time you run Abraia CLI you need to configure your API key, just write the command bellow and paste your key.
 
 ```sh
 abraia configure
 ```
-
-Now, you are ready to bulk resize and convert your images for web.
 
 ### Resize images
 
@@ -168,7 +160,7 @@ for path in paths:
 
 You can directly start from your browser with one of the notebooks available. Just click on notebook link bellow:
 
-* Getting started [![Getting started](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/started.ipynb)
+* Getting started [![Getting started](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/starting.ipynb)
 
 ## Configuration
 

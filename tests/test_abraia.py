@@ -59,6 +59,12 @@ def test_load_metadata():
     assert resp['MIMEType'] == 'image/jpeg'
 
 
+def test_save_file():
+    resp = abraia.save('test.txt', 'this is a simple test.')
+    assert isinstance(resp, dict)
+    assert resp['path'].endswith('test.txt')
+
+
 # def test_analyze_image():
 #     resp = abraia.analyze_image(os.path.join(userid, 'tiger.jpg'), {'ar': 1})
 #     assert isinstance(resp, dict)

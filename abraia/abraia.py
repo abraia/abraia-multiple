@@ -7,15 +7,18 @@ import mimetypes
 
 from fnmatch import fnmatch
 from datetime import datetime
-from io import BytesIO
 from . import config
 
 
 def md5sum(src):
     hash_md5 = hashlib.md5()
-    with open(src, 'rb') as f:
-        for chunk in iter(lambda: f.read(4096), b''):
-            hash_md5.update(chunk)
+    f = io.BytesIO(src.getvalue()) if isinstance(src, io.BytesIO) else open(src, 'rb')
+    for chunk in iter(lambda: f.read(4096), b''):
+        hash_md5.update(chunk)
+    f.close()
+    # with open(src, 'rb') as f:
+    #     for chunk in iter(lambda: f.read(4096), b''):
+    #         hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
 
@@ -74,7 +77,7 @@ class Client(object):
         resp = resp.json()
         url = resp.get('uploadURL')
         if url:
-            data = file if isinstance(file, BytesIO) else open(file, 'rb')
+            data = file if isinstance(file, io.BytesIO) else open(file, 'rb')
             resp = requests.put(url, data=data, headers={'Content-Type': type})
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
@@ -94,7 +97,7 @@ class Client(object):
         resp = requests.get(url, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        return BytesIO(resp.content)
+        return io.BytesIO(resp.content)
 
     def remove_file(self, path):
         url = '{}/files/{}'.format(config.API_URL, path)
@@ -125,7 +128,7 @@ class Client(object):
     #         raise APIError(resp.text, resp.status_code)
     #     resp = resp.json()
     #     if resp.get('salmap'):
-    #         resp['salmap'] = BytesIO(base64.b64decode(resp['salmap'][23:]))
+    #         resp['salmap'] = io.BytesIO(base64.b64decode(resp['salmap'][23:]))
     #     return resp
 
     def detect_labels(self, path, params={}):
@@ -145,7 +148,7 @@ class Client(object):
         resp = requests.get(url, params=params, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        return BytesIO(resp.content)
+        return io.BytesIO(resp.content)
 
 
 class Abraia(Client):
@@ -153,8 +156,6 @@ class Abraia(Client):
         super(Abraia, self).__init__()
         self.userid = self.load_user().get('id')
         self.folder = folder
-        self.params = {}
-        self.path = ''
 
     def list(self, path=''):
         length = len(self.userid) + 1
@@ -180,12 +181,12 @@ class Abraia(Client):
         return {'path': f['source'][length:]}
 
     def download(self, path, dest=''):
-        buffer = self.download_file(self.userid + '/' + path)
+        stream = self.download_file(self.userid + '/' + path)
         if dest:
             with open(dest, 'wb') as f:
-                f.write(buffer.getbuffer())
+                f.write(stream.getbuffer())
             return dest
-        return buffer
+        return stream
 
     def remove(self, path):
         length = len(self.userid) + 1
@@ -194,17 +195,25 @@ class Abraia(Client):
 
     def transform(self, path, dest, params={'quality': 'auto'}):
         ext = dest.split('.').pop().lower()
-        params['format'] = self.params.get('format') or ext
-        buffer = self.transform_image(self.userid + '/' + path, params=params)
+        params['format'] = params.get('format') or ext
+        stream = self.transform_image(self.userid + '/' + path, params=params)
         with open(dest, 'wb') as f:
-            f.write(buffer.getvalue())
+            f.write(stream.getbuffer())
 
     def load(self, path):
-        return self.download_file(self.userid + '/' + path)
+        stream = self.download_file(self.userid + '/' + path)
+        try:
+            return stream.getvalue().decode('utf-8')
+        except:
+            return stream
 
     def metadata(self, path):
         return self.load_metadata(self.userid + '/' + path)
 
-    def save(self, path, buffer):
-         self.upload(io.BytesIO(buffer), path)
+    def save(self, path, stream):
+        length = len(self.userid) + 1
+        stream =  io.BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
+        f = self.upload_file(stream, self.userid + '/' + path)
+        # TODO: Change to directly return the cloud path
+        return {'path': f['source'][length:]}
     
