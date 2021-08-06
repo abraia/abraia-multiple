@@ -21,7 +21,7 @@ setup(
     author_email='jorge@abraiasoftware.com',
     license='MIT',
     zip_safe=False,
-    packages=['abraia'],
+    packages=['abraia', 'multiple'],
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0', 'pytest-runner'],
     scripts=['scripts/abraia', 'scripts/abraia.bat'],

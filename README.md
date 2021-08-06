@@ -301,6 +301,84 @@ Example | Parameters | Description
 <img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_portraesque.jpg" alt="beach portraesque filter" /> | <code>f=portraesque</code> | Applies the portraesque film effect filter.
 <img src="https://github.com/abraia/abraia-python/raw/master/images/pexels-photo-289224_500_blur-faces.jpeg" alt="anonymized couple picture" /> | <code>atn=blur-faces</code> | Anonymize pictures using Abraia's face detection feature.
 
+## HyperSpectral Image (HSI) analysis
+
+MULTIPLE extends the ABRAIA Python API to provide seamless integration of multiple HyperSpectral Image (HSI) processing and analysis tools. This integrates state-of-the-art image manipulation libraries to provide ready to go scalable multispectral solutions.
+
+> MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project]](https://multipleproject.eu/).
+
+You can directly start from your browser with one of the notebooks available bellow:
+
+* HSI analysis [![HSI analysis](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hsi-analysis.ipynb)
+
+* HSI classification [![HSI classification](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hsi-classification.ipynb)
+
+* Deep HSI classification [![Deep HSI classification](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/deep-hsi-classification.ipynb)
+
+![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
+
+### Usage
+
+```python
+from multiple import Multiple
+
+multiple = Multiple()
+img = multiple.load_image('test.hdr')
+meta = multiple.load_meta('test.hdr')
+multiple.save_image('test.hdr', img, metadata=meta)
+```
+
+### Upload data
+
+To start with, we may [upload some data](https://abraia.me/console/gallery) directly using the graphical interface, or using the multiple api:
+
+```python
+multiple.upload('PaviaU.mat')
+```
+
+### Load HSI image data
+
+Now, we can load the hyperspectral image data (HSI cube) directly from the cloud:
+
+```python
+img = multiple.load_image('PaviaU.mat')
+```
+
+### Basic HSI visualization
+
+Hyperspectral images cannot be directly visualized, so we can get some random bands from our HSI cube,
+
+```python
+imgs, indexes = hsi.random(img)
+```
+
+and visualize these bands as like any other monochannel image. For example,
+
+```python
+fig, ax = plt.subplots(2, 3)
+ax = ax.reshape(-1)
+for i, im in enumerate(imgs):
+    ax[i].imshow(im, cmap='jet')
+    ax[i].axis('off')
+```
+
+### Pseudocolor visualization
+
+A common operation with spectral images is to reduce the dimensionality, applying principal components analysis (PCA). We can get the first three principal components into a three bands pseudoimage,
+
+```python
+pc_img = hsi.principal_components(img)
+```
+
+and visualize this pseudoimage,
+
+```python
+plt.title('Principal components')
+plt.imshow(pc_img)
+plt.axis('off')
+```
+
+
 ## License
 
 This software is licensed under the MIT License. [View the license](LICENSE).
