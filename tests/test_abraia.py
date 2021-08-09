@@ -1,12 +1,10 @@
 import os
-import sys
 import pytest
 
 from io import BytesIO
-from abraia import Abraia, APIError
+from abraia import Abraia
 
 abraia = Abraia()
-userid = abraia.load_user()['id']
 
 
 def test_load_user_info():
@@ -21,16 +19,17 @@ def test_list():
     assert isinstance(folders, list)
 
 
-def test_upload_remote():
-    url = 'https://api.abraia.me/files/demo/birds.jpg'
-    resp = abraia.upload_remote(url, userid+'/')
-    assert resp['name'] == 'birds.jpg'
-
-
 def test_upload_file():
+    resp = abraia.upload('images/lion.jpg')
+    assert resp['path'] == 'lion.jpg'
     resp = abraia.upload('images/tiger.jpg', 'tiger.jpg')
-    assert isinstance(resp, dict)
-    assert resp['path'].endswith('tiger.jpg')
+    assert resp['path'] == 'tiger.jpg'
+
+
+def test_upload_remote():
+    # url = 'https://upload.wikimedia.org/wikipedia/commons/f/f1/100_m_final_Berlin_2009.JPG'
+    resp = abraia.upload('https://api.abraia.me/files/demo/birds.jpg', 'birds.jpg')
+    assert resp['path'] == 'birds.jpg'
 
 
 # def test_move_file():
@@ -44,9 +43,46 @@ def test_download_file():
     assert isinstance(resp, BytesIO)
 
 
-# def test_remove_file():
-#     resp = abraia.remove('tiger.jpg')
-#     assert resp['name'] == 'tiger.jpg'
+def test_remove_file():
+    resp = abraia.remove('tiger.jpg')
+    assert resp['path'] == 'tiger.jpg'
+
+
+# TODO: Remove analyze image (depreciated)
+# def test_analyze_image():
+#     resp = abraia.analyze_image(os.path.join(userid, 'tiger.jpg'), {'ar': 1})
+#     assert isinstance(resp, dict)
+
+
+def test_optimize_image():
+    abraia.transform('birds.jpg', 'images/birds_o.jpg')
+    assert os.path.isfile('images/birds_o.jpg')
+
+
+def test_resize_image():
+    abraia.transform('lion.jpg', 'images/lion_o.jpg', params={'width': 333})
+    assert os.path.isfile('images/lion_o.jpg')
+
+
+def test_smartcrop_image():
+    abraia.transform('birds.jpg', 'images/birds_375x375.jpg', {'width': 375, 'height': 375})
+    assert os.path.isfile('images/birds_375x375.jpg')
+
+
+def test_convert_image():
+    abraia.upload('images/bat.svg')
+    abraia.transform('bat.svg', 'images/bat.png')
+    assert os.path.isfile('images/bat.png')
+
+
+def test_screenshot_webpage():
+    abraia.transform('screenshot.jpg', 'images/screenshot.jpg', {'url': 'https://www.bbc.com'})
+    assert os.path.isfile('images/screenshot.jpg')
+
+
+def test_process_branded_image():
+    abraia.transform('lion.jpg', 'images/lion_brand.jpg', {'action': 'test.atn', 'height': 333})
+    assert os.path.isfile('images/lion_brand.jpg')
 
 
 def test_load_file():
@@ -63,52 +99,3 @@ def test_save_file():
     resp = abraia.save('test.txt', 'this is a simple test.')
     assert isinstance(resp, dict)
     assert resp['path'].endswith('test.txt')
-
-
-# def test_analyze_image():
-#     resp = abraia.analyze_image(os.path.join(userid, 'tiger.jpg'), {'ar': 1})
-#     assert isinstance(resp, dict)
-
-
-def test_optimize_image():
-    resp = abraia.transform_image(os.path.join(userid, 'birds.jpg'), {'q': 'auto'})
-    assert isinstance(resp, BytesIO)
-
-
-def test_resize_image():
-    resp = abraia.transform_image(os.path.join(userid, 'lion.jpg'), {'width': 333})
-    assert isinstance(resp, BytesIO)
-
-
-def test_convert_svg_image():
-    resp = abraia.transform_image(os.path.join(userid, 'bat.svg'), {})
-    assert isinstance(resp, BytesIO)
-
-
-def test_screenshot_webpage():
-    resp = abraia.transform_image(
-        os.path.join(userid, 'screenshot.jpg'), {'url': 'https://www.bbc.com'})
-    assert isinstance(resp, BytesIO)
-
-# def test_upload_from_url():
-#     resp = abraia.upload(
-#         'https://upload.wikimedia.org/wikipedia/commons/f/f1/100_m_final_Berlin_2009.JPG')
-#     assert resp['path'] == '100_m_final_Berlin_2009.JPG'
-
-
-def test_smartcrop_image_from_file():
-    resp = abraia.upload('images/birds.jpg')
-    abraia.transform(resp['path'], 'images/birds_375x375.jpg', {'width': 375, 'height': 375})
-    assert os.path.isfile('images/birds_375x375.jpg')
-
-
-def test_process_branded_image():
-    abraia.transform('lion.jpg', 'images/lion_brand.jpg', {'action': 'test.atn', 'height': 333})
-    assert os.path.isfile('images/lion_brand.jpg')
-
-
-def test_server_error():
-    with pytest.raises(APIError) as excinfo:
-        abraia.upload('images/fake.jpg')
-    error = excinfo.value
-    assert error.code == 501
