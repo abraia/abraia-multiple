@@ -1,6 +1,8 @@
 [![Build Status](https://github.com/abraia/abraia-python/actions/workflows/build.yml/badge.svg)](https://github.com/abraia/abraia-python/actions/workflows/build.yml)
 [![Python Package](https://img.shields.io/pypi/v/abraia.svg)](https://pypi.org/project/abraia/)
 [![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg)](https://coveralls.io/github/abraia/abraia-python)
+![Package Downloads](https://img.shields.io/pypi/dm/abraia)
+
 ![Analytics](https://ga-beacon.appspot.com/UA-108018608-1/github/python?pixel)
 
 # Abraia API client
@@ -313,7 +315,7 @@ You can directly start from your browser with one of the notebooks available bel
 
 * HSI classification [![HSI classification](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hsi-classification.ipynb)
 
-* Deep HSI classification [![Deep HSI classification](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/deep-hsi-classification.ipynb)
+* Deep HSI classification [![Deep HSI classification](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hsi-deep-classification.ipynb)
 
 ![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
 
