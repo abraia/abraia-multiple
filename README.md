@@ -5,164 +5,23 @@
 
 ![Analytics](https://ga-beacon.appspot.com/UA-108018608-1/github/python?pixel)
 
-# Abraia API client
-
-Batch resize, crop, convert, and compress images from the command line and get perfectly optimized images for web and mobile apps.
-
-* Automatically resize and crop images to an specific size with smart cropping technology balancing content and aesthetics.
-* Convert SVGs to PNG or WebP images preserving the transparent background, or add a color to generate JPEG or WebP images.
-* Automatically [optimize images](https://abraia.me/docs/image-optimization/) with no quality damage based perception-driven technology.
-
-Choose an specific size, select the background color, and convert and optimize images for web (JPEG, PNG, WebP).
-
-## Abraia command line
-
-The Abraia CLI tool provides a simple way to bulk resize, convert, and optimize your images and photos for web. Enabling the conversion from different input formats to get images in the right formats to be used in the web - JPEG, WebP, or PNG -. Moreover, it supports a number of transformations that can be applied to image batches. So you can easily convert your images to be directly published on the web.
-
-For instance, you can optimize all the images in a folder with the simple command bellow:
-
-```sh
-abraia convert images
-```
-
-![batch resize command](https://github.com/abraia/abraia-python/raw/master/images/batch-resize-command.gif)
-
-### Installation
-
-The Abraia CLI is a Python tool which can be installed on Windows, Mac, and Linux:
-
-```sh
-python -m pip install -U abraia
-```
-
-The first time you run Abraia CLI you need to configure your API key, just write the command bellow and paste your key.
-
-```sh
-abraia configure
-```
-
-### Resize images
-
-To compress an image you just need to specify the input and output paths for the image:
-
-```sh
-abraia convert images/birds.jpg images/birds_o.jpg
-```
-
-![Image compressed from url](https://github.com/abraia/abraia-python/raw/master/images/birds_o.jpg)
-
-To resize and optimize and image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image:
-
-```sh
-abraia convert --width 500 images/usain-bolt.jpeg images/usaint-bolt_500.jpeg
-```
-
-![Usain Bolt resized](https://github.com/abraia/abraia-python/raw/master/images/usaint-bolt_500.jpeg)
-
-You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
-
-```sh
-abraia convert --width 333 --height 333 --mode pad images/lion.jpg images/lion_333x333.jpg
-abraia convert --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
-```
-
-![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333_pad.jpg)
-![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
-
-So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
-
-```sh
-abraia convert --width 300 [path] [dest]
-```
-
-Or, automatically pad or crop all the images contained in the folder specifying both `width` and `height`:
-
-```sh
-abraia convert --width 300 --height 300 --mode crop [path] [dest]
-```
-
-![beauty casual resized](https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg)
-![beauty casual smart cropped](https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_500x500.jpg)
-
-### Convert images
-
-The JPEG image format is still the most common format to publish photos on the web. However, converting images to WebP provides a significant improvement for web publishing.
-
-To convert images to a web format (JPEG, PNG, WebP) or between these formats you just need to change the filename extension for the destination file:
-
-```sh
-abraia convert garlic.jpg garlic.webp
-```
-
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.jpg" alt="garlic jpeg">
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.webp" alt="garlic webp">
-
-In addition, you can also convert SVG and PSD files. For instance, converting a SVG to PNG is so simple as to type the command bellow:
-
-```sh
-abraia convert bat.svg bat.png
-```
-
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.svg" alt="bat svg">
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.png" alt="bat png">
-
-> The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
-
-Moreover, you can easily convert a PSD file (the layered image file used in Adobe Photoshop for saving data) flattening all the visible layers with a command like bellow:
-
-```sh
-abraia convert strawberry.psd strawberry.jpg
-abraia convert strawberry.psd strawberry.png
-```
-
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.jpg" alt="white background strawberry">
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.png" alt="transparent strawberry">
-
-> When the PSD file is converted to JPEG a white background is added automatically, because the JPEG format does not support transparency. Instead, using the PNG or the WebP format you can preserve the transparent background.
-
-Or, convert a batch of Photoshop files with a simple command. Just copy your PSD files to a folder, for instance the `photoshop` folder, and convert all the files in that folder.
-
-```sh
-abraia convert photoshop
-```
-
-You can also take web from the command line just specifying and url to get the capture.
-
-```sh
-abraia convert https://abraia.me screenshot.jpg
-```
-
-### Watermark images
-
-Using templates images can be easily edited and consistently branded. You just need to [create a template in the web editor](https://abraia.me/console/editor) to watermark your images.
-
-```sh
-abraia convert --width 333 --action 'test.atn' lion.jpg lion_brand.jpg
-```
-
-![Branded lion](https://github.com/abraia/abraia-python/raw/master/images/branded.jpg)
-
-As a result you get a perfectly branded and optimized image ready to be used on your website, ecommerce, marketplace, or social media.
+# Abraia python API and CLI
 
 ## Abraia python API
 
-The Abraia python API provides and easy way to automate image transformations. For instance, to optimize a batch of JPEG images limiting the maximum size to 2000 pixels width:
+The Abraia python API provides and easy way to start analyzing images directly from your browser. You just need to click on the open in colab button to start with one of the available notebooks:
 
-```python
-from glob import glob
-from abraia import Abraia
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/image-analysis.ipynb) Simple image analysis with Abraia
 
-abraia = Abraia()
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis and classification
 
-paths = glob('images/*.jpg')
-for path in paths:
-    res = abraia.upload(path)
-    abraia.transform(res['path'], path+'o', {'width': 2000})
-```
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hyperspectral-classification.ipynb) Hyperspectral image deep classification
 
-You can directly start from your browser with one of the notebooks available. Just click on notebook link bellow:
+![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
 
-* Getting started [![Getting started](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/starting.ipynb)
+The multiple module extends the Abraia python API to provide support for HyperSpectral Image (HSI) analysis.
+
+> MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project](https://multipleproject.eu/).
 
 ## Configuration
 
@@ -277,47 +136,11 @@ action | Path to the action file to be used as template
 format | Set the image format: jpeg, png, gif, webp (original format by default)
 quality | Set the image quality (auto by default)
 
-#### Legacy filters
-
-Example | Parameters | Description
---------|------------|------------
-<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500.jpg" alt="building wall house architecture original" /> | | Original building wall house image.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_cbalance.jpg" alt="house color balanced" /> | <code>f=cbalance</code> | Applies a simplest color balance.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_ibalance.jpg" alt="house intensity balanced" /> | <code>f=ibalance</code> | Applies a simplest intensity balance.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/building-wall-house-architecture_500_sharpen.jpg" alt="house sharpen" /> | <code>f=sharpen</code> | Applies a sharpen filter to the image.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500.jpg" alt="beach bungalow original" /> | | Original beach bungalow image
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_blur.jpg" alt="beach blur filter" /> | <code>f=blur</code> | Description: Applies a Gaussian blur filter to the image.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_pixelate.jpg" alt="beach pixelate filter" /> | <code>f=pixelate</code> | Applies a pixelizer filter to the image.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_grayscale.jpg" alt="beach grayscale filter" /> | <code>f=grayscale</code> | Converts the image to grayscale.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_desaturate.jpg" alt="beach desaturate filter" /> | <code>f=desaturate</code> | Desaturates the image.</p>
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_brighten.jpg" alt="beach brighten filter" /> | <code>f=brighten</code> | Applies a brighten effect to the image.</p>
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_contrast.jpg" alt="beach contrast filter" /> | <code>f=contrast</code> | Applies a contrast effect to the image.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sepia.jpg" alt="beach sepia filter" /> | <code>f=sepia</code> | Applies a sepia effect.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sunlight.jpg" alt="beach sunlight filter" /> | <code>f=sunlight</code> | Applies a sunlight effect to the image.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_lumo.jpg" alt="beach lumo filter" /> | <code>f=lumo</code> | Applies a lumo effect to the image.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_country.jpg" alt="beach country filter" /> | <code>f=country</code> | Applies a country effect to the image.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_sketch.jpg" alt="beach sketch filter" /> | <code>f=sketch</code> | Applies a sketch effect to the image.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_crossprocess.jpg" alt="beach crossprocess filter" /> | <code>f=crossprocess</code> | Applies the crossprocess film effect filter.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_velviaesque.jpg" alt="beach velviaesque filter" /> | <code>f=velviaesque</code> | Applies the velviaesque film effect filter.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_proviaesque.jpg" alt="beach proviaesque filter" /> | <code>f=proviaesque</code> | Applies the proviaesque film effect filter.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/beach-bungalow-caribbean-jetty_500_portraesque.jpg" alt="beach portraesque filter" /> | <code>f=portraesque</code> | Applies the portraesque film effect filter.
-<img src="https://github.com/abraia/abraia-python/raw/master/images/pexels-photo-289224_500_blur-faces.jpeg" alt="anonymized couple picture" /> | <code>atn=blur-faces</code> | Anonymize pictures using Abraia's face detection feature.
-
 ## HyperSpectral Image (HSI) analysis
 
 MULTIPLE extends the ABRAIA Python API to provide seamless integration of multiple HyperSpectral Image (HSI) processing and analysis tools. This integrates state-of-the-art image manipulation libraries to provide ready to go scalable multispectral solutions.
 
-> MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project]](https://multipleproject.eu/).
-
-You can directly start from your browser with one of the notebooks available bellow:
-
-* HSI analysis [![HSI analysis](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hsi-analysis.ipynb)
-
-* HSI classification [![HSI classification](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hsi-classification.ipynb)
-
-* Deep HSI classification [![Deep HSI classification](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hsi-deep-classification.ipynb)
-
-![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
+> MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project](https://multipleproject.eu/).
 
 ### Usage
 
@@ -326,19 +149,17 @@ from multiple import Multiple
 
 multiple = Multiple()
 img = multiple.load_image('test.hdr')
-meta = multiple.load_meta('test.hdr')
+meta = multiple.load_metadata('test.hdr')
 multiple.save_image('test.hdr', img, metadata=meta)
 ```
 
-### Upload data
+### Upload and load HSI data
 
 To start with, we may [upload some data](https://abraia.me/console/gallery) directly using the graphical interface, or using the multiple api:
 
 ```python
 multiple.upload('PaviaU.mat')
 ```
-
-### Load HSI image data
 
 Now, we can load the hyperspectral image data (HSI cube) directly from the cloud:
 
@@ -348,38 +169,144 @@ img = multiple.load_image('PaviaU.mat')
 
 ### Basic HSI visualization
 
-Hyperspectral images cannot be directly visualized, so we can get some random bands from our HSI cube,
+Hyperspectral images cannot be directly visualized, so we can get some random bands from our HSI cube, and visualize these bands as like any other monochannel image.
 
 ```python
+from multiple import hsi
+
 imgs, indexes = hsi.random(img)
-```
 
-and visualize these bands as like any other monochannel image. For example,
-
-```python
+plt.figure()
 fig, ax = plt.subplots(2, 3)
 ax = ax.reshape(-1)
 for i, im in enumerate(imgs):
     ax[i].imshow(im, cmap='jet')
     ax[i].axis('off')
+plt.show()
 ```
 
 ### Pseudocolor visualization
 
-A common operation with spectral images is to reduce the dimensionality, applying principal components analysis (PCA). We can get the first three principal components into a three bands pseudoimage,
+A common operation with spectral images is to reduce the dimensionality, applying principal components analysis (PCA). We can get the first three principal components into a three bands pseudoimage, and visualize this pseudoimage.
 
 ```python
 pc_img = hsi.principal_components(img)
-```
 
-and visualize this pseudoimage,
-
-```python
+plt.figure()
 plt.title('Principal components')
 plt.imshow(pc_img)
 plt.axis('off')
+plt.show()
 ```
 
+## Abraia command line
+
+The Abraia CLI tool provides a simple way to bulk resize, convert, and optimize your images and photos for web. Enabling the conversion from different input formats to get images in the right formats to be used in the web - JPEG, WebP, or PNG -. Moreover, it supports a number of transformations that can be applied to image batches. So you can easily convert your images to be directly published on the web.
+
+### Installation
+
+The Abraia CLI is a Python tool which can be installed on Windows, Mac, and Linux:
+
+```sh
+python -m pip install -U abraia
+```
+
+The first time you run Abraia CLI you need to configure your API key, just write the command bellow and paste your key.
+
+```sh
+abraia configure
+```
+
+### Resize images
+
+To compress an image you just need to specify the input and output paths for the image:
+
+```sh
+abraia convert images/birds.jpg images/birds_o.jpg
+```
+
+![Image compressed from url](https://github.com/abraia/abraia-python/raw/master/images/birds_o.jpg)
+
+To resize and optimize and image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image:
+
+```sh
+abraia convert --width 500 images/usain-bolt.jpeg images/usaint-bolt_500.jpeg
+```
+
+![Usain Bolt resized](https://github.com/abraia/abraia-python/raw/master/images/usaint-bolt_500.jpeg)
+
+You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
+
+```sh
+abraia convert --width 333 --height 333 --mode pad images/lion.jpg images/lion_333x333.jpg
+abraia convert --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
+```
+
+![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333_pad.jpg)
+![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
+
+So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
+
+```sh
+abraia convert --width 300 [path] [dest]
+```
+
+Or, automatically pad or crop all the images contained in the folder specifying both `width` and `height`:
+
+```sh
+abraia convert --width 300 --height 300 --mode crop [path] [dest]
+```
+
+![beauty casual resized](https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg)
+![beauty casual smart cropped](https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_500x500.jpg)
+
+### Convert images
+
+The JPEG image format is still the most common format to publish photos on the web. However, converting images to WebP provides a significant improvement for web publishing.
+
+To convert images to a web format (JPEG, PNG, WebP) or between these formats you just need to change the filename extension for the destination file:
+
+```sh
+abraia convert garlic.jpg garlic.webp
+```
+
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.jpg" alt="garlic jpeg">
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.webp" alt="garlic webp">
+
+In addition, you can also convert SVG and PSD files. For instance, converting a SVG to PNG is so simple as to type the command bellow:
+
+```sh
+abraia convert bat.svg bat.png
+```
+
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.svg" alt="bat svg">
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.png" alt="bat png">
+
+> The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
+
+Moreover, you can easily convert a PSD file (the layered image file used in Adobe Photoshop for saving data) flattening all the visible layers with a command like bellow:
+
+```sh
+abraia convert strawberry.psd strawberry.jpg
+abraia convert strawberry.psd strawberry.png
+```
+
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.jpg" alt="white background strawberry">
+<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.png" alt="transparent strawberry">
+
+> When the PSD file is converted to JPEG a white background is added automatically, because the JPEG format does not support transparency. Instead, using the PNG or the WebP format you can preserve the transparent background.
+
+Or, convert a batch of Photoshop files with a simple command. Just copy your PSD files to a folder, for instance the `photoshop` folder, and convert all the files in that folder.
+
+```sh
+abraia convert photoshop
+```
+
+You can also take web from the command line just specifying and url to get the capture.
+
+```sh
+abraia convert https://abraia.me screenshot.jpg
+```
 
 ## License
 

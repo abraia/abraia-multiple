@@ -92,7 +92,7 @@ def spectrum(img, point=None):
     return img[point[1], point[0], :]
 
 
-def load_dataset(dataset, split=0.9):
+def load_dataset(dataset):
     """Load one of the available hyperspectral datasets (IP, PU, SA, KSC)."""
     if not os.path.exists('datasets'):
         os.mkdir('datasets')
@@ -137,22 +137,11 @@ def load_dataset(dataset, split=0.9):
                           'datasets/KSC_gt.mat')
         data_hsi = sio.loadmat('datasets/KSC.mat')['KSC']
         gt_hsi = sio.loadmat('datasets/KSC_gt.mat')['KSC_gt']
-
-    K = data_hsi.shape[2]
-    TOTAL_SIZE = np.sum(gt_hsi != 0)
-    TRAIN_SIZE = math.ceil(TOTAL_SIZE * split)
-
-    shapeor = data_hsi.shape
-    data_hsi = data_hsi.reshape(-1, data_hsi.shape[-1])
-    data_hsi = PCA(n_components=K).fit_transform(data_hsi)
-    shapeor = np.array(shapeor)
-    shapeor[-1] = K
-    data_hsi = data_hsi.reshape(shapeor)
-    return data_hsi, gt_hsi, TOTAL_SIZE, TRAIN_SIZE
+    return data_hsi, gt_hsi
 
 
 if __name__ == '__main__':
-    data_hsi, gt_hsi, TOTAL_SIZE, TRAIN_SIZE = load_dataset('IP')
+    data_hsi, gt_hsi = load_dataset('IP')
     image_x, image_y, BAND = data_hsi.shape
     data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))
     gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
