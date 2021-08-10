@@ -1,58 +1,15 @@
 import os
+import wget
+import math
 import spectral
 import numpy as np
+import scipy.io as sio
 import scipy.ndimage as nd
 import matplotlib.pyplot as plt
+
 from sklearn.utils import resample
 from sklearn.decomposition import PCA
 from PIL import Image
-
-
-cf = os.path.dirname(os.path.abspath(__file__))
-
-try:
-    BANDS_WLTH = np.array([463, 469, 478, 490, 502, 514, 525, 540, 553, 555, 565, 579, 593, 601, 623, 631])
-    CMF = np.array(np.loadtxt(os.path.join(cf, 'cie-cmf_1nm.txt'), usecols=(0, 1, 2, 3)))
-except:
-    pass
-
-
-def __spec_to_xyz(hsi, bands=BANDS_WLTH):
-    """Convert HSI cube in the visible espectrum to XYZ image (CIE1931)"""
-    size, nbands = hsi.shape[:2], hsi.shape[2]
-    X, Y, Z = np.zeros(size), np.zeros(size), np.zeros(size)
-    for i in range(nbands):
-        band_cmf = np.array(CMF[np.where(CMF == BANDS_WLTH[i])[0]])
-        band = hsi[:, :, i]
-        X = X + band_cmf[0][1] * band
-        Y = Y + band_cmf[0][2] * band
-        Z = Z + band_cmf[0][3] * band
-    return np.dstack([X, Y, Z])
-
-
-def __xyz_to_sRGB(XYZ):
-    """Convert XYZ (CIE1931) image to sRGB image"""
-    X, Y, Z = XYZ[:, :, 0], XYZ[:, :, 1], XYZ[:, :, 2]
-    # https://en.wikipedia.org/wiki/SRGB
-    r = 3.24096994 * X - 1.53738318 * Y - 0.49861076 * Z
-    g = -0.96924364 * X + 1.8759675 * Y + 0.04155506 * Z
-    b = 0.5563008 * X - 0.20397696 * Y + 1.05697151 * Z
-    #from skimage.color import rgb2xyz, xyz2rgb
-    #rgb = xyz2rgb(XYZ)
-    rgb = np.dstack((r, g, b))
-    addwhite = np.amin(rgb)
-    r = r - addwhite
-    g = g - addwhite; b = b - addwhite
-    rgb = np.dstack([r, g, b])
-    # Gamma function (https://en.wikipedia.org/wiki/SRGB )
-    R = np.maximum((1.055 * np.power(r, 0.41667)) - 0.055, 12.92 * r)
-    G = np.maximum((1.055 * np.power(g, 0.41667)) - 0.055, 12.92 * g)
-    B = np.maximum((1.055 * np.power(b, 0.41667)) - 0.055, 12.92 * b)
-    return np.dstack([R, G, B])
-
-
-def spec_to_rgb(cube):
-    return __xyz_to_sRGB(__spec_to_xyz(cube))
 
 
 def random(img, n_bands=6, indexes=False):
@@ -133,3 +90,70 @@ def spectrum(img, point=None):
         idx = np.unravel_index(np.argmax(sal), sal.shape)
         point = (idx[1], idx[0])
     return img[point[1], point[0], :]
+
+
+def load_dataset(dataset, split=0.9):
+    """Load one of the available hyperspectral datasets (IP, PU, SA, KSC)."""
+    if not os.path.exists('datasets'):
+        os.mkdir('datasets')
+    
+    if dataset == 'IP':
+        if not os.path.exists('datasets/Indian_pines_corrected.mat'):
+            wget.download('http://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat',
+                          'datasets/Indian_pines_corrected.mat')
+        if not os.path.exists('datasets/Indian_pines_gt.mat'):
+            wget.download('http://www.ehu.eus/ccwintco/uploads/c/c4/Indian_pines_gt.mat',
+                          'datasets/Indian_pines_gt.mat')
+        data_hsi = sio.loadmat(
+            'datasets/Indian_pines_corrected.mat')['indian_pines_corrected']
+        gt_hsi = sio.loadmat('datasets/Indian_pines_gt.mat')['indian_pines_gt']
+
+    if dataset == 'PU':
+        if not os.path.exists('datasets/PaviaU.mat'):
+            wget.download('http://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat',
+                          'datasets/PaviaU.mat')
+        if not os.path.exists('datasets/PaviaU_gt.mat'):
+            wget.download('http://www.ehu.eus/ccwintco/uploads/5/50/PaviaU_gt.mat',
+                          'datasets/PaviaU_gt.mat')
+        data_hsi = sio.loadmat('datasets/PaviaU.mat')['paviaU']
+        gt_hsi = sio.loadmat('datasets/PaviaU_gt.mat')['paviaU_gt']
+
+    if dataset == 'SA':
+        if not os.path.exists('datasets/Salinas_corrected.mat'):
+            wget.download('http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat',
+                          'datasets/Salinas_corrected.mat')
+        if not os.path.exists('datasets/Salinas_gt.mat'):
+            wget.download('http://www.ehu.eus/ccwintco/uploads/f/fa/Salinas_gt.mat',
+                          'datasets/Salinas_gt.mat')
+        data_hsi = sio.loadmat('datasets/Salinas_corrected.mat')['salinas_corrected']
+        gt_hsi = sio.loadmat('datasets/Salinas_gt.mat')['salinas_gt']
+
+    if dataset == 'KSC':
+        if not os.path.exists('datasets/KSC.mat'):
+            wget.download('http://www.ehu.es/ccwintco/uploads/2/26/KSC.mat',
+                          'datasets/KSC.mat')
+        if not os.path.exists('datasets/KSC_gt.mat'):
+            wget.download('http://www.ehu.es/ccwintco/uploads/a/a6/KSC_gt.mat',
+                          'datasets/KSC_gt.mat')
+        data_hsi = sio.loadmat('datasets/KSC.mat')['KSC']
+        gt_hsi = sio.loadmat('datasets/KSC_gt.mat')['KSC_gt']
+
+    K = data_hsi.shape[2]
+    TOTAL_SIZE = np.sum(gt_hsi != 0)
+    TRAIN_SIZE = math.ceil(TOTAL_SIZE * split)
+
+    shapeor = data_hsi.shape
+    data_hsi = data_hsi.reshape(-1, data_hsi.shape[-1])
+    data_hsi = PCA(n_components=K).fit_transform(data_hsi)
+    shapeor = np.array(shapeor)
+    shapeor[-1] = K
+    data_hsi = data_hsi.reshape(shapeor)
+    return data_hsi, gt_hsi, TOTAL_SIZE, TRAIN_SIZE
+
+
+if __name__ == '__main__':
+    data_hsi, gt_hsi, TOTAL_SIZE, TRAIN_SIZE = load_dataset('IP')
+    image_x, image_y, BAND = data_hsi.shape
+    data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))
+    gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
+    print('The class numbers of the HSI data is:', max(gt))
