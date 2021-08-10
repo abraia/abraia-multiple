@@ -71,11 +71,13 @@ class Client(object):
         type = mimetypes.guess_type(name)[0] or 'binary/octet-stream'
         json = {'name': name, 'type': type, 'md5': md5}  if md5 else {'name': name, 'type': type}
         url = '{}/files/{}'.format(config.API_URL, source)
+        print(url, json)
         resp = requests.post(url, json=json, auth=self.auth) # TODO: Refactor to reduce requests code (like with client.js)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
         url = resp.get('uploadURL')
+        print(resp, url, type)
         if url:
             data = file if isinstance(file, io.BytesIO) else open(file, 'rb')
             resp = requests.put(url, data=data, headers={'Content-Type': type})
@@ -121,6 +123,7 @@ class Client(object):
             raise APIError(resp.text, resp.status_code)
         return resp.json()
 
+    # TODO: Remove analyze image
     # def analyze_image(self, path, params={}):
     #     url = '{}/analysis/{}'.format(config.API_URL, path)
     #     resp = requests.get(url, auth=self.auth)
@@ -174,9 +177,8 @@ class Abraia(Client):
     def upload(self, src, path=''):
         length = len(self.userid) + 1
         if isinstance(src, str) and src.startswith('http'):
-            # f = self.upload_remote(src, self.userid + '/' + path)
-            # return {'path': f['source'][length:]}
-            src = urllib.request.urlretrieve(src)[0]
+            f = self.upload_remote(src, self.userid + '/' + path)
+            return {'path': f['source'][length:]}
         f = self.upload_file(src, self.userid + '/' + path)
         return {'path': f['source'][length:]}
 

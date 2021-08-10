@@ -1,11 +1,21 @@
 import os
+import io
 import tempfile
+import mimetypes
 import numpy as np
 
 from PIL import Image
 from abraia import Abraia
-from spectral.io import envi
-from scipy.io import loadmat, savemat
+
+try:
+    from spectral.io import envi
+except ImportError:
+    print('Install spectral module to support envi files')
+    
+try:
+    from scipy.io import loadmat, savemat
+except ImportError:
+    print('Install scipy module to support mat files')
 
 
 tempdir = tempfile.gettempdir()
@@ -64,18 +74,26 @@ class Multiple(Abraia):
         dest = os.path.join(tempdir, basename)
         envi.save_image(dest, img, metadata=metadata, force=True)
         self.upload(f"{dest.split('.')[0]}.img", f"{path.split('.')[0]}.raw")
-        self.upload(dest, path)
+        return self.upload(dest, path)
 
     def save_mat(self, path, img):
         basename = os.path.basename(path)
         dest = os.path.join(tempdir, basename)
         savemat(dest, {'raw': img})
-        self.upload(dest, path)
+        return self.upload(dest, path)
 
-    def save_image(self, dest, img, metadata={}):
-        if dest.lower().endswith('.hdr'):
-            return self.save_envi(dest, img, metadata)
-        elif dest.lower().endswith('.mat'):
-            return self.save_mat(dest, img)
-        return Image.fromarray(img).save(dest)
+    def save_image(self, path, img, metadata={}):
+        if path.lower().endswith('.hdr'):
+            return self.save_envi(path, img, metadata)
+        elif path.lower().endswith('.mat'):
+            return self.save_mat(path, img)
+        # stream = io.BytesIO()
+        # mime = mimetypes.guess_type(path)[0]
+        # format = mime.split('/')[1]
+        # Image.fromarray(img).save(stream, format)
+        # print(mime, format)
+        basename = os.path.basename(path)
+        dest = os.path.join(tempdir, basename)
+        Image.fromarray(img).save(dest)
+        return self.upload(dest, path)
 

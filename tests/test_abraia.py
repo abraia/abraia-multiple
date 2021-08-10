@@ -12,8 +12,7 @@ def test_load_user_info():
     assert isinstance(user, dict)
 
 
-def test_list():
-    """Test an API call to list stored files and folders"""
+def test_list_files():
     files, folders = abraia.list()
     assert isinstance(files, list)
     assert isinstance(folders, list)
@@ -48,7 +47,7 @@ def test_remove_file():
     assert resp['path'] == 'tiger.jpg'
 
 
-# TODO: Remove analyze image (depreciated)
+# TODO: Remove analyze image (depreciated) and add detect image
 # def test_analyze_image():
 #     resp = abraia.analyze_image(os.path.join(userid, 'tiger.jpg'), {'ar': 1})
 #     assert isinstance(resp, dict)
