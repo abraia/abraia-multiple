@@ -26,7 +26,6 @@ def test_upload_file():
 
 
 def test_upload_remote():
-    # url = 'https://upload.wikimedia.org/wikipedia/commons/f/f1/100_m_final_Berlin_2009.JPG'
     resp = abraia.upload('https://api.abraia.me/files/demo/birds.jpg', 'birds.jpg')
     assert resp['path'] == 'birds.jpg'
 
@@ -47,10 +46,16 @@ def test_remove_file():
     assert resp['path'] == 'tiger.jpg'
 
 
-# TODO: Remove analyze image (depreciated) and add detect image
-# def test_analyze_image():
-#     resp = abraia.analyze_image(os.path.join(userid, 'tiger.jpg'), {'ar': 1})
-#     assert isinstance(resp, dict)
+# TODO: Remove userid from path
+def test_capture_text():
+    resp = abraia.upload('images/sincerely-media.jpg')
+    text = abraia.capture_text(os.path.join(abraia.userid, resp['path']))
+    assert isinstance(text, list)
+
+
+def test_detect_labels():
+    labels = abraia.detect_labels(os.path.join(abraia.userid, 'sincerely-media.jpg'))
+    assert isinstance(labels, list)
 
 
 def test_optimize_image():
@@ -77,11 +82,6 @@ def test_convert_image():
 def test_screenshot_webpage():
     abraia.transform('screenshot.jpg', 'images/screenshot.jpg', {'url': 'https://www.bbc.com'})
     assert os.path.isfile('images/screenshot.jpg')
-
-
-def test_process_branded_image():
-    abraia.transform('lion.jpg', 'images/lion_brand.jpg', {'action': 'test.atn', 'height': 333})
-    assert os.path.isfile('images/lion_brand.jpg')
 
 
 def test_load_file():

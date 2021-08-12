@@ -71,13 +71,11 @@ class Client(object):
         type = mimetypes.guess_type(name)[0] or 'binary/octet-stream'
         json = {'name': name, 'type': type, 'md5': md5}  if md5 else {'name': name, 'type': type}
         url = '{}/files/{}'.format(config.API_URL, source)
-        print(url, json)
-        resp = requests.post(url, json=json, auth=self.auth) # TODO: Refactor to reduce requests code (like with client.js)
+        resp = requests.post(url, json=json, auth=self.auth)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
         url = resp.get('uploadURL')
-        print(resp, url, type)
         if url:
             data = file if isinstance(file, io.BytesIO) else open(file, 'rb')
             resp = requests.put(url, data=data, headers={'Content-Type': type})
@@ -123,24 +121,6 @@ class Client(object):
             raise APIError(resp.text, resp.status_code)
         return resp.json()
 
-    # TODO: Remove analyze image
-    # def analyze_image(self, path, params={}):
-    #     url = '{}/analysis/{}'.format(config.API_URL, path)
-    #     resp = requests.get(url, auth=self.auth)
-    #     if resp.status_code != 200:
-    #         raise APIError(resp.text, resp.status_code)
-    #     resp = resp.json()
-    #     if resp.get('salmap'):
-    #         resp['salmap'] = io.BytesIO(base64.b64decode(resp['salmap'][23:]))
-    #     return resp
-
-    def detect_labels(self, path, params={}):
-        url = '{}/rekognition/{}'.format(config.API_URL, path)
-        resp = requests.get(url, params=params, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        return resp.json()
-
     def transform_image(self, path, params={}):
         if params.get('action'):
             params['background'] = '{}/images/{}'.format(config.API_URL, path)
@@ -152,6 +132,22 @@ class Client(object):
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         return io.BytesIO(resp.content)
+
+    def capture_text(self, path):
+        url = '{}/rekognition/{}'.format(config.API_URL, path)
+        resp = requests.get(url, params={'mode': 'text'}, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        text = list(filter(lambda t: t.get('ParentId') is None, resp.json().get('Text')));
+        return [t.get('DetectedText') for t in text]
+
+    def detect_labels(self, path, params={}):
+        url = '{}/rekognition/{}'.format(config.API_URL, path)
+        resp = requests.get(url, params={'mode': 'labels'}, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        labels = resp.json().get('Labels')
+        return [l.get('Name') for l in labels]
 
 
 class Abraia(Client):
