@@ -98,21 +98,19 @@ def convert(src, dest, width, height, mode, format, action):
                 path, name = os.path.split(filename)
             nam, ext = os.path.splitext(name)
             oext = format if format is not None else (ext and ext[1:])
-            fileout = dest if dest else os.path.join(path, nam + '_o.' + oext)
+            dest = dest if dest else os.path.join(path, nam + '_o.' + oext)
             if dirname:
                 relpath = os.path.relpath(path, dirname)
                 if not os.path.exists(os.path.join(dirname + '_o', relpath)):
                     os.makedirs(os.path.join(dirname + '_o', relpath))
-                fileout = os.path.join(
-                    dirname + '_o', relpath, nam + '.' + oext)
+                dest = os.path.join(dirname + '_o', relpath, nam + '.' + oext)
             if filename.startswith('http'):
                 path = filename
                 args['url'] = filename
             else:
                 resp = abraia.upload(filename)
                 path = resp['path']
-            # print(path, fileout, args)
-            abraia.transform(path, fileout, args)
+            abraia.transform_image(path, dest, args)
     except APIError as error:
         echo_error(error)
 
@@ -127,12 +125,12 @@ def metadata(src, remove):
         resp = abraia.upload_file(src, path)
         if remove:
             print('remove', remove)
-            print(abraia.remove_metadata(resp['source']))
+            print(abraia.remove_metadata(resp['path']))
             buffer = abraia.download_file(resp['source'])
             with open(src+'.output', 'wb') as f:
                 f.write(buffer.getvalue())
         else:
-            meta = abraia.load_metadata(resp['source'])
+            meta = abraia.load_metadata(resp['path'])
             click.echo(json.dumps(meta, indent=2))
     except APIError as error:
         echo_error(error)
@@ -148,8 +146,15 @@ def detect(src, mode):
     try:
         path = abraia.userid + '/' + abraia.folder
         resp = abraia.upload_file(src, path)
-        labels = abraia.detect_labels(resp['source'], {'mode': mode})
-        click.echo(json.dumps(labels, indent=2))
+        if mode == 'labels':
+            labels = abraia.detect_labels(resp['path'])
+            click.echo(labels)
+        if mode == 'text':
+            text = abraia.capture_text(resp['path'])
+            click.echo('\n'.join(text))
+        if mode == 'faces':
+            faces = abraia.detect_faces(resp['path'])
+            click.echo(json.dumps(faces, indent=2))
     except APIError as error:
         echo_error(error)
 
@@ -171,7 +176,7 @@ def list(path):
 
 @cli.command()
 @click.argument('src', type=click.Path())
-# @click.argument('dest', required=False)
+# @click.argument('path', required=False)
 def upload(src):
     """Upload a file to abraia"""
     try:

@@ -1,7 +1,6 @@
-import os
 import numpy as np
 
-from multiple import Multiple
+from abraia import Multiple
 
 multiple = Multiple()
 
@@ -18,5 +17,5 @@ def test_load_metadata():
 
 def test_save_image():
     img = multiple.load_image('lion.jpg')
-    resp = multiple.save_image('lion.png', img)
-    assert resp['path'] == 'lion.png'
+    path = multiple.save_image('lion.png', img)
+    assert path == 'lion.png'

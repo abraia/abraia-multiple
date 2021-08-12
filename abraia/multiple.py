@@ -37,7 +37,7 @@ class Multiple(Abraia):
     def load_metadata(self, path):
         if path.lower().endswith('.hdr'):
             return self.load_header(path)
-        return super(Multiple, self).load_metadata(self.userid + '/' + path)
+        return super(Multiple, self).load_metadata(path)
 
     def load_envi(self, path):
         basename = os.path.basename(path)

@@ -48,7 +48,7 @@ from abraia import Abraia
 
 abraia = Abraia()
 f = abraia.load('test.jpg')
-meta = abraia.metadata('test.jpg')
+meta = abraia.load_metadata('test.jpg')
 abraia.save('test.jpg', f)
 ```
 
@@ -85,7 +85,7 @@ Return the list of `files` and `folders` on the specified cloud `folder`.
 Upload a local (`src`) or a remote (`url`) file to the cloud.
 
 ```python
-src = 'test.png'
+src = 'images/test.png'
 path = 'test/test.png'
 abraia.upload(src, path)
 ```
@@ -123,7 +123,7 @@ Transform and optimize images. The service will automatically choose every compr
 path = 'test/birds.jpg'
 dest = 'birds_o.jpg'
 params = {'width': 300, 'height': 300, 'mode': 'pad'}
-abraia.transform(path, dest, params)
+abraia.transform_image(path, dest, params)
 ```
 
 Parameter | Description
@@ -145,7 +145,7 @@ MULTIPLE extends the ABRAIA Python API to provide seamless integration of multip
 ### Usage
 
 ```python
-from multiple import Multiple
+from abraia import Multiple
 
 multiple = Multiple()
 img = multiple.load_image('test.hdr')

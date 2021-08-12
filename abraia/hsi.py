@@ -138,11 +138,3 @@ def load_dataset(dataset):
         data_hsi = sio.loadmat('datasets/KSC.mat')['KSC']
         gt_hsi = sio.loadmat('datasets/KSC_gt.mat')['KSC_gt']
     return data_hsi, gt_hsi
-
-
-if __name__ == '__main__':
-    data_hsi, gt_hsi = load_dataset('IP')
-    image_x, image_y, BAND = data_hsi.shape
-    data = data_hsi.reshape(np.prod(data_hsi.shape[:2]), np.prod(data_hsi.shape[2:]))
-    gt = gt_hsi.reshape(np.prod(gt_hsi.shape[:2]), )
-    print('The class numbers of the HSI data is:', max(gt))

@@ -10,15 +10,19 @@ from datetime import datetime
 from . import config
 
 
+API_URL = 'https://api.abraia.me'
+
+
+def file_path(f, userid):
+    return f['source'][len(userid)+1:]
+
+
 def md5sum(src):
     hash_md5 = hashlib.md5()
     f = io.BytesIO(src.getvalue()) if isinstance(src, io.BytesIO) else open(src, 'rb')
     for chunk in iter(lambda: f.read(4096), b''):
         hash_md5.update(chunk)
     f.close()
-    # with open(src, 'rb') as f:
-    #     for chunk in iter(lambda: f.read(4096), b''):
-    #         hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
 
@@ -32,9 +36,11 @@ class APIError(Exception):
             self.message = ''
 
 
-class Client(object):
-    def __init__(self):
+class Abraia:
+    def __init__(self, folder=''):
         self.auth = config.load_auth()
+        self.userid = self.load_user().get('id')
+        self.folder = folder
 
     def load_user(self):
         if self.auth[0] and self.auth[1]:
@@ -55,14 +61,28 @@ class Client(object):
             f['date'] = datetime.fromtimestamp(f['date'])
         return resp['files'], resp['folders']
 
+    def list(self, path=''):
+        length = len(self.userid) + 1
+        dirname = os.path.dirname(path)
+        basename = os.path.basename(path)
+        folder = dirname + '/' if dirname else dirname
+        # TODO: Change path to manage userid
+        files, folders = self.list_files(path=self.userid + '/' + folder)
+        files = list(map(lambda f: {'path': f['source'][length:], 'name': f['name'], 'size': f['size'], 'date': f['date']}, files))
+        folders = list(map(lambda f: {'path': f['source'][length:], 'name': f['name']}, folders))
+        if basename:
+            files = list(filter(lambda f: fnmatch(f['path'], path), files))
+            folders = list(filter(lambda f: fnmatch(f['path'], path), folders))
+        return files, folders
+
     def upload_remote(self, url, path):
         json = {'url': url}
-        url = '{}/files/{}'.format(config.API_URL, path)
+        url = f"{API_URL}/files/{self.userid}/{path}"
         resp = requests.post(url, json=json, auth=self.auth)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
-        return resp['file']
+        return file_path(resp['file'], self.userid)
 
     def upload_file(self, file, path):
         source = path + os.path.basename(file) if path.endswith('/') else path
@@ -83,6 +103,12 @@ class Client(object):
                 raise APIError(resp.text, resp.status_code)
         return {'name': name, 'source': source}
 
+    def upload(self, src, path=''):
+        if isinstance(src, str) and src.startswith('http'):
+            return self.upload_remote(src, path)
+        f = self.upload_file(src, self.userid + '/' + path)
+        return file_path(f, self.userid)
+
     def move_file(self, old_path, new_path):
         url = '{}/files/{}'.format(config.API_URL, new_path)
         resp = requests.post(url, json={'store': old_path}, auth=self.auth)
@@ -99,85 +125,6 @@ class Client(object):
             raise APIError(resp.text, resp.status_code)
         return io.BytesIO(resp.content)
 
-    def remove_file(self, path):
-        url = '{}/files/{}'.format(config.API_URL, path)
-        resp = requests.delete(url, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        resp = resp.json()
-        return resp['file']
-
-    def load_metadata(self, path):
-        url = '{}/metadata/{}'.format(config.API_URL, path)
-        resp = requests.get(url, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        return resp.json()
-
-    def remove_metadata(self, path):
-        url = '{}/metadata/{}'.format(config.API_URL, path)
-        resp = requests.delete(url, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        return resp.json()
-
-    def transform_image(self, path, params={}):
-        if params.get('action'):
-            params['background'] = '{}/images/{}'.format(config.API_URL, path)
-            if params.get('fmt') is None:
-                params['fmt'] = params['background'].split('.').pop()
-            path = '{}/{}'.format(path.split('/')[0], params['action'])
-        url = '{}/images/{}'.format(config.API_URL, path)
-        resp = requests.get(url, params=params, stream=True, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        return io.BytesIO(resp.content)
-
-    def capture_text(self, path):
-        url = '{}/rekognition/{}'.format(config.API_URL, path)
-        resp = requests.get(url, params={'mode': 'text'}, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        text = list(filter(lambda t: t.get('ParentId') is None, resp.json().get('Text')));
-        return [t.get('DetectedText') for t in text]
-
-    def detect_labels(self, path, params={}):
-        url = '{}/rekognition/{}'.format(config.API_URL, path)
-        resp = requests.get(url, params={'mode': 'labels'}, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        labels = resp.json().get('Labels')
-        return [l.get('Name') for l in labels]
-
-
-class Abraia(Client):
-    def __init__(self, folder=''):
-        super(Abraia, self).__init__()
-        self.userid = self.load_user().get('id')
-        self.folder = folder
-
-    def list(self, path=''):
-        length = len(self.userid) + 1
-        dirname = os.path.dirname(path)
-        basename = os.path.basename(path)
-        folder = dirname + '/' if dirname else dirname
-        # TODO: Change path to manage userid
-        files, folders = self.list_files(path=self.userid + '/' + folder)
-        files = list(map(lambda f: {'path': f['source'][length:], 'name': f['name'], 'size': f['size'], 'date': f['date']}, files))
-        folders = list(map(lambda f: {'path': f['source'][length:], 'name': f['name']}, folders))
-        if basename:
-            files = list(filter(lambda f: fnmatch(f['path'], path), files))
-            folders = list(filter(lambda f: fnmatch(f['path'], path), folders))
-        return files, folders
-
-    def upload(self, src, path=''):
-        length = len(self.userid) + 1
-        if isinstance(src, str) and src.startswith('http'):
-            f = self.upload_remote(src, self.userid + '/' + path)
-            return {'path': f['source'][length:]}
-        f = self.upload_file(src, self.userid + '/' + path)
-        return {'path': f['source'][length:]}
-
     def download(self, path, dest=''):
         stream = self.download_file(self.userid + '/' + path)
         if dest:
@@ -186,17 +133,46 @@ class Abraia(Client):
             return dest
         return stream
 
-    def remove(self, path):
-        length = len(self.userid) + 1
-        f = self.remove_file(self.userid + '/' + path)
-        return {'path': f['source'][length:]}
+    def remove_file(self, path):
+        url = '{}/files/{}'.format(config.API_URL, path)
+        resp = requests.delete(url, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        resp = resp.json()
+        return resp['file']
 
-    def transform(self, path, dest, params={'quality': 'auto'}):
+    def remove(self, path):
+        f = self.remove_file(self.userid + '/' + path)
+        return file_path(f, self.userid)
+
+    def load_metadata(self, path):
+        url = f"{API_URL}/metadata/{self.userid}/{path}"
+        resp = requests.get(url, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        return resp.json()
+
+    def remove_metadata(self, path):
+        url = f"{API_URL}/metadata/{self.userid}/{path}"
+        resp = requests.delete(url, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        return resp.json()
+
+    def transform_image(self, path, dest, params={'quality': 'auto'}):
         ext = dest.split('.').pop().lower()
         params['format'] = params.get('format') or ext
-        stream = self.transform_image(self.userid + '/' + path, params=params)
+        if params.get('action'):
+            params['background'] = f"{API_URL}/images/{path}"
+            if params.get('fmt') is None:
+                params['fmt'] = params['background'].split('.').pop()
+            path = '{}/{}'.format(path.split('/')[0], params['action'])
+        url = f"{API_URL}/images/{self.userid}/{path}"
+        resp = requests.get(url, params=params, stream=True, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
         with open(dest, 'wb') as f:
-            f.write(stream.getbuffer())
+            f.write(resp.content)
 
     def load(self, path):
         stream = self.download_file(self.userid + '/' + path)
@@ -205,13 +181,24 @@ class Abraia(Client):
         except:
             return stream
 
-    def metadata(self, path):
-        return self.load_metadata(self.userid + '/' + path)
-
     def save(self, path, stream):
-        length = len(self.userid) + 1
         stream =  io.BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
         f = self.upload_file(stream, self.userid + '/' + path)
-        # TODO: Change to directly return the cloud path
-        return {'path': f['source'][length:]}
+        return file_path(f, self.userid)
+
+    def capture_text(self, path):
+        url = f"{API_URL}/rekognition/{self.userid}/{path}"
+        resp = requests.get(url, params={'mode': 'text'}, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        text = list(filter(lambda t: t.get('ParentId') is None, resp.json().get('Text')));
+        return [t.get('DetectedText') for t in text]
+
+    def detect_labels(self, path):
+        url = f"{API_URL}/rekognition/{self.userid}/{path}"
+        resp = requests.get(url, params={'mode': 'labels'}, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        labels = resp.json().get('Labels')
+        return [l.get('Name') for l in labels]
     
