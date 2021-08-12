@@ -1,10 +1,7 @@
 import os
-import io
 import tempfile
-import mimetypes
 import numpy as np
 
-from PIL import Image
 from abraia import Abraia
 
 try:
@@ -67,7 +64,7 @@ class Multiple(Abraia):
             return self.load_envi(path)
         elif path.lower().endswith('.mat'):
             return self.load_mat(path)
-        return np.asarray(Image.open(self.download(path)))
+        return super(Multiple, self).load_image(path)
 
     def save_envi(self, path, img, metadata={}):
         basename = os.path.basename(path)
@@ -87,13 +84,4 @@ class Multiple(Abraia):
             return self.save_envi(path, img, metadata)
         elif path.lower().endswith('.mat'):
             return self.save_mat(path, img)
-        # stream = io.BytesIO()
-        # mime = mimetypes.guess_type(path)[0]
-        # format = mime.split('/')[1]
-        # Image.fromarray(img).save(stream, format)
-        # print(mime, format)
-        basename = os.path.basename(path)
-        dest = os.path.join(tempdir, basename)
-        Image.fromarray(img).save(dest)
-        return self.upload(dest, path)
-
+        return super(Multiple, self).save_image(path, img)

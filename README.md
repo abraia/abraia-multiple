@@ -7,9 +7,9 @@
 
 # Abraia python API and CLI
 
-## Abraia python API
+## Abraia Python package
 
-The Abraia python API provides and easy way to start analyzing images directly from your browser. You just need to click on the open in colab button to start with one of the available notebooks:
+The Abraia Python package provides and easy way to start analyzing images directly from your browser. You just need to click on the open in colab button to start with one of the available notebooks:
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/image-analysis.ipynb) Simple image analysis with Abraia
 
@@ -19,7 +19,7 @@ The Abraia python API provides and easy way to start analyzing images directly f
 
 ![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
 
-The multiple module extends the Abraia python API to provide support for HyperSpectral Image (HSI) analysis.
+The multiple module extends the Abraia package to provide support for HyperSpectral Image (HSI) analysis.
 
 > MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project](https://multipleproject.eu/).
 
@@ -39,7 +39,7 @@ set ABRAIA_KEY=api_key
 
 NOTE: To persist the configuration use your system options to set your ABRAIA_KEY environment variable and avoid to run the previous command every time you start a terminal/console session.
 
-## Usage
+## Image analysis
 
 Abraia provides a direct interface to directly load and save images. You can easily load the image data and the file metadata, or save a new image.
 
@@ -47,20 +47,16 @@ Abraia provides a direct interface to directly load and save images. You can eas
 from abraia import Abraia
 
 abraia = Abraia()
-f = abraia.load('test.jpg')
+
+img = abraia.load_image('test.jpg')
 meta = abraia.load_metadata('test.jpg')
-abraia.save('test.jpg', f)
+abraia.save_image('test.png', img)
 ```
 
 You can directly visualize the image using Matplotlib.
 
 ```python
-from PIL import Image
-
-import numpy as np
 import matplotlib.pyplot as plt
-
-img = np.asarray(Image.open(f))
 
 plt.figure()
 plt.title('Image')
@@ -97,22 +93,14 @@ url = 'http://upload.wikimedia.org/wikipedia/commons/1/13/Usain_Bolt_16082009_Be
 abraia.upload(url, 'usain.jpg')
 ```
 
-### Download files
+### Image detection
 
-Retrieve an stored file.
-
-```python
-path = 'test/birds.jpg'
-dest = 'birds.jpg'
-abraia.download(path, dest)
-```
-
-### Delete files
-
-Delete a stored resource specified by its `path`.
+Detect labels, capture text, and detect faces in images (must be in JPEG format).
 
 ```python
-abraia.delete(path)
+labels = abraia.detect_labels(path)
+lines = abraia.capture_text(path)
+faces = abraia.detect_faces(path)
 ```
 
 ### Transform images
@@ -135,6 +123,25 @@ background | Change background color in padded mode (white by default)
 action | Path to the action file to be used as template
 format | Set the image format: jpeg, png, gif, webp (original format by default)
 quality | Set the image quality (auto by default)
+
+
+### Download files
+
+Retrieve an stored file.
+
+```python
+path = 'test/birds.jpg'
+dest = 'birds.jpg'
+abraia.download(path, dest)
+```
+
+### Delete files
+
+Delete a stored resource specified by its `path`.
+
+```python
+abraia.delete(path)
+```
 
 ## HyperSpectral Image (HSI) analysis
 

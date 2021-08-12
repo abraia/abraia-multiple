@@ -1,16 +1,19 @@
 import os
 import io
-import urllib
 import hashlib
 import requests
+import tempfile
 import mimetypes
+import numpy as np
 
+from PIL import Image
 from fnmatch import fnmatch
 from datetime import datetime
 from . import config
 
 
 API_URL = 'https://api.abraia.me'
+tempdir = tempfile.gettempdir()
 
 
 def file_path(f, userid):
@@ -181,10 +184,24 @@ class Abraia:
         except:
             return stream
 
+    def load_image(self, path):
+        return np.asarray(Image.open(self.download(path)))
+
     def save(self, path, stream):
         stream =  io.BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
         f = self.upload_file(stream, self.userid + '/' + path)
         return file_path(f, self.userid)
+
+    def save_image(self, path, img):
+        # stream = io.BytesIO()
+        # mime = mimetypes.guess_type(path)[0]
+        # format = mime.split('/')[1]
+        # Image.fromarray(img).save(stream, format)
+        # print(mime, format)
+        basename = os.path.basename(path)
+        dest = os.path.join(tempdir, basename)
+        Image.fromarray(img).save(dest)
+        return self.upload(dest, path)
 
     def capture_text(self, path):
         url = f"{API_URL}/rekognition/{self.userid}/{path}"
