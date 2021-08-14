@@ -6,9 +6,10 @@ import scipy.io as sio
 import scipy.ndimage as nd
 import matplotlib.pyplot as plt
 
+from PIL import Image
 from sklearn.utils import resample
 from sklearn.decomposition import PCA
-from PIL import Image
+from sklearn.model_selection import train_test_split
 
 
 def random(img, n_bands=6, indexes=False):
@@ -137,3 +138,8 @@ def load_dataset(dataset):
         data_hsi = sio.loadmat('datasets/KSC.mat')['KSC']
         gt_hsi = sio.loadmat('datasets/KSC_gt.mat')['KSC_gt']
     return data_hsi, gt_hsi
+
+
+def split_train_test(X, y, train_ratio=0.7):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_ratio)
+    return X_train, X_test, y_train, y_test

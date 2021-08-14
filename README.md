@@ -268,8 +268,10 @@ To convert images to a web format (JPEG, PNG, WebP) or between these formats you
 abraia convert garlic.jpg garlic.webp
 ```
 
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.jpg" alt="garlic jpeg">
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.webp" alt="garlic webp">
+<figure>
+    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.jpg" alt="garlic jpeg">
+    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.webp" alt="garlic webp">
+</figure>
 
 In addition, you can also convert SVG and PSD files. For instance, converting a SVG to PNG is so simple as to type the command bellow:
 
@@ -277,8 +279,10 @@ In addition, you can also convert SVG and PSD files. For instance, converting a 
 abraia convert bat.svg bat.png
 ```
 
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.svg" alt="bat svg">
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.png" alt="bat png">
+<figure>
+    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.svg" alt="bat svg">
+    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.png" alt="bat png">
+</figure>
 
 > The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
 
@@ -289,8 +293,10 @@ abraia convert strawberry.psd strawberry.jpg
 abraia convert strawberry.psd strawberry.png
 ```
 
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.jpg" alt="white background strawberry">
-<img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.png" alt="transparent strawberry">
+<figure>
+    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.jpg" alt="white background strawberry">
+    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.png" alt="transparent strawberry">
+</figure>
 
 > When the PSD file is converted to JPEG a white background is added automatically, because the JPEG format does not support transparency. Instead, using the PNG or the WebP format you can preserve the transparent background.
 
