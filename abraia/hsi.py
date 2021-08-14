@@ -1,6 +1,5 @@
 import os
 import wget
-import math
 import spectral
 import numpy as np
 import scipy.io as sio
