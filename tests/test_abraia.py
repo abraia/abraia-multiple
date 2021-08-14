@@ -12,7 +12,7 @@ def test_load_user_info():
 
 
 def test_list_files():
-    files, folders = abraia.list()
+    files, folders = abraia.list_files()
     assert isinstance(files, list)
     assert isinstance(folders, list)
 

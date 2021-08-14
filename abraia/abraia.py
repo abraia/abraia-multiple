@@ -47,7 +47,7 @@ class Abraia:
 
     def load_user(self):
         if self.auth[0] and self.auth[1]:
-            url = '{}/users'.format(config.API_URL)
+            url = f"{API_URL}/users"
             resp = requests.get(url, auth=self.auth)
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
@@ -55,24 +55,19 @@ class Abraia:
         return {}
 
     def list_files(self, path=''):
-        url = '{}/files/{}'.format(config.API_URL, path)
+        dirname = os.path.dirname(path)
+        basename = os.path.basename(path)
+        folder = dirname + '/' if dirname else dirname
+        url = f"{API_URL}/files/{self.userid}/{folder}"
         resp = requests.get(url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
         for f in resp['files']:
             f['date'] = datetime.fromtimestamp(f['date'])
-        return resp['files'], resp['folders']
-
-    def list(self, path=''):
-        length = len(self.userid) + 1
-        dirname = os.path.dirname(path)
-        basename = os.path.basename(path)
-        folder = dirname + '/' if dirname else dirname
-        # TODO: Change path to manage userid
-        files, folders = self.list_files(path=self.userid + '/' + folder)
-        files = list(map(lambda f: {'path': f['source'][length:], 'name': f['name'], 'size': f['size'], 'date': f['date']}, files))
-        folders = list(map(lambda f: {'path': f['source'][length:], 'name': f['name']}, folders))
+        files, folders = resp['files'], resp['folders']
+        files = list(map(lambda f: {'path': file_path(f, self.userid), 'name': f['name'], 'size': f['size'], 'date': f['date']}, files))
+        folders = list(map(lambda f: {'path': file_path(f, self.userid), 'name': f['name']}, folders))
         if basename:
             files = list(filter(lambda f: fnmatch(f['path'], path), files))
             folders = list(filter(lambda f: fnmatch(f['path'], path), folders))
@@ -156,10 +151,10 @@ class Abraia:
         ext = dest.split('.').pop().lower()
         params['format'] = params.get('format') or ext
         if params.get('action'):
-            params['background'] = f"{API_URL}/images/{path}"
+            params['background'] = f"{API_URL}/images/{self.userid}/{path}"
             if params.get('fmt') is None:
                 params['fmt'] = params['background'].split('.').pop()
-            path = '{}/{}'.format(path.split('/')[0], params['action'])
+            path = f"{self.userid}/{params['action']}"
         url = f"{API_URL}/images/{self.userid}/{path}"
         resp = requests.get(url, params=params, stream=True, auth=self.auth)
         if resp.status_code != 200:

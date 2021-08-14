@@ -67,14 +67,12 @@ plt.show()
 
 ### List files
 
-Retrieve information about all the files stored in a cloud folder.
+Return the list of `files` and `folders` on the specified cloud `folder`.
 
 ```python
 folder = ''
-files, folders = abraia.list(folder)
+files, folders = abraia.list_files(folder)
 ```
-
-Return the list of `files` and `folders` on the specified cloud `folder`.
 
 ### Upload files
 
@@ -85,8 +83,6 @@ src = 'images/test.png'
 path = 'test/test.png'
 abraia.upload_file(src, path)
 ```
-
-This creates the resource on the cloud and returns the file data, when the process is finished.
 
 ### Image detection
 
@@ -100,7 +96,7 @@ faces = abraia.detect_faces(path)
 
 ### Transform images
 
-Transform and optimize images. The service will automatically choose every compression parameter to provide the best result based on the perceived analysis of the original image.
+Transform and optimize images automatically choosing every compression parameter to provide the best result based on the perceived analysis of the original image.
 
 ```python
 path = 'test/birds.jpg'

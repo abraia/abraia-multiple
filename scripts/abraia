@@ -163,7 +163,7 @@ def list(path):
     """List the files in abraia"""
     try:
         path = path if path else ''
-        files, folders = abraia.list(path)
+        files, folders = abraia.list_files(path)
         output = '\n'.join(['{:>28}  {}/'.format('', click.style(f['name'], fg='blue', bold=True)) for f in folders]) + '\n'
         output += '\n'.join(['{}  {:>7}  {}'.format(f['date'], f['size'], f['name']) for f in files])
         output += '\ntotal {}'.format(len(files))
@@ -190,7 +190,7 @@ def upload(src):
 def download(path):
     """Download a file from abraia"""
     try:
-        with click.progressbar(abraia.list(path)[0]) as files:
+        with click.progressbar(abraia.list_files(path)[0]) as files:
             for file in files:
                 path, dest = file['path'], os.path.basename(path)
                 click.echo(abraia.download_file(path, dest))

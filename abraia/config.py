@@ -2,7 +2,6 @@ import os
 import sys
 import base64
 
-API_URL = 'https://api.abraia.me'
 CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.abraia')
 
 MIME_TYPES = {'jpg': 'image/jpeg',
