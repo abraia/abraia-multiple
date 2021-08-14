@@ -36,7 +36,7 @@ def test_upload_remote():
 
 
 def test_download_file():
-    stream = abraia.download('tiger.jpg')
+    stream = abraia.download_file('tiger.jpg')
     assert isinstance(stream, BytesIO)
 
 
@@ -72,7 +72,7 @@ def test_screenshot_webpage():
 
 
 def test_load_file():
-    stream = abraia.load('lion.jpg')
+    stream = abraia.load_file('lion.jpg')
     assert isinstance(stream, BytesIO)
 
 
@@ -82,7 +82,7 @@ def test_load_metadata():
 
 
 def test_save_file():
-    path = abraia.save('test.txt', 'this is a simple test.')
+    path = abraia.save_file('test.txt', 'this is a simple test.')
     assert path == 'test.txt'
 
 

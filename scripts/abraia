@@ -194,8 +194,8 @@ def download(path):
     try:
         with click.progressbar(abraia.list(path)[0]) as files:
             for file in files:
-                dest = os.path.basename(file['path'])
-                click.echo(abraia.download(file['path'], dest))
+                path, dest = file['path'], os.path.basename(path)
+                click.echo(abraia.download_file(path, dest))
     except APIError as error:
         echo_error(error)
 

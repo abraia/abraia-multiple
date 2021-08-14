@@ -131,8 +131,8 @@ Retrieve an stored file.
 
 ```python
 path = 'test/birds.jpg'
-dest = 'birds.jpg'
-abraia.download(path, dest)
+dest = 'images/birds.jpg'
+abraia.download_file(path, dest)
 ```
 
 ### Delete files

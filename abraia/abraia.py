@@ -121,20 +121,15 @@ class Abraia:
         return resp['file']
 
     def download_file(self, path, dest=''):
-        # T0D0 Add dest ptina paramater to save file
-        url = '{}/files/{}'.format(config.API_URL, path)
+        url = f"{API_URL}/files/{self.userid}/{path}"
         resp = requests.get(url, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        return io.BytesIO(resp.content)
-
-    def download(self, path, dest=''):
-        stream = self.download_file(self.userid + '/' + path)
         if dest:
             with open(dest, 'wb') as f:
-                f.write(stream.getbuffer())
+                f.write(resp.content)
             return dest
-        return stream
+        return io.BytesIO(resp.content)
 
     def remove_file(self, path):
         url = f"{API_URL}/files/{self.userid}/{path}"
@@ -173,18 +168,18 @@ class Abraia:
         with open(dest, 'wb') as f:
             f.write(resp.content)
 
-    def load(self, path):
-        stream = self.download_file(self.userid + '/' + path)
+    def load_file(self, path):
+        stream = self.download_file(path)
         try:
             return stream.getvalue().decode('utf-8')
         except:
             return stream
 
     def load_image(self, path):
-        # TODO: Remove download method in favor of download_file
-        return np.asarray(Image.open(self.download(path)))
+        stream = self.download_file(path)
+        return np.asarray(Image.open(stream))
 
-    def save(self, path, stream):
+    def save_file(self, path, stream):
         # TODO: Rename save as save_file
         stream =  io.BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
         f = self.upload_file(stream, self.userid + '/' + path)
