@@ -206,7 +206,7 @@ def download(path):
 def remove(path):
     """Remove a file from abraia"""
     try:
-        click.echo(abraia.remove(path))
+        click.echo(abraia.remove_file(path))
     except APIError as error:
         echo_error(error)
 

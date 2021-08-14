@@ -41,7 +41,7 @@ def test_download_file():
 
 
 def test_remove_file():
-    path = abraia.remove('tiger.jpg')
+    path = abraia.remove_file('tiger.jpg')
     assert path == 'tiger.jpg'
 
 

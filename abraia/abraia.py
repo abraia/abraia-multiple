@@ -137,16 +137,12 @@ class Abraia:
         return stream
 
     def remove_file(self, path):
-        url = '{}/files/{}'.format(config.API_URL, path)
+        url = f"{API_URL}/files/{self.userid}/{path}"
         resp = requests.delete(url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
-        return resp['file']
-
-    def remove(self, path):
-        f = self.remove_file(self.userid + '/' + path)
-        return file_path(f, self.userid)
+        return file_path(resp['file'], self.userid)
 
     def load_metadata(self, path):
         url = f"{API_URL}/metadata/{self.userid}/{path}"
@@ -185,9 +181,11 @@ class Abraia:
             return stream
 
     def load_image(self, path):
+        # TODO: Remove download method in favor of download_file
         return np.asarray(Image.open(self.download(path)))
 
     def save(self, path, stream):
+        # TODO: Rename save as save_file
         stream =  io.BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
         f = self.upload_file(stream, self.userid + '/' + path)
         return file_path(f, self.userid)
