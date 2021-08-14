@@ -4,20 +4,20 @@ import numpy as np
 
 from abraia import Abraia
 
-try:
-    from spectral.io import envi
-except ImportError:
-    print('Install spectral module to support envi files')
-    
-try:
-    from scipy.io import loadmat, savemat
-except ImportError:
-    print('Install scipy module to support mat files')
-
 
 tempdir = tempfile.gettempdir()
 
 class Multiple(Abraia):
+    try:
+        from spectral.io import envi
+    except ImportError:
+        print('Install spectral module to support envi files')
+        
+    try:
+        from scipy.io import loadmat, savemat
+    except ImportError:
+        print('Install scipy module to support mat files')
+
     def __init__(self, folder=''):
         super(Multiple, self).__init__()
 
@@ -26,7 +26,7 @@ class Multiple(Abraia):
         dest = os.path.join(tempdir, basename)
         if not os.path.exists(dest):
             self.download_file(path, dest)
-        return envi.read_envi_header(dest)
+        return self.envi.read_envi_header(dest)
 
     def load_metadata(self, path):
         if path.lower().endswith('.hdr'):
@@ -41,10 +41,10 @@ class Multiple(Abraia):
         raw = f"{dest.split('.')[0]}.raw"
         if not os.path.exists(raw):
             self.download_file(f"{path.split('.')[0]}.raw", raw)
-        return np.array(envi.open(dest, raw)[:, :, :])
+        return np.array(self.envi.open(dest, raw)[:, :, :])
 
     def load_mat(self, path):
-        mat = loadmat(self.download_file(path))
+        mat = self.loadmat(self.download_file(path))
         for key, value in mat.items():
             if type(value) == np.ndarray:
                 return value
@@ -66,14 +66,14 @@ class Multiple(Abraia):
     def save_envi(self, path, img, metadata={}):
         basename = os.path.basename(path)
         dest = os.path.join(tempdir, basename)
-        envi.save_image(dest, img, metadata=metadata, force=True)
+        self.envi.save_image(dest, img, metadata=metadata, force=True)
         self.upload_file(f"{dest.split('.')[0]}.img", f"{path.split('.')[0]}.raw")
         return self.upload_file(dest, path)
 
     def save_mat(self, path, img):
         basename = os.path.basename(path)
         src = os.path.join(tempdir, basename)
-        savemat(src, {'raw': img})
+        self.savemat(src, {'raw': img})
         return self.upload_file(src, path)
 
     def save_image(self, path, img, metadata={}):

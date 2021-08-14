@@ -1,5 +1,4 @@
 import os
-import io
 import hashlib
 import requests
 import tempfile
@@ -7,6 +6,7 @@ import mimetypes
 import numpy as np
 
 from PIL import Image
+from io import BytesIO
 from fnmatch import fnmatch
 from datetime import datetime
 from . import config
@@ -22,7 +22,7 @@ def file_path(f, userid):
 
 def md5sum(src):
     hash_md5 = hashlib.md5()
-    f = io.BytesIO(src.getvalue()) if isinstance(src, io.BytesIO) else open(src, 'rb')
+    f = BytesIO(src.getvalue()) if isinstance(src, BytesIO) else open(src, 'rb')
     for chunk in iter(lambda: f.read(4096), b''):
         hash_md5.update(chunk)
     f.close()
@@ -92,14 +92,13 @@ class Abraia:
         type = mimetypes.guess_type(name)[0] or 'binary/octet-stream'
         json = {'name': name, 'type': type, 'md5': md5} if md5 else {'name': name, 'type': type}
         url = f"{API_URL}/files/{self.userid}/{path}"
-        print('>', url, json)
         resp = requests.post(url, json=json, auth=self.auth)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
         url = resp.get('uploadURL')
         if url:
-            data = src if isinstance(src, io.BytesIO) else open(src, 'rb')
+            data = src if isinstance(src, BytesIO) else open(src, 'rb')
             resp = requests.put(url, data=data, headers={'Content-Type': type})
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
@@ -119,11 +118,10 @@ class Abraia:
         resp = requests.get(url, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        if dest:
-            with open(dest, 'wb') as f:
-                f.write(resp.content)
-            return dest
-        return io.BytesIO(resp.content)
+        if not dest:
+            return BytesIO(resp.content)
+        with open(dest, 'wb') as f:
+            f.write(resp.content)
 
     def remove_file(self, path):
         url = f"{API_URL}/files/{self.userid}/{path}"
@@ -174,11 +172,11 @@ class Abraia:
         return np.asarray(Image.open(stream))
 
     def save_file(self, path, stream):
-        stream =  io.BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
+        stream =  BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
         return self.upload_file(stream, path)
 
     def save_image(self, path, img):
-        # stream = io.BytesIO()
+        # stream = BytesIO()
         # mime = mimetypes.guess_type(path)[0]
         # format = mime.split('/')[1]
         # Image.fromarray(img).save(stream, format)
