@@ -67,14 +67,14 @@ class Multiple(Abraia):
         basename = os.path.basename(path)
         dest = os.path.join(tempdir, basename)
         envi.save_image(dest, img, metadata=metadata, force=True)
-        self.upload(f"{dest.split('.')[0]}.img", f"{path.split('.')[0]}.raw")
-        return self.upload(dest, path)
+        self.upload_file(f"{dest.split('.')[0]}.img", f"{path.split('.')[0]}.raw")
+        return self.upload_file(dest, path)
 
     def save_mat(self, path, img):
         basename = os.path.basename(path)
-        dest = os.path.join(tempdir, basename)
-        savemat(dest, {'raw': img})
-        return self.upload(dest, path)
+        src = os.path.join(tempdir, basename)
+        savemat(src, {'raw': img})
+        return self.upload_file(src, path)
 
     def save_image(self, path, img, metadata={}):
         if path.lower().endswith('.hdr'):

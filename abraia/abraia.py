@@ -87,38 +87,37 @@ class Abraia:
         resp = resp.json()
         return file_path(resp['file'], self.userid)
 
-    def upload_file(self, file, path):
-        source = path + os.path.basename(file) if path.endswith('/') else path
-        name = os.path.basename(source)
-        md5 = md5sum(file) # TODO: Refactor names to src, dest, path (cloud)
+    def upload_file(self, src, path=''):
+        if isinstance(src, str) and src.startswith('http'):
+            return self.upload_remote(src, path)
+        if path == '' or path.endswith('/'):
+            path = path + os.path.basename(src)
+        name = os.path.basename(path)
+        md5 = md5sum(src) # TODO: Refactor names to src, dest, path (cloud)
         type = mimetypes.guess_type(name)[0] or 'binary/octet-stream'
-        json = {'name': name, 'type': type, 'md5': md5}  if md5 else {'name': name, 'type': type}
-        url = '{}/files/{}'.format(config.API_URL, source)
+        json = {'name': name, 'type': type, 'md5': md5} if md5 else {'name': name, 'type': type}
+        url = f"{API_URL}/files/{self.userid}/{path}"
+        print('>', url, json)
         resp = requests.post(url, json=json, auth=self.auth)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
         url = resp.get('uploadURL')
         if url:
-            data = file if isinstance(file, io.BytesIO) else open(file, 'rb')
+            data = src if isinstance(src, io.BytesIO) else open(src, 'rb')
             resp = requests.put(url, data=data, headers={'Content-Type': type})
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
-        return {'name': name, 'source': source}
-
-    def upload(self, src, path=''):
-        if isinstance(src, str) and src.startswith('http'):
-            return self.upload_remote(src, path)
-        f = self.upload_file(src, self.userid + '/' + path)
-        return file_path(f, self.userid)
+        return file_path({'name': name, 'source': f"{self.userid}/{path}"}, self.userid)
 
     def move_file(self, old_path, new_path):
-        url = '{}/files/{}'.format(config.API_URL, new_path)
-        resp = requests.post(url, json={'store': old_path}, auth=self.auth)
+        json = {'store': f"{self.userid}/{old_path}"}
+        url = f"{API_URL}/files/{self.userid}/{new_path}"
+        resp = requests.post(url, json=json, auth=self.auth)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
-        return resp['file']
+        return file_path(resp['file'], self.userid)
 
     def download_file(self, path, dest=''):
         url = f"{API_URL}/files/{self.userid}/{path}"
@@ -180,10 +179,8 @@ class Abraia:
         return np.asarray(Image.open(stream))
 
     def save_file(self, path, stream):
-        # TODO: Rename save as save_file
         stream =  io.BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
-        f = self.upload_file(stream, self.userid + '/' + path)
-        return file_path(f, self.userid)
+        return self.upload_file(stream, path)
 
     def save_image(self, path, img):
         # stream = io.BytesIO()
@@ -192,9 +189,9 @@ class Abraia:
         # Image.fromarray(img).save(stream, format)
         # print(mime, format)
         basename = os.path.basename(path)
-        dest = os.path.join(tempdir, basename)
-        Image.fromarray(img).save(dest)
-        return self.upload(dest, path)
+        src = os.path.join(tempdir, basename)
+        Image.fromarray(img).save(src)
+        return self.upload_file(src, path)
 
     def capture_text(self, path):
         url = f"{API_URL}/rekognition/{self.userid}/{path}"

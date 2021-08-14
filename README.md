@@ -83,15 +83,10 @@ Upload a local (`src`) or a remote (`url`) file to the cloud.
 ```python
 src = 'images/test.png'
 path = 'test/test.png'
-abraia.upload(src, path)
+abraia.upload_file(src, path)
 ```
 
 This creates the resource on the cloud and returns the file data, when the process is finished.
-
-```python
-url = 'http://upload.wikimedia.org/wikipedia/commons/1/13/Usain_Bolt_16082009_Berlin.JPG'
-abraia.upload(url, 'usain.jpg')
-```
 
 ### Image detection
 
@@ -165,7 +160,7 @@ multiple.save_image('test.hdr', img, metadata=meta)
 To start with, we may [upload some data](https://abraia.me/console/gallery) directly using the graphical interface, or using the multiple api:
 
 ```python
-multiple.upload('PaviaU.mat')
+multiple.upload_file('PaviaU.mat')
 ```
 
 Now, we can load the hyperspectral image data (HSI cube) directly from the cloud:

@@ -108,8 +108,7 @@ def convert(src, dest, width, height, mode, format, action):
                 path = filename
                 args['url'] = filename
             else:
-                resp = abraia.upload(filename)
-                path = resp['path']
+                path = abraia.upload_file(filename)
             abraia.transform_image(path, dest, args)
     except APIError as error:
         echo_error(error)
@@ -122,15 +121,15 @@ def metadata(src, remove):
     """Load and remove file metadata"""
     try:
         path = abraia.userid + '/' + abraia.folder
-        resp = abraia.upload_file(src, path)
+        path = abraia.upload_file(src, path)
         if remove:
             print('remove', remove)
-            print(abraia.remove_metadata(resp['path']))
-            buffer = abraia.download_file(resp['source'])
+            print(abraia.remove_metadata(path))
+            buffer = abraia.download_file(path)
             with open(src+'.output', 'wb') as f:
                 f.write(buffer.getvalue())
         else:
-            meta = abraia.load_metadata(resp['path'])
+            meta = abraia.load_metadata(path)
             click.echo(json.dumps(meta, indent=2))
     except APIError as error:
         echo_error(error)
@@ -144,16 +143,15 @@ def metadata(src, remove):
 def detect(src, mode):
     """Detect image data"""
     try:
-        path = abraia.userid + '/' + abraia.folder
-        resp = abraia.upload_file(src, path)
+        path = abraia.upload_file(src, abraia.folder)
         if mode == 'labels':
-            labels = abraia.detect_labels(resp['path'])
+            labels = abraia.detect_labels(path)
             click.echo(labels)
         if mode == 'text':
-            text = abraia.capture_text(resp['path'])
+            text = abraia.capture_text(path)
             click.echo('\n'.join(text))
         if mode == 'faces':
-            faces = abraia.detect_faces(resp['path'])
+            faces = abraia.detect_faces(path)
             click.echo(json.dumps(faces, indent=2))
     except APIError as error:
         echo_error(error)
@@ -182,7 +180,7 @@ def upload(src):
     try:
         with click.progressbar(input_files(src)) as files:
             for file in files:
-                click.echo(abraia.upload(file, abraia.folder))
+                click.echo(abraia.upload_file(file, abraia.folder))
     except APIError as error:
         echo_error(error)
 

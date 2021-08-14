@@ -18,9 +18,9 @@ def test_list_files():
 
 
 def test_upload_file():
-    path = abraia.upload('images/lion.jpg')
+    path = abraia.upload_file('images/lion.jpg')
     assert path == 'lion.jpg'
-    path = abraia.upload('images/tiger.jpg', 'tiger.jpg')
+    path = abraia.upload_file('images/tiger.jpg', 'tiger.jpg')
     assert path == 'tiger.jpg'
 
 
@@ -61,7 +61,7 @@ def test_smartcrop_image():
 
 
 def test_convert_image():
-    abraia.upload('images/bat.svg')
+    abraia.upload_file('images/bat.svg')
     abraia.transform_image('bat.svg', 'images/bat.png')
     assert os.path.isfile('images/bat.png')
 
@@ -87,7 +87,7 @@ def test_save_file():
 
 
 def test_capture_text():
-    path = abraia.upload('images/sincerely-media.jpg')
+    path = abraia.upload_file('images/sincerely-media.jpg')
     text = abraia.capture_text(path)
     assert isinstance(text, list)
 
