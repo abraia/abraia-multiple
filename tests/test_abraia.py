@@ -22,10 +22,7 @@ def test_upload_file():
     assert path == 'lion.jpg'
     path = abraia.upload_file('images/tiger.jpg', 'tiger.jpg')
     assert path == 'tiger.jpg'
-
-
-def test_upload_remote():
-    path = abraia.upload_remote('https://api.abraia.me/files/demo/birds.jpg', 'birds.jpg')
+    path = abraia.upload_file('https://api.abraia.me/files/demo/birds.jpg', 'birds.jpg')
     assert path == 'birds.jpg'
 
 

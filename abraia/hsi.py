@@ -1,6 +1,5 @@
 import os
 import wget
-import spectral
 import numpy as np
 import scipy.io as sio
 import scipy.ndimage as nd
@@ -27,12 +26,14 @@ def random(img, n_bands=6, indexes=False):
 
 def rgb(img, bands=None):
     """Returns the RGB image from the selected bands (R, G, B)"""
-    return spectral.get_rgb(img, bands=bands)
+    from spectral import get_rgb
+    return get_rgb(img, bands=bands)
 
 
 def ndvi(img, red_band, nir_band):
     """Returns the NDVI image from the specified read and nir bands"""
-    return spectral.ndvi(img, red_band, nir_band)
+    from spectral import ndvi
+    return ndvi(img, red_band, nir_band)
 
 
 def resample(img, n_samples=32):
@@ -47,7 +48,7 @@ def principal_components(img, n_components=3, spectrum=False):
     """Calculate principal components of the image"""
     h, w, d = img.shape
     X = img.reshape((h * w), d)
-    pca = PCA(n_components=n_components)
+    pca = PCA(n_components=n_components, whiten=True)
     bands = pca.fit_transform(X).reshape(h, w, n_components)
     if spectrum:
         bands, pca.components_

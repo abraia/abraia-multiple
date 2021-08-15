@@ -11,12 +11,12 @@ class Multiple(Abraia):
     try:
         from spectral.io import envi
     except ImportError:
-        print('Install spectral module to support envi files')
+        print('Install spectral package to support envi files')
         
     try:
         from scipy.io import loadmat, savemat
     except ImportError:
-        print('Install scipy module to support mat files')
+        print('Install scipy package to support mat files')
 
     def __init__(self, folder=''):
         super(Multiple, self).__init__()

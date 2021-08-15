@@ -73,24 +73,19 @@ class Abraia:
             folders = list(filter(lambda f: fnmatch(f['path'], path), folders))
         return files, folders
 
-    def upload_remote(self, url, path):
-        json = {'url': url}
-        url = f"{API_URL}/files/{self.userid}/{path}"
-        resp = requests.post(url, json=json, auth=self.auth)
-        if resp.status_code != 201:
-            raise APIError(resp.text, resp.status_code)
-        resp = resp.json()
-        return file_path(resp['file'], self.userid)
-
     def upload_file(self, src, path=''):
-        if isinstance(src, str) and src.startswith('http'):
-            return self.upload_remote(src, path)
         if path == '' or path.endswith('/'):
             path = path + os.path.basename(src)
+        json = {}
         name = os.path.basename(path)
-        md5 = md5sum(src) # TODO: Refactor names to src, dest, path (cloud)
         type = mimetypes.guess_type(name)[0] or 'binary/octet-stream'
-        json = {'name': name, 'type': type, 'md5': md5} if md5 else {'name': name, 'type': type}
+        if isinstance(src, str) and src.startswith('http'):
+            json = {'url': src}
+        else:
+            json = {'name': name, 'type': type}
+            md5 = md5sum(src)
+            if md5:
+                json['md5'] = md5
         url = f"{API_URL}/files/{self.userid}/{path}"
         resp = requests.post(url, json=json, auth=self.auth)
         if resp.status_code != 201:
@@ -102,7 +97,8 @@ class Abraia:
             resp = requests.put(url, data=data, headers={'Content-Type': type})
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
-        return file_path({'name': name, 'source': f"{self.userid}/{path}"}, self.userid)
+            return file_path({'name': name, 'source': f"{self.userid}/{path}"}, self.userid)
+        return file_path(resp['file'], self.userid)
 
     def move_file(self, old_path, new_path):
         json = {'store': f"{self.userid}/{old_path}"}
