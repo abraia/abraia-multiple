@@ -44,17 +44,6 @@ def resample(img, n_samples=32):
     return np.transpose(r).reshape(h, w, n_samples)
 
 
-def principal_components(img, n_components=3, spectrum=False):
-    """Calculate principal components of the image"""
-    h, w, d = img.shape
-    X = img.reshape((h * w), d)
-    pca = PCA(n_components=n_components, whiten=True)
-    bands = pca.fit_transform(X).reshape(h, w, n_components)
-    if spectrum:
-        bands, pca.components_
-    return bands
-
-
 def resize(img, size):
     """Resize the image to the given size (w, h)"""
     return np.array(Image.fromarray(img).resize(size, resample=Image.LANCZOS))
@@ -97,7 +86,6 @@ def load_dataset(dataset):
     """Load one of the available hyperspectral datasets (IP, PU, SA, KSC)."""
     if not os.path.exists('datasets'):
         os.mkdir('datasets')
-    
     if dataset == 'IP':
         if not os.path.exists('datasets/Indian_pines_corrected.mat'):
             wget.download('http://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat',
@@ -108,7 +96,11 @@ def load_dataset(dataset):
         data_hsi = sio.loadmat(
             'datasets/Indian_pines_corrected.mat')['indian_pines_corrected']
         gt_hsi = sio.loadmat('datasets/Indian_pines_gt.mat')['indian_pines_gt']
-
+        class_names = ['', 'Alfalfa', 'Corn-notill', 'Corn-mintill', 'Corn', 'Grass-pasture',
+                       'Grass-trees', 'Grass-pasture-mowed', 'Hay-windrowed', 'Oats', 'Soybean-notill',
+                       'Soybean-mintill', 'Soybean-clean', 'Wheat', 'Woods', 'Buildings Grass Trees Drives',
+                       'Stone Steel Towers']
+        return data_hsi, gt_hsi, class_names
     if dataset == 'PU':
         if not os.path.exists('datasets/PaviaU.mat'):
             wget.download('http://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat',
@@ -118,7 +110,9 @@ def load_dataset(dataset):
                           'datasets/PaviaU_gt.mat')
         data_hsi = sio.loadmat('datasets/PaviaU.mat')['paviaU']
         gt_hsi = sio.loadmat('datasets/PaviaU_gt.mat')['paviaU_gt']
-
+        class_names = ['', 'Asphalt', 'Meadows', 'Gravel', 'Trees', 'Painted metal sheets',
+                       'Bare Soil', 'Bitumen', 'Self-Blocking Bricks', 'Shadows']
+        return data_hsi, gt_hsi, class_names
     if dataset == 'SA':
         if not os.path.exists('datasets/Salinas_corrected.mat'):
             wget.download('http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat',
@@ -128,7 +122,11 @@ def load_dataset(dataset):
                           'datasets/Salinas_gt.mat')
         data_hsi = sio.loadmat('datasets/Salinas_corrected.mat')['salinas_corrected']
         gt_hsi = sio.loadmat('datasets/Salinas_gt.mat')['salinas_gt']
-
+        class_names = ['', 'Brocoli_green_weeds_1', 'Brocoli_green_weeds_2', 'Fallow', 'Fallow_rough_plow',
+                       'Fallow_smooth', 'Stubble', 'Celery', 'Grapes_untrained', 'Soil_vinyard_develop',
+                       'Corn_senesced_green_weeds', 'Lettuce_romaine_4wk', 'Lettuce_romaine_5wk',
+                       'Lettuce_romaine_6wk', 'Lettuce_romaine_7wk', 'Vinyard_untrained', 'Vinyard_vertical_trellis']
+        return data_hsi, gt_hsi, class_names
     if dataset == 'KSC':
         if not os.path.exists('datasets/KSC.mat'):
             wget.download('http://www.ehu.es/ccwintco/uploads/2/26/KSC.mat',
@@ -138,9 +136,21 @@ def load_dataset(dataset):
                           'datasets/KSC_gt.mat')
         data_hsi = sio.loadmat('datasets/KSC.mat')['KSC']
         gt_hsi = sio.loadmat('datasets/KSC_gt.mat')['KSC_gt']
-    return data_hsi, gt_hsi
+        return data_hsi, gt_hsi
 
 
 def split_train_test(X, y, train_ratio=0.7):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_ratio)
+    """Split data for training and test"""
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_ratio, stratify=y)
     return X_train, X_test, y_train, y_test
+
+
+def principal_components(img, n_components=3, spectrum=False):
+    """Calculate principal components of the image"""
+    h, w, d = img.shape
+    X = img.reshape((h * w), d)
+    pca = PCA(n_components=n_components, whiten=True)
+    bands = pca.fit_transform(X).reshape(h, w, n_components)
+    if spectrum:
+        bands, pca.components_
+    return bands
