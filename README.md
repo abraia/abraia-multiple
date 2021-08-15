@@ -170,7 +170,7 @@ img = multiple.load_image('PaviaU.mat')
 Hyperspectral images cannot be directly visualized, so we can get some random bands from our HSI cube, and visualize these bands as like any other monochannel image.
 
 ```python
-from multiple import hsi
+from abraia import hsi
 
 imgs, indexes = hsi.random(img)
 
