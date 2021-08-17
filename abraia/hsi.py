@@ -9,6 +9,12 @@ from PIL import Image
 from sklearn.utils import resample
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+
+from tensorflow import keras
+from keras.models import Model
+from keras.utils import np_utils
+from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
 
 def random(img, n_bands=6, indexes=False):
@@ -154,3 +160,54 @@ def principal_components(img, n_components=3, spectrum=False):
     if spectrum:
         bands, pca.components_
     return bands
+
+
+def create_model(window_size, n_bands, output_units):
+    ## input layer
+    input_layer = Input((window_size, window_size, n_bands, 1))
+    ## convolutional layers
+    conv_layer1 = Conv3D(filters=8, kernel_size=(3, 3, 7), activation='relu')(input_layer)
+    conv_layer2 = Conv3D(filters=16, kernel_size=(3, 3, 5), activation='relu')(conv_layer1)
+    conv_layer3 = Conv3D(filters=32, kernel_size=(3, 3, 3), activation='relu')(conv_layer2)
+    conv_layer3 = Reshape((conv_layer3.shape[1], conv_layer3.shape[2], conv_layer3.shape[3] * conv_layer3.shape[4]))(conv_layer3)
+    conv_layer4 = Conv2D(filters=64, kernel_size=(3,3), activation='relu')(conv_layer3)
+    flatten_layer = Flatten()(conv_layer4)
+    ## fully connected layers
+    dense_layer1 = Dense(units=256, activation='relu')(flatten_layer)
+    dense_layer1 = Dropout(0.4)(dense_layer1)
+    dense_layer2 = Dense(units=128, activation='relu')(dense_layer1)
+    dense_layer2 = Dropout(0.4)(dense_layer2)
+    output_layer = Dense(units=output_units, activation='softmax')(dense_layer2)
+    # define the model with input layer and output layer
+    model = Model(inputs=input_layer, outputs=output_layer)
+    # compiling the model
+    adam = keras.optimizers.Adam(learning_rate=0.001, decay=1e-06)
+    model.compile(loss='categorical_crossentropy', optimizer=adam, metrics=['accuracy'])
+    return model
+
+
+def train_model(model, X_train, y_train, batch_size=256, epochs=50):
+    history = model.fit(x=X_train, y=np_utils.to_categorical(y_train), batch_size=batch_size, epochs=epochs)
+    return history
+
+
+def evaluate_model(model, X_test, y_test, batch_size=32):
+    score = model.evaluate(X_test, np_utils.to_categorical(y_test), batch_size=batch_size)
+    return score
+
+
+def predict_model(model, X_pred):
+    Y_pred = model.predict(X_pred)
+    return np.argmax(Y_pred, axis=1)
+
+
+def plot_train_history(history):
+    plt.figure(figsize=(10,5))
+    plt.ylim(0, 1.01)
+    plt.grid()
+    plt.plot(history.history['loss'])
+    plt.plot(history.history['accuracy'])
+    plt.ylabel('Loss')
+    plt.xlabel('Epochs')
+    plt.legend(['Training loss','Test accuracy'], loc='upper right')
+    plt.show()

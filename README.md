@@ -3,8 +3,6 @@
 [![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg)](https://coveralls.io/github/abraia/abraia-python)
 ![Package Downloads](https://img.shields.io/pypi/dm/abraia)
 
-![Analytics](https://ga-beacon.appspot.com/UA-108018608-1/github/python?pixel)
-
 # Abraia python API and CLI
 
 ## Abraia Python package
