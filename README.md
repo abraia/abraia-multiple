@@ -9,13 +9,13 @@
 
 The Abraia Python package provides and easy way to start analyzing images directly from your browser. You just need to click on the open in colab button to start with one of the available notebooks:
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/image-analysis.ipynb) Simple image analysis with Abraia
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/image-analysis.ipynb) Simple image analysis
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/image-classification.ipynb) Deep image classification
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis and classification
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hyperspectral-classification.ipynb) Hyperspectral image deep classification
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hyperspectral-classification.ipynb) Deep hyperspectral image classification
 
 ![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
 
