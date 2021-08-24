@@ -162,6 +162,49 @@ def principal_components(img, n_components=3, spectrum=False):
     return bands
 
 
+def padWithZeros(X, margin=2):
+    newX = np.zeros((X.shape[0] + 2 * margin, X.shape[1] + 2* margin, X.shape[2]))
+    newX[margin:X.shape[0] + margin, margin:X.shape[1] + margin, :] = X
+    return newX
+
+
+def patch(data, height_index, width_index, patch_size):
+    height_slice = slice(height_index, height_index + patch_size)
+    width_slice = slice(width_index, width_index + patch_size)
+    return data[height_slice, width_slice, :]
+
+
+def create_patches(X, patch_size):
+    patches = []
+    width, height = X.shape[1], X.shape[0]
+    X = padWithZeros(X, patch_size // 2)
+    for i in range(height):
+        for j in range(width):
+            image_patch = patch(X, i, j, patch_size)
+            patches.append(image_patch.reshape(image_patch.shape + (1,)).astype('float32'))
+    return np.array(patches)
+
+
+def create_image_cubes(X, y, patch_size):
+    width, height = X.shape[1], X.shape[0]
+    patchesData = create_patches(X, patch_size)
+    labels = []
+    for i in range(height):
+        for j in range(width):
+            labels.append(y[i, j])
+    patchesLabels = np.array(labels)
+    return patchesData, patchesLabels
+
+
+def generate_training_data(X, y, window_size, K, train_ratio=0.7):
+    X = principal_components(X, n_components=K)
+    X, y = create_image_cubes(X, y, window_size)
+    X_train, X_test, y_train, y_test = split_train_test(X, y, train_ratio)
+    X_train = X_train.reshape(-1, window_size, window_size, K, 1)
+    X_test = X_test.reshape(-1, window_size, window_size, K, 1)
+    return X_train, X_test, y_train, y_test
+
+
 def create_model(window_size, n_bands, output_units):
     ## input layer
     input_layer = Input((window_size, window_size, n_bands, 1))
@@ -191,14 +234,21 @@ def train_model(model, X_train, y_train, batch_size=256, epochs=50):
     return history
 
 
-def evaluate_model(model, X_test, y_test, batch_size=32):
-    score = model.evaluate(X_test, np_utils.to_categorical(y_test), batch_size=batch_size)
-    return score
+def evaluate_model(model, X_test, y_test):
+    return np.argmax(model.predict(X_test), axis=1)
 
 
-def predict_model(model, X_pred):
-    Y_pred = model.predict(X_pred)
-    return np.argmax(Y_pred, axis=1)
+def predict_model(model, X, patch_size, K):
+    width, height = X.shape[1], X.shape[0]
+    X = principal_components(X, n_components=K)
+    X_pred = create_patches(X, patch_size)
+    y_pred = np.argmax(model.predict(X_pred), axis=1)
+    output = np.zeros((height, width))
+    for i in range(height):
+        for j in range(width):
+            k = i * width + j
+            output[i, j] = y_pred[k]
+    return output.astype(int)
 
 
 def plot_train_history(history):
