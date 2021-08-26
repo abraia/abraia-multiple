@@ -1,9 +1,12 @@
 import os
 import wget
 import glob
+import shutil
 import zipfile
 import numpy as np
 import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
 
 from tensorflow import keras
 from keras.models import Model, load_model
@@ -28,6 +31,24 @@ def load_dataset(dataset='cats-and-dogs'):
         dog_paths = glob.glob('datasets/PetImages/Dog/*.jpg')
         class_names = ['Cat', 'Dog']
         return cat_paths, dog_paths, class_names
+
+
+def split_train_test(cat_paths, dog_paths, train_ratio=0.7):
+    cats_train, cats_test = train_test_split(cat_paths, test_size=1-train_ratio)
+    dogs_train, dogs_test = train_test_split(dog_paths, test_size=1-train_ratio)
+    folders = ['train', 'test', 'train/Cat', 'train/Dog', 'test/Cat', 'test/Dog']
+    for folder in folders:
+        if not os.path.exists(folder):
+            os.mkdir(folder)
+    for cat_train in cats_train:
+        shutil.move(cat_train, 'train/Cat')
+    for dog_train in dogs_train:
+        shutil.move(dog_train, 'train/Dog')
+    for cat_test in cats_test:
+        shutil.move(cat_test, 'test/Cat')
+    for dog_test in dogs_test:
+        shutil.move(dog_test, 'test/Dog')
+    return 'train', 'test'
 
 
 def create_model(CLASSES=2):
