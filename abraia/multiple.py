@@ -2,7 +2,7 @@ import os
 import tempfile
 import numpy as np
 
-from abraia import Abraia
+from .abraia import Abraia
 
 
 tempdir = tempfile.gettempdir()

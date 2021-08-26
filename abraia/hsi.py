@@ -16,6 +16,8 @@ from keras.models import Model
 from keras.utils import np_utils
 from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
+from .deep import plot_train_history
+
 
 def random(img, n_bands=6, indexes=False):
     """Returns a list of random bands"""
@@ -249,15 +251,3 @@ def predict_model(model, X, patch_size, K):
             k = i * width + j
             output[i, j] = y_pred[k]
     return output.astype(int)
-
-
-def plot_train_history(history):
-    plt.figure(figsize=(10,5))
-    plt.ylim(0, 1.01)
-    plt.grid()
-    plt.plot(history.history['loss'])
-    plt.plot(history.history['accuracy'])
-    plt.ylabel('Loss')
-    plt.xlabel('Epochs')
-    plt.legend(['Training loss','Test accuracy'], loc='upper right')
-    plt.show()
