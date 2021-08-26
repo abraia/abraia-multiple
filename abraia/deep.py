@@ -6,11 +6,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from tensorflow import keras
-from keras.models import Model
+from keras.models import Model, load_model
 from keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from keras.applications.inception_v3 import InceptionV3, preprocess_input
-from keras.preprocessing import image
-from keras.models import load_model
+from keras.preprocessing.image import ImageDataGenerator, load_img
 
 
 def load_dataset(dataset='cats-and-dogs'):
@@ -23,6 +22,8 @@ def load_dataset(dataset='cats-and-dogs'):
             wget.download(zip_url, zip_file)
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
             zip_ref.extractall('datasets/')
+        os.remove('datasets/PetImages/Cat/666.jpg')
+        os.remove('datasets/PetImages/Dog/11702.jpg')
         cat_paths = glob.glob('datasets/PetImages/Cat/*.jpg')
         dog_paths = glob.glob('datasets/PetImages/Dog/*.jpg')
         class_names = ['Cat', 'Dog']

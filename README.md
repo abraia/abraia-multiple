@@ -5,9 +5,9 @@
 
 # Abraia python API and CLI
 
-## Abraia Python package
+## Abraia Multiple package
 
-The Abraia Python package provides and easy way to start analyzing images directly from your browser. You just need to click on the open in colab button to start with one of the available notebooks:
+The Abraia Multiple package provides and easy and practical way to analyze and classify images directly from your browser. You just need to click on the open in colab button to start with one of the available notebooks:
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/image-analysis.ipynb) Simple image analysis
 
@@ -19,7 +19,7 @@ The Abraia Python package provides and easy way to start analyzing images direct
 
 ![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
 
-The multiple module extends the Abraia package to provide support for HyperSpectral Image (HSI) analysis.
+The multiple module extends the Abraia package to provide support for HyperSpectral Image (HSI) analysis and classification.
 
 > MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project](https://multipleproject.eu/).
 
