@@ -6,6 +6,7 @@ import scipy.ndimage as nd
 import matplotlib.pyplot as plt
 
 from PIL import Image
+from sklearn.svm import SVC
 from sklearn.utils import resample
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
@@ -251,3 +252,21 @@ def predict_model(model, X, patch_size, K):
             k = i * width + j
             output[i, j] = y_pred[k]
     return output.astype(int)
+
+
+class Model:
+    def __init__(self, name):
+        self.name = name
+        if self.name == 'svm':
+            self.model = SVC(C=150, kernel='rbf')
+
+    def train(self, X, y, train_ratio=0.7):
+        if self.name == 'svm':
+            X_train, X_test, y_train, y_test = train_test_split(X.reshape(-1, X.shape[-1]), y, train_size=train_ratio, stratify=y)
+            self.model.fit(X_train, y_train)
+            return y_test, self.model.predict(X_test)
+
+    def predict(self, X):
+        if self.name == 'svm':
+            r, c, d = X.shape
+            return self.model.predict(X.reshape(-1, d)).reshape(r, c)
