@@ -208,9 +208,8 @@ def generate_training_data(X, y, window_size, K, train_ratio=0.7):
     return X_train, X_test, y_train, y_test
 
 
-def create_model(window_size, n_bands, output_units):
-    ## input layer
-    input_layer = Input((window_size, window_size, n_bands, 1))
+def create_hsn_model(input_shape, n_classes):
+    input_layer = Input((*input_shape, 1))
     ## convolutional layers
     conv_layer1 = Conv3D(filters=8, kernel_size=(3, 3, 7), activation='relu')(input_layer)
     conv_layer2 = Conv3D(filters=16, kernel_size=(3, 3, 5), activation='relu')(conv_layer1)
@@ -223,25 +222,25 @@ def create_model(window_size, n_bands, output_units):
     dense_layer1 = Dropout(0.4)(dense_layer1)
     dense_layer2 = Dense(units=128, activation='relu')(dense_layer1)
     dense_layer2 = Dropout(0.4)(dense_layer2)
-    output_layer = Dense(units=output_units, activation='softmax')(dense_layer2)
-    # define the model with input layer and output layer
+    output_layer = Dense(units=n_classes, activation='softmax')(dense_layer2)
+    # define and compile the model with input layer and output layer
     model = Model(inputs=input_layer, outputs=output_layer)
-    # compiling the model
     adam = keras.optimizers.Adam(learning_rate=0.001, decay=1e-06)
-    model.compile(loss='categorical_crossentropy', optimizer=adam, metrics=['accuracy'])
+    model.compile(optimizer=adam, loss='categorical_crossentropy', metrics=['accuracy'])
     return model
 
 
-def train_model(model, X_train, y_train, batch_size=256, epochs=50):
+def train_hsn_model(model, X_train, y_train, batch_size=256, epochs=50):
     history = model.fit(x=X_train, y=np_utils.to_categorical(y_train), batch_size=batch_size, epochs=epochs)
     return history
 
 
-def evaluate_model(model, X_test, y_test):
+def evaluate_hsn_model(model, X_test, y_test):
     return np.argmax(model.predict(X_test), axis=1)
 
 
-def predict_model(model, X, patch_size, K):
+def predict_hsn_model(model, X, input_shape):
+    patch_size, patch_size, K = input_shape
     width, height = X.shape[1], X.shape[0]
     X = principal_components(X, n_components=K)
     X_pred = create_patches(X, patch_size)
@@ -254,19 +253,44 @@ def predict_model(model, X, patch_size, K):
     return output.astype(int)
 
 
-class Model:
-    def __init__(self, name):
+def create_model(window_size, n_bands, n_classes):
+    return create_hsn_model((window_size, window_size, n_bands), n_classes)
+
+
+def train_model(model, X_train, y_train, batch_size=256, epochs=50):
+    return train_hsn_model(model, X_train, y_train, batch_size=256, epochs=50)
+
+
+def evaluate_model(model, X_test, y_test):
+    return evaluate_hsn_model(model, X_test, y_test)
+
+
+def predict_model(model, X, patch_size, K):
+    return predict_hsn_model(model, X, (patch_size, patch_size, K))
+
+
+class HyperspectralModel:
+    def __init__(self, name, *args):
         self.name = name
         if self.name == 'svm':
             self.model = SVC(C=150, kernel='rbf')
+        elif self.name == 'hsn':
+            self.input_shape, self.n_classes = args
+            self.model = create_hsn_model(self.input_shape, self.n_classes) # Hybrid Spectral Net
 
-    def train(self, X, y, train_ratio=0.7):
+    def train(self, X, y, train_ratio=0.7, epochs=50):
         if self.name == 'svm':
             X_train, X_test, y_train, y_test = train_test_split(X.reshape(-1, X.shape[-1]), y, train_size=train_ratio, stratify=y)
             self.model.fit(X_train, y_train)
             return y_test, self.model.predict(X_test)
+        elif self.name == 'hsn':
+            patch_size, patch_size, n_bands = self.input_shape
+            X_train, X_test, y_train, y_test = generate_training_data(X, y, patch_size, n_bands, train_ratio)
+            self.history = train_hsn_model(self.model, X_train, y_train, epochs=epochs)
+            return y_test, evaluate_hsn_model(self.model, X_test, y_test)
 
     def predict(self, X):
         if self.name == 'svm':
-            r, c, d = X.shape
-            return self.model.predict(X.reshape(-1, d)).reshape(r, c)
+            return self.model.predict(X.reshape(-1, X.shape[2])).reshape(X.shape[0], X.shape[1])
+        elif self.name == 'hsn':
+            return predict_hsn_model(self.model, X, self.input_shape)

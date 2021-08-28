@@ -11,8 +11,8 @@ from sklearn.model_selection import train_test_split
 from tensorflow import keras
 from keras.models import Model, load_model
 from keras.layers import Dense, GlobalAveragePooling2D, Dropout
-from keras.applications.inception_v3 import InceptionV3, preprocess_input
 from keras.preprocessing.image import ImageDataGenerator, load_img
+from keras.applications.inception_v3 import preprocess_input
 
 
 def load_dataset(dataset='cats-and-dogs'):
@@ -51,32 +51,51 @@ def split_train_test(cat_paths, dog_paths, train_ratio=0.7):
     return 'train', 'test'
 
 
-def create_model(CLASSES=2):
-    base_model = InceptionV3(weights='imagenet', include_top=False)
-    x = GlobalAveragePooling2D(name='avg_pool')(base_model.output)
-    x = Dropout(0.4)(x)
-    predictions = Dense(CLASSES, activation='softmax')(x)
-    model = Model(inputs=base_model.input, outputs=predictions)
-    # transfer learning
+def create_inception3_model(n_classes):
+    base_model = keras.applications.InceptionV3(weights='imagenet', include_top=False)
     for layer in base_model.layers:
         layer.trainable = False
-    model.compile(
-        optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
+    x = Dropout(0.4)(GlobalAveragePooling2D(name='avg_pool')(base_model.output))
+    predictions = Dense(n_classes, activation='softmax')(x)
+    model = Model(inputs=base_model.input, outputs=predictions)
+    model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
     return model
 
 
-def train_model(model, train_generator, validation_generator, EPOCHS=5, STEPS_PER_EPOCH=320, VALIDATION_STEPS=64):
-    history = model.fit(
-        train_generator, epochs=EPOCHS, steps_per_epoch=STEPS_PER_EPOCH,
-        validation_data=validation_generator, validation_steps=VALIDATION_STEPS)
-    return history
+def predict_inception3_model(model, X):
+    x = np.expand_dims(X, axis=0)
+    x = keras.applications.inception_v3.preprocess_input(x)
+    preds = model.predict(x)
+    return preds[0]
+
+
+def create_mobilenet2_model(n_classes):
+    base_model = keras.applications.MobileNetV2(input_shape=(160, 160, 3), weights='imagenet', include_top=False)
+    base_model.trainable = False
+    x = GlobalAveragePooling2D(name='avg_pool')(base_model.output)
+    predictions = Dense(n_classes, activation='softmax')(x)
+    model = Model(inputs=base_model.input, outputs=predictions)
+    model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
+    return model
+
+
+def predict_mobilenet2_model(model, X):
+    x = np.expand_dims(X, axis=0)
+    x = keras.applications.mobilenet_v2.preprocess_input(x)
+    preds = model.predict(x)
+    return preds[0]
+
+
+def create_model(n_classes=2):
+    return create_inception3_model(n_classes)
+
+
+def train_model(model, train_generator, validation_generator, epochs=5):
+    return model.fit(train_generator, epochs=epochs, steps_per_epoch=320, validation_data=validation_generator, validation_steps=60)
 
 
 def predict_model(model, img):
-    x = np.expand_dims(img, axis=0)
-    x = preprocess_input(x)
-    preds = model.predict(x)
-    return preds[0]
+    return predict_inception3_model(model, img)
 
 
 def plot_train_history(history):
@@ -87,3 +106,29 @@ def plot_train_history(history):
     plt.ylabel('Loss')
     plt.xlabel('Epochs')
     plt.legend(['Training loss','Test accuracy'], loc='upper right')
+
+
+class ClassificationModel:
+    def __init__(self, name, n_classes):
+        self.name = name
+        self.n_classes = n_classes
+        if self.name == 'inception3':
+            self.model = create_inception3_model(self.n_classes)
+        elif self.name == 'mobilenet2':
+            self.model = create_mobilenet2_model(self.n_classes)
+
+    def preprocess_input(self, x):
+        if self.name == 'inception3':
+            return keras.applications.inception_v3.preprocess_input(x)
+        elif self.name == 'mobilenet2':
+            return keras.applications.mobilenet_v2.preprocess_input(x)
+
+    def train(self, train_generator, validation_generator, epochs=5):
+        self.history = self.model.fit(train_generator, epochs=epochs, validation_data=validation_generator)
+        return self.history
+
+    def predict(self, X):
+        if self.name == 'inception3':
+            return predict_inception3_model(self.model, X)
+        elif self.name == 'mobilenet2':
+            return predict_mobilenet2_model(self.model, X)
