@@ -108,6 +108,12 @@ def plot_train_history(history):
     plt.legend(['Training loss','Test accuracy'], loc='upper right')
 
 
+# MODEL_FILE = 'filename.model'
+# model = deep.create_model()
+# model.save(MODEL_FILE)
+# model = deep.load_model(MODEL_FILE)
+
+
 class ClassificationModel:
     def __init__(self, name, n_classes):
         self.name = name
