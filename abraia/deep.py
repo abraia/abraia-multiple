@@ -86,18 +86,6 @@ def predict_mobilenet2_model(model, X):
     return preds[0]
 
 
-def create_model(n_classes=2):
-    return create_inception3_model(n_classes)
-
-
-def train_model(model, train_generator, validation_generator, epochs=5):
-    return model.fit(train_generator, epochs=epochs, steps_per_epoch=320, validation_data=validation_generator, validation_steps=60)
-
-
-def predict_model(model, img):
-    return predict_inception3_model(model, img)
-
-
 def plot_train_history(history):
     plt.ylim(0, 1.01)
     plt.grid()
@@ -130,6 +118,7 @@ class ClassificationModel:
             return keras.applications.mobilenet_v2.preprocess_input(x)
 
     def train(self, train_generator, validation_generator, epochs=5):
+        # return model.fit(train_generator, epochs=epochs, steps_per_epoch=320, validation_data=validation_generator, validation_steps=60)
         self.history = self.model.fit(train_generator, epochs=epochs, validation_data=validation_generator)
         return self.history
 
@@ -138,3 +127,12 @@ class ClassificationModel:
             return predict_inception3_model(self.model, X)
         elif self.name == 'mobilenet2':
             return predict_mobilenet2_model(self.model, X)
+
+    def plot_history(self):
+        if self.history:
+            plot_train_history(self.history)
+
+
+def create_model(name, n_classes):
+    """Create a new model: inception3 or mobilenet2"""
+    return ClassificationModel(name, n_classes)

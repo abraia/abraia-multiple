@@ -230,15 +230,6 @@ def create_hsn_model(input_shape, n_classes):
     return model
 
 
-def train_hsn_model(model, X_train, y_train, batch_size=256, epochs=50):
-    history = model.fit(x=X_train, y=np_utils.to_categorical(y_train), batch_size=batch_size, epochs=epochs)
-    return history
-
-
-def evaluate_hsn_model(model, X_test, y_test):
-    return np.argmax(model.predict(X_test), axis=1)
-
-
 def predict_hsn_model(model, X, input_shape):
     patch_size, patch_size, K = input_shape
     width, height = X.shape[1], X.shape[0]
@@ -251,22 +242,6 @@ def predict_hsn_model(model, X, input_shape):
             k = i * width + j
             output[i, j] = y_pred[k]
     return output.astype(int)
-
-
-def create_model(window_size, n_bands, n_classes):
-    return create_hsn_model((window_size, window_size, n_bands), n_classes)
-
-
-def train_model(model, X_train, y_train, batch_size=256, epochs=50):
-    return train_hsn_model(model, X_train, y_train, batch_size=256, epochs=50)
-
-
-def evaluate_model(model, X_test, y_test):
-    return evaluate_hsn_model(model, X_test, y_test)
-
-
-def predict_model(model, X, patch_size, K):
-    return predict_hsn_model(model, X, (patch_size, patch_size, K))
 
 
 class HyperspectralModel:
@@ -286,11 +261,20 @@ class HyperspectralModel:
         elif self.name == 'hsn':
             patch_size, patch_size, n_bands = self.input_shape
             X_train, X_test, y_train, y_test = generate_training_data(X, y, patch_size, n_bands, train_ratio)
-            self.history = train_hsn_model(self.model, X_train, y_train, epochs=epochs)
-            return y_test, evaluate_hsn_model(self.model, X_test, y_test)
+            self.history = self.model.fit(x=X_train, y=np_utils.to_categorical(y_train), batch_size=256, epochs=epochs)
+            return y_test, np.argmax(self.model.predict(X_test), axis=1)
 
     def predict(self, X):
         if self.name == 'svm':
             return self.model.predict(X.reshape(-1, X.shape[2])).reshape(X.shape[0], X.shape[1])
         elif self.name == 'hsn':
             return predict_hsn_model(self.model, X, self.input_shape)
+    
+    def plot_history():
+        if self.history:
+            plot_train_history(self.history)
+
+
+def create_model(name, *args):
+    """Create a new model: svm or hsn"""
+    return HyperspectralModel(name, *args)

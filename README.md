@@ -197,6 +197,18 @@ plt.axis('off')
 plt.show()
 ```
 
+### Classification model
+
+Two classification models are directly available for automatic identification on hysperspectral images. One is based on support vector machines ('svm') while the other is based on deep image classification ('hsn'). Both models are available under a simple interface like bellow:
+
+```python
+n_bands = 30
+n_classes = 17
+model = hsi.create_model('hsn', (25, 25, n_bands), n_classes)
+model.train(X, y, train_ratio=0.3, epochs=5)
+y_pred = model.predict(X)
+``` 
+
 ## Abraia command line
 
 The Abraia CLI tool provides a simple way to bulk resize, convert, and optimize your images and photos for web. Enabling the conversion from different input formats to get images in the right formats to be used in the web - JPEG, WebP, or PNG -. Moreover, it supports a number of transformations that can be applied to image batches. So you can easily convert your images to be directly published on the web.

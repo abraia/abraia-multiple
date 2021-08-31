@@ -1,5 +1,6 @@
 import os
 import tempfile
+import tifffile
 import numpy as np
 
 from .abraia import Abraia
@@ -50,6 +51,9 @@ class Multiple(Abraia):
                 return value
         return mat
 
+    def load_tiff(self, path):
+        return tifffile.imread(self.download_file(path))
+
     def load_mosaic(self, path, size=(4, 4)):
         r, c = size
         img = self.load_image(path)
@@ -61,6 +65,8 @@ class Multiple(Abraia):
             return self.load_envi(path)
         elif path.lower().endswith('.mat'):
             return self.load_mat(path)
+        elif path.lower().endswith('.tiff'):
+            return self.load_tiff(path)
         return super(Multiple, self).load_image(path)
 
     def save_envi(self, path, img, metadata={}):
@@ -75,10 +81,18 @@ class Multiple(Abraia):
         src = os.path.join(tempdir, basename)
         self.savemat(src, {'raw': img})
         return self.upload_file(src, path)
+    
+    def save_tiff(self, path, img):
+        basename = os.path.basename(path)
+        src = os.path.join(tempdir, basename)
+        tifffile.imwrite(src, img)
+        return self.upload_file(src, path)
 
     def save_image(self, path, img, metadata={}):
         if path.lower().endswith('.hdr'):
             return self.save_envi(path, img, metadata)
         elif path.lower().endswith('.mat'):
             return self.save_mat(path, img)
+        elif path.lower().endswith('.tiff'):
+            return self.save_tiff(path, img)
         return super(Multiple, self).save_image(path, img)
