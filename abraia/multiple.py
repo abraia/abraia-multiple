@@ -65,7 +65,7 @@ class Multiple(Abraia):
             return self.load_envi(path)
         elif path.lower().endswith('.mat'):
             return self.load_mat(path)
-        elif path.lower().endswith('.tiff'):
+        elif path.lower().endswith('.tiff') or path.lower().endswith('.tif'):
             return self.load_tiff(path)
         return super(Multiple, self).load_image(path)
 
@@ -93,6 +93,6 @@ class Multiple(Abraia):
             return self.save_envi(path, img, metadata)
         elif path.lower().endswith('.mat'):
             return self.save_mat(path, img)
-        elif path.lower().endswith('.tiff'):
+        elif path.lower().endswith('.tiff') or path.lower().endswith('.tif'):
             return self.save_tiff(path, img)
         return super(Multiple, self).save_image(path, img)
