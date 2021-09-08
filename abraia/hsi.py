@@ -165,13 +165,13 @@ def principal_components(img, n_components=3, spectrum=False):
     return bands
 
 
-def padWithZeros(X, margin=2):
+def pad_with_zeros(X, margin=2):
     newX = np.zeros((X.shape[0] + 2 * margin, X.shape[1] + 2* margin, X.shape[2]))
     newX[margin:X.shape[0] + margin, margin:X.shape[1] + margin, :] = X
     return newX
 
 
-def patch(data, height_index, width_index, patch_size):
+def create_patch(data, height_index, width_index, patch_size):
     height_slice = slice(height_index, height_index + patch_size)
     width_slice = slice(width_index, width_index + patch_size)
     return data[height_slice, width_slice, :]
@@ -180,10 +180,10 @@ def patch(data, height_index, width_index, patch_size):
 def create_patches(X, patch_size):
     patches = []
     width, height = X.shape[1], X.shape[0]
-    X = padWithZeros(X, patch_size // 2)
+    X = pad_with_zeros(X, patch_size // 2)
     for i in range(height):
         for j in range(width):
-            image_patch = patch(X, i, j, patch_size)
+            image_patch = create_patch(X, i, j, patch_size)
             patches.append(image_patch.reshape(image_patch.shape + (1,)).astype('float32'))
     return np.array(patches)
 
@@ -199,12 +199,11 @@ def create_image_cubes(X, y, patch_size):
     return patchesData, patchesLabels
 
 
-def generate_training_data(X, y, window_size, K, train_ratio=0.7):
-    X = principal_components(X, n_components=K)
-    X, y = create_image_cubes(X, y, window_size)
+def generate_training_data(X, y, patch_size, train_ratio=0.7):
+    X, y = create_image_cubes(X, y, patch_size)
     X_train, X_test, y_train, y_test = split_train_test(X, y, train_ratio)
-    X_train = X_train.reshape(-1, window_size, window_size, K, 1)
-    X_test = X_test.reshape(-1, window_size, window_size, K, 1)
+    X_train = X_train.reshape(-1, patch_size, patch_size, X.shape[-1], 1)
+    X_test = X_test.reshape(-1, patch_size, patch_size, X.shape[-1], 1)
     return X_train, X_test, y_train, y_test
 
 
@@ -230,10 +229,8 @@ def create_hsn_model(input_shape, n_classes):
     return model
 
 
-def predict_hsn_model(model, X, input_shape):
-    patch_size, patch_size, K = input_shape
+def predict_hsn_model(model, X, patch_size):
     width, height = X.shape[1], X.shape[0]
-    X = principal_components(X, n_components=K)
     X_pred = create_patches(X, patch_size)
     y_pred = np.argmax(model.predict(X_pred), axis=1)
     output = np.zeros((height, width))
@@ -259,8 +256,8 @@ class HyperspectralModel:
             self.model.fit(X_train, y_train)
             return y_test, self.model.predict(X_test)
         elif self.name == 'hsn':
-            patch_size, patch_size, n_bands = self.input_shape
-            X_train, X_test, y_train, y_test = generate_training_data(X, y, patch_size, n_bands, train_ratio)
+            X = principal_components(X, n_components=self.input_shape[2])
+            X_train, X_test, y_train, y_test = generate_training_data(X, y, self.input_shape[0], train_ratio)
             self.history = self.model.fit(x=X_train, y=np_utils.to_categorical(y_train), batch_size=256, epochs=epochs)
             return y_test, np.argmax(self.model.predict(X_test), axis=1)
 
@@ -268,7 +265,8 @@ class HyperspectralModel:
         if self.name == 'svm':
             return self.model.predict(X.reshape(-1, X.shape[2])).reshape(X.shape[0], X.shape[1])
         elif self.name == 'hsn':
-            return predict_hsn_model(self.model, X, self.input_shape)
+            X = principal_components(X, n_components=self.input_shape[2])
+            return predict_hsn_model(self.model, X, self.input_shape[0])
     
     def plot_history():
         if self.history:
