@@ -177,6 +177,7 @@ def create_patch(data, height_index, width_index, patch_size):
     return data[height_slice, width_slice, :]
 
 
+# TODO: Convert create patches to generator with batch_size parameter
 def create_patches(X, patch_size):
     patches = []
     width, height = X.shape[1], X.shape[0]
@@ -233,12 +234,7 @@ def predict_hsn_model(model, X, patch_size):
     width, height = X.shape[1], X.shape[0]
     X_pred = create_patches(X, patch_size)
     y_pred = np.argmax(model.predict(X_pred), axis=1)
-    output = np.zeros((height, width))
-    for i in range(height):
-        for j in range(width):
-            k = i * width + j
-            output[i, j] = y_pred[k]
-    return output.astype(int)
+    return y_pred.reshape(height, width).astype(int)
 
 
 class HyperspectralModel:

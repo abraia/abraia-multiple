@@ -3,11 +3,9 @@
 [![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg)](https://coveralls.io/github/abraia/abraia-python)
 ![Package Downloads](https://img.shields.io/pypi/dm/abraia)
 
-# Abraia python API and CLI
+# Abraia-Multiple image analysis toolbox
 
-## Abraia Multiple package
-
-The Abraia Multiple package provides and easy and practical way to analyze and classify images directly from your browser. You just need to click on the open in colab button to start with one of the available notebooks:
+The Abraia-Multiple package provides and easy and practical way to analyze and classify images directly from your browser. You just need to click on the open in Colab button to start with one of the available notebooks:
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/image-analysis.ipynb) Simple image analysis
 
@@ -19,7 +17,7 @@ The Abraia Multiple package provides and easy and practical way to analyze and c
 
 ![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
 
-The multiple module extends the Abraia package to provide support for HyperSpectral Image (HSI) analysis and classification.
+The multiple module provides support for HyperSpectral Image (HSI) analysis and classification.
 
 > MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project](https://multipleproject.eu/).
 
@@ -39,113 +37,18 @@ set ABRAIA_KEY=api_key
 
 NOTE: To persist the configuration use your system options to set your ABRAIA_KEY environment variable and avoid to run the previous command every time you start a terminal/console session.
 
-## Image analysis
 
-Abraia provides a direct interface to directly load and save images. You can easily load the image data and the file metadata, or save a new image.
+## Hyperspectral image analysis toolbox
 
-```python
-from abraia import Abraia
+MULTIPLE provides seamless integration of multiple HyperSpectral Image (HSI) processing and analysis tools, integrating starte-of-the-art image manipulation libraries to provide ready to go scalable multispectral solutions.
 
-abraia = Abraia()
-
-img = abraia.load_image('test.jpg')
-meta = abraia.load_metadata('test.jpg')
-abraia.save_image('test.png', img)
-```
-
-You can directly visualize the image using Matplotlib.
-
-```python
-import matplotlib.pyplot as plt
-
-plt.figure()
-plt.title('Image')
-plt.imshow(img)
-plt.axis('off')
-plt.show()
-```
-
-### List files
-
-Return the list of `files` and `folders` on the specified cloud `folder`.
-
-```python
-folder = ''
-files, folders = abraia.list_files(folder)
-```
-
-### Upload files
-
-Upload a local (`src`) or a remote (`url`) file to the cloud.
-
-```python
-src = 'images/test.png'
-path = 'test/test.png'
-abraia.upload_file(src, path)
-```
-
-### Image detection
-
-Detect labels, capture text, and detect faces in images (must be in JPEG format).
-
-```python
-labels = abraia.detect_labels(path)
-lines = abraia.capture_text(path)
-faces = abraia.detect_faces(path)
-```
-
-### Transform images
-
-Transform and optimize images automatically choosing every compression parameter to provide the best result based on the perceived analysis of the original image.
-
-```python
-path = 'test/birds.jpg'
-dest = 'birds_o.jpg'
-params = {'width': 300, 'height': 300, 'mode': 'pad'}
-abraia.transform_image(path, dest, params)
-```
-
-Parameter | Description
-----------|------------
-width | Image width (original width by default)
-height | Image height (original height by default)
-mode | Resize and crop mode: crop, face, thumb, resize (smart crop by default)
-background | Change background color in padded mode (white by default)
-action | Path to the action file to be used as template
-format | Set the image format: jpeg, png, gif, webp (original format by default)
-quality | Set the image quality (auto by default)
-
-
-### Download files
-
-Retrieve an stored file.
-
-```python
-path = 'test/birds.jpg'
-dest = 'images/birds.jpg'
-abraia.download_file(path, dest)
-```
-
-### Delete files
-
-Delete a stored resource specified by its `path`.
-
-```python
-abraia.delete(path)
-```
-
-## HyperSpectral Image (HSI) analysis
-
-MULTIPLE extends the ABRAIA Python API to provide seamless integration of multiple HyperSpectral Image (HSI) processing and analysis tools. This integrates state-of-the-art image manipulation libraries to provide ready to go scalable multispectral solutions.
-
-> MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project](https://multipleproject.eu/).
-
-### Usage
+For instance, you can directly load and save ENVI files, and their metadata.
 
 ```python
 from abraia import Multiple
 
 multiple = Multiple()
+
 img = multiple.load_image('test.hdr')
 meta = multiple.load_metadata('test.hdr')
 multiple.save_image('test.hdr', img, metadata=meta)
@@ -202,14 +105,72 @@ plt.show()
 Two classification models are directly available for automatic identification on hysperspectral images. One is based on support vector machines ('svm') while the other is based on deep image classification ('hsn'). Both models are available under a simple interface like bellow:
 
 ```python
-n_bands = 30
-n_classes = 17
+n_bands, n_classes = 30, 17
 model = hsi.create_model('hsn', (25, 25, n_bands), n_classes)
 model.train(X, y, train_ratio=0.3, epochs=5)
 y_pred = model.predict(X)
-``` 
+```
 
-## Abraia command line
+## Image analysis toolbox
+
+Abraia provides a direct interface to directly load and save images. You can easily load the image data and the file metadata, or save a new image.
+
+```python
+from abraia import Abraia
+
+abraia = Abraia()
+
+img = abraia.load_image('test.jpg')
+meta = abraia.load_metadata('test.jpg')
+abraia.save_image('test.png', img)
+```
+
+You can directly visualize the image using Matplotlib.
+
+```python
+import matplotlib.pyplot as plt
+
+plt.figure()
+plt.title('Image')
+plt.imshow(img)
+plt.axis('off')
+plt.show()
+```
+
+### Upload and list files
+
+Upload a local `src` file or a remote `url` to the cloud `path` and return the list of `files` and `folders` on the specified cloud `folder`.
+
+```python
+folder = 'test/'
+src = 'images/test.png'
+path = f"{folder}test.png"
+abraia.upload_file(src, path)
+files, folders = abraia.list_files(folder)
+```
+
+### Automatic image detection
+
+Simply detect labels (tags), capture text, or detect faces in images (must be in JPEG format).
+
+```python
+labels = abraia.detect_labels(path)
+lines = abraia.capture_text(path)
+faces = abraia.detect_faces(path)
+```
+
+### Download and remove files
+
+You can download or remove an stored file just specifying its `path`.
+
+```python
+path = 'test/birds.jpg'
+dest = 'images/birds.jpg'
+abraia.download_file(path, dest)
+abraia.remove_file(path)
+```
+
+## Command line interface
 
 The Abraia CLI tool provides a simple way to bulk resize, convert, and optimize your images and photos for web. Enabling the conversion from different input formats to get images in the right formats to be used in the web - JPEG, WebP, or PNG -. Moreover, it supports a number of transformations that can be applied to image batches. So you can easily convert your images to be directly published on the web.
 
