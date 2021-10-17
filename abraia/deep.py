@@ -86,6 +86,26 @@ def predict_mobilenet2_model(model, X):
     return preds[0]
 
 
+def plot_image(img, title=''):
+    plt.figure()
+    plt.title(title)
+    plt.imshow(img)
+    plt.axis('off')
+    plt.show()
+
+
+def plot_images(imgs, titles=None):
+    plt.figure()
+    k = len(imgs)
+    ax = plt.subplots(1, k)[1].reshape(-1)
+    for i in range(k):
+        if titles and len(titles) >= k:
+            ax[i].title.set_text(titles[i])
+        ax[i].imshow(imgs[i], cmap='nipy_spectral')
+        ax[i].axis('off')
+    plt.show()
+
+
 def plot_train_history(history):
     plt.ylim(0, 1.01)
     plt.grid()
@@ -94,12 +114,6 @@ def plot_train_history(history):
     plt.ylabel('Loss')
     plt.xlabel('Epochs')
     plt.legend(['Training loss','Test accuracy'], loc='upper right')
-
-
-# MODEL_FILE = 'filename.model'
-# model = deep.create_model()
-# model.save(MODEL_FILE)
-# model = deep.load_model(MODEL_FILE)
 
 
 class ClassificationModel:
@@ -131,6 +145,12 @@ class ClassificationModel:
     def plot_history(self):
         if self.history:
             plot_train_history(self.history)
+    
+    def save(self, filename='filename.model'):
+        self.model.save(filename)
+
+    def load(self, filename='filename.model'):
+        self.model = load_model(filename)
 
 
 def create_model(name, n_classes):

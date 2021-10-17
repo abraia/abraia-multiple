@@ -17,7 +17,7 @@ from keras.models import Model
 from keras.utils import np_utils
 from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
-from .deep import plot_train_history
+from .deep import plot_image, plot_images, plot_train_history
 
 
 def random(img, n_bands=6, indexes=False):

@@ -78,8 +78,7 @@ from abraia import hsi
 imgs, indexes = hsi.random(img)
 
 plt.figure()
-fig, ax = plt.subplots(2, 3)
-ax = ax.reshape(-1)
+fig, ax = plt.subplots(2, 3)[1].reshape(-1)
 for i, im in enumerate(imgs):
     ax[i].imshow(im, cmap='jet')
     ax[i].axis('off')
@@ -92,12 +91,7 @@ A common operation with spectral images is to reduce the dimensionality, applyin
 
 ```python
 pc_img = hsi.principal_components(img)
-
-plt.figure()
-plt.title('Principal components')
-plt.imshow(pc_img)
-plt.axis('off')
-plt.show()
+hsi.plot_image(pc_img, 'Principal components')
 ```
 
 ### Classification model
