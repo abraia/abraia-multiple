@@ -1,19 +1,18 @@
-[![Build Status](https://github.com/abraia/abraia-python/actions/workflows/build.yml/badge.svg)](https://github.com/abraia/abraia-python/actions/workflows/build.yml)
+[![Build Status](https://github.com/abraia/abraia-multiple/actions/workflows/build.yml/badge.svg)](https://github.com/abraia/abraia-multiple/actions/workflows/build.yml)
 [![Python Package](https://img.shields.io/pypi/v/abraia.svg)](https://pypi.org/project/abraia/)
-[![Coverage Status](https://coveralls.io/repos/github/abraia/abraia-python/badge.svg)](https://coveralls.io/github/abraia/abraia-python)
 ![Package Downloads](https://img.shields.io/pypi/dm/abraia)
 
 # Abraia-Multiple image analysis toolbox
 
 The Abraia-Multiple package provides and easy and practical way to analyze and classify images directly from your browser. You just need to click on the open in Colab button to start with one of the available notebooks:
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/image-analysis.ipynb) Simple image analysis
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/image-analysis.ipynb) Simple image analysis
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/image-classification.ipynb) Deep image classification
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/image-classification.ipynb) Deep image classification
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-python/blob/master/notebooks/hyperspectral-classification.ipynb) Deep hyperspectral image classification
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-classification.ipynb) Deep hyperspectral image classification
 
 ![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
 
@@ -76,13 +75,7 @@ Hyperspectral images cannot be directly visualized, so we can get some random ba
 from abraia import hsi
 
 imgs, indexes = hsi.random(img)
-
-plt.figure()
-fig, ax = plt.subplots(2, 3)[1].reshape(-1)
-for i, im in enumerate(imgs):
-    ax[i].imshow(im, cmap='jet')
-    ax[i].axis('off')
-plt.show()
+hsi.plot_images(imgs, cmap='jet')
 ```
 
 ### Pseudocolor visualization
@@ -109,6 +102,8 @@ y_pred = model.predict(X)
 
 Abraia provides a direct interface to directly load and save images. You can easily load the image data and the file metadata, or save a new image.
 
+<!-- TODO: Rewrite using Multiple instead of Abraia -->
+
 ```python
 from abraia import Abraia
 
@@ -122,13 +117,9 @@ abraia.save_image('test.png', img)
 You can directly visualize the image using Matplotlib.
 
 ```python
-import matplotlib.pyplot as plt
+from abraia.plot import plot_image
 
-plt.figure()
-plt.title('Image')
-plt.imshow(img)
-plt.axis('off')
-plt.show()
+plot_image(img, 'Image')
 ```
 
 ### Upload and list files
@@ -190,7 +181,7 @@ To compress an image you just need to specify the input and output paths for the
 abraia convert images/birds.jpg images/birds_o.jpg
 ```
 
-![Image compressed from url](https://github.com/abraia/abraia-python/raw/master/images/birds_o.jpg)
+![Image compressed from url](https://github.com/abraia/abraia-multiple/raw/master/images/birds_o.jpg)
 
 To resize and optimize and image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image:
 
@@ -198,7 +189,7 @@ To resize and optimize and image maintaining the aspect ratio is enough to speci
 abraia convert --width 500 images/usain-bolt.jpeg images/usaint-bolt_500.jpeg
 ```
 
-![Usain Bolt resized](https://github.com/abraia/abraia-python/raw/master/images/usaint-bolt_500.jpeg)
+![Usain Bolt resized](https://github.com/abraia/abraia-multiple/raw/master/images/usaint-bolt_500.jpeg)
 
 You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
 
@@ -207,8 +198,8 @@ abraia convert --width 333 --height 333 --mode pad images/lion.jpg images/lion_3
 abraia convert --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
 ```
 
-![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333_pad.jpg)
-![Image lion smart cropped](https://github.com/abraia/abraia-python/raw/master/images/lion_333x333.jpg)
+![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333_pad.jpg)
+![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333.jpg)
 
 So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
 
@@ -222,8 +213,8 @@ Or, automatically pad or crop all the images contained in the folder specifying 
 abraia convert --width 300 --height 300 --mode crop [path] [dest]
 ```
 
-![beauty casual resized](https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_333x500.jpg)
-![beauty casual smart cropped](https://github.com/abraia/abraia-python/raw/master/images/beauty-casual_500x500.jpg)
+![beauty casual resized](https://github.com/abraia/abraia-multiple/raw/master/images/beauty-casual_333x500.jpg)
+![beauty casual smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/beauty-casual_500x500.jpg)
 
 ### Convert images
 
@@ -236,8 +227,8 @@ abraia convert garlic.jpg garlic.webp
 ```
 
 <figure>
-    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.jpg" alt="garlic jpeg">
-    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/garlic.webp" alt="garlic webp">
+    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/garlic.jpg" alt="garlic jpeg">
+    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/garlic.webp" alt="garlic webp">
 </figure>
 
 In addition, you can also convert SVG and PSD files. For instance, converting a SVG to PNG is so simple as to type the command bellow:
@@ -247,8 +238,8 @@ abraia convert bat.svg bat.png
 ```
 
 <figure>
-    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.svg" alt="bat svg">
-    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/bat.png" alt="bat png">
+    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/bat.svg" alt="bat svg">
+    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/bat.png" alt="bat png">
 </figure>
 
 > The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
@@ -261,8 +252,8 @@ abraia convert strawberry.psd strawberry.png
 ```
 
 <figure>
-    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.jpg" alt="white background strawberry">
-    <img width="300px" src="https://github.com/abraia/abraia-python/raw/master/images/strawberry.png" alt="transparent strawberry">
+    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/strawberry.jpg" alt="white background strawberry">
+    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/strawberry.png" alt="transparent strawberry">
 </figure>
 
 > When the PSD file is converted to JPEG a white background is added automatically, because the JPEG format does not support transparency. Instead, using the PNG or the WebP format you can preserve the transparent background.

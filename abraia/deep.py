@@ -4,7 +4,6 @@ import glob
 import shutil
 import zipfile
 import numpy as np
-import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split
 
@@ -14,6 +13,7 @@ from keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from keras.preprocessing.image import ImageDataGenerator, load_img
 from keras.applications.inception_v3 import preprocess_input
 
+from .plot import plot_image, plot_images, plot_train_history
 
 def load_dataset(dataset='cats-and-dogs'):
     if not os.path.exists('datasets'):
@@ -86,36 +86,6 @@ def predict_mobilenet2_model(model, X):
     return preds[0]
 
 
-def plot_image(img, title=''):
-    plt.figure()
-    plt.title(title)
-    plt.imshow(img)
-    plt.axis('off')
-    plt.show()
-
-
-def plot_images(imgs, titles=None):
-    plt.figure()
-    k = len(imgs)
-    ax = plt.subplots(1, k)[1].reshape(-1)
-    for i in range(k):
-        if titles and len(titles) >= k:
-            ax[i].title.set_text(titles[i])
-        ax[i].imshow(imgs[i], cmap='nipy_spectral')
-        ax[i].axis('off')
-    plt.show()
-
-
-def plot_train_history(history):
-    plt.ylim(0, 1.01)
-    plt.grid()
-    plt.plot(history.history['loss'])
-    plt.plot(history.history['accuracy'])
-    plt.ylabel('Loss')
-    plt.xlabel('Epochs')
-    plt.legend(['Training loss','Test accuracy'], loc='upper right')
-
-
 class ClassificationModel:
     def __init__(self, name, n_classes):
         self.name = name
@@ -146,10 +116,10 @@ class ClassificationModel:
         if self.history:
             plot_train_history(self.history)
     
-    def save(self, filename='filename.model'):
+    def save(self, filename='model.h5'):
         self.model.save(filename)
 
-    def load(self, filename='filename.model'):
+    def load(self, filename='model.h5'):
         self.model = load_model(filename)
 
 

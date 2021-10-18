@@ -3,7 +3,6 @@ import wget
 import numpy as np
 import scipy.io as sio
 import scipy.ndimage as nd
-import matplotlib.pyplot as plt
 
 from PIL import Image
 from sklearn.svm import SVC
@@ -17,7 +16,7 @@ from keras.models import Model
 from keras.utils import np_utils
 from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
-from .deep import plot_image, plot_images, plot_train_history
+from .plot import plot_image, plot_images, plot_train_history
 
 
 def random(img, n_bands=6, indexes=False):
