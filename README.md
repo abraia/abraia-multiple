@@ -4,9 +4,7 @@
 
 # Abraia-Multiple image analysis toolbox
 
-The Abraia-Multiple package provides and easy and practical way to analyze and classify images directly from your browser. You just need to click on the open in Colab button to start with one of the available notebooks:
-
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/image-analysis.ipynb) Simple image analysis
+The Abraia-Multiple image analysis toolbox provides and easy and practical way to analyze and classify images directly from your browser. You just need to click on the open in Colab button to start with one of the available notebooks:
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/image-classification.ipynb) Deep image classification
 
@@ -14,11 +12,11 @@ The Abraia-Multiple package provides and easy and practical way to analyze and c
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-classification.ipynb) Deep hyperspectral image classification
 
-![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
-
 The multiple module provides support for HyperSpectral Image (HSI) analysis and classification.
 
 > MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project](https://multipleproject.eu/).
+
+![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
 
 ## Configuration
 
@@ -100,49 +98,66 @@ y_pred = model.predict(X)
 
 ## Image analysis toolbox
 
-Abraia provides a direct interface to directly load and save images. You can easily load the image data and the file metadata, or save a new image.
-
-<!-- TODO: Rewrite using Multiple instead of Abraia -->
+Abraia provides a direct interface to load and save images as numpy arrays. You can easily load the image data and the file metadata, show the image, or save the image data as a new one.
 
 ```python
-from abraia import Abraia
-
-abraia = Abraia()
-
-img = abraia.load_image('test.jpg')
-meta = abraia.load_metadata('test.jpg')
-abraia.save_image('test.png', img)
-```
-
-You can directly visualize the image using Matplotlib.
-
-```python
+from abraia import Multiple
 from abraia.plot import plot_image
+
+multiple = Multiple()
+
+img = multiple.load_image('usain.jpg')
+multiple.save_image('usain.png', img)
 
 plot_image(img, 'Image')
 ```
 
+![plot image](https://store.abraia.me/multiple/notebooks/bolt.png)
+
+Read the image metadata and save it as a JSON file.
+
+```python
+import json
+
+metadata = multiple.load_metadata('usain.jpg')
+multiple.save_file('usain.json', json.dumps(metadata))
+```
+
+```json
+{'FileType': 'JPEG',
+ 'MIMEType': 'image/jpeg',
+ 'JFIFVersion': 1.01,
+ 'ResolutionUnit': 'None',
+ 'XResolution': 1,
+ 'YResolution': 1,
+ 'Comment': 'CREATOR: gd-jpeg v1.0 (using IJG JPEG v62), quality = 80\n',
+ 'ImageWidth': 640,
+ 'ImageHeight': 426,
+ 'EncodingProcess': 'Baseline DCT, Huffman coding',
+ 'BitsPerSample': 8,
+ 'ColorComponents': 3,
+ 'YCbCrSubSampling': 'YCbCr4:2:0 (2 2)',
+ 'ImageSize': '640x426',
+ 'Megapixels': 0.273}
+```
+
 ### Upload and list files
 
-Upload a local `src` file or a remote `url` to the cloud `path` and return the list of `files` and `folders` on the specified cloud `folder`.
+Upload a local `src` file to the cloud `path` and return the list of `files` and `folders` on the specified cloud `folder`.
 
 ```python
+import pandas as pd
+
 folder = 'test/'
-src = 'images/test.png'
-path = f"{folder}test.png"
-abraia.upload_file(src, path)
-files, folders = abraia.list_files(folder)
+multiple.upload_file('images/usain-bolt.jpeg', folder)
+files, folders = multiple.list_files(folder)
+
+pd.DataFrame(files)
 ```
 
-### Automatic image detection
+![files](https://store.abraia.me/multiple/notebooks/files.png)
 
-Simply detect labels (tags), capture text, or detect faces in images (must be in JPEG format).
-
-```python
-labels = abraia.detect_labels(path)
-lines = abraia.capture_text(path)
-faces = abraia.detect_faces(path)
-```
+To list the root folder just omit the folder value.
 
 ### Download and remove files
 
@@ -151,8 +166,8 @@ You can download or remove an stored file just specifying its `path`.
 ```python
 path = 'test/birds.jpg'
 dest = 'images/birds.jpg'
-abraia.download_file(path, dest)
-abraia.remove_file(path)
+multiple.download_file(path, dest)
+multiple.remove_file(path)
 ```
 
 ## Command line interface
@@ -268,6 +283,16 @@ You can also take web from the command line just specifying and url to get the c
 
 ```sh
 abraia convert https://abraia.me screenshot.jpg
+```
+
+### Automatic image detection
+
+Simply detect labels (tags), capture text, or detect faces in images (must be in JPEG format).
+
+```sh
+abraia detect --labels images/lion.jpg
+abraia detect --text images/sincerely-media.jpg
+abraia detect --faces images/beauty-casual.jpg
 ```
 
 ## License

@@ -44,7 +44,7 @@ class Abraia:
     def __init__(self, folder=''):
         self.auth = config.load_auth()
         self.userid = self.load_user().get('id')
-        self.folder = folder
+        self.folder = folder # TODO: Remove
 
     def load_user(self):
         if self.auth[0] and self.auth[1]:
@@ -199,3 +199,11 @@ class Abraia:
         labels = resp.json().get('Labels')
         return [l.get('Name') for l in labels]
     
+    def detect_faces(self, path):
+        url = f"{API_URL}/rekognition/{self.userid}/{path}"
+        resp = requests.get(url, params={'mode': 'faces'}, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        return resp.json()
+        # labels = resp.json().get('Faces')
+        # return [l.get('Name') for l in labels]

@@ -4,10 +4,8 @@ from __future__ import division
 from builtins import input
 
 import os
-import sys
 import json
 import click
-import shutil
 from glob import glob
 from tqdm import tqdm
 
@@ -108,7 +106,7 @@ def convert(src, dest, width, height, mode, format, action):
                 path = filename
                 args['url'] = filename
             else:
-                path = abraia.upload_file(filename)
+                path = abraia.upload_file(filename, abraia.folder)
             abraia.transform_image(path, dest, args)
     except APIError as error:
         echo_error(error)
@@ -120,8 +118,7 @@ def convert(src, dest, width, height, mode, format, action):
 def metadata(src, remove):
     """Load and remove file metadata"""
     try:
-        path = abraia.userid + '/' + abraia.folder
-        path = abraia.upload_file(src, path)
+        path = abraia.upload_file(src, abraia.folder)
         if remove:
             print('remove', remove)
             print(abraia.remove_metadata(path))
