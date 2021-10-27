@@ -13,7 +13,7 @@ def plot_image(img, title=''):
 def plot_images(imgs, titles=None, cmap='nipy_spectral'):
     plt.figure()
     k = len(imgs)
-    r = math.isqrt(k)
+    r = int(math.sqrt(k))
     c = math.ceil(k / r)
     ax = plt.subplots(r, c)[1].reshape(-1)
     for i in range(k):
