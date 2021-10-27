@@ -1,5 +1,6 @@
 import os
 import wget
+import tempfile
 import numpy as np
 import scipy.io as sio
 import scipy.ndimage as nd
@@ -12,11 +13,59 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 from tensorflow import keras
-from keras.models import Model
 from keras.utils import np_utils
+from keras.models import Model, load_model
 from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
 from .plot import plot_image, plot_images, plot_train_history
+
+tempdir = tempfile.gettempdir()
+
+
+def download(url):
+    basename = os.path.basename(url)
+    dest = os.path.join(tempdir, basename)
+    if not os.path.exists(dest):
+        wget.download(url, dest)
+    return dest
+
+
+def load_dataset(dataset):
+    """Load one of the available hyperspectral datasets (IP, PU, SA, KSC)."""
+    if dataset == 'IP':
+        data_hsi = sio.loadmat(download(
+            'http://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat'))['indian_pines_corrected']
+        gt_hsi = sio.loadmat(download(
+            'http://www.ehu.eus/ccwintco/uploads/c/c4/Indian_pines_gt.mat'))['indian_pines_gt']
+        class_names = ['', 'Alfalfa', 'Corn-notill', 'Corn-mintill', 'Corn', 'Grass-pasture',
+                       'Grass-trees', 'Grass-pasture-mowed', 'Hay-windrowed', 'Oats', 'Soybean-notill',
+                       'Soybean-mintill', 'Soybean-clean', 'Wheat', 'Woods', 'Buildings Grass Trees Drives',
+                       'Stone Steel Towers']
+        return data_hsi, gt_hsi, class_names
+    if dataset == 'PU':
+        data_hsi = sio.loadmat(download(
+            'http://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat'))['paviaU']
+        gt_hsi = sio.loadmat(download(
+            'http://www.ehu.eus/ccwintco/uploads/5/50/PaviaU_gt.mat'))['paviaU_gt']
+        class_names = ['', 'Asphalt', 'Meadows', 'Gravel', 'Trees', 'Painted metal sheets',
+                       'Bare Soil', 'Bitumen', 'Self-Blocking Bricks', 'Shadows']
+        return data_hsi, gt_hsi, class_names
+    if dataset == 'SA':
+        data_hsi = sio.loadmat(download(
+            'http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat'))['salinas_corrected']
+        gt_hsi = sio.loadmat(download(
+            'http://www.ehu.eus/ccwintco/uploads/f/fa/Salinas_gt.mat'))['salinas_gt']
+        class_names = ['', 'Brocoli_green_weeds_1', 'Brocoli_green_weeds_2', 'Fallow', 'Fallow_rough_plow',
+                       'Fallow_smooth', 'Stubble', 'Celery', 'Grapes_untrained', 'Soil_vinyard_develop',
+                       'Corn_senesced_green_weeds', 'Lettuce_romaine_4wk', 'Lettuce_romaine_5wk',
+                       'Lettuce_romaine_6wk', 'Lettuce_romaine_7wk', 'Vinyard_untrained', 'Vinyard_vertical_trellis']
+        return data_hsi, gt_hsi, class_names
+    if dataset == 'KSC':
+        data_hsi = sio.loadmat(download(
+            'http://www.ehu.es/ccwintco/uploads/2/26/KSC.mat'))['KSC']
+        gt_hsi = sio.loadmat(download(
+            'http://www.ehu.es/ccwintco/uploads/a/a6/KSC_gt.mat'))['KSC_gt']
+        return data_hsi, gt_hsi
 
 
 def random(img, n_bands=6, indexes=False):
@@ -88,63 +137,6 @@ def spectrum(img, point=None):
         idx = np.unravel_index(np.argmax(sal), sal.shape)
         point = (idx[1], idx[0])
     return img[point[1], point[0], :]
-
-
-def load_dataset(dataset):
-    """Load one of the available hyperspectral datasets (IP, PU, SA, KSC)."""
-    if not os.path.exists('datasets'):
-        os.mkdir('datasets')
-    if dataset == 'IP':
-        if not os.path.exists('datasets/Indian_pines_corrected.mat'):
-            wget.download('http://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat',
-                          'datasets/Indian_pines_corrected.mat')
-        if not os.path.exists('datasets/Indian_pines_gt.mat'):
-            wget.download('http://www.ehu.eus/ccwintco/uploads/c/c4/Indian_pines_gt.mat',
-                          'datasets/Indian_pines_gt.mat')
-        data_hsi = sio.loadmat(
-            'datasets/Indian_pines_corrected.mat')['indian_pines_corrected']
-        gt_hsi = sio.loadmat('datasets/Indian_pines_gt.mat')['indian_pines_gt']
-        class_names = ['', 'Alfalfa', 'Corn-notill', 'Corn-mintill', 'Corn', 'Grass-pasture',
-                       'Grass-trees', 'Grass-pasture-mowed', 'Hay-windrowed', 'Oats', 'Soybean-notill',
-                       'Soybean-mintill', 'Soybean-clean', 'Wheat', 'Woods', 'Buildings Grass Trees Drives',
-                       'Stone Steel Towers']
-        return data_hsi, gt_hsi, class_names
-    if dataset == 'PU':
-        if not os.path.exists('datasets/PaviaU.mat'):
-            wget.download('http://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat',
-                          'datasets/PaviaU.mat')
-        if not os.path.exists('datasets/PaviaU_gt.mat'):
-            wget.download('http://www.ehu.eus/ccwintco/uploads/5/50/PaviaU_gt.mat',
-                          'datasets/PaviaU_gt.mat')
-        data_hsi = sio.loadmat('datasets/PaviaU.mat')['paviaU']
-        gt_hsi = sio.loadmat('datasets/PaviaU_gt.mat')['paviaU_gt']
-        class_names = ['', 'Asphalt', 'Meadows', 'Gravel', 'Trees', 'Painted metal sheets',
-                       'Bare Soil', 'Bitumen', 'Self-Blocking Bricks', 'Shadows']
-        return data_hsi, gt_hsi, class_names
-    if dataset == 'SA':
-        if not os.path.exists('datasets/Salinas_corrected.mat'):
-            wget.download('http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat',
-                          'datasets/Salinas_corrected.mat')
-        if not os.path.exists('datasets/Salinas_gt.mat'):
-            wget.download('http://www.ehu.eus/ccwintco/uploads/f/fa/Salinas_gt.mat',
-                          'datasets/Salinas_gt.mat')
-        data_hsi = sio.loadmat('datasets/Salinas_corrected.mat')['salinas_corrected']
-        gt_hsi = sio.loadmat('datasets/Salinas_gt.mat')['salinas_gt']
-        class_names = ['', 'Brocoli_green_weeds_1', 'Brocoli_green_weeds_2', 'Fallow', 'Fallow_rough_plow',
-                       'Fallow_smooth', 'Stubble', 'Celery', 'Grapes_untrained', 'Soil_vinyard_develop',
-                       'Corn_senesced_green_weeds', 'Lettuce_romaine_4wk', 'Lettuce_romaine_5wk',
-                       'Lettuce_romaine_6wk', 'Lettuce_romaine_7wk', 'Vinyard_untrained', 'Vinyard_vertical_trellis']
-        return data_hsi, gt_hsi, class_names
-    if dataset == 'KSC':
-        if not os.path.exists('datasets/KSC.mat'):
-            wget.download('http://www.ehu.es/ccwintco/uploads/2/26/KSC.mat',
-                          'datasets/KSC.mat')
-        if not os.path.exists('datasets/KSC_gt.mat'):
-            wget.download('http://www.ehu.es/ccwintco/uploads/a/a6/KSC_gt.mat',
-                          'datasets/KSC_gt.mat')
-        data_hsi = sio.loadmat('datasets/KSC.mat')['KSC']
-        gt_hsi = sio.loadmat('datasets/KSC_gt.mat')['KSC_gt']
-        return data_hsi, gt_hsi
 
 
 def split_train_test(X, y, train_ratio=0.7):
@@ -266,6 +258,12 @@ class HyperspectralModel:
     def plot_history():
         if self.history:
             plot_train_history(self.history)
+    
+    def save(self, filename='model.h5'):
+        self.model.save(filename)
+
+    def load(self, filename='model.h5'):
+        self.model = load_model(filename)
 
 
 def create_model(name, *args):

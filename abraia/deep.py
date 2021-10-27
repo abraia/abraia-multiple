@@ -3,6 +3,7 @@ import wget
 import glob
 import shutil
 import zipfile
+import tempfile
 import numpy as np
 
 from sklearn.model_selection import train_test_split
@@ -15,14 +16,22 @@ from keras.applications.inception_v3 import preprocess_input
 
 from .plot import plot_image, plot_images, plot_train_history
 
+tempdir = tempfile.gettempdir()
+
+
+def download(url):
+    basename = os.path.basename(url)
+    dest = os.path.join(tempdir, basename)
+    if not os.path.exists(dest):
+        wget.download(url, dest)
+    return dest
+
+
 def load_dataset(dataset='cats-and-dogs'):
     if not os.path.exists('datasets'):
         os.mkdir('datasets')
     if dataset == 'cats-and-dogs':
-        zip_url = 'https://download.microsoft.com/download/3/E/1/3E1C3F21-ECDB-4869-8368-6DEBA77B919F/kagglecatsanddogs_3367a.zip'
-        zip_file = 'datasets/kagglecatsanddogs_3367a.zip'
-        if not os.path.exists('datasets/kagglecatsanddogs_3367a.zip'):
-            wget.download(zip_url, zip_file)
+        zip_file = download('https://download.microsoft.com/download/3/E/1/3E1C3F21-ECDB-4869-8368-6DEBA77B919F/kagglecatsanddogs_3367a.zip')
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
             zip_ref.extractall('datasets/')
         os.remove('datasets/PetImages/Cat/666.jpg')

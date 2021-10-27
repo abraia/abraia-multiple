@@ -123,23 +123,21 @@ metadata = multiple.load_metadata('usain.jpg')
 multiple.save_file('usain.json', json.dumps(metadata))
 ```
 
-```json
-{'FileType': 'JPEG',
- 'MIMEType': 'image/jpeg',
- 'JFIFVersion': 1.01,
- 'ResolutionUnit': 'None',
- 'XResolution': 1,
- 'YResolution': 1,
- 'Comment': 'CREATOR: gd-jpeg v1.0 (using IJG JPEG v62), quality = 80\n',
- 'ImageWidth': 640,
- 'ImageHeight': 426,
- 'EncodingProcess': 'Baseline DCT, Huffman coding',
- 'BitsPerSample': 8,
- 'ColorComponents': 3,
- 'YCbCrSubSampling': 'YCbCr4:2:0 (2 2)',
- 'ImageSize': '640x426',
- 'Megapixels': 0.273}
-```
+    {'FileType': 'JPEG',
+    'MIMEType': 'image/jpeg',
+    'JFIFVersion': 1.01,
+    'ResolutionUnit': 'None',
+    'XResolution': 1,
+    'YResolution': 1,
+    'Comment': 'CREATOR: gd-jpeg v1.0 (using IJG JPEG v62), quality = 80\n',
+    'ImageWidth': 640,
+    'ImageHeight': 426,
+    'EncodingProcess': 'Baseline DCT, Huffman coding',
+    'BitsPerSample': 8,
+    'ColorComponents': 3,
+    'YCbCrSubSampling': 'YCbCr4:2:0 (2 2)',
+    'ImageSize': '640x426',
+     'Megapixels': 0.273}
 
 ### Upload and list files
 
