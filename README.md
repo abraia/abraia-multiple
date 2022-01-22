@@ -16,7 +16,7 @@ The multiple module provides support for HyperSpectral Image (HSI) analysis and 
 
 > MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project](https://multipleproject.eu/).
 
-![classification](https://store.abraia.me/multiple/notebooks/classification.jpg)
+![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
 
 ## Configuration
 
