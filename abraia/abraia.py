@@ -12,7 +12,6 @@ from datetime import datetime
 
 from . import config
 
-
 API_URL = 'https://api.abraia.me'
 tempdir = tempfile.gettempdir()
 
@@ -204,6 +203,5 @@ class Abraia:
         resp = requests.get(url, params={'mode': 'faces'}, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        return resp.json()
-        # labels = resp.json().get('Faces')
-        # return [l.get('Name') for l in labels]
+        faces = resp.json().get('Faces')
+        return faces

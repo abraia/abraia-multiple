@@ -5,10 +5,9 @@ import numpy as np
 
 from .abraia import Abraia
 
-# TODO: Add load and save csv, json? or pandas?
-
 
 tempdir = tempfile.gettempdir()
+
 
 class Multiple(Abraia):
     def __init__(self, folder=''):
@@ -93,3 +92,7 @@ class Multiple(Abraia):
         elif path.lower().endswith('.tiff') or path.lower().endswith('.tif'):
             return self.save_tiff(path, img)
         return super(Multiple, self).save_image(path, img)
+
+    # TODO: Add load_csv, save csv, from to pandas
+    # TODO: Add load_dataset, load_model, save_model
+    
