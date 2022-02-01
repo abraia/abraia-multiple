@@ -112,7 +112,7 @@ multiple.save_image('usain.png', img)
 plot_image(img, 'Image')
 ```
 
-![plot image](https://store.abraia.me/multiple/notebooks/bolt.png)
+![plot image](https://github.com/abraia/abraia-multiple/raw/master/images/bolt.png)
 
 Read the image metadata and save it as a JSON file.
 
@@ -153,7 +153,7 @@ files, folders = multiple.list_files(folder)
 pd.DataFrame(files)
 ```
 
-![files](https://store.abraia.me/multiple/notebooks/files.png)
+![files](https://github.com/abraia/abraia-multiple/raw/master/images/files.png)
 
 To list the root folder just omit the folder value.
 
