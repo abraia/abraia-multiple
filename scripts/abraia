@@ -52,11 +52,11 @@ def cli():
 def configure():
     """Configure the abraia api key"""
     try:
-        click.echo('Configure your api key [' + click.style(
-            'https://abraia.me/console/settings', fg='green') + ']\n')
-        abraia_key = config.load_key()
+        click.echo('Go to [' + click.style('https://abraia.me/console/', fg='green') + '] to get your user id and key\n')
+        abraia_id, abraia_key = config.load()
+        abraia_id = click.prompt('Abraia Id', default=abraia_id)
         abraia_key = click.prompt('Abraia Key', default=abraia_key)
-        config.save_key(abraia_key)
+        config.save(abraia_id, abraia_key)
     except:
         pass
 
@@ -65,14 +65,7 @@ def configure():
 def info():
     """Show user account information"""
     click.echo('abraia, version 0.9.4\n')
-    try:
-        user = abraia.load_user()
-        output = 'Name: {}\n'.format(user.get('name'))
-        output += 'Email: {}\n'.format(user.get('email'))
-        output += 'Credits: {}'.format(user.get('credits'))
-        click.echo(output)
-    except APIError as error:
-        echo_error(error)
+    click.echo('Go to [' + click.style('https://abraia.me/console/', fg='green') + '] to see your account information\n')
 
 
 @cli.command()

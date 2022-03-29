@@ -6,11 +6,6 @@ from abraia import Abraia
 abraia = Abraia()
 
 
-def test_load_user_info():
-    user = abraia.load_user()
-    assert isinstance(user, dict)
-
-
 def test_list_files():
     files, folders = abraia.list_files()
     assert isinstance(files, list)

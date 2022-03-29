@@ -20,20 +20,19 @@ The multiple module provides support for HyperSpectral Image (HSI) analysis and 
 
 ## Configuration
 
-Installed the package, you have to configure your [ABRAIA KEY](https://abraia.me/console/settings) as environment variable:
+Installed the package, you have to configure your [Id and Key](https://abraia.me/console/) as environment variables:
 
 ```sh
-export ABRAIA_KEY=api_key
+export ABRAIA_ID=user_id
+export ABRAIA_KEY=user_key
 ```
 
 On Windows you need to use `set` instead of `export`:
 
 ```sh
-set ABRAIA_KEY=api_key
+set ABRAIA_ID=user_id
+set ABRAIA_KEY=user_key
 ```
-
-NOTE: To persist the configuration use your system options to set your ABRAIA_KEY environment variable and avoid to run the previous command every time you start a terminal/console session.
-
 
 ## Hyperspectral image analysis toolbox
 

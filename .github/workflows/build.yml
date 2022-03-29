@@ -20,6 +20,7 @@ jobs:
           pip install -r requirements.txt
       - name: Test with pytest
         env:
+          ABRAIA_ID: ${{ secrets.ABRAIA_ID }}
           ABRAIA_KEY: ${{ secrets.ABRAIA_KEY }}
         run: |
           pip install pytest

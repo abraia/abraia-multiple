@@ -1,6 +1,6 @@
 click>=8.0.3
 numpy>=1.21.0
-Pillow==9.0.0
+Pillow>=9.0.0
 tifffile>=2020.9.4
 python-dotenv==0.19.2
 requests==2.27.1

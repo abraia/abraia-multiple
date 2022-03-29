@@ -41,18 +41,10 @@ class APIError(Exception):
 
 class Abraia:
     def __init__(self, folder=''):
-        self.auth = config.load_auth()
-        self.userid = self.load_user().get('id')
+        abraia_id, abraia_key = config.load()
+        self.auth = config.load_auth(abraia_key)
+        self.userid = abraia_id
         self.folder = folder # TODO: Remove
-
-    def load_user(self):
-        if self.auth[0] and self.auth[1]:
-            url = f"{API_URL}/users"
-            resp = requests.get(url, auth=self.auth)
-            if resp.status_code != 200:
-                raise APIError(resp.text, resp.status_code)
-            return resp.json()['user']
-        return {}
 
     def list_files(self, path=''):
         dirname = os.path.dirname(path)
