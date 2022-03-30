@@ -93,6 +93,16 @@ class Multiple(Abraia):
             return self.save_tiff(path, img)
         return super(Multiple, self).save_image(path, img)
 
+    # TODO: Add load_dataset
     # TODO: Add load_csv, save csv, from to pandas
-    # TODO: Add load_dataset, load_model, save_model
+
+    def load_model(self, path, model):
+        dest = os.path.join(tempdir, 'model.h5')
+        self.download_file(path, dest)
+        model.load(dest)
+
+    def save_model(self, path, model):
+        src = os.path.join(tempdir, 'model.h5')
+        model.save(src)
+        self.upload_file(src, path)
     
