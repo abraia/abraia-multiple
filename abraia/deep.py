@@ -32,11 +32,9 @@ def load_dataset(dataset='cats-and-dogs'):
     if not os.path.exists(folder):
         os.mkdir(folder)
     if dataset == 'cats-and-dogs':
-        zip_file = download('https://download.microsoft.com/download/3/E/1/3E1C3F21-ECDB-4869-8368-6DEBA77B919F/kagglecatsanddogs_3367a.zip')
+        zip_file = download('https://download.microsoft.com/download/3/E/1/3E1C3F21-ECDB-4869-8368-6DEBA77B919F/kagglecatsanddogs_5340.zip')
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
             zip_ref.extractall(f"{folder}/")
-        os.remove(f"{folder}/PetImages/Cat/666.jpg")
-        os.remove(f"{folder}/PetImages/Dog/11702.jpg")
         cat_paths = glob.glob(f"{folder}/PetImages/Cat/*.jpg")
         dog_paths = glob.glob(f"{folder}/PetImages/Dog/*.jpg")
         class_names = ['Cat', 'Dog']

@@ -93,7 +93,17 @@ class Multiple(Abraia):
             return self.save_tiff(path, img)
         return super(Multiple, self).save_image(path, img)
 
-    # TODO: Add load_dataset
+    def load_dataset(self, dataset):
+        X, y = [], []
+        [files, folders] = self.list_files(f"{dataset}/")
+        for folder in folders:
+            files = self.list_files(folder['path'])[0]
+            paths = [file['path'] for file in files]
+            labels = len(paths) * [folder['name']]
+            X.extend(paths)
+            y.extend(labels)
+        return X, y
+
     # TODO: Add load_csv, save csv, from to pandas
 
     def load_model(self, path, model):
