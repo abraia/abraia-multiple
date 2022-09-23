@@ -99,10 +99,8 @@ class Multiple(Abraia):
         [files, folders] = self.list_files(f"{dataset}/")
         for folder in folders:
             files = self.list_files(folder['path'])[0]
-            paths = [file['path'] for file in files]
-            labels = len(paths) * [folder['name']]
-            paths.extend(paths)
-            labels.extend(labels)
+            paths.extend([file['path'] for file in files])
+            labels.extend(len(files) * [folder['name']])
         if shuffle:
             ids = list(range(len(paths)))
             random.shuffle(ids)
