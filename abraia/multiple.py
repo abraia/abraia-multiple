@@ -1,4 +1,5 @@
 import os
+import random
 import tempfile
 import tifffile
 import numpy as np
@@ -93,16 +94,21 @@ class Multiple(Abraia):
             return self.save_tiff(path, img)
         return super(Multiple, self).save_image(path, img)
 
-    def load_dataset(self, dataset):
-        X, y = [], []
+    def load_dataset(self, dataset, shuffle=True):
+        paths, labels = [], []
         [files, folders] = self.list_files(f"{dataset}/")
         for folder in folders:
             files = self.list_files(folder['path'])[0]
             paths = [file['path'] for file in files]
             labels = len(paths) * [folder['name']]
-            X.extend(paths)
-            y.extend(labels)
-        return X, y
+            paths.extend(paths)
+            labels.extend(labels)
+        if shuffle:
+            ids = list(range(len(paths)))
+            random.shuffle(ids)
+            paths = [paths[id] for id in ids]
+            labels = [labels[id] for id in ids]
+        return paths, labels
 
     # TODO: Add load_csv, save csv, from to pandas
 
