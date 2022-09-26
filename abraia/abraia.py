@@ -3,7 +3,6 @@ import hashlib
 import requests
 import tempfile
 import mimetypes
-import numpy as np
 
 from PIL import Image
 from io import BytesIO
@@ -40,11 +39,10 @@ class APIError(Exception):
 
 
 class Abraia:
-    def __init__(self, folder=''):
+    def __init__(self):
         abraia_id, abraia_key = config.load()
         self.auth = config.load_auth(abraia_key)
         self.userid = abraia_id
-        self.folder = folder # TODO: Remove
 
     def list_files(self, path=''):
         dirname = os.path.dirname(path)
@@ -155,23 +153,20 @@ class Abraia:
         except:
             return stream
 
-    def load_image(self, path):
-        stream = self.download_file(path)
-        return np.asarray(Image.open(stream))
-
     def save_file(self, path, stream):
         stream =  BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
         return self.upload_file(stream, path)
 
-    def save_image(self, path, img):
-        # stream = BytesIO()
-        # mime = mimetypes.guess_type(path)[0]
-        # format = mime.split('/')[1]
-        # Image.fromarray(img).save(stream, format)
-        # print(mime, format)
-        basename = os.path.basename(path)
-        src = os.path.join(tempdir, basename)
-        Image.fromarray(img).save(src)
+    def load_image(self, path):
+        dest = os.path.join(tempdir, path)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        self.download_file(path, dest)
+        return Image.open(dest)
+
+    def save_image(self, path, im):
+        src = os.path.join(tempdir, path)
+        os.makedirs(os.path.dirname(src), exist_ok=True)
+        im.save(src)
         return self.upload_file(src, path)
 
     def capture_text(self, path):

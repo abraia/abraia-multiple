@@ -1,11 +1,9 @@
-# License: BSD
-# Author: Sasank Chilamkurthy
-
 from __future__ import print_function, division
 from .multiple import Multiple, tempdir
 
 import torch
 import torch.backends.cudnn as cudnn
+from torchvision import models, transforms
 
 import os
 import copy
@@ -20,6 +18,13 @@ plt.ion()   # interactive mode
 multiple = Multiple()
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+def read_image(path):
+    dest = os.path.join(tempdir, path)
+    if not os.path.exists(dest):
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        multiple.download_file(path, dest)
+    return Image.open(dest)
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -41,19 +46,40 @@ class Dataset(torch.utils.data.Dataset):
         path = self.paths[idx]
         label = self.labels[idx]
         label = self.classes.index(label)
-
-        basename = os.path.basename(path)
-        dest = os.path.join(tempdir, basename)
-        if not os.path.exists(dest):
-            multiple.download_file(path, dest)
-        img = Image.open(dest)
-
+        img = read_image(path)
         if self.transform:
             img = self.transform(img)
         if self.target_transform:
             label = self.target_transform(label)
         return img, label
 
+
+def save_model(model, model_file, device='cpu'):
+    model.to(device)
+    model_scripted = torch.jit.script(model)
+    model_scripted.save(model_file)
+    multiple.upload_file(model_file)
+
+
+def load_model(model_file):
+    multiple.download_file(model_file, model_file)
+    return torch.jit.load(model_file)
+
+
+def transform():
+    return transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+    ])
+
+
+# License: BSD
+# Author: Sasank Chilamkurthy
 
 def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=25):
     since = time.time()
@@ -162,3 +188,4 @@ def visualize_model(model, dataloaders, num_images=6):
                     model.train(mode=was_training)
                     return
         model.train(mode=was_training)
+    

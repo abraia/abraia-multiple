@@ -3,9 +3,9 @@ import random
 import tempfile
 import tifffile
 import numpy as np
+from PIL import Image
 
 from .abraia import Abraia
-
 
 tempdir = tempfile.gettempdir()
 
@@ -62,7 +62,7 @@ class Multiple(Abraia):
             return self.load_mat(path)
         elif path.lower().endswith('.tiff') or path.lower().endswith('.tif'):
             return self.load_tiff(path)
-        return super(Multiple, self).load_image(path)
+        return np.asarray(super(Multiple, self).load_image(path))
 
     def save_envi(self, path, img, metadata={}):
         from spectral.io import envi
@@ -92,7 +92,7 @@ class Multiple(Abraia):
             return self.save_mat(path, img)
         elif path.lower().endswith('.tiff') or path.lower().endswith('.tif'):
             return self.save_tiff(path, img)
-        return super(Multiple, self).save_image(path, img)
+        return super(Multiple, self).save_image(path, Image.fromarray(img))
 
     def load_dataset(self, dataset, shuffle=True):
         paths, labels = [], []
