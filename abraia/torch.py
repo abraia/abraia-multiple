@@ -13,17 +13,21 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 cudnn.benchmark = True
-plt.ion()   # interactive mode
 
 multiple = Multiple()
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def read_image(path):
+def download_file(path):
     dest = os.path.join(tempdir, path)
     if not os.path.exists(dest):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         multiple.download_file(path, dest)
+    return dest
+
+
+def read_image(path):
+    dest = download_file(path)
     return Image.open(dest)
 
 
@@ -54,28 +58,47 @@ class Dataset(torch.utils.data.Dataset):
         return img, label
 
 
-def save_model(model, model_file, device='cpu'):
+def create_model(class_names, pretrained=True):
+    model = models.resnet18(pretrained=pretrained)
+    for param in model.parameters():
+        param.requires_grad = False
+    num_ftrs = model.fc.in_features
+    model.fc = torch.nn.Linear(num_ftrs, len(class_names))
+    return model
+
+
+def save_model(path, model, device='cpu'):
     model.to(device)
-    model_scripted = torch.jit.script(model)
-    model_scripted.save(model_file)
-    multiple.upload_file(model_file)
+    torch.save(model.state_dict(), path)
+    multiple.upload_file(path)
 
 
-def load_model(model_file):
-    multiple.download_file(model_file, model_file)
-    return torch.jit.load(model_file)
+def load_model(path, class_names):
+    dest = download_file(path)
+    model = create_model(class_names, pretrained=False)
+    model.load_state_dict(torch.load(dest))
+    return model
 
 
-def transform():
-    return transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
-    ])
+def save_classes(path, class_names):
+    txt = '\n'.join(class_names)
+    multiple.save_file(path, txt)
+
+
+def load_classes(path):
+    txt = multiple.load_file(path)
+    return [line.strip() for line in txt.splitlines()]
+
+
+transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    )
+])
 
 
 # License: BSD
