@@ -68,9 +68,11 @@ def create_model(class_names, pretrained=True):
 
 
 def save_model(path, model, device='cpu'):
+    src = os.path.join(tempdir, path)
+    os.makedirs(os.path.dirname(src), exist_ok=True)
     model.to(device)
-    torch.save(model.state_dict(), path)
-    multiple.upload_file(path)
+    torch.save(model.state_dict(), src)
+    multiple.upload_file(src, path)
 
 
 def load_model(path, class_names):

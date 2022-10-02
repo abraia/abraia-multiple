@@ -6,7 +6,13 @@
 
 The Abraia-Multiple image analysis toolbox provides and easy and practical way to analyze and classify images directly from your browser. You just need to click on the open in Colab button to start with one of the available notebooks:
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/image-classification.ipynb) Deep image classification
+Image classification:
+
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/torch_training.ipynb) Training notebook
+
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/torch_inference.ipynb) Inference notebook
+
+Hyperspectral image:
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis
 
