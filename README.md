@@ -231,8 +231,14 @@ Or, automatically pad or crop all the images contained in the folder specifying 
 abraia convert --width 300 --height 300 --mode crop [path] [dest]
 ```
 
+### Smart cropping
+
+Automatically crop images preserving the content and the aesthetics of each image. This improves the visual experience compared to using fixed positions with different images and compositions.
+
 ![beauty casual resized](https://github.com/abraia/abraia-multiple/raw/master/images/beauty-casual_333x500.jpg)
 ![beauty casual smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/beauty-casual_500x500.jpg)
+
+Abraia's content-aware cropping technology is built on perception models to automatically detect the region of interest on every image. Then, based on the most salient parts of the image, aesthetics is used to select the best crop. Finally, the selected crop is resized to fit the size of your site's layout without losing focus on important content.
 
 ### Convert images
 
