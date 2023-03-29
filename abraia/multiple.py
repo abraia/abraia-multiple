@@ -14,6 +14,13 @@ class Multiple(Abraia):
     def __init__(self, folder=''):
         super(Multiple, self).__init__()
 
+    def load_file(self, path):
+        dest = os.path.join(tempdir, path)
+        if not os.path.exists(dest):
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            self.download_file(path, dest)
+        return dest
+
     def load_header(self, path):
         from spectral.io import envi
         basename = os.path.basename(path)
@@ -40,29 +47,33 @@ class Multiple(Abraia):
 
     def load_mat(self, path):
         from scipy.io import loadmat
-        mat = loadmat(self.download_file(path))
+        mat = loadmat(self.load_file(path))
         for key, value in mat.items():
             if type(value) == np.ndarray:
                 return value
         return mat
 
     def load_tiff(self, path):
-        return tifffile.imread(self.download_file(path))
+        return tifffile.imread(self.load_file(path))
 
     def load_mosaic(self, path, size=(4, 4)):
         r, c = size
         img = self.load_image(path)
-        cube = np.dstack([img[(k % r)::r, (k // c)::c] for k in range(r * c)])
-        return cube
+        return np.dstack([img[(k % r)::r, (k // c)::c] for k in range(r * c)])
 
-    def load_image(self, path):
+    def load_image(self, path, mosaic_size=None):
         if path.lower().endswith('.hdr'):
-            return self.load_envi(path)
+            img = self.load_envi(path)
         elif path.lower().endswith('.mat'):
-            return self.load_mat(path)
+            img = self.load_mat(path)
         elif path.lower().endswith('.tiff') or path.lower().endswith('.tif'):
-            return self.load_tiff(path)
-        return np.asarray(super(Multiple, self).load_image(path))
+            img = self.load_tiff(path)
+        else:
+            img = np.asarray(Image.open(self.load_file(path)))
+        if mosaic_size:
+            r, c = mosaic_size
+            img = np.dstack([img[(k % r)::r, (k // c)::c] for k in range(r * c)])
+        return img
 
     def save_envi(self, path, img, metadata={}):
         from spectral.io import envi
