@@ -23,10 +23,7 @@ class Multiple(Abraia):
 
     def load_header(self, path):
         from spectral.io import envi
-        basename = os.path.basename(path)
-        dest = os.path.join(tempdir, basename)
-        if not os.path.exists(dest):
-            self.download_file(path, dest)
+        dest = self.load_file(path)
         return envi.read_envi_header(dest)
 
     def load_metadata(self, path):
@@ -36,10 +33,7 @@ class Multiple(Abraia):
 
     def load_envi(self, path):
         from spectral.io import envi
-        basename = os.path.basename(path)
-        dest = os.path.join(tempdir, basename)
-        if not os.path.exists(dest):
-            self.download_file(path, dest)
+        dest = self.load_file(path)
         raw = f"{dest.split('.')[0]}.raw"
         if not os.path.exists(raw):
             self.download_file(f"{path.split('.')[0]}.raw", raw)
@@ -53,9 +47,6 @@ class Multiple(Abraia):
                 return value
         return mat
 
-    def load_tiff(self, path):
-        return tifffile.imread(self.load_file(path))
-
     def load_mosaic(self, path, size=(4, 4)):
         r, c = size
         img = self.load_image(path)
@@ -67,7 +58,7 @@ class Multiple(Abraia):
         elif path.lower().endswith('.mat'):
             img = self.load_mat(path)
         elif path.lower().endswith('.tiff') or path.lower().endswith('.tif'):
-            img = self.load_tiff(path)
+            img = tifffile.imread(self.load_file(path))
         else:
             img = np.asarray(Image.open(self.load_file(path)))
         if mosaic_size:
@@ -77,33 +68,34 @@ class Multiple(Abraia):
 
     def save_envi(self, path, img, metadata={}):
         from spectral.io import envi
-        basename = os.path.basename(path)
-        dest = os.path.join(tempdir, basename)
-        envi.save_image(dest, img, metadata=metadata, force=True)
-        self.upload_file(f"{dest.split('.')[0]}.img", f"{path.split('.')[0]}.raw")
-        return self.upload_file(dest, path)
+        src = os.path.join(tempdir, path)
+        os.makedirs(os.path.dirname(src), exist_ok=True)
+        envi.save_image(src, img, metadata=metadata, force=True)
+        self.upload_file(f"{src.split('.')[0]}.img", f"{path.split('.')[0]}.raw")
+        return self.upload_file(src, path)
 
     def save_mat(self, path, img):
         from scipy.io import savemat
-        basename = os.path.basename(path)
-        src = os.path.join(tempdir, basename)
+        src = os.path.join(tempdir, path)
+        os.makedirs(os.path.dirname(src), exist_ok=True)
         savemat(src, {'raw': img})
-        return self.upload_file(src, path)
-    
-    def save_tiff(self, path, img):
-        basename = os.path.basename(path)
-        src = os.path.join(tempdir, basename)
-        tifffile.imwrite(src, img)
         return self.upload_file(src, path)
 
     def save_image(self, path, img, metadata={}):
+        src = os.path.join(tempdir, path)
+        os.makedirs(os.path.dirname(src), exist_ok=True)
         if path.lower().endswith('.hdr'):
             return self.save_envi(path, img, metadata)
         elif path.lower().endswith('.mat'):
             return self.save_mat(path, img)
         elif path.lower().endswith('.tiff') or path.lower().endswith('.tif'):
-            return self.save_tiff(path, img)
-        return super(Multiple, self).save_image(path, Image.fromarray(img))
+            tifffile.imwrite(src, img)
+            return self.upload_file(src, path)
+        else:
+            Image.fromarray(img).save(src)
+            return self.upload_file(src, path)
+
+    # TODO: Add load_csv, save csv, from to pandas
 
     def load_dataset(self, dataset, shuffle=True):
         paths, labels = [], []
@@ -118,8 +110,6 @@ class Multiple(Abraia):
             paths = [paths[id] for id in ids]
             labels = [labels[id] for id in ids]
         return paths, labels
-
-    # TODO: Add load_csv, save csv, from to pandas
 
     def load_model(self, path, model):
         dest = os.path.join(tempdir, 'model.h5')

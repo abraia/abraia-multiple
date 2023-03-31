@@ -1,6 +1,7 @@
+from .multiple import Multiple, tempdir
+
 import os
 import wget
-import tempfile
 import numpy as np
 import scipy.io as sio
 import scipy.ndimage as nd
@@ -14,12 +15,12 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 
 from tensorflow import keras
 from keras.utils import np_utils
-from keras.models import Model, load_model
+from keras.models import Model
 from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
 from .plot import plot_image, plot_images, plot_train_history
 
-tempdir = tempfile.gettempdir()
+multiple = Multiple()
 
 
 def download(url):
@@ -263,9 +264,21 @@ class HyperspectralModel:
         self.model.save(filename)
 
     def load(self, filename='model.h5'):
-        self.model = load_model(filename)
+        self.model = keras.models.load_model(filename)
 
 
 def create_model(name, *args):
     """Create a new model: svm or hsn"""
     return HyperspectralModel(name, *args)
+
+
+def save_model(model, path):
+    src = os.path.join(tempdir, path)
+    os.makedirs(os.path.dirname(src), exist_ok=True)
+    model.save(src)
+    multiple.upload_file(src, path)
+
+
+def load_model(path):
+    dest = multiple.load_file(path)
+    return keras.models.load_model(dest)

@@ -12,11 +12,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 
-cudnn.benchmark = True
 
 multiple = Multiple()
 
+
+cudnn.benchmark = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 def download_file(path):
     dest = os.path.join(tempdir, path)
