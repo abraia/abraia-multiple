@@ -217,8 +217,7 @@ def create_hsn_model(input_shape, n_classes):
     output_layer = Dense(units=n_classes, activation='softmax')(dense_layer2)
     # define and compile the model with input layer and output layer
     model = Model(inputs=input_layer, outputs=output_layer)
-    adam = keras.optimizers.Adam(learning_rate=0.001, decay=1e-06)
-    model.compile(optimizer=adam, loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
     return model
 
 
