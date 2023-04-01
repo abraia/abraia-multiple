@@ -5,14 +5,15 @@ import wget
 import random
 import numpy as np
 
+from random import choice, sample
+from tqdm.contrib.concurrent import process_map
 from sklearn.model_selection import train_test_split
 
 from tensorflow import keras
 from keras.models import Model
+from keras.utils import to_categorical
 from keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from keras.layers import Input, Cropping2D , Conv2D, Conv3D, Flatten, Reshape
-from keras.preprocessing.image import ImageDataGenerator, load_img
-from keras.applications.inception_v3 import preprocess_input
 from keras.applications.densenet import DenseNet201 as DenseNet
 
 from .plot import plot_image, plot_images, plot_train_history
@@ -27,6 +28,21 @@ def download(url):
     if not os.path.exists(dest):
         wget.download(url, dest)
     return dest
+
+
+def load_projects():
+    folders = multiple.list_files()[1]
+    return [folder['name'] for folder in folders]
+
+
+def class_to_category(val, class_names):
+    class_id = class_names.index(val)
+    return to_categorical(class_id, num_classes=len(class_names))
+
+
+def category_to_class(val, class_names):
+    class_id = val.argmax()
+    return class_names[class_id]
 
 
 def load_dataset(dataset, shuffle=False):
@@ -46,6 +62,16 @@ def load_dataset(dataset, shuffle=False):
 
 def split_train_test(paths, labels, train_ratio=0.7):
     return train_test_split(paths, labels, test_size=1-train_ratio)
+
+
+def data_generator(paths, labels, load_image, class_names, batch_size=32):
+    process_map(multiple.load_file, paths, max_workers=5)
+    while True:
+        batch_X, batch_Y = [], []
+        idxs = sample(range(len(paths)), batch_size)
+        batch_X = [load_image(path) for path in paths[idxs]]
+        batch_Y = [class_to_category(label, class_names) for label in labels[idxs]]
+        yield np.array(batch_X), np.array(batch_Y)
 
 
 def create_inception3_model(n_classes):
@@ -167,7 +193,7 @@ def create_model(name, n_classes, input_shape=(100, 100, 16), crop=False):
     if name == 'densenet':
         return create_hsi_densenet(n_classes, input_shape, crop)
     if name == '3d_hsn':
-        return create_hsn_model(n_classes, input_shape=input_shape)
+        return create_hsn_model(n_classes, input_shape)
     if name == 'inception3':
         return create_inception3_model(n_classes)
     if name == 'mobilenet2':
