@@ -15,6 +15,7 @@ from keras.utils import to_categorical
 from keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from keras.layers import Input, Cropping2D , Conv2D, Conv3D, Flatten, Reshape
 from keras.applications.densenet import DenseNet201 as DenseNet
+# from keras.callbacks import EarlyStopping, ModelCheckpoint
 
 from .plot import plot_image, plot_images, plot_train_history
 
@@ -69,8 +70,8 @@ def data_generator(paths, labels, load_image, class_names, batch_size=32):
     while True:
         batch_X, batch_Y = [], []
         idxs = sample(range(len(paths)), batch_size)
-        batch_X = [load_image(path) for path in paths[idxs]]
-        batch_Y = [class_to_category(label, class_names) for label in labels[idxs]]
+        batch_X = [load_image(paths[idx]) for idx in idxs]
+        batch_Y = [class_to_category(labels[idx], class_names) for idx in idxs]
         yield np.array(batch_X), np.array(batch_Y)
 
 
@@ -174,20 +175,6 @@ def predict_mobilenet2_model(model, X):
     return model.predict(x)
 
 
-def predict_model(model, name, X):
-    if name == 'inception3':
-        return predict_inception3_model(model, X)
-    if name == 'mobilenet2':
-        return predict_mobilenet2_model(model, X)
-
-
-def train_model(model,  train_generator, validation_generator, epochs=5):
-    # return model.fit(train_generator, epochs=epochs, steps_per_epoch=320, validation_data=validation_generator, validation_steps=60)
-    history = model.fit(train_generator, epochs=epochs, validation_data=validation_generator)
-    # plot_train_history(self.history)    
-    return history
-
-
 def create_model(name, n_classes, input_shape=(100, 100, 16), crop=False):
     """Create a new model: densenet, 3d_hsn, inception3, or mobilenet2"""
     if name == 'densenet':
@@ -197,7 +184,23 @@ def create_model(name, n_classes, input_shape=(100, 100, 16), crop=False):
     if name == 'inception3':
         return create_inception3_model(n_classes)
     if name == 'mobilenet2':
-        return create_mobilenet2_model(n_classes)
+        return create_mobilenet2_model(n_classes)    
+
+
+def train_model(model,  train_generator, test_generator, epochs=50, train_steps=16, test_steps=5):
+#     checkpoint_path = tempdir + '/models/dense.{epoch:02d}.hdf5'
+#     checkpointer = ModelCheckpoint(checkpoint_path, monitor='val_categorical_accuracy', verbose=1, save_best_only=True, mode='max')
+#     earlystopper = EarlyStopping(monitor='val_categorical_accuracy', patience=10, mode='max', restore_best_weights=True)
+#     return model.fit(train_generator, epochs=epochs, steps_per_epoch=train_steps, validation_data=test_generator, validation_steps=test_steps, callbacks=[checkpointer, earlystopper])
+    history = model.fit(train_generator, validation_data=test_generator, epochs=epochs, steps_per_epoch=train_steps, validation_steps=test_steps)
+    # plot_train_history(self.history)    
+    return history
+
+
+def predict_model(model, paths, load_image, class_names):
+    imgs = np.array([load_image(path) for path in paths])
+    y_pred = model.predict(imgs)
+    return [category_to_class(val, class_names) for val in y_pred]
 
 
 def save_model(model, path):
