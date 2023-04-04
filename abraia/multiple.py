@@ -5,6 +5,13 @@ import tifffile
 import numpy as np
 from PIL import Image
 
+try:
+    import spectral
+    from spectral.io import envi
+    spectral.settings.envi_support_nonlowercase_params = True
+except ImportError:
+    print('Install the spectral package to read envi files')
+
 from .abraia import Abraia
 
 tempdir = tempfile.gettempdir()
@@ -22,7 +29,6 @@ class Multiple(Abraia):
         return dest
 
     def load_header(self, path):
-        from spectral.io import envi
         dest = self.load_file(path)
         return envi.read_envi_header(dest)
 
@@ -32,7 +38,6 @@ class Multiple(Abraia):
         return super(Multiple, self).load_metadata(path)
 
     def load_envi(self, path):
-        from spectral.io import envi
         dest = self.load_file(path)
         raw = f"{dest.split('.')[0]}.raw"
         if not os.path.exists(raw):
@@ -61,13 +66,12 @@ class Multiple(Abraia):
             img = tifffile.imread(self.load_file(path))
         else:
             img = np.asarray(Image.open(self.load_file(path)))
-        if mosaic_size:
+        if mosaic_size and len(img.shape) == 2:
             r, c = mosaic_size
             img = np.dstack([img[(k % r)::r, (k // c)::c] for k in range(r * c)])
         return img
 
     def save_envi(self, path, img, metadata={}):
-        from spectral.io import envi
         src = os.path.join(tempdir, path)
         os.makedirs(os.path.dirname(src), exist_ok=True)
         envi.save_image(src, img, metadata=metadata, force=True)

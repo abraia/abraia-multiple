@@ -2,12 +2,14 @@ from .multiple import Multiple, tempdir
 
 import os
 import wget
+import math
 import random
 import numpy as np
+import matplotlib.pyplot as plt
 
-from random import choice, sample
-from tqdm.contrib.concurrent import process_map
+from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
+from tqdm.contrib.concurrent import process_map
 
 from tensorflow import keras
 from keras.models import Model
@@ -15,12 +17,27 @@ from keras.utils import to_categorical
 from keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from keras.layers import Input, Cropping2D , Conv2D, Conv3D, Flatten, Reshape
 from keras.applications.densenet import DenseNet201 as DenseNet
-# from keras.callbacks import EarlyStopping, ModelCheckpoint
-
-from .plot import plot_image, plot_images, plot_train_history
+from keras.callbacks import EarlyStopping, ModelCheckpoint
 
 
 multiple = Multiple()
+
+
+def normalize(img):
+    """Normalize the image to the range [0, 1]"""
+    min, max = np.amin(img), np.amax(img)
+    return (img - min) / (max - min)
+
+
+def principal_components(img, n_components=3, spectrum=False):
+    """Calculate principal components of the image"""
+    h, w, d = img.shape
+    X = img.reshape((h * w), d)
+    pca = PCA(n_components=n_components, whiten=True)
+    bands = pca.fit_transform(X).reshape(h, w, n_components)
+    if spectrum:
+        bands, pca.components_
+    return bands
 
 
 def download(url):
@@ -33,7 +50,7 @@ def download(url):
 
 def load_projects():
     folders = multiple.list_files()[1]
-    return [folder['name'] for folder in folders]
+    return [folder['name'] for folder in folders if folder['name'] != 'export']
 
 
 def class_to_category(val, class_names):
@@ -46,9 +63,10 @@ def category_to_class(val, class_names):
     return class_names[class_id]
 
 
+#TODO: Rebuild and merge with hsi dataset
 def load_dataset(dataset, shuffle=False):
     paths, labels = [], []
-    [files, folders] = multiple.list_files(f"{dataset}/")
+    files, folders = multiple.list_files(f"{dataset}/")
     for folder in folders:
         files = multiple.list_files(folder['path'])[0]
         paths.extend([file['path'] for file in files])
@@ -69,7 +87,7 @@ def data_generator(paths, labels, load_image, class_names, batch_size=32):
     process_map(multiple.load_file, paths, max_workers=5)
     while True:
         batch_X, batch_Y = [], []
-        idxs = sample(range(len(paths)), batch_size)
+        idxs = random.sample(range(len(paths)), batch_size)
         batch_X = [load_image(paths[idx]) for idx in idxs]
         batch_Y = [class_to_category(labels[idx], class_names) for idx in idxs]
         yield np.array(batch_X), np.array(batch_Y)
@@ -188,11 +206,11 @@ def create_model(name, n_classes, input_shape=(100, 100, 16), crop=False):
 
 
 def train_model(model,  train_generator, test_generator, epochs=50, train_steps=16, test_steps=5):
-#     checkpoint_path = tempdir + '/models/dense.{epoch:02d}.hdf5'
-#     checkpointer = ModelCheckpoint(checkpoint_path, monitor='val_categorical_accuracy', verbose=1, save_best_only=True, mode='max')
-#     earlystopper = EarlyStopping(monitor='val_categorical_accuracy', patience=10, mode='max', restore_best_weights=True)
-#     return model.fit(train_generator, epochs=epochs, steps_per_epoch=train_steps, validation_data=test_generator, validation_steps=test_steps, callbacks=[checkpointer, earlystopper])
-    history = model.fit(train_generator, validation_data=test_generator, epochs=epochs, steps_per_epoch=train_steps, validation_steps=test_steps)
+    checkpoint_path = tempdir + '/model_{epoch:02d}.hdf5'
+    checkpointer = ModelCheckpoint(checkpoint_path, monitor='val_categorical_accuracy', verbose=1, save_best_only=True, mode='max')
+    earlystopper = EarlyStopping(monitor='val_categorical_accuracy', patience=10, mode='max', restore_best_weights=True)
+    return model.fit(train_generator, epochs=epochs, steps_per_epoch=train_steps, validation_data=test_generator, validation_steps=test_steps, callbacks=[checkpointer, earlystopper])
+    # history = model.fit(train_generator, validation_data=test_generator, epochs=epochs, steps_per_epoch=train_steps, validation_steps=test_steps)
     # plot_train_history(self.history)    
     return history
 
@@ -214,3 +232,38 @@ def load_model(path):
     dest = multiple.load_file(path)
     return keras.models.load_model(dest)
 
+
+def plot_image(img, title=''):
+    if len(img.shape) == 3 and img.shape[2] > 3:
+        img = normalize(principal_components(img))
+    plt.figure()
+    plt.title(title)
+    plt.imshow(img)
+    plt.axis('off')
+    plt.show()
+
+
+def plot_images(imgs, titles=None, cmap='nipy_spectral'):
+    plt.figure()
+    k = len(imgs)
+    r = int(math.sqrt(k))
+    c = math.ceil(k / r)
+    ax = plt.subplots(r, c)[1].reshape(-1)
+    for i, img in enumerate(imgs):
+        if titles and len(titles) >= k:
+            ax[i].title.set_text(titles[i])
+        if len(img.shape) == 3 and img.shape[2] > 3:
+            img = normalize(principal_components(img))
+        ax[i].imshow(img, cmap=cmap)
+        ax[i].axis('off')
+    plt.show()
+
+
+def plot_train_history(history):
+    plt.ylim(0, 1.01)
+    plt.grid()
+    plt.plot(history.history['loss'])
+    plt.plot(history.history['accuracy'])
+    plt.ylabel('Loss')
+    plt.xlabel('Epochs')
+    plt.legend(['Training loss','Test accuracy'], loc='upper right')

@@ -269,15 +269,3 @@ class HyperspectralModel:
 def create_model(name, *args):
     """Create a new model: svm or hsn"""
     return HyperspectralModel(name, *args)
-
-
-def save_model(model, path):
-    src = os.path.join(tempdir, path)
-    os.makedirs(os.path.dirname(src), exist_ok=True)
-    model.save(src)
-    multiple.upload_file(src, path)
-
-
-def load_model(path):
-    dest = multiple.load_file(path)
-    return keras.models.load_model(dest)
