@@ -4,23 +4,13 @@
 
 # Abraia-Multiple image analysis toolbox
 
-The Abraia-Multiple image analysis toolbox provides and easy and practical way to analyze and classify images directly from your browser. You just need to click on the open in Colab button to start with one of the available notebooks:
-
-Image classification:
-
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/torch_training.ipynb) Training notebook
-
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/torch_inference.ipynb) Inference notebook
-
-Hyperspectral image:
+The Abraia-Multiple image analysis toolbox provides and easy and practical way to analyze and classify multispectral and hyperspectral images directly from your browser. You just need to click on the open in Colab button to start with one of the available Abraia-Multiple notebooks:
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-classification.ipynb) Deep hyperspectral image classification
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-classification.ipynb) Hyperspectral image classification
 
-The multiple module provides support for HyperSpectral Image (HSI) analysis and classification.
-
-> MULTIPLE is result and it is being developed by ABRAIA in the [Multiple project](https://multipleproject.eu/).
+The Abraia-Multiple SDK has being developed by [ABRAIA](https://abraia.me/about) in the [Multiple project](https://multipleproject.eu/) to extend the Abraia Cloud Platform providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
 
 ![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
 
@@ -239,40 +229,6 @@ Automatically crop images preserving the content and the aesthetics of each imag
 ![beauty casual smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/beauty-casual_500x500.jpg)
 
 Abraia's content-aware cropping technology is built on perception models to automatically detect the region of interest on every image. Then, based on the most salient parts of the image, aesthetics is used to select the best crop. Finally, the selected crop is resized to fit the size of your site's layout without losing focus on important content.
-
-### Convert images
-
-The JPEG image format is still the most common format to publish photos on the web. However, converting images to WebP provides a significant improvement for web publishing.
-
-To convert images to a web format (JPEG, PNG, WebP) or between these formats you just need to change the filename extension for the destination file:
-
-```sh
-abraia convert garlic.jpg garlic.webp
-```
-
-<figure>
-    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/garlic.jpg" alt="garlic jpeg">
-    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/garlic.webp" alt="garlic webp">
-</figure>
-
-In addition, you can also convert SVG and PSD files. For instance, converting a SVG to PNG is so simple as to type the command bellow:
-
-```sh
-abraia convert bat.svg bat.png
-```
-
-<figure>
-    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/bat.svg" alt="bat svg">
-    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/bat.png" alt="bat png">
-</figure>
-
-> The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
-
-You can also take web from the command line just specifying and url to get the capture.
-
-```sh
-abraia convert https://abraia.me screenshot.jpg
-```
 
 ## License
 
