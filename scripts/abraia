@@ -125,28 +125,6 @@ def metadata(src, remove):
 
 
 @cli.command()
-@click.option('--labels', 'mode', flag_value='labels', default=True, help='Detect image labels')
-@click.option('--faces', 'mode', flag_value='faces', help='Detect image faces')
-@click.option('--text', 'mode', flag_value='text', help='Detect image text')
-@click.argument('src')
-def detect(src, mode):
-    """Detect image data"""
-    try:
-        path = abraia.upload_file(src, 'batch/')
-        if mode == 'labels':
-            labels = abraia.detect_labels(path)
-            click.echo(labels)
-        if mode == 'text':
-            text = abraia.capture_text(path)
-            click.echo('\n'.join(text))
-        if mode == 'faces':
-            faces = abraia.detect_faces(path)
-            click.echo(json.dumps(faces, indent=2))
-    except APIError as error:
-        echo_error(error)
-
-
-@cli.command()
 @click.argument('path', required=False)
 def list(path):
     """List the files in abraia"""

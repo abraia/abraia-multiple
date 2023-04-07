@@ -76,14 +76,3 @@ def test_load_metadata():
 def test_save_file():
     path = abraia.save_file('test.txt', 'this is a simple test.')
     assert path == 'test.txt'
-
-
-def test_capture_text():
-    path = abraia.upload_file('images/sincerely-media.jpg')
-    text = abraia.capture_text(path)
-    assert isinstance(text, list)
-
-
-def test_detect_labels():
-    labels = abraia.detect_labels('sincerely-media.jpg')
-    assert isinstance(labels, list)

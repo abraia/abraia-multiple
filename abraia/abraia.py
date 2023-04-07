@@ -153,27 +153,3 @@ class Abraia:
     def save_file(self, path, stream):
         stream =  BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
         return self.upload_file(stream, path)
-
-    def capture_text(self, path):
-        url = f"{API_URL}/rekognition/{self.userid}/{path}"
-        resp = requests.get(url, params={'mode': 'text'}, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        text = list(filter(lambda t: t.get('ParentId') is None, resp.json().get('Text')));
-        return [t.get('DetectedText') for t in text]
-
-    def detect_labels(self, path):
-        url = f"{API_URL}/rekognition/{self.userid}/{path}"
-        resp = requests.get(url, params={'mode': 'labels'}, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        labels = resp.json().get('Labels')
-        return [l.get('Name') for l in labels]
-    
-    def detect_faces(self, path):
-        url = f"{API_URL}/rekognition/{self.userid}/{path}"
-        resp = requests.get(url, params={'mode': 'faces'}, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        faces = resp.json().get('Faces')
-        return faces

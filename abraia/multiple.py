@@ -10,7 +10,7 @@ try:
     from spectral.io import envi
     spectral.settings.envi_support_nonlowercase_params = True
 except ImportError:
-    print('Install the spectral package to read envi files')
+    print('Install the spectral package to work with envi files')
 
 from .abraia import Abraia
 
@@ -114,14 +114,4 @@ class Multiple(Abraia):
             paths = [paths[id] for id in ids]
             labels = [labels[id] for id in ids]
         return paths, labels
-
-    def load_model(self, path, model):
-        dest = os.path.join(tempdir, 'model.h5')
-        self.download_file(path, dest)
-        model.load(dest)
-
-    def save_model(self, path, model):
-        src = os.path.join(tempdir, 'model.h5')
-        model.save(src)
-        self.upload_file(src, path)
     

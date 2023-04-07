@@ -268,40 +268,10 @@ abraia convert bat.svg bat.png
 
 > The SVG vector image is rendered in a Chrome instance to provide maximum fidelity, and preserving the transparent background.
 
-Moreover, you can easily convert a PSD file (the layered image file used in Adobe Photoshop for saving data) flattening all the visible layers with a command like bellow:
-
-```sh
-abraia convert strawberry.psd strawberry.jpg
-abraia convert strawberry.psd strawberry.png
-```
-
-<figure>
-    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/strawberry.jpg" alt="white background strawberry">
-    <img width="300px" src="https://github.com/abraia/abraia-multiple/raw/master/images/strawberry.png" alt="transparent strawberry">
-</figure>
-
-> When the PSD file is converted to JPEG a white background is added automatically, because the JPEG format does not support transparency. Instead, using the PNG or the WebP format you can preserve the transparent background.
-
-Or, convert a batch of Photoshop files with a simple command. Just copy your PSD files to a folder, for instance the `photoshop` folder, and convert all the files in that folder.
-
-```sh
-abraia convert photoshop
-```
-
 You can also take web from the command line just specifying and url to get the capture.
 
 ```sh
 abraia convert https://abraia.me screenshot.jpg
-```
-
-### Automatic image detection
-
-Simply detect labels (tags), capture text, or detect faces in images (must be in JPEG format).
-
-```sh
-abraia detect --labels images/lion.jpg
-abraia detect --text images/sincerely-media.jpg
-abraia detect --faces images/beauty-casual.jpg
 ```
 
 ## License
