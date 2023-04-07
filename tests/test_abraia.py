@@ -21,12 +21,6 @@ def test_upload_file():
     assert path == 'birds.jpg'
 
 
-# def test_move_file():
-#     abraia.move_file('tiger.jpg', 'test/tiger.jpg')
-#     path = abraia.move_file('test/tiger.jpg', 'tiger.jpg')
-#     assert path == 'tiger.jpg'
-
-
 def test_download_file():
     stream = abraia.download_file('tiger.jpg')
     assert isinstance(stream, BytesIO)

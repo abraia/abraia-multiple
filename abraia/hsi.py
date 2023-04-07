@@ -1,9 +1,6 @@
-from .multiple import Multiple, tempdir
+from .multiple import Multiple
 
-import os
-import wget
 import numpy as np
-import scipy.io as sio
 import scipy.ndimage as nd
 
 from PIL import Image
@@ -23,50 +20,57 @@ from .plot import plot_image, plot_images, plot_train_history
 multiple = Multiple()
 
 
-def download(url):
-    basename = os.path.basename(url)
-    dest = os.path.join(tempdir, basename)
-    if not os.path.exists(dest):
-        wget.download(url, dest)
-    return dest
-
-
-def load_dataset(dataset):
-    """Load one of the available hyperspectral datasets (IP, PU, SA, KSC)."""
+def load_dataset(dataset, shuffle=False):
+    """Load one of the available hyperspectral datasets (IP, PU, SA)."""
+    paths, labels = [], []
+    files, folders = multiple.list_files(f"{dataset}/")
     if dataset == 'IP':
-        data_hsi = sio.loadmat(download(
-            'http://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat'))['indian_pines_corrected']
-        gt_hsi = sio.loadmat(download(
-            'http://www.ehu.eus/ccwintco/uploads/c/c4/Indian_pines_gt.mat'))['indian_pines_gt']
+        paths = [file['path'] for file in files]
+        if 'Indian_pines_corrected.mat' not in paths:
+            multiple.upload_file('http://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat', f"{dataset}/Indian_pines_corrected.mat")
+        if 'Indian_pines_gt.mat' not in paths:
+            multiple.upload_file('http://www.ehu.eus/ccwintco/uploads/c/c4/Indian_pines_gt.mat', f"{dataset}/Indian_pines_gt.mat")
+        data_hsi = multiple.load_image(f"{dataset}/Indian_pines_corrected.mat")
+        gt_hsi = multiple.load_image(f"{dataset}/Indian_pines_gt.mat")
         class_names = ['', 'Alfalfa', 'Corn-notill', 'Corn-mintill', 'Corn', 'Grass-pasture',
                        'Grass-trees', 'Grass-pasture-mowed', 'Hay-windrowed', 'Oats', 'Soybean-notill',
                        'Soybean-mintill', 'Soybean-clean', 'Wheat', 'Woods', 'Buildings Grass Trees Drives',
                        'Stone Steel Towers']
         return data_hsi, gt_hsi, class_names
     if dataset == 'PU':
-        data_hsi = sio.loadmat(download(
-            'http://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat'))['paviaU']
-        gt_hsi = sio.loadmat(download(
-            'http://www.ehu.eus/ccwintco/uploads/5/50/PaviaU_gt.mat'))['paviaU_gt']
+        paths = [file['path'] for file in files]
+        if 'PaviaU.mat' not in paths:
+            multiple.upload_file('http://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat', f"{dataset}/PaviaU.mat")
+        if 'PaviaU_gt.mat' not in paths:
+            multiple.upload_file('http://www.ehu.eus/ccwintco/uploads/5/50/PaviaU_gt.mat', f"{dataset}/PaviaU_gt.mat")
+        data_hsi = multiple.load_image(f"{dataset}/PaviaU.mat")
+        gt_hsi = multiple.load_image(f"{dataset}/PaviaU_gt.mat")
         class_names = ['', 'Asphalt', 'Meadows', 'Gravel', 'Trees', 'Painted metal sheets',
                        'Bare Soil', 'Bitumen', 'Self-Blocking Bricks', 'Shadows']
         return data_hsi, gt_hsi, class_names
     if dataset == 'SA':
-        data_hsi = sio.loadmat(download(
-            'http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat'))['salinas_corrected']
-        gt_hsi = sio.loadmat(download(
-            'http://www.ehu.eus/ccwintco/uploads/f/fa/Salinas_gt.mat'))['salinas_gt']
+        paths = [file['path'] for file in files]
+        if 'Salinas_corrected.mat' not in paths:
+            multiple.upload_file('http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat', f"{dataset}/Salinas_corrected.mat")
+        if 'Salinas_gt.mat' not in paths:
+            multiple.upload_file('http://www.ehu.eus/ccwintco/uploads/f/fa/Salinas_gt.mat', f"{dataset}/Salinas_gt.mat")
+        data_hsi = multiple.load_image(f"{dataset}/Salinas_corrected.mat")
+        gt_hsi = multiple.load_image(f"{dataset}/Salinas_gt.mat")
         class_names = ['', 'Brocoli_green_weeds_1', 'Brocoli_green_weeds_2', 'Fallow', 'Fallow_rough_plow',
                        'Fallow_smooth', 'Stubble', 'Celery', 'Grapes_untrained', 'Soil_vinyard_develop',
                        'Corn_senesced_green_weeds', 'Lettuce_romaine_4wk', 'Lettuce_romaine_5wk',
                        'Lettuce_romaine_6wk', 'Lettuce_romaine_7wk', 'Vinyard_untrained', 'Vinyard_vertical_trellis']
         return data_hsi, gt_hsi, class_names
-    if dataset == 'KSC':
-        data_hsi = sio.loadmat(download(
-            'http://www.ehu.es/ccwintco/uploads/2/26/KSC.mat'))['KSC']
-        gt_hsi = sio.loadmat(download(
-            'http://www.ehu.es/ccwintco/uploads/a/a6/KSC_gt.mat'))['KSC_gt']
-        return data_hsi, gt_hsi
+    for folder in folders:
+        files = multiple.list_files(folder['path'])[0]
+        paths.extend([file['path'] for file in files])
+        labels.extend(len(files) * [folder['name']])
+    if shuffle:
+        ids = list(range(len(paths)))
+        # random.shuffle(ids)
+        paths = [paths[id] for id in ids]
+        labels = [labels[id] for id in ids]
+    return paths, labels
 
 
 def random(img, n_bands=6, indexes=False):

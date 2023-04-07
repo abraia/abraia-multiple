@@ -5,4 +5,3 @@ tifffile>=2020.9.4
 python-dotenv>=0.19.2
 requests>=2.27.1
 tqdm>=4.62.3
-wget==3.2
