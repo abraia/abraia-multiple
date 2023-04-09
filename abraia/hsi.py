@@ -162,9 +162,7 @@ def principal_components(img, n_components=3, spectrum=False):
 
 
 def pad_with_zeros(X, margin=2):
-    newX = np.zeros((X.shape[0] + 2 * margin, X.shape[1] + 2* margin, X.shape[2]))
-    newX[margin:X.shape[0] + margin, margin:X.shape[1] + margin, :] = X
-    return newX
+    return np.pad(X, ((margin, margin), (margin, margin), (0, 0)))
 
 
 def create_patch(data, height_index, width_index, patch_size):
