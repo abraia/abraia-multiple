@@ -135,7 +135,7 @@ def split_train_test(paths, labels, train_ratio=0.7):
 
 
 def data_generator(paths, labels, load_image, class_names, batch_size=32):
-    process_map(multiple.load_file, paths, max_workers=5)
+    process_map(multiple.cache_file, paths, max_workers=5)
     while True:
         batch_X, batch_Y = [], []
         idxs = random.sample(range(len(paths)), batch_size)
@@ -280,7 +280,7 @@ def save_model(model, path):
 
 
 def load_model(path):
-    dest = multiple.load_file(path)
+    dest = multiple.cache_file(path)
     return keras.models.load_model(dest)
 
 
