@@ -14,9 +14,15 @@ The Abraia-Multiple SDK has being developed by [ABRAIA](https://abraia.me/about)
 
 ![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
 
-## Configuration
+## Installation
 
-Installed the package, you have to configure your [Id and Key](https://abraia.me/console/) as environment variables:
+Abraia-Multiple is a Python SDK and CLI which can be installed on Windows, Mac, and Linux:
+
+```sh
+python -m pip install -U abraia
+```
+
+To use the SDK you have to configure your [Id and Key](https://abraia.me/console/) as environment variables:
 
 ```sh
 export ABRAIA_ID=user_id
@@ -165,23 +171,7 @@ multiple.remove_file(path)
 
 ## Command line interface
 
-The Abraia CLI tool provides a simple way to bulk resize, convert, and optimize your images and photos for web. Enabling the conversion from different input formats to get images in the right formats to be used in the web - JPEG, WebP, or PNG -. Moreover, it supports a number of transformations that can be applied to image batches. So you can easily convert your images to be directly published on the web.
-
-### Installation
-
-The Abraia CLI is a Python tool which can be installed on Windows, Mac, and Linux:
-
-```sh
-python -m pip install -U abraia
-```
-
-The first time you run Abraia CLI you need to configure your API key, just write the command bellow and paste your key.
-
-```sh
-abraia configure
-```
-
-### Resize images
+The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It provides a simple way to manage your files and enables the resize and conversion of different image formats. It is an easy way to compress your images for web - JPEG, WebP, or PNG -, and get then ready to publish on the web. 
 
 To compress an image you just need to specify the input and output paths for the image:
 

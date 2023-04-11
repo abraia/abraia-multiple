@@ -107,6 +107,29 @@ def category_to_class(val, class_names):
     return class_names[class_id]
 
 
+def pad_with_zeros(X, margin=2):
+    return np.pad(X, ((margin, margin), (margin, margin), (0, 0)))
+
+
+def create_patch(data, height_index, width_index, patch_size):
+    height_slice = slice(height_index, height_index + patch_size)
+    width_slice = slice(width_index, width_index + patch_size)
+    return data[height_slice, width_slice, :]
+
+
+def patch_generator(X, y, patch_size, samples, class_names, batch_size=32):
+    height, width, depth = X.shape
+    X = pad_with_zeros(X, patch_size // 2)
+    while True:
+        batch_X, batch_Y = [], []
+        idxs = random.sample(range(len(samples)), batch_size)
+        for idx in idxs:
+            i, j = idx // width, idx % width
+            batch_X.append(create_patch(X, i, j, patch_size).astype('float32'))
+            batch_Y.append(class_to_category(y[i, j], class_names))
+        yield np.array(batch_X), np.array(batch_Y)
+
+
 def split_train_test(paths, labels, train_ratio=0.7):
     return train_test_split(paths, labels, test_size=1-train_ratio)
 
@@ -259,6 +282,16 @@ def save_model(model, path):
 def load_model(path):
     dest = multiple.load_file(path)
     return keras.models.load_model(dest)
+
+
+def save_classes(path, class_names):
+    txt = '\n'.join(class_names)
+    multiple.save_file(path, txt)
+
+
+def load_classes(path):
+    txt = multiple.load_file(path)
+    return [line.strip() for line in txt.splitlines()]
 
 
 def plot_image(img, title=''):

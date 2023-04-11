@@ -171,10 +171,9 @@ def create_patch(data, height_index, width_index, patch_size):
     return data[height_slice, width_slice, :]
 
 
-# TODO: Convert create patches to generator with batch_size parameter
 def create_patches(X, patch_size):
     patches = []
-    width, height = X.shape[1], X.shape[0]
+    height, width = X.shape[:2]
     X = pad_with_zeros(X, patch_size // 2)
     for i in range(height):
         for j in range(width):
@@ -184,7 +183,7 @@ def create_patches(X, patch_size):
 
 
 def create_image_cubes(X, y, patch_size):
-    width, height = X.shape[1], X.shape[0]
+    height, width = X.shape[:2]
     patchesData = create_patches(X, patch_size)
     labels = []
     for i in range(height):
