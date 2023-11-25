@@ -115,7 +115,7 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
     # Observe that only parameters of final layer are being optimized as opposed to before.
     optimizer = optimizer or torch.optim.SGD(model.fc.parameters(), lr=0.001, momentum=0.9)
     # Decay LR by a factor of 0.1 every 7 epochs
-    scheduler = torch.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+    scheduler = scheduler or torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
     since = time.time()
 
