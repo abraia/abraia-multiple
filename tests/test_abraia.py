@@ -15,10 +15,10 @@ def test_list_files():
 def test_upload_file():
     path = abraia.upload_file('images/lion.jpg')
     assert path == 'lion.jpg'
-    path = abraia.upload_file('images/tiger.jpg', 'tiger.jpg')
-    assert path == 'tiger.jpg'
-    path = abraia.upload_file('https://api.abraia.me/files/demo/birds.jpg', 'birds.jpg')
+    path = abraia.upload_file('images/birds.jpg', 'birds.jpg')
     assert path == 'birds.jpg'
+    path = abraia.upload_file('https://api.abraia.me/files/demo/tests/tiger.jpg', 'tiger.jpg')
+    assert path == 'tiger.jpg'
 
 
 def test_download_file():

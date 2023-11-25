@@ -12,11 +12,11 @@ with pathlib.Path('requirements.txt').open() as requirements_txt:
 
 setup(
     name='abraia',
-    version='0.12.1',
-    description='Abraia Python SDK',
+    version='0.12.2',
+    description='Abraia Multiple SDK',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url='https://github.com/abraia/abraia-python',
+    url='https://github.com/abraia/abraia-multiple',
     author='Jorge Rodriguez Araujo',
     author_email='jorge@abraiasoftware.com',
     license='MIT',

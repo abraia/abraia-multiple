@@ -2,7 +2,7 @@ from __future__ import print_function, division
 from .multiple import Multiple, tempdir
 
 import torch
-import torch.backends.cudnn as cudnn
+import torchvision
 from torchvision import models, transforms
 
 import os
@@ -16,7 +16,7 @@ from PIL import Image
 multiple = Multiple()
 
 
-cudnn.benchmark = True
+torch.backends.cudnn.benchmark = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
@@ -66,13 +66,15 @@ def create_model(class_names, pretrained=True):
         param.requires_grad = False
     num_ftrs = model.fc.in_features
     model.fc = torch.nn.Linear(num_ftrs, len(class_names))
+    model.to(device)
+    print('device', device)
     return model
 
 
 def save_model(path, model, device='cpu'):
+    model.to(device)
     src = os.path.join(tempdir, path)
     os.makedirs(os.path.dirname(src), exist_ok=True)
-    model.to(device)
     torch.save(model.state_dict(), src)
     multiple.upload_file(src, path)
 
@@ -108,7 +110,13 @@ transform = transforms.Compose([
 # License: BSD
 # Author: Sasank Chilamkurthy
 
-def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=25):
+def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=None, num_epochs=25):
+    criterion = criterion or torch.nn.CrossEntropyLoss()
+    # Observe that only parameters of final layer are being optimized as opposed to before.
+    optimizer = optimizer or torch.optim.SGD(model.fc.parameters(), lr=0.001, momentum=0.9)
+    # Decay LR by a factor of 0.1 every 7 epochs
+    scheduler = torch.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+
     since = time.time()
 
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -188,8 +196,14 @@ def imshow(inp, title=None):
     plt.pause(0.001)  # pause a bit so that plots are updated
 
 
-def visualize_model(model, dataloaders, num_images=6):
-    dataloader = dataloaders['val']
+def visualize_data(dataloader):
+    class_names = dataloader.dataset.classes
+    inputs, classes = next(iter(dataloader))
+    out = torchvision.utils.make_grid(inputs)  # Make a grid from batch
+    imshow(out, title=[class_names[x] for x in classes])
+
+
+def visualize_model(model, dataloader, num_images=6):
     class_names = dataloader.dataset.classes
     was_training = model.training
     model.eval()
