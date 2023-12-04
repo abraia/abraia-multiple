@@ -1,6 +1,7 @@
 from __future__ import print_function, division
 from .multiple import Multiple, tempdir
 
+import onnx
 import torch
 import torchvision
 from torchvision import models, transforms
@@ -67,7 +68,6 @@ def create_model(class_names, pretrained=True):
     num_ftrs = model.fc.in_features
     model.fc = torch.nn.Linear(num_ftrs, len(class_names))
     model.to(device)
-    print('device', device)
     return model
 
 
@@ -84,6 +84,17 @@ def load_model(path, class_names):
     model = create_model(class_names, pretrained=False)
     model.load_state_dict(torch.load(dest))
     return model
+
+
+def export_onnx(path, model, device='cpu'):
+    model.to(device)
+    dummy_input = torch.randn(1, 3, 224, 224)
+    src = os.path.join(tempdir, path)
+    os.makedirs(os.path.dirname(src), exist_ok=True)
+    torch.onnx.export(model, dummy_input, src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
+    onnx_model = onnx.load(src)
+    onnx.checker.check_model(onnx_model)
+    multiple.upload_file(src, path)
 
 
 def save_classes(path, class_names):
