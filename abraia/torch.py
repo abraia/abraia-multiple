@@ -31,7 +31,7 @@ def download_file(path):
 
 def read_image(path):
     dest = download_file(path)
-    return Image.open(dest)
+    return Image.open(dest).convert('RGB')
 
 
 class Dataset(torch.utils.data.Dataset):

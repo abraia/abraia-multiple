@@ -42,7 +42,7 @@ def input_files(src):
 
 
 @click.group('abraia')
-@click.version_option('0.13.0')
+@click.version_option('0.13.1')
 def cli():
     """Abraia CLI tool"""
     pass
@@ -64,7 +64,7 @@ def configure():
 @cli.command()
 def info():
     """Show user account information"""
-    click.echo('abraia, version 0.13.0\n')
+    click.echo('abraia, version 0.13.1\n')
     click.echo('Go to [' + click.style('https://abraia.me/console/', fg='green') + '] to see your account information\n')
 
 
