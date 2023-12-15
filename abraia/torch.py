@@ -2,6 +2,7 @@ from __future__ import print_function, division
 from .multiple import Multiple, tempdir
 
 import onnx
+import json
 import torch
 import torchvision
 from torchvision import models, transforms
@@ -105,6 +106,14 @@ def save_classes(path, class_names):
 def load_classes(path):
     txt = multiple.load_file(path)
     return [line.strip() for line in txt.splitlines()]
+
+
+def save_json(path, values):
+    multiple.save_file(path, json.dumps(values))
+
+
+def load_json(path):
+    return json.loads(multiple.load_file(path))
 
 
 transform = transforms.Compose([
