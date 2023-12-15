@@ -1,4 +1,5 @@
 import os
+import json
 import random
 import tempfile
 import tifffile
@@ -101,15 +102,18 @@ class Multiple(Abraia):
             Image.fromarray(img).save(src)
             return self.upload_file(src, path)
 
-    # TODO: Add load_csv, save csv, from to pandas
-
     def load_dataset(self, dataset, shuffle=True):
         paths, labels = [], []
         [files, folders] = self.list_files(f"{dataset}/")
-        for folder in folders:
-            files = self.list_files(folder['path'])[0]
-            paths.extend([file['path'] for file in files])
-            labels.extend(len(files) * [folder['name']])
+        if any([file['name'] == 'annotations.json' for file in files]):
+            annotations = json.loads(self.load_file(f"{dataset}/annotations.json"))
+            paths = [f"{dataset}/{annotation['filename']}" for annotation in annotations]
+            labels = [annotation['label'] for annotation in annotations]
+        else:
+            for folder in folders:
+                files = self.list_files(folder['path'])[0]
+                paths.extend([file['path'] for file in files])
+                labels.extend(len(files) * [folder['name']])
         if shuffle:
             ids = list(range(len(paths)))
             random.shuffle(ids)
