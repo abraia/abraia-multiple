@@ -1,8 +1,8 @@
 from __future__ import print_function, division
 from .multiple import Multiple, tempdir
 
-import onnx
 import json
+import onnx
 import torch
 import torchvision
 from torchvision import models, transforms
@@ -96,16 +96,6 @@ def export_onnx(path, model, device='cpu'):
     onnx_model = onnx.load(src)
     onnx.checker.check_model(onnx_model)
     multiple.upload_file(src, path)
-
-
-def save_classes(path, class_names):
-    txt = '\n'.join(class_names)
-    multiple.save_file(path, txt)
-
-
-def load_classes(path):
-    txt = multiple.load_file(path)
-    return [line.strip() for line in txt.splitlines()]
 
 
 def save_json(path, values):
