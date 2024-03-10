@@ -87,6 +87,15 @@ class Abraia:
             return file_path({'name': name, 'source': f"{self.userid}/{path}"}, self.userid)
         return file_path(resp['file'], self.userid)
 
+    def check_file(self, path):
+        url = f"{API_URL}/files/{self.userid}/{path}"
+        resp = requests.head(url, auth=self.auth)
+        if resp.status_code == 404:
+            return False
+        if resp.status_code in [307, 400, 403]:
+            return True
+        raise APIError(resp.text, resp.status_code)
+
     def move_file(self, old_path, new_path):
         json = {'store': f"{self.userid}/{old_path}"}
         url = f"{API_URL}/files/{self.userid}/{new_path}"

@@ -21,6 +21,13 @@ def test_upload_file():
     assert path == 'tiger.jpg'
 
 
+def test_check_file():
+    path = 'lion.jpg'
+    assert abraia.check_file(path)
+    path = '_lion.jpg'
+    assert not abraia.check_file(path)
+
+
 def test_download_file():
     stream = abraia.download_file('tiger.jpg')
     assert isinstance(stream, BytesIO)
