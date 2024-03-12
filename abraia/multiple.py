@@ -102,14 +102,21 @@ class Multiple(Abraia):
             Image.fromarray(img).save(src)
             return self.upload_file(src, path)
 
+    def load_json(self, path):
+        return json.loads(self.load_file(path))
+
+    def save_json(self, path, values):
+        return self.save_file(path, json.dumps(values))
+
     def load_dataset(self, dataset, shuffle=True):
         paths, labels = [], []
-        [files, folders] = self.list_files(f"{dataset}/")
-        if any([file['name'] == 'annotations.json' for file in files]):
-            annotations = json.loads(self.load_file(f"{dataset}/annotations.json"))
+        if self.check_file(f"{dataset}/annotations.json"):
+            annotations = self.load_json(f"{dataset}/annotations.json")
+            keys = list(filter(lambda k: k != 'filename', annotations[0].keys()))
             paths = [f"{dataset}/{annotation['filename']}" for annotation in annotations]
             labels = [annotation['label'] for annotation in annotations]
         else:
+            [files, folders] = self.list_files(f"{dataset}/")
             for folder in folders:
                 files = self.list_files(folder['path'])[0]
                 paths.extend([file['path'] for file in files])
@@ -120,4 +127,5 @@ class Multiple(Abraia):
             paths = [paths[id] for id in ids]
             labels = [labels[id] for id in ids]
         return paths, labels
+    
     
