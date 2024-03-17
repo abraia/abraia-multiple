@@ -44,9 +44,7 @@ class Multiple(Abraia):
 
     def load_envi(self, path):
         dest = self.cache_file(path)
-        raw = f"{dest.split('.')[0]}.raw"
-        if not os.path.exists(raw):
-            self.download_file(f"{path.split('.')[0]}.raw", raw)
+        raw = self.cache_file(f"{path.split('.')[0]}.raw")
         return np.array(spectral.io.envi.open(dest, raw)[:, :, :])
 
     def load_mat(self, path):
