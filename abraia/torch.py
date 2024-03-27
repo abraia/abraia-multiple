@@ -22,11 +22,6 @@ torch.backends.cudnn.benchmark = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-# TODO: Remove with next version
-def download_file(path):
-    return multiple.cache_file(path)
-
-
 def read_image(path):
     dest = multiple.cache_file(path)
     return Image.open(dest).convert('RGB')
@@ -95,12 +90,10 @@ def export_onnx(path, model, device='cpu'):
     multiple.upload_file(src, path)
 
 
-# TODO: Remove with next version
 def save_json(path, values):
     multiple.save_json(path, values)
 
 
-# TODO: Remove with next version
 def load_json(path):
     return multiple.load_json(path)
 

@@ -284,16 +284,6 @@ def load_model(path):
     return keras.models.load_model(dest)
 
 
-def save_classes(path, class_names):
-    txt = '\n'.join(class_names)
-    multiple.save_file(path, txt)
-
-
-def load_classes(path):
-    txt = multiple.load_file(path)
-    return [line.strip() for line in txt.splitlines()]
-
-
 def plot_image(img, title=''):
     if len(img.shape) == 3 and img.shape[2] > 3:
         img = normalize(principal_components(img))
