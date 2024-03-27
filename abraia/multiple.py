@@ -109,6 +109,7 @@ class Multiple(Abraia):
     def load_dataset(self, dataset, shuffle=True):
         paths, labels = [], []
         if self.check_file(f"{dataset}/annotations.json"):
+            # TODO: Return annotations instead of labels
             annotations = self.load_json(f"{dataset}/annotations.json")
             keys = list(filter(lambda k: k != 'filename', annotations[0].keys()))
             paths = [f"{dataset}/{annotation['filename']}" for annotation in annotations]
