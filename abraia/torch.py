@@ -90,14 +90,6 @@ def export_onnx(path, model, device='cpu'):
     multiple.upload_file(src, path)
 
 
-def save_json(path, values):
-    multiple.save_json(path, values)
-
-
-def load_json(path):
-    return multiple.load_json(path)
-
-
 transform = transforms.Compose([
     transforms.Resize(256),
     transforms.CenterCrop(224),
