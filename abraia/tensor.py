@@ -1,4 +1,5 @@
 from .multiple import Multiple, tempdir
+import plot
 
 import os
 import math
@@ -287,11 +288,7 @@ def load_model(path):
 def plot_image(img, title=''):
     if len(img.shape) == 3 and img.shape[2] > 3:
         img = normalize(principal_components(img))
-    plt.figure()
-    plt.title(title)
-    plt.imshow(img)
-    plt.axis('off')
-    plt.show()
+    plot.plot_image(img, title)
 
 
 def plot_images(imgs, titles=None, cmap='nipy_spectral'):
@@ -311,10 +308,4 @@ def plot_images(imgs, titles=None, cmap='nipy_spectral'):
 
 
 def plot_train_history(history):
-    plt.ylim(0, 1.01)
-    plt.grid()
-    plt.plot(history.history['loss'])
-    plt.plot(history.history['accuracy'])
-    plt.ylabel('Loss')
-    plt.xlabel('Epochs')
-    plt.legend(['Training loss','Test accuracy'], loc='upper right')
+    plot.plot_train_history(history)

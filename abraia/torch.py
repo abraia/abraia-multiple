@@ -1,7 +1,6 @@
 from __future__ import print_function, division
 from .multiple import Multiple, tempdir
 
-import json
 import onnx
 import torch
 import torchvision
