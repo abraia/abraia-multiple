@@ -2,7 +2,7 @@
 [![Python Package](https://img.shields.io/pypi/v/abraia.svg)](https://pypi.org/project/abraia/)
 ![Package Downloads](https://img.shields.io/pypi/dm/abraia)
 
-# Abraia-Multiple image analysis toolbox
+# Abraia Python SDK image analysis toolbox
 
 The Abraia-Multiple image analysis toolbox provides and easy and practical way to analyze and classify multispectral and hyperspectral images directly from your browser. You just need to click on the open in Colab button to start with one of the available Abraia-Multiple notebooks:
 
@@ -34,6 +34,116 @@ On Windows you need to use `set` instead of `export`:
 ```sh
 set ABRAIA_ID=user_id
 set ABRAIA_KEY=user_key
+```
+
+## Image analysis toolbox
+
+Abraia provides a direct interface to load and save images. You can easily load and show the image, load the file metadata, or save the image as a new one.
+
+```python
+from abraia import Abraia
+
+abraia = Abraia()
+
+im = abraia.load_image('usain.jpg')
+abraia.save_image('usain.png', im)
+im.show()
+```
+
+![plot image](https://github.com/abraia/abraia-multiple/raw/master/images/bolt.png)
+
+Read the image metadata and save it as a JSON file.
+
+```python
+metadata = abraia.load_metadata('usain.jpg')
+abraia.save_json('usain.json', metadata)
+```
+
+    {'FileType': 'JPEG',
+    'MIMEType': 'image/jpeg',
+    'JFIFVersion': 1.01,
+    'ResolutionUnit': 'None',
+    'XResolution': 1,
+    'YResolution': 1,
+    'Comment': 'CREATOR: gd-jpeg v1.0 (using IJG JPEG v62), quality = 80\n',
+    'ImageWidth': 640,
+    'ImageHeight': 426,
+    'EncodingProcess': 'Baseline DCT, Huffman coding',
+    'BitsPerSample': 8,
+    'ColorComponents': 3,
+    'YCbCrSubSampling': 'YCbCr4:2:0 (2 2)',
+    'ImageSize': '640x426',
+     'Megapixels': 0.273}
+
+### Upload and list files
+
+Upload a local `src` file to the cloud `path` and return the list of `files` and `folders` on the specified cloud `folder`.
+
+```python
+import pandas as pd
+
+folder = 'test/'
+abraia.upload_file('images/usain-bolt.jpeg', folder)
+files, folders = abraia.list_files(folder)
+
+pd.DataFrame(files)
+```
+
+![files](https://github.com/abraia/abraia-multiple/raw/master/images/files.png)
+
+To list the root folder just omit the folder value.
+
+### Download and remove files
+
+You can download or remove an stored file just specifying its `path`.
+
+```python
+path = 'test/birds.jpg'
+dest = 'images/birds.jpg'
+abraia.download_file(path, dest)
+abraia.remove_file(path)
+```
+
+## Command line interface
+
+The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It provides a simple way to manage your files and enables the resize and conversion of different image formats. It is an easy way to compress your images for web - JPEG, WebP, or PNG -, and get then ready to publish on the web. 
+
+To compress an image you just need to specify the input and output paths for the image:
+
+```sh
+abraia convert images/birds.jpg images/birds_o.jpg
+```
+
+![Image compressed from url](https://github.com/abraia/abraia-multiple/raw/master/images/birds_o.jpg)
+
+To resize and optimize and image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image:
+
+```sh
+abraia convert --width 500 images/usain-bolt.jpeg images/usaint-bolt_500.jpeg
+```
+
+![Usain Bolt resized](https://github.com/abraia/abraia-multiple/raw/master/images/usaint-bolt_500.jpeg)
+
+You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
+
+```sh
+abraia convert --width 333 --height 333 --mode pad images/lion.jpg images/lion_333x333.jpg
+abraia convert --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
+```
+
+![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333_pad.jpg)
+![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333.jpg)
+
+So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
+
+```sh
+abraia convert --width 300 [path] [dest]
+```
+
+Or, automatically pad or crop all the images contained in the folder specifying both `width` and `height`:
+
+```sh
+abraia convert --width 300 --height 300 --mode crop [path] [dest]
 ```
 
 ## Hyperspectral image analysis toolbox
@@ -95,118 +205,6 @@ n_bands, n_classes = 30, 17
 model = hsi.create_model('hsn', (25, 25, n_bands), n_classes)
 model.train(X, y, train_ratio=0.3, epochs=5)
 y_pred = model.predict(X)
-```
-
-## Image analysis toolbox
-
-Abraia provides a direct interface to load and save images as numpy arrays. You can easily load the image data and the file metadata, show the image, or save the image data as a new one.
-
-```python
-from abraia import Multiple
-
-multiple = Multiple()
-
-img = multiple.load_image('usain.jpg')
-multiple.save_image('usain.png', img)
-img.show()
-```
-
-![plot image](https://github.com/abraia/abraia-multiple/raw/master/images/bolt.png)
-
-Read the image metadata and save it as a JSON file.
-
-```python
-import json
-
-metadata = multiple.load_metadata('usain.jpg')
-multiple.save_file('usain.json', json.dumps(metadata))
-```
-
-    {'FileType': 'JPEG',
-    'MIMEType': 'image/jpeg',
-    'JFIFVersion': 1.01,
-    'ResolutionUnit': 'None',
-    'XResolution': 1,
-    'YResolution': 1,
-    'Comment': 'CREATOR: gd-jpeg v1.0 (using IJG JPEG v62), quality = 80\n',
-    'ImageWidth': 640,
-    'ImageHeight': 426,
-    'EncodingProcess': 'Baseline DCT, Huffman coding',
-    'BitsPerSample': 8,
-    'ColorComponents': 3,
-    'YCbCrSubSampling': 'YCbCr4:2:0 (2 2)',
-    'ImageSize': '640x426',
-     'Megapixels': 0.273}
-
-### Upload and list files
-
-Upload a local `src` file to the cloud `path` and return the list of `files` and `folders` on the specified cloud `folder`.
-
-```python
-import pandas as pd
-
-folder = 'test/'
-multiple.upload_file('images/usain-bolt.jpeg', folder)
-files, folders = multiple.list_files(folder)
-
-pd.DataFrame(files)
-```
-
-![files](https://github.com/abraia/abraia-multiple/raw/master/images/files.png)
-
-To list the root folder just omit the folder value.
-
-### Download and remove files
-
-You can download or remove an stored file just specifying its `path`.
-
-```python
-path = 'test/birds.jpg'
-dest = 'images/birds.jpg'
-multiple.download_file(path, dest)
-multiple.remove_file(path)
-```
-
-## Command line interface
-
-The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It provides a simple way to manage your files and enables the resize and conversion of different image formats. It is an easy way to compress your images for web - JPEG, WebP, or PNG -, and get then ready to publish on the web. 
-
-To compress an image you just need to specify the input and output paths for the image:
-
-```sh
-abraia convert images/birds.jpg images/birds_o.jpg
-```
-
-![Image compressed from url](https://github.com/abraia/abraia-multiple/raw/master/images/birds_o.jpg)
-
-To resize and optimize and image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image:
-
-```sh
-abraia convert --width 500 images/usain-bolt.jpeg images/usaint-bolt_500.jpeg
-```
-
-![Usain Bolt resized](https://github.com/abraia/abraia-multiple/raw/master/images/usaint-bolt_500.jpeg)
-
-You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
-
-```sh
-abraia convert --width 333 --height 333 --mode pad images/lion.jpg images/lion_333x333.jpg
-abraia convert --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
-```
-
-![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333_pad.jpg)
-![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333.jpg)
-
-So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
-
-```sh
-abraia convert --width 300 [path] [dest]
-```
-
-Or, automatically pad or crop all the images contained in the folder specifying both `width` and `height`:
-
-```sh
-abraia convert --width 300 --height 300 --mode crop [path] [dest]
 ```
 
 ## License
