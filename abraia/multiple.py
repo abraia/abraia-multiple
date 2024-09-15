@@ -100,6 +100,7 @@ class Multiple(Abraia):
             Image.fromarray(img).save(src)
             return self.upload_file(src, path)
 
+    # TODO: Remove, added to Abraia
     def load_json(self, path):
         return json.loads(self.load_file(path))
 
@@ -127,4 +128,16 @@ class Multiple(Abraia):
             labels = [labels[id] for id in ids]
         return paths, labels
     
+    def load_projects(self):
+        folders = self.list_files()[1]
+        return [folder['name'] for folder in folders if folder['name'] not in ('export', '.export')]
+
+    def load_annotations(self, dataset):
+        try:
+            annotations = self.load_json(f"{dataset}/annotations.json")
+            for annotation in annotations:
+                annotation['path'] = f"{dataset}/{annotation['filename']}"
+            return annotations
+        except:
+            return []
     

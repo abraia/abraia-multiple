@@ -1,4 +1,5 @@
 import os
+import json
 import hashlib
 import tempfile
 import requests
@@ -173,7 +174,13 @@ class Abraia:
     def save_file(self, path, stream):
         stream =  BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
         return self.upload_file(stream, path)
-    
+
+    def load_json(self, path):
+        return json.loads(self.load_file(path))
+
+    def save_json(self, path, values):
+        return self.save_file(path, json.dumps(values))
+
     def load_image(self, path):
         return Image.open(self.download_file(path))
 
