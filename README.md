@@ -104,6 +104,27 @@ abraia.download_file(path, dest)
 abraia.remove_file(path)
 ```
 
+### Load and run a custom model
+
+You can easily train your custom models from [DeepLab](https://abraia.me/deeplab/), and run then later from the edge.
+
+```python
+from abraia import detect
+
+dataset = 'camera'
+model_name = 'yolov8n'
+model_uri = f"https://api.abraia.me/files/multiple/{dataset}/{model_name}.onnx"
+
+model = detect.load_model(model_uri)
+
+im = detect.load_image('people-walking.png').convert('RGB')
+results = model.run(im, confidence=0.5, iou_threshold=0.5)
+im = detect.render_results(im, results)
+im.show()
+```
+
+![files](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.png)
+
 ## Command line interface
 
 The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It provides a simple way to manage your files and enables the resize and conversion of different image formats. It is an easy way to compress your images for web - JPEG, WebP, or PNG -, and get then ready to publish on the web. 

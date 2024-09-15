@@ -177,7 +177,7 @@ def get_polygon(mask, origin):
     return polygon
 
 
-def process_output(outputs, size, shape, classes, confidence = 0.5, iou_threshold = 0.5):
+def process_output(outputs, size, shape, classes, confidence, iou_threshold):
     """Converts the RAW model output from YOLOv8 to an array of detected
     objects, containing the bounding box, label and the probability.
     """
@@ -248,7 +248,7 @@ class Model:
         model_src = download_file(model_uri)
         self.ort_session = ort.InferenceSession(model_src, providers=['CPUExecutionProvider'])
 
-    def run(self, img, confidence = 0.5, iou_threshold = 0.5):
+    def run(self, img, confidence=0.25, iou_threshold=0.7):
         if self.config.get('task'):
             input = prepare_input(img, self.config['inputShape'])
             outputs = self.ort_session.run(None, {"images": input})
