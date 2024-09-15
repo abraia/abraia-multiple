@@ -1,7 +1,9 @@
-from .multiple import Multiple
+from .multiple import Multiple, tempdir
 
+import math
 import numpy as np
 import scipy.ndimage as nd
+import matplotlib.pyplot as plt
 
 from PIL import Image
 from sklearn.svm import SVC
@@ -15,7 +17,6 @@ from keras.utils import np_utils
 from keras.models import Model
 from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
-from .plot import plot_image, plot_images, plot_train_history
 
 multiple = Multiple()
 
@@ -227,6 +228,38 @@ def predict_hsn_model(model, X, patch_size):
     X_pred = create_patches(X, patch_size)
     y_pred = np.argmax(model.predict(X_pred), axis=1)
     return y_pred.reshape(height, width).astype(int)
+
+
+def plot_image(img, title=''):
+    plt.figure()
+    plt.title(title)
+    plt.imshow(img)
+    plt.axis('off')
+    plt.show()
+
+
+def plot_images(imgs, titles=None, cmap='nipy_spectral'):
+    plt.figure()
+    k = len(imgs)
+    r = int(math.sqrt(k))
+    c = math.ceil(k / r)
+    ax = plt.subplots(r, c)[1].reshape(-1)
+    for i in range(k):
+        if titles and len(titles) >= k:
+            ax[i].title.set_text(titles[i])
+        ax[i].imshow(imgs[i], cmap=cmap)
+        ax[i].axis('off')
+    plt.show()
+
+
+def plot_train_history(history):
+    plt.ylim(0, 1.01)
+    plt.grid()
+    plt.plot(history.history['loss'])
+    plt.plot(history.history['accuracy'])
+    plt.ylabel('Loss')
+    plt.xlabel('Epochs')
+    plt.legend(['Training loss','Test accuracy'], loc='upper right')
 
 
 class HyperspectralModel:

@@ -103,14 +103,12 @@ Abraia provides a direct interface to load and save images as numpy arrays. You 
 
 ```python
 from abraia import Multiple
-from abraia.plot import plot_image
 
 multiple = Multiple()
 
 img = multiple.load_image('usain.jpg')
 multiple.save_image('usain.png', img)
-
-plot_image(img, 'Image')
+img.show()
 ```
 
 ![plot image](https://github.com/abraia/abraia-multiple/raw/master/images/bolt.png)

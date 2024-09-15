@@ -2,6 +2,7 @@ import os
 
 from io import BytesIO
 from abraia import Abraia
+from PIL import Image
 
 abraia = Abraia()
 
@@ -77,3 +78,15 @@ def test_load_metadata():
 def test_save_file():
     path = abraia.save_file('test.txt', 'this is a simple test.')
     assert path == 'test.txt'
+
+
+def test_load_image():
+    im = abraia.load_image('lion.jpg')
+    assert isinstance(im, Image.Image)
+
+
+def test_save_image():
+    im = abraia.load_image('lion.jpg')
+    path = abraia.save_image('lion.png', im)
+    assert path == 'lion.png'
+

@@ -21,12 +21,51 @@ def download_file(url):
         open(dest, 'wb').write(r.content)
     return dest
 
+
 def load_json(src):
     with open(src, 'r') as file:
         return json.load(file)
 
+
 def load_image(src):
     return Image.open(src)
+
+
+def load_video(src=0, callback=None, output=None):
+    cap = cv2.VideoCapture(src)
+    if cap.isOpened() == False:
+        print("Error opening video file")
+        return
+    if output:
+        w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        print(w, h, fps, cap.isOpened())
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter('output.mp4', fourcc, fps, (int(w),int(h)))
+    win_name = 'Video'
+    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if ret == True:
+            if callback:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(rgb)
+                img = callback(img)
+                frame = np.array(img)[:, :, ::-1].copy()
+            if output:
+                out.write(frame)
+            cv2.imshow(win_name, frame)
+            if (cv2.waitKey(25) & 0xFF == ord('q')) or cv2.getWindowProperty(win_name, cv2.WND_PROP_VISIBLE) < 1:
+            # if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        else:
+            break
+    cap.release()
+    if output:
+        out.release()
+    cv2.destroyWindow(win_name)
+
 
 def get_color(idx):
     colors = ['#D0021B', '#F5A623', '#F8E71C', '#8B572A', '#7ED321',
@@ -34,23 +73,28 @@ def get_color(idx):
     '#000000', '#545454', '#737373', '#A6A6A6', '#D9D9D9', '#FFFFFF']
     return colors[idx % (len(colors) - 1)]
 
+
 def hex_to_rgb(hex):
     h = hex.lstrip('#')
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
 
 def resize(img, size):
     width = size if img.height > img.width else round(size * img.width / img.height)
     height = round(size * img.height / img.width) if img.height > img.width else size
     return img.resize((width, height))
 
+
 def crop(img, size):
     left, top = (img.width - size) // 2, (img.height - size) // 2
     right, bottom = left + size, top + size
     return img.crop((left, top, right, bottom))
 
+
 def normalize(img, mean, std):
     img = (np.array(img) / 255. - np.array(mean)) / np.array(std)
     return img.astype(np.float32)
+
 
 def preprocess(img):
     img = img.convert('RGB')
@@ -59,9 +103,11 @@ def preprocess(img):
     img = normalize(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     return np.expand_dims(img.transpose((2, 0, 1)), axis=0)
 
+
 def softmax(x):
     e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum(axis=0)
+
 
 def postprocess(outputs, classes):
     probs = softmax(outputs[0].flatten())
@@ -79,6 +125,7 @@ def prepare_input(img, shape):
     input = input.reshape(shape)
     return input.astype(np.float32)
 
+
 def intersection(box1, box2):
     """Calculates the intersection area of two boxes."""
     box1_x1, box1_y1, box1_x2, box1_y2 = box1
@@ -86,6 +133,7 @@ def intersection(box1, box2):
     x1, y1 = max(box1_x1, box2_x1), max(box1_y1, box2_y1)
     x2, y2 = min(box1_x2, box2_x2), min(box1_y2, box2_y2)
     return (x2 - x1) * (y2 - y1)
+
 
 def union(box1, box2):
     """Calculates the union area of two boxes."""
@@ -95,13 +143,16 @@ def union(box1, box2):
     box2_area = (box2_x2 - box2_x1) * (box2_y2 - box2_y1)
     return box1_area + box2_area - intersection(box1, box2)
 
+
 def iou(box1, box2):
     """Calculates "Intersection-over-union" coefficient for specified two boxes."""
     return intersection(box1, box2) / union(box1, box2)
 
+
 def sigmoid_mask(z):
     mask = 1 / (1 + np.exp(-z))
     return 255 * (mask > 0.5).astype('uint8')
+
 
 def get_mask(row, box, img_width, img_height):
     """Extracts the segmentation mask for an object (box) in a row."""
@@ -117,6 +168,7 @@ def get_mask(row, box, img_width, img_height):
     mask = np.array(img_mask)
     return mask
 
+
 def get_polygon(mask, origin):
     """Calculates the bounding polygon based on the segmentation mask."""
     contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -124,7 +176,8 @@ def get_polygon(mask, origin):
     polygon = [(int(origin[0] + point[0]), int(origin[1] + point[1])) for point in polygon]
     return polygon
 
-def process_output(outputs, size, shape, classes):
+
+def process_output(outputs, size, shape, classes, confidence = 0.5, iou_threshold = 0.5):
     """Converts the RAW model output from YOLOv8 to an array of detected
     objects, containing the bounding box, label and the probability.
     """
@@ -141,7 +194,7 @@ def process_output(outputs, size, shape, classes):
         xc, yc, w, h = row[:4]
         probs = row[4:4+len(classes)]
         idx = probs.argmax()
-        if probs[idx] < 0.5:
+        if probs[idx] < confidence:
             continue
         x1, y1 = (xc - w/2) / model_width * img_width, (yc - h/2) / model_height * img_height
         x2, y2 = (xc + w/2) / model_width * img_width, (yc + h/2) / model_height * img_height
@@ -154,7 +207,7 @@ def process_output(outputs, size, shape, classes):
     results = []
     while len(objects) > 0:
         results.append(objects[0])
-        objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < 0.5]
+        objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
 
     for result in results:
         if len(outputs) == 2:
@@ -195,11 +248,11 @@ class Model:
         model_src = download_file(model_uri)
         self.ort_session = ort.InferenceSession(model_src, providers=['CPUExecutionProvider'])
 
-    def run(self, img, confidence=0.5, iou_threshold=0.5):
+    def run(self, img, confidence = 0.5, iou_threshold = 0.5):
         if self.config.get('task'):
             input = prepare_input(img, self.config['inputShape'])
             outputs = self.ort_session.run(None, {"images": input})
-            return process_output(outputs, img.size, self.config['inputShape'], self.config['classes'])
+            return process_output(outputs, img.size, self.config['inputShape'], self.config['classes'], confidence, iou_threshold)
         input = preprocess(img)
         outputs = self.ort_session.run(None, {"input": input})
         results = postprocess(outputs, self.config['classes'])
@@ -210,42 +263,6 @@ def load_model(model_uri):
     model = Model()
     model.load(model_uri)
     return model
-
-
-def load_video(src=0, callback=None, output=None):
-    cap = cv2.VideoCapture(src)
-    if cap.isOpened() == False:
-        print("Error opening video file")
-        return
-    if output:
-        w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-        h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        print(w, h, fps, cap.isOpened())
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter('output.mp4', fourcc, fps, (int(w),int(h)))
-    win_name = 'Video'
-    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if ret == True:
-            if callback:
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(rgb)
-                img = callback(img)
-                frame = np.array(img)[:, :, ::-1].copy()
-            if output:
-                out.write(frame)
-            cv2.imshow(win_name, frame)
-            if (cv2.waitKey(25) & 0xFF == ord('q')) or cv2.getWindowProperty(win_name, cv2.WND_PROP_VISIBLE) < 1:
-            # if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-        else:
-            break
-    cap.release()
-    if output:
-        out.release()
-    cv2.destroyWindow(win_name)
 
 
 if __name__ == '__main__':
