@@ -44,7 +44,7 @@ def load_video(src=0, callback=None, output=None):
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter('output.mp4', fourcc, fps, (int(w),int(h)))
     win_name = 'Video'
-    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    cv2.namedWindow(win_name, cv2.WINDOW_GUI_NORMAL)
     while cap.isOpened():
         ret, frame = cap.read()
         if ret == True:
@@ -203,8 +203,8 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
             obj['mask'] = row[4+len(classes):]
         objects.append(obj)
 
-    objects.sort(key=lambda x: x['confidence'], reverse=True)
     results = []
+    objects.sort(key=lambda x: x['confidence'], reverse=True)
     while len(objects) > 0:
         results.append(objects[0])
         objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
@@ -218,20 +218,30 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
     return results
 
 
+def count_objects(results):
+    counts = {}
+    colors = {}
+    for result in results:
+        label, color = result['label'], result['color']
+        counts[label] = counts.get(label, 0) + 1
+        colors[label] = color
+    objects = [{'label': label, 'count': counts[label], 'color': colors[label]} for label in counts.keys()]
+    return objects
+
+
 def render_results(img, results):
     draw = ImageDraw.Draw(img, "RGBA")
     for result in results:
-        x1, y1 = 0, 0
         label = result.get('label')
         prob = result.get('confidence')
         color = hex_to_rgb(result.get('color'))
+        x1, y1, x2, y2 = result.get('box', [0, 0, 0, 0])
         if (label):
             if result.get('polygon'):
-                draw.polygon(result['polygon'], fill=(color[0], color[1], color[2], 125), outline=color, width=1)
-            if result.get('box'):
-                [x1, y1, x2, y2] = result['box']
-                draw.rectangle([(x1, y1), (x2, y2)], outline=color, width=2)
-            text = f" {label} {round(100 * prob, 1)}% "
+                draw.polygon(result['polygon'], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
+            elif result.get('box'):
+                draw.rectangle([(x1, y1), (x2, y2)], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
+            text = f"{label} {round(100 * prob, 1)}%"
             font = ImageFont.load_default()
             y1 = max(y1 - 11, 0)
             bbox = draw.textbbox((x1, y1), text, font=font)
@@ -273,7 +283,8 @@ if __name__ == '__main__':
 
     img = load_image(src).convert('RGB')
     results = model.run(img)
-    print(src, results)
+    objects = count_objects(results)
+    print(src, results, objects)
 
     img = render_results(img, results)
     img.show()
@@ -283,8 +294,9 @@ if __name__ == '__main__':
     
     def callback(img):
         results = model.run(img)
+        objects = count_objects(results)
         img = render_results(img, results)
         return img
     
-    load_video(src, callback=callback, output='output.mp4')
+    load_video(src, callback=callback) #, output='output.mp4')
     
