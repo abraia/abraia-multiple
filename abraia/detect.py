@@ -1,5 +1,4 @@
 import os
-import re
 import cv2
 import json
 import math
@@ -9,6 +8,8 @@ import numpy as np
 import onnxruntime as ort
 
 from PIL import Image, ImageDraw, ImageFont
+
+from video import load_video
 
 
 tempdir = tempfile.gettempdir()
@@ -29,42 +30,6 @@ def load_json(src):
 
 def load_image(src):
     return Image.open(src)
-
-
-def load_video(src=0, callback=None, output=None):
-    cap = cv2.VideoCapture(src)
-    if cap.isOpened() == False:
-        print("Error opening video file")
-        return
-    if output:
-        w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-        h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        print(w, h, fps, cap.isOpened())
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter('output.mp4', fourcc, fps, (int(w),int(h)))
-    win_name = 'Video'
-    cv2.namedWindow(win_name, cv2.WINDOW_GUI_NORMAL)
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if ret == True:
-            if callback:
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(rgb)
-                img = callback(img)
-                frame = np.array(img)[:, :, ::-1].copy()
-            if output:
-                out.write(frame)
-            cv2.imshow(win_name, frame)
-            if (cv2.waitKey(25) & 0xFF == ord('q')) or cv2.getWindowProperty(win_name, cv2.WND_PROP_VISIBLE) < 1:
-            # if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-        else:
-            break
-    cap.release()
-    if output:
-        out.release()
-    cv2.destroyWindow(win_name)
 
 
 def get_color(idx):
@@ -145,8 +110,17 @@ def union(box1, box2):
 
 
 def iou(box1, box2):
-    """Calculates "Intersection-over-union" coefficient for specified two boxes."""
+    """Calculates the intersection-over-union of two boxes."""
     return intersection(box1, box2) / union(box1, box2)
+
+
+def non_maximum_suppression(objects, iou_threshold):
+    results = []
+    objects.sort(key=lambda x: x['confidence'], reverse=True)
+    while len(objects) > 0:
+        results.append(objects[0])
+        objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
+    return results
 
 
 def sigmoid_mask(z):
@@ -205,12 +179,7 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
         if len(outputs) == 2:
             obj['mask'] = row[4+len(classes):]
         objects.append(obj)
-
-    results = []
-    objects.sort(key=lambda x: x['confidence'], reverse=True)
-    while len(objects) > 0:
-        results.append(objects[0])
-        objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
+    results = non_maximum_suppression(objects, iou_threshold)
 
     for result in results:
         if len(outputs) == 2:
@@ -295,7 +264,7 @@ if __name__ == '__main__':
 
 
     # src = 'images/people-walking.mp4'
-    
+
     # def callback(img):
     #     results = model.run(img)
     #     objects = count_objects(results)

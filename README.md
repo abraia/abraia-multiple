@@ -4,19 +4,13 @@
 
 # Abraia Python SDK image analysis toolbox
 
-The Abraia-Multiple image analysis toolbox provides and easy and practical way to analyze and classify multispectral and hyperspectral images directly from your browser. You just need to click on the open in Colab button to start with one of the available Abraia-Multiple notebooks:
+The Abraia Python SDK provides and easy and practical way to develop and deploy Machine Learning image applications on the edge. You can easily annotate and train your custom deep learning model with [DeepLab](https://abraia.me/deeplab), and deploy the model with this Python SDK.
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis
-
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-classification.ipynb) Hyperspectral image classification
-
-The Abraia-Multiple SDK has being developed by [ABRAIA](https://abraia.me/about) in the [Multiple project](https://multipleproject.eu/) to extend the Abraia Cloud Platform providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
-
-![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
+![people walking](https://github.com/abraia/abraia-multiple/raw/master/images/people-walking.gif)
 
 ## Installation
 
-Abraia-Multiple is a Python SDK and CLI which can be installed on Windows, Mac, and Linux:
+Abraia is a Python SDK and CLI which can be installed on Windows, Mac, and Linux:
 
 ```sh
 python -m pip install -U abraia
@@ -123,7 +117,7 @@ im = detect.render_results(im, results)
 im.show()
 ```
 
-![files](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.png)
+![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.png)
 
 ## Command line interface
 
@@ -169,7 +163,15 @@ abraia convert --width 300 --height 300 --mode crop [path] [dest]
 
 ## Hyperspectral image analysis toolbox
 
-MULTIPLE provides seamless integration of multiple HyperSpectral Image (HSI) processing and analysis tools, integrating starte-of-the-art image manipulation libraries to provide ready to go scalable multispectral solutions.
+The Multiple class provides seamless integration of multispectral and hyperspectral images. ou just need to click on the open in Colab button to start with one of the available Abraia-Multiple notebooks:
+
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis
+
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-classification.ipynb) Hyperspectral image classification
+
+The Multiple extension has being developed by [ABRAIA](https://abraia.me/about) in the [Multiple project](https://multipleproject.eu/) to extend the Abraia SDK and Cloud Platform providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
+
+![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
 
 For instance, you can directly load and save ENVI files, and their metadata.
 

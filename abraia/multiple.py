@@ -17,7 +17,7 @@ try:
 except ImportError:
     print('Install the scipy package to work with matlab files')
 
-from .abraia import Abraia
+from .client import Abraia
 
 tempdir = tempfile.gettempdir()
 
