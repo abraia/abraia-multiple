@@ -125,7 +125,7 @@ def non_maximum_suppression(objects, iou_threshold):
 
 def sigmoid_mask(z):
     mask = 1 / (1 + np.exp(-z))
-    return 255 * (mask > 0.5).astype('uint8')
+    return (255 * mask).astype('uint8')
 
 
 def get_mask(row, box, img_width, img_height):
@@ -138,7 +138,7 @@ def get_mask(row, box, img_width, img_height):
     mask_x2, mask_y2 = round(x2 / img_width * size), round(y2 / img_height * size)
     mask = mask[mask_y1:mask_y2, mask_x1:mask_x2]
     img_mask = Image.fromarray(mask, "L")
-    img_mask = img_mask.resize((round(x2-x1), round(y2-y1)))
+    img_mask = img_mask.resize((round(x2-x1), round(y2-y1)), Image.BILINEAR)
     mask = np.array(img_mask)
     return mask
 
@@ -186,6 +186,7 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
             x1, y1, x2, y2 = result['box']
             mask = result['mask'] @ output1
             mask = get_mask(mask, (x1, y1, x2, y2), img_width, img_height)
+            mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)[1]
             result['polygon'] = mask_to_polygon(mask, (x1, y1))
             result.pop('mask', None)
     return results
