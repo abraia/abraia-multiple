@@ -169,10 +169,13 @@ def get_mask(row, box, img_width, img_height):
     return mask
 
 
-def get_polygon(mask, origin):
-    """Calculates the bounding polygon based on the segmentation mask."""
-    contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    polygon = [[int(contour[0][0]), int(contour[0][1])] for contour in contours[0][0]]
+def mask_to_polygon(mask, origin):
+    """Returns the largest bounding polygon based on the segmentation mask."""
+    contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
+    polygon = []
+    for contour in contours:
+        contour = contour.reshape(-1, 2)
+        polygon = list(contour) if contour.shape[0] > len(polygon) else polygon
     polygon = [(int(origin[0] + point[0]), int(origin[1] + point[1])) for point in polygon]
     return polygon
 
@@ -211,9 +214,10 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
 
     for result in results:
         if len(outputs) == 2:
+            x1, y1, x2, y2 = result['box']
             mask = result['mask'] @ output1
             mask = get_mask(mask, (x1, y1, x2, y2), img_width, img_height)
-            result['polygon'] = get_polygon(mask, (x1, y1))
+            result['polygon'] = mask_to_polygon(mask, (x1, y1))
             result.pop('mask', None)
     return results
 
@@ -277,7 +281,7 @@ def load_model(model_uri):
 
 if __name__ == '__main__':
     src = 'images/birds.jpg'
-    model_uri = 'https://api.abraia.me/files/multiple/camera/yolov8n.onnx'
+    model_uri = 'https://api.abraia.me/files/multiple/camera/yolov8n-seg.onnx'
 
     model = load_model(model_uri)
 
@@ -290,13 +294,13 @@ if __name__ == '__main__':
     img.show()
 
 
-    src = 'images/people-walking.mp4'
+    # src = 'images/people-walking.mp4'
     
-    def callback(img):
-        results = model.run(img)
-        objects = count_objects(results)
-        img = render_results(img, results)
-        return img
+    # def callback(img):
+    #     results = model.run(img)
+    #     objects = count_objects(results)
+    #     img = render_results(img, results)
+    #     return img
     
-    load_video(src, callback=callback) #, output='output.mp4')
+    # load_video(src, callback=callback) #, output='output.mp4')
     
