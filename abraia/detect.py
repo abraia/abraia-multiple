@@ -9,7 +9,7 @@ import onnxruntime as ort
 
 from PIL import Image, ImageDraw, ImageFont
 
-from video import load_video
+from video import Video
 
 
 tempdir = tempfile.gettempdir()
@@ -251,26 +251,29 @@ def load_model(model_uri):
 
 if __name__ == '__main__':
     src = 'images/birds.jpg'
-    model_uri = 'https://api.abraia.me/files/multiple/camera/yolov8n-seg.onnx'
+    model_uri = 'https://api.abraia.me/files/multiple/camera/yolov8n.onnx'
 
     model = load_model(model_uri)
 
-    img = load_image(src).convert('RGB')
-    results = model.run(img)
-    objects = count_objects(results)
-    print(src, results, objects)
+    # im = load_image(src).convert('RGB')
+    # results = model.run(im)
+    # objects = count_objects(results)
+    # print(src, results, objects)
 
-    img = render_results(img, results)
-    img.show()
+    # im = render_results(im, results)
+    # im.show()
 
 
-    # src = 'images/people-walking.mp4'
+    src = 'images/people-walking.mp4'
+    # video = Video(src)
+    video = Video(src, output='output.mp4')
+    for k, frame in enumerate(video):
+        im = Image.fromarray(frame)
+        results = model.run(im)
+        im = render_results(im, results)
+        frame = np.array(im)
+        video.write(frame)
+        # video.show(frame)
+        print(k)
 
-    # def callback(img):
-    #     results = model.run(img)
-    #     objects = count_objects(results)
-    #     img = render_results(img, results)
-    #     return img
-    
-    # load_video(src, callback=callback) #, output='output.mp4')
     

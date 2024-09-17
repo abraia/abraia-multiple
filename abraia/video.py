@@ -1,40 +1,46 @@
 import cv2
-import numpy as np
-
-from PIL import Image
 
 
-def load_video(src=0, callback=None, output=None):
-    cap = cv2.VideoCapture(src)
-    if cap.isOpened() == False:
-        print("Error opening video file")
-        return
-    if output:
-        w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-        h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        print(w, h, fps, cap.isOpened())
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter('output.mp4', fourcc, fps, (int(w),int(h)))
-    win_name = 'Video'
-    cv2.namedWindow(win_name, cv2.WINDOW_GUI_NORMAL)
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if ret == True:
-            if callback:
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(rgb)
-                img = callback(img)
-                frame = np.array(img)[:, :, ::-1].copy()
-            if output:
-                out.write(frame)
-            cv2.imshow(win_name, frame)
-            if (cv2.waitKey(25) & 0xFF == ord('q')) or cv2.getWindowProperty(win_name, cv2.WND_PROP_VISIBLE) < 1:
-            # if cv2.waitKey(1) & 0xFF == ord('q'):
+class Video:
+    def __init__(self, src, output=None):
+        self.out = None
+        self.quit = False
+        self.win_name = ''
+        self.cap = cv2.VideoCapture(src)
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(self.width, self.height, self.fps)
+        if output:
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self.out = cv2.VideoWriter('output.mp4', fourcc, self.fps, (self.width, self.height))
+
+    def __iter__(self):
+        while self.cap.isOpened():
+            ret, frame = self.cap.read()
+            if ret is False or frame is None or self.quit:
                 break
-        else:
-            break
-    cap.release()
-    if output:
-        out.release()
-    cv2.destroyWindow(win_name)
+            yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self.cap.release()
+        if self.out:
+            self.out.release()
+        if self.win_name:
+            cv2.destroyWindow(self.win_name)
+
+    def write(self, frame):
+        self.out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+    
+    def show(self, frame):
+        if not self.win_name:
+            self.win_name = 'Video'
+            cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)
+        cv2.imshow(self.win_name, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        if (cv2.waitKey(int(self.fps)) & 0xFF == ord('q')) or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1:
+            self.quit = True
+
+
+if __name__ == '__main__':
+    src = 'images/people-walking.mp4'
+    video = Video(src)
+    for frame in video:
+        video.show(frame)

@@ -30,6 +30,53 @@ set ABRAIA_ID=user_id
 set ABRAIA_KEY=user_key
 ```
 
+## Object detection
+
+### Load and run a custom model
+
+You can easily train your custom models from [DeepLab](https://abraia.me/deeplab/), and run then later from the edge.
+
+```python
+from abraia import detect
+
+dataset = 'camera'
+model_name = 'yolov8n'
+model_uri = f"https://api.abraia.me/files/multiple/{dataset}/{model_name}.onnx"
+
+model = detect.load_model(model_uri)
+
+im = detect.load_image('people-walking.png').convert('RGB')
+results = model.run(im, confidence=0.5, iou_threshold=0.5)
+im = detect.render_results(im, results)
+im.show()
+```
+
+![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.png)
+
+You can even run a multi-object detector on video or directly on a camera stream.
+
+```python
+import numpy as np
+from PIL import Image
+from abraia import detect
+
+
+dataset = 'camera'
+model_name = 'yolov8n'
+model_uri = f"https://api.abraia.me/files/multiple/{dataset}/{model_name}.onnx"
+
+model = detect.load_model(model_uri)
+
+video = detect.Video('people-walking.mp4')
+for frame in video:
+    img = Image.fromarray(frame)
+    results = model.run(im, confidence=0.5, iou_threshold=0.5)
+    im = detect.render_results(im, results)
+    frame = np.array(im)
+    video.show(frame)
+```
+
+
 ## Image analysis toolbox
 
 Abraia provides a direct interface to load and save images. You can easily load and show the image, load the file metadata, or save the image as a new one.
@@ -97,27 +144,6 @@ dest = 'images/birds.jpg'
 abraia.download_file(path, dest)
 abraia.remove_file(path)
 ```
-
-### Load and run a custom model
-
-You can easily train your custom models from [DeepLab](https://abraia.me/deeplab/), and run then later from the edge.
-
-```python
-from abraia import detect
-
-dataset = 'camera'
-model_name = 'yolov8n'
-model_uri = f"https://api.abraia.me/files/multiple/{dataset}/{model_name}.onnx"
-
-model = detect.load_model(model_uri)
-
-im = detect.load_image('people-walking.png').convert('RGB')
-results = model.run(im, confidence=0.5, iou_threshold=0.5)
-im = detect.render_results(im, results)
-im.show()
-```
-
-![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.png)
 
 ## Command line interface
 
