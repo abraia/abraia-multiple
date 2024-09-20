@@ -13,7 +13,7 @@ class Video:
         print(self.width, self.height, self.fps)
         if output:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            self.out = cv2.VideoWriter('output.mp4', fourcc, self.fps, (self.width, self.height))
+            self.out = cv2.VideoWriter(output, fourcc, self.fps, (self.width, self.height))
 
     def __iter__(self):
         while self.cap.isOpened():
@@ -26,6 +26,7 @@ class Video:
             self.out.release()
         if self.win_name:
             cv2.destroyWindow(self.win_name)
+            cv2.waitKey(1)
 
     def write(self, frame):
         self.out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))

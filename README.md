@@ -4,7 +4,7 @@
 
 # Abraia Python SDK image analysis toolbox
 
-The Abraia Python SDK provides and easy and practical way to develop and deploy Machine Learning image applications on the edge. You can easily annotate and train your custom deep learning model with [DeepLab](https://abraia.me/deeplab), and deploy the model with this Python SDK.
+The Abraia Python SDK provides and easy and practical way to develop and deploy Machine Learning image applications on the edge. You can easily annotate and train your custom deep learning model with [DeepLab](https://abraia.me/deeplab/), and deploy the model with this Python SDK.
 
 ![people walking](https://github.com/abraia/abraia-multiple/raw/master/images/people-walking.gif)
 
@@ -39,9 +39,7 @@ You can easily train your custom models from [DeepLab](https://abraia.me/deeplab
 ```python
 from abraia import detect
 
-dataset = 'camera'
-model_name = 'yolov8n'
-model_uri = f"https://api.abraia.me/files/multiple/{dataset}/{model_name}.onnx"
+model_uri = f"https://api.abraia.me/files/multiple/camera/yolov8n.onnx"
 
 model = detect.load_model(model_uri)
 
@@ -61,15 +59,13 @@ from PIL import Image
 from abraia import detect
 
 
-dataset = 'camera'
-model_name = 'yolov8n'
-model_uri = f"https://api.abraia.me/files/multiple/{dataset}/{model_name}.onnx"
+model_uri = f"https://api.abraia.me/files/multiple/camera/yolov8n.onnx"
 
 model = detect.load_model(model_uri)
 
 video = detect.Video('people-walking.mp4')
 for frame in video:
-    img = Image.fromarray(frame)
+    im = Image.fromarray(frame)
     results = model.run(im, confidence=0.5, iou_threshold=0.5)
     im = detect.render_results(im, results)
     frame = np.array(im)
@@ -213,7 +209,7 @@ multiple.save_image('test.hdr', img, metadata=meta)
 
 ### Upload and load HSI data
 
-To start with, we may [upload some data](https://abraia.me/console/gallery) directly using the graphical interface, or using the multiple api:
+To start with, we may [upload some data](https://abraia.me/deeplab/) directly using the graphical interface, or using the multiple api:
 
 ```python
 multiple.upload_file('PaviaU.mat')

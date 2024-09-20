@@ -9,7 +9,7 @@ import onnxruntime as ort
 
 from PIL import Image, ImageDraw, ImageFont
 
-from video import Video
+from .video import Video
 
 
 tempdir = tempfile.gettempdir()
