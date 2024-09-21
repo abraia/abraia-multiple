@@ -111,6 +111,8 @@ def union(box1, box2):
 
 def iou(box1, box2):
     """Calculates the intersection-over-union of two boxes."""
+    box1 = [box1[0], box1[1], box1[0] + box1[2], box1[1] + box1[3]]
+    box2 = [box2[0], box2[1], box2[0] + box2[2], box2[1] + box2[3]]
     return intersection(box1, box2) / union(box1, box2)
 
 
@@ -133,12 +135,12 @@ def get_mask(row, box, img_width, img_height):
     size = round(math.sqrt(row.shape[0]))
     mask = row.reshape(size, size)
     mask = sigmoid_mask(mask)
-    x1, y1, x2, y2 = box
-    mask_x1, mask_y1 = round(x1 / img_width * size), round(y1 / img_height * size)
-    mask_x2, mask_y2 = round(x2 / img_width * size), round(y2 / img_height * size)
+    x, y, w, h = box
+    mask_x1, mask_y1 = round(x / img_width * size), round(y / img_height * size)
+    mask_x2, mask_y2 = round((x + w) / img_width * size), round((y + h) / img_height * size)
     mask = mask[mask_y1:mask_y2, mask_x1:mask_x2]
     img_mask = Image.fromarray(mask, "L")
-    img_mask = img_mask.resize((round(x2-x1), round(y2-y1)), Image.BILINEAR)
+    img_mask = img_mask.resize((round(w), round(h)), Image.BILINEAR)
     mask = np.array(img_mask)
     return mask
 
@@ -175,7 +177,7 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
             continue
         x1, y1 = (xc - w/2) / model_width * img_width, (yc - h/2) / model_height * img_height
         x2, y2 = (xc + w/2) / model_width * img_width, (yc + h/2) / model_height * img_height
-        obj = {'label': classes[idx], 'confidence': probs[idx], 'box': [x1, y1, x2, y2], 'color': get_color(idx)}
+        obj = {'label': classes[idx], 'confidence': probs[idx], 'box': [x1, y1, x2 - x1, y2 - y1], 'color': get_color(idx)}
         if len(outputs) == 2:
             obj['mask'] = row[4+len(classes):]
         objects.append(obj)
@@ -183,11 +185,11 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
 
     for result in results:
         if len(outputs) == 2:
-            x1, y1, x2, y2 = result['box']
+            x, y, w, h = result['box']
             mask = result['mask'] @ output1
-            mask = get_mask(mask, (x1, y1, x2, y2), img_width, img_height)
+            mask = get_mask(mask, result['box'], img_width, img_height)
             mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)[1]
-            result['polygon'] = mask_to_polygon(mask, (x1, y1))
+            result['polygon'] = mask_to_polygon(mask, (x, y))
             result.pop('mask', None)
     return results
 
@@ -209,18 +211,18 @@ def render_results(img, results):
         label = result.get('label')
         prob = result.get('confidence')
         color = hex_to_rgb(result.get('color'))
-        x1, y1, x2, y2 = result.get('box', [0, 0, 0, 0])
+        x, y, w, h = result.get('box', [0, 0, 0, 0])
         if (label):
             if result.get('polygon'):
                 draw.polygon(result['polygon'], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
             elif result.get('box'):
-                draw.rectangle([(x1, y1), (x2, y2)], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
+                draw.rectangle([(x, y), (x + w, y + h)], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
             text = f"{label} {round(100 * prob, 1)}%"
             font = ImageFont.load_default()
-            y1 = max(y1 - 11, 0)
-            bbox = draw.textbbox((x1, y1), text, font=font)
+            y1 = max(y - 11, 0)
+            bbox = draw.textbbox((x, y), text, font=font)
             draw.rectangle(bbox, fill=color)
-            draw.text((x1, y1), text, font=font)
+            draw.text((x, y), text, font=font)
     return img
 
 
@@ -250,30 +252,30 @@ def load_model(model_uri):
 
 
 if __name__ == '__main__':
-    src = 'images/birds.jpg'
+    src = '../images/birds.jpg'
     model_uri = 'https://api.abraia.me/files/multiple/camera/yolov8n.onnx'
 
     model = load_model(model_uri)
 
-    # im = load_image(src).convert('RGB')
-    # results = model.run(im)
-    # objects = count_objects(results)
-    # print(src, results, objects)
+    im = load_image(src).convert('RGB')
+    results = model.run(im)
+    objects = count_objects(results)
+    print(src, results, objects)
 
-    # im = render_results(im, results)
-    # im.show()
+    im = render_results(im, results)
+    im.show()
 
 
-    src = 'images/people-walking.mp4'
-    # video = Video(src)
-    video = Video(src, output='output.mp4')
-    for k, frame in enumerate(video):
-        im = Image.fromarray(frame)
-        results = model.run(im)
-        im = render_results(im, results)
-        frame = np.array(im)
-        video.write(frame)
-        # video.show(frame)
-        print(k)
+    # src = 'images/people-walking.mp4'
+    # # video = Video(src)
+    # video = Video(src, output='output.mp4')
+    # for k, frame in enumerate(video):
+    #     im = Image.fromarray(frame)
+    #     results = model.run(im)
+    #     im = render_results(im, results)
+    #     frame = np.array(im)
+    #     video.write(frame)
+    #     # video.show(frame)
+    #     print(k)
 
     
