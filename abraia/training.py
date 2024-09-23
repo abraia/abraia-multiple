@@ -1,6 +1,6 @@
 
 from __future__ import print_function, division
-from .multiple import Multiple, tempdir
+from .client import Abraia, tempdir
 from .detect import get_color
 
 import os
@@ -11,17 +11,17 @@ from tqdm.contrib.concurrent import process_map
 from sklearn.model_selection import train_test_split
 
 
-multiple = Multiple()
+abraia = Abraia()
 
 
 def load_projects():
-    folders = multiple.list_files()[1]
+    folders = abraia.list_files()[1]
     return [folder['name'] for folder in folders if folder['name'] not in ('export', '.export')]
 
 
 def load_annotations(dataset):
     try:
-        annotations = multiple.load_json(f"{dataset}/annotations.json")
+        annotations = abraia.load_json(f"{dataset}/annotations.json")
         for annotation in annotations:
             annotation['path'] = f"{dataset}/{annotation['filename']}"
         return annotations
@@ -60,7 +60,7 @@ def load_task(annotations):
 def download_file(path, folder):
     dest = os.path.join(folder, os.path.basename(path))
     if not os.path.exists(dest):
-        multiple.download_file(path, dest)
+        abraia.download_file(path, dest)
     return dest
 
 
@@ -139,50 +139,6 @@ def create_dataset(dataset, task, classes):
     save_config(dataset, classes)
 
 
-# TORCH model
-
-import torch
-from torchvision import transforms
-from abraia import torch as t
-
-
-def t_create_dataset(dataset):
-    imgsz = 224
-    # Data augmentation and normalization for training
-    # Just normalization for validation
-    data_transforms = {
-        'train': transforms.Compose([
-            transforms.RandomResizedCrop(imgsz),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-        'val': transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(imgsz),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
-    }
-    image_datasets = {x: t.Dataset(os.path.join(dataset), data_transforms[x]) for x in ['train', 'val']}
-    # image_datasets = {x: t.Dataset(os.path.join(dataset, x), data_transforms[x]) for x in ['train', 'val']}
-    dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=8, shuffle=True, num_workers=4) for x in ['train', 'val']}
-    class_names = image_datasets['train'].classes
-    return dataloaders, class_names
-
-
-def t_train_model(dataloaders, class_names):
-    model_conv = t.create_model(class_names)
-    model = t.train_model(model_conv, dataloaders, num_epochs=25)
-    return model
-
-
-def t_save_model(model, model_name, dataset, classes):
-    imgsz = 224
-    t.export_onnx(f"{dataset}/{model_name}.onnx", model)
-    multiple.save_json(f"{dataset}/{model_name}.json", {'inputShape': [1, 3, imgsz, imgsz], 'classes': classes})
-
-
 #os.environ['YOLO_VERBOSE'] = 'False'
 
 from ultralytics import YOLO
@@ -213,8 +169,8 @@ def train_model(dataset, task, batch=32, epochs=100, imgsz=640):
 
 def save_model(model, model_name, dataset, task, classes, imgsz=640):
     model_src = model.export(format="onnx", device="cpu")
-    multiple.upload_file(model_src, f"{dataset}/{model_name}.onnx")
-    multiple.save_json(f"{dataset}/{model_name}.json", {'task': task, 'inputShape': [1, 3, imgsz, imgsz], 'classes': classes})
+    abraia.upload_file(model_src, f"{dataset}/{model_name}.onnx")
+    abraia.save_json(f"{dataset}/{model_name}.json", {'task': task, 'inputShape': [1, 3, imgsz, imgsz], 'classes': classes})
 
 
 def run_model(model, src, task='segment'):

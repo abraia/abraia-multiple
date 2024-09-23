@@ -173,6 +173,53 @@ def imshow(inp, title=None):
     plt.pause(0.001)  # pause a bit so that plots are updated
 
 
+class Model:
+    def __init__(self):
+        self.imgsz = 224
+        self.input_shape = [1, 3, self.imgsz, self.imgsz]
+
+    def create_dataset(self, dataset):
+        # Data augmentation and normalization for training
+        # Just normalization for validation
+        data_transforms = {
+            'train': transforms.Compose([
+                transforms.RandomResizedCrop(self.imgsz),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ]),
+            'val': transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(self.imgsz),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ]),
+        }
+        image_datasets = {x: Dataset(os.path.join(dataset), data_transforms[x]) for x in ['train', 'val']}
+        # image_datasets = {x: Dataset(os.path.join(dataset, x), data_transforms[x]) for x in ['train', 'val']}
+        dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=8, shuffle=True, num_workers=4) for x in ['train', 'val']}
+        classes = image_datasets['train'].classes
+        return dataloaders, classes
+
+    def train_model(self, dataloaders, classes):
+        model_conv = create_model(classes)
+        model = train_model(model_conv, dataloaders, num_epochs=25)
+        return model
+
+    def save_model(self, model, model_name, dataset, classes, device='cpu'):
+        imgsz = 224
+        model.to(device)
+        model_path = f"{dataset}/{model_name}.onnx"
+        src = os.path.join(tempdir, model_path)
+        dummy_input = torch.randn(1, 3, imgsz, imgsz)
+        os.makedirs(os.path.dirname(src), exist_ok=True)
+        torch.onnx.export(model, dummy_input, src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
+        onnx_model = onnx.load(src)
+        onnx.checker.check_model(onnx_model)
+        multiple.upload_file(src, model_path)
+        multiple.save_json(f"{dataset}/{model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
+
+
 def visualize_data(dataloader):
     class_names = dataloader.dataset.classes
     inputs, classes = next(iter(dataloader))
@@ -202,4 +249,3 @@ def visualize_model(model, dataloader, num_images=6):
                     model.train(mode=was_training)
                     return
         model.train(mode=was_training)
-    
