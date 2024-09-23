@@ -64,30 +64,11 @@ def create_model(class_names, pretrained=True):
     return model
 
 
-def save_model(path, model, device='cpu'):
-    model.to(device)
-    src = os.path.join(tempdir, path)
-    os.makedirs(os.path.dirname(src), exist_ok=True)
-    torch.save(model.state_dict(), src)
-    multiple.upload_file(src, path)
-
-
 def load_model(path, class_names):
     dest = multiple.cache_file(path)
     model = create_model(class_names, pretrained=False)
     model.load_state_dict(torch.load(dest))
     return model
-
-
-def export_onnx(path, model, device='cpu'):
-    model.to(device)
-    dummy_input = torch.randn(1, 3, 224, 224)
-    src = os.path.join(tempdir, path)
-    os.makedirs(os.path.dirname(src), exist_ok=True)
-    torch.onnx.export(model, dummy_input, src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
-    onnx_model = onnx.load(src)
-    onnx.checker.check_model(onnx_model)
-    multiple.upload_file(src, path)
 
 
 transform = transforms.Compose([
