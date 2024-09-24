@@ -1,7 +1,7 @@
 import pathlib
 import pkg_resources
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 with open('README.md') as f:
     long_description = f.read()
@@ -21,7 +21,7 @@ setup(
     author_email='jorge@abraiasoftware.com',
     license='MIT',
     zip_safe=False,
-    packages=['abraia'],
+    packages=find_packages(),
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0', 'pytest-runner'],
     scripts=['scripts/abraia', 'scripts/abraia.bat'],

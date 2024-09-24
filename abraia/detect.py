@@ -212,14 +212,14 @@ def render_results(img, results):
         prob = result.get('confidence')
         color = hex_to_rgb(result.get('color', '#009BFF'))
         x, y, w, h = result.get('box', [0, 0, 0, 0])
+        if result.get('polygon'):
+            draw.polygon(result['polygon'], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
+        elif result.get('box'):
+            draw.rectangle([(x, y), (x + w, y + h)], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
         if (label):
-            if result.get('polygon'):
-                draw.polygon(result['polygon'], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
-            elif result.get('box'):
-                draw.rectangle([(x, y), (x + w, y + h)], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
             text = f"{label} {round(100 * prob, 1)}%"
             font = ImageFont.load_default()
-            y1 = max(y - 11, 0)
+            y = max(y - 11, 0)
             bbox = draw.textbbox((x, y), text, font=font)
             draw.rectangle(bbox, fill=color)
             draw.text((x, y), text, font=font)
