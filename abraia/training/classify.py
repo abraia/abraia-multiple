@@ -1,5 +1,5 @@
 from __future__ import print_function, division
-from .multiple import Multiple, tempdir
+from ..client import Abraia, tempdir
 
 import onnx
 import torch
@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 
-multiple = Multiple()
+abraia = Abraia()
 
 
 torch.backends.cudnn.benchmark = True
@@ -23,13 +23,13 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def read_image(path):
-    dest = multiple.cache_file(path)
+    dest = abraia.cache_file(path)
     return Image.open(dest).convert('RGB')
 
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, root_dir, transform=None, target_transform=None):
-        paths, labels = multiple.load_dataset(root_dir)
+        paths, labels = abraia.load_dataset(root_dir)
         self.paths = paths
         self.labels = labels
         self.root_dir = root_dir
@@ -65,7 +65,7 @@ def create_model(class_names, pretrained=True):
 
 
 def load_model(path, class_names):
-    dest = multiple.cache_file(path)
+    dest = abraia.cache_file(path)
     model = create_model(class_names, pretrained=False)
     model.load_state_dict(torch.load(dest))
     return model
@@ -154,6 +154,37 @@ def imshow(inp, title=None):
     plt.pause(0.001)  # pause a bit so that plots are updated
 
 
+def visualize_data(dataloader):
+    class_names = dataloader.dataset.classes
+    inputs, classes = next(iter(dataloader))
+    out = torchvision.utils.make_grid(inputs)  # Make a grid from batch
+    imshow(out, title=[class_names[x] for x in classes])
+
+
+def visualize_model(model, dataloader, num_images=6):
+    class_names = dataloader.dataset.classes
+    was_training = model.training
+    model.eval()
+    images_so_far = 0
+    fig = plt.figure()
+    with torch.no_grad():
+        for i, (inputs, labels) in enumerate(dataloader):
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            for j in range(inputs.size()[0]):
+                images_so_far += 1
+                ax = plt.subplot(num_images//2, 2, images_so_far)
+                ax.axis('off')
+                ax.set_title(f'predicted: {class_names[preds[j]]}')
+                imshow(inputs.cpu().data[j])
+                if images_so_far == num_images:
+                    model.train(mode=was_training)
+                    return
+        model.train(mode=was_training)
+
+
 class Model:
     def __init__(self):
         self.imgsz = 224
@@ -197,36 +228,5 @@ class Model:
         torch.onnx.export(model, dummy_input, src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
         onnx_model = onnx.load(src)
         onnx.checker.check_model(onnx_model)
-        multiple.upload_file(src, model_path)
-        multiple.save_json(f"{dataset}/{model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
-
-
-def visualize_data(dataloader):
-    class_names = dataloader.dataset.classes
-    inputs, classes = next(iter(dataloader))
-    out = torchvision.utils.make_grid(inputs)  # Make a grid from batch
-    imshow(out, title=[class_names[x] for x in classes])
-
-
-def visualize_model(model, dataloader, num_images=6):
-    class_names = dataloader.dataset.classes
-    was_training = model.training
-    model.eval()
-    images_so_far = 0
-    fig = plt.figure()
-    with torch.no_grad():
-        for i, (inputs, labels) in enumerate(dataloader):
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            for j in range(inputs.size()[0]):
-                images_so_far += 1
-                ax = plt.subplot(num_images//2, 2, images_so_far)
-                ax.axis('off')
-                ax.set_title(f'predicted: {class_names[preds[j]]}')
-                imshow(inputs.cpu().data[j])
-                if images_so_far == num_images:
-                    model.train(mode=was_training)
-                    return
-        model.train(mode=was_training)
+        abraia.upload_file(src, model_path)
+        abraia.save_json(f"{dataset}/{model_name}.json", {'inputShape': self.input_shape, 'classes': classes})

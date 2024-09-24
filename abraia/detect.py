@@ -210,7 +210,7 @@ def render_results(img, results):
     for result in results:
         label = result.get('label')
         prob = result.get('confidence')
-        color = hex_to_rgb(result.get('color'))
+        color = hex_to_rgb(result.get('color', '#009BFF'))
         x, y, w, h = result.get('box', [0, 0, 0, 0])
         if (label):
             if result.get('polygon'):
@@ -249,33 +249,4 @@ def load_model(model_uri):
     model = Model()
     model.load(model_uri)
     return model
-
-
-if __name__ == '__main__':
-    src = '../images/birds.jpg'
-    model_uri = 'https://api.abraia.me/files/multiple/camera/yolov8n.onnx'
-
-    model = load_model(model_uri)
-
-    im = load_image(src).convert('RGB')
-    results = model.run(im)
-    objects = count_objects(results)
-    print(src, results, objects)
-
-    im = render_results(im, results)
-    im.show()
-
-
-    # src = 'images/people-walking.mp4'
-    # # video = Video(src)
-    # video = Video(src, output='output.mp4')
-    # for k, frame in enumerate(video):
-    #     im = Image.fromarray(frame)
-    #     results = model.run(im)
-    #     im = render_results(im, results)
-    #     frame = np.array(im)
-    #     video.write(frame)
-    #     # video.show(frame)
-    #     print(k)
-
     

@@ -38,10 +38,3 @@ class Video:
         cv2.imshow(self.win_name, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
         if (cv2.waitKey(int(self.fps)) & 0xFF == ord('q')) or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1:
             self.quit = True
-
-
-if __name__ == '__main__':
-    src = 'images/people-walking.mp4'
-    video = Video(src)
-    for frame in video:
-        video.show(frame)

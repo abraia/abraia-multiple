@@ -17,21 +17,12 @@ try:
 except ImportError:
     print('Install the scipy package to work with matlab files')
 
-from .client import Abraia
-
-tempdir = tempfile.gettempdir()
+from .client import Abraia, tempdir
 
 
 class Multiple(Abraia):
     def __init__(self, folder=''):
         super(Multiple, self).__init__()
-
-    def cache_file(self, path):
-        dest = os.path.join(tempdir, path)
-        if not os.path.exists(dest):
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            self.download_file(path, dest)
-        return dest
 
     def load_header(self, path):
         dest = self.cache_file(path)
