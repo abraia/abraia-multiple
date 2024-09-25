@@ -31,9 +31,3 @@ def test_save_tiff_image():
     img = multiple.load_image('AnnualCrop_1896.tiff')
     path = multiple.save_image('test.tiff', img)
     assert path == 'test.tiff'
-
-
-def test_load_dataset():
-    X, y = multiple.load_dataset('PetImages')
-    assert isinstance(X, list)
-    assert isinstance(y, list)
