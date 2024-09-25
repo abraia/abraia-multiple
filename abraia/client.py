@@ -109,8 +109,12 @@ class Abraia:
         resp = resp.json()
         return file_path(resp['file'], self.userid)
 
-    def download_file(self, path, dest=''):
+    def download_file(self, path, dest='', cache=False):
         url = f"{API_URL}/files/{self.userid}/{path}"
+        if cache and dest == '':
+            dest = os.path.join(tempdir, path)
+            if not os.path.exists(dest):
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
         resp = requests.get(url, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
@@ -118,8 +122,9 @@ class Abraia:
             return BytesIO(resp.content)
         with open(dest, 'wb') as f:
             f.write(resp.content)
+        return dest
 
-    # TODO: Merge in download_file: cache = True
+    # TODO: Replaced with download_file
     def cache_file(self, path):
         dest = os.path.join(tempdir, path)
         if not os.path.exists(dest):

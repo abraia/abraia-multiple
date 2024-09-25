@@ -1,5 +1,5 @@
 from __future__ import print_function, division
-from ..client import Abraia, tempdir
+from ..multiple import Multiple, tempdir
 
 import onnx
 import torch
@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 
-abraia = Abraia()
+multiple = Multiple()
 
 
 torch.backends.cudnn.benchmark = True
@@ -23,13 +23,13 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def read_image(path):
-    dest = abraia.cache_file(path)
+    dest = multiple.cache_file(path)
     return Image.open(dest).convert('RGB')
 
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, root_dir, transform=None, target_transform=None):
-        paths, labels = abraia.load_dataset(root_dir)
+        paths, labels = multiple.load_dataset(root_dir)
         self.paths = paths
         self.labels = labels
         self.root_dir = root_dir
@@ -65,7 +65,7 @@ def create_model(class_names, pretrained=True):
 
 
 def load_model(path, class_names):
-    dest = abraia.cache_file(path)
+    dest = multiple.cache_file(path)
     model = create_model(class_names, pretrained=False)
     model.load_state_dict(torch.load(dest))
     return model
@@ -228,5 +228,12 @@ class Model:
         torch.onnx.export(model, dummy_input, src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
         onnx_model = onnx.load(src)
         onnx.checker.check_model(onnx_model)
-        abraia.upload_file(src, model_path)
-        abraia.save_json(f"{dataset}/{model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
+        multiple.upload_file(src, model_path)
+        multiple.save_json(f"{dataset}/{model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
+
+    def run_model(self, model, im):
+        input_tensor = transform(im)
+        input_batch = input_tensor.unsqueeze(0)
+        output = model(input_batch)
+        pred = torch.nn.functional.softmax(output)
+        return pred
