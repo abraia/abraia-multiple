@@ -1,5 +1,5 @@
 from __future__ import print_function, division
-from ..multiple import Multiple, tempdir
+from ..client import Abraia, tempdir
 
 import onnx
 import torch
@@ -9,13 +9,15 @@ from torchvision import models, transforms, datasets
 import os
 import copy
 import time
+import random
 import numpy as np
 import matplotlib.pyplot as plt
 
 from PIL import Image
+from tqdm import trange
 
 
-multiple = Multiple()
+abraia = Abraia()
 
 
 torch.backends.cudnn.benchmark = True
@@ -23,13 +25,27 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def read_image(path):
-    dest = multiple.cache_file(path)
+    dest = abraia.download_file(path, cache=True)
     return Image.open(dest).convert('RGB')
+
+
+def load_dataset(dataset, shuffle=True):
+    paths, labels = [], []
+    annotations = abraia.load_json(f"{dataset}/annotations.json")
+    keys = list(filter(lambda k: k != 'filename', annotations[0].keys()))
+    paths = [f"{dataset}/{annotation['filename']}" for annotation in annotations]
+    labels = [annotation['label'] for annotation in annotations]
+    if shuffle:
+        ids = list(range(len(paths)))
+        random.shuffle(ids)
+        paths = [paths[id] for id in ids]
+        labels = [labels[id] for id in ids]
+    return paths, labels
 
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, root_dir, transform=None, target_transform=None):
-        paths, labels = multiple.load_dataset(root_dir)
+        paths, labels = load_dataset(root_dir)
         self.paths = paths
         self.labels = labels
         self.root_dir = root_dir
@@ -86,6 +102,7 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
     since = time.time()
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
+    # for epoch in trange(num_epochs, desc="Epoch"):
     for epoch in range(num_epochs):
         print(f'Epoch {epoch}/{num_epochs - 1}')
         print('-' * 10)
@@ -222,8 +239,8 @@ class Model:
         torch.onnx.export(self.model, dummy_input, model_src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
         onnx_model = onnx.load(model_src)
         onnx.checker.check_model(onnx_model)
-        multiple.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
-        multiple.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
+        abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
+        abraia.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
 
     def run(self, im):
         input_tensor = transform(im)

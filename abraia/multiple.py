@@ -1,7 +1,4 @@
 import os
-import json
-import random
-import tempfile
 import tifffile
 import numpy as np
 from PIL import Image
@@ -90,45 +87,4 @@ class Multiple(Abraia):
         else:
             Image.fromarray(img).save(src)
             return self.upload_file(src, path)
-
-    # TODO: Remove, added to Abraia
-    def load_json(self, path):
-        return json.loads(self.load_file(path))
-
-    def save_json(self, path, values):
-        return self.save_file(path, json.dumps(values))
-
-    def load_dataset(self, dataset, shuffle=True):
-        paths, labels = [], []
-        if self.check_file(f"{dataset}/annotations.json"):
-            # TODO: Return annotations instead of labels
-            annotations = self.load_json(f"{dataset}/annotations.json")
-            keys = list(filter(lambda k: k != 'filename', annotations[0].keys()))
-            paths = [f"{dataset}/{annotation['filename']}" for annotation in annotations]
-            labels = [annotation['label'] for annotation in annotations]
-        else:
-            [files, folders] = self.list_files(f"{dataset}/")
-            for folder in folders:
-                files = self.list_files(folder['path'])[0]
-                paths.extend([file['path'] for file in files])
-                labels.extend(len(files) * [folder['name']])
-        if shuffle:
-            ids = list(range(len(paths)))
-            random.shuffle(ids)
-            paths = [paths[id] for id in ids]
-            labels = [labels[id] for id in ids]
-        return paths, labels
-    
-    def load_projects(self):
-        folders = self.list_files()[1]
-        return [folder['name'] for folder in folders if folder['name'] not in ('export', '.export')]
-
-    def load_annotations(self, dataset):
-        try:
-            annotations = self.load_json(f"{dataset}/annotations.json")
-            for annotation in annotations:
-                annotation['path'] = f"{dataset}/{annotation['filename']}"
-            return annotations
-        except:
-            return []
     

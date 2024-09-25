@@ -17,7 +17,7 @@ abraia = Abraia()
 
 def load_projects():
     folders = abraia.list_files()[1]
-    return [folder['name'] for folder in folders if folder['name'] not in ('export', '.export')]
+    return [folder['name'] for folder in folders if abraia.check_file(f"{folder['name']}/annotations.json")]
 
 
 def load_annotations(dataset):
