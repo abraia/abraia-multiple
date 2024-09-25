@@ -30,7 +30,7 @@ class Model:
         self.model_name = model_name
         self.task = task
 
-    def train(self, dataset, batch=32, epochs=100, imgsz=640):
+    def train(self, dataset, epochs=100, batch=32, imgsz=640):
         data = f"{dataset}" if self.task == 'classify' else f"{dataset}/data.yaml"
         results = self.model.train(data=data, batch=batch, epochs=epochs, imgsz=imgsz)
         metrics = self.model.val(data=data)
@@ -41,9 +41,9 @@ class Model:
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
         abraia.save_json(f"{dataset}/{self.model_name}.json", {'task': self.task, 'inputShape': [1, 3, imgsz, imgsz], 'classes': classes})
 
-    def run(self, src):
+    def run(self, im):
         objects = []
-        results = self.model.predict(src, verbose=False)[0]
+        results = self.model.predict(im, verbose=False)[0]
         if results:
             for box, mask in zip(results.boxes, results.masks):
                 class_id = int(box.cls)
