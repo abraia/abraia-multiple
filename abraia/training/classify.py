@@ -229,7 +229,7 @@ class Model:
         input_tensor = transform(im)
         input_batch = input_tensor.unsqueeze(0)
         output = self.model(input_batch)
-        pred = torch.softmax(output)
+        pred = torch.softmax(output.squeeze(0), dim=0)
         idx = int(pred.argmax())
         confidence = float(pred[idx])
         label = self.classes[idx]
