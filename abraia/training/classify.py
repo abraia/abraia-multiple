@@ -1,4 +1,3 @@
-from __future__ import print_function, division
 from ..client import Abraia
 from ..utils import temporal_src
 
@@ -242,8 +241,8 @@ class Model:
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
         abraia.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
 
-    def run(self, im):
-        input_tensor = transform(im)
+    def run(self, img):
+        input_tensor = transform(img)
         input_batch = input_tensor.unsqueeze(0)
         output = self.model(input_batch)
         pred = torch.softmax(output.squeeze(0), dim=0)

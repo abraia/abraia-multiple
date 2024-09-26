@@ -41,9 +41,9 @@ class Model:
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
         abraia.save_json(f"{dataset}/{self.model_name}.json", {'task': self.task, 'inputShape': [1, 3, imgsz, imgsz], 'classes': classes})
 
-    def run(self, im):
+    def run(self, img):
         objects = []
-        results = self.model.predict(im, verbose=False)[0]
+        results = self.model.predict(img, verbose=False)[0]
         if results:
             for box, mask in zip(results.boxes, results.masks):
                 class_id = int(box.cls)

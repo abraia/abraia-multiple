@@ -1,5 +1,4 @@
 
-from __future__ import print_function, division
 from ..client import Abraia
 from ..utils import get_color
 from . import classify, detect 

@@ -30,11 +30,13 @@ set ABRAIA_ID=user_id
 set ABRAIA_KEY=user_key
 ```
 
-## Object detection
+## Load and run custom models
 
-### Load and run a custom model
+Annotate your images and train a state-of-the-art model for classification, detection, or segmentation using [DeepLab](https://abraia.me/deeplab/). You can directly load and run the model on the edge using the browser or this Python SDK.
 
-You can easily train your custom models from [DeepLab](https://abraia.me/deeplab/), and run then later from the edge.
+### Object detection
+
+Detect objects with a pre-trained YOLOv8 model on images, videos, or even camera streams.
 
 ```python
 from abraia import detect
@@ -51,7 +53,7 @@ im.show()
 
 ![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.png)
 
-You can even run a multi-object detector on video or directly on a camera stream.
+To run a multi-object detector on video or directly on a camera stream, you just need to use the Video class to process every frame as is done for images.
 
 ```python
 import numpy as np
@@ -72,6 +74,9 @@ for frame in video:
     video.show(frame)
 ```
 
+### Faces recognition
+
+![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
 
 ## Image analysis toolbox
 
