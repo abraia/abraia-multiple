@@ -1,4 +1,4 @@
-from .multiple import Multiple, tempdir
+from .multiple import Multiple
 
 import math
 import numpy as np

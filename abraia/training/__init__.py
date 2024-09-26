@@ -1,7 +1,7 @@
 
 from __future__ import print_function, division
-from ..client import Abraia, tempdir
-from ..detect import get_color
+from ..client import Abraia
+from ..utils import get_color
 from . import classify, detect 
 
 import os

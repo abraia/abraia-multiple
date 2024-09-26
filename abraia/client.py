@@ -1,7 +1,6 @@
 import os
 import json
 import hashlib
-import tempfile
 import requests
 import mimetypes
 
@@ -11,9 +10,9 @@ from fnmatch import fnmatch
 from datetime import datetime
 
 from . import config
+from .utils import temporal_src
 
 API_URL = 'https://api.abraia.me'
-tempdir = tempfile.gettempdir()
 
 
 def file_path(f, userid):
@@ -112,25 +111,17 @@ class Abraia:
     def download_file(self, path, dest='', cache=False):
         url = f"{API_URL}/files/{self.userid}/{path}"
         if cache and dest == '':
-            dest = os.path.join(tempdir, path)
-            if not os.path.exists(dest):
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
+            dest = temporal_src(path)
+            if os.path.exists(dest):
+                return dest
         resp = requests.get(url, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        if not dest:
-            return BytesIO(resp.content)
-        with open(dest, 'wb') as f:
-            f.write(resp.content)
-        return dest
-
-    # TODO: Replaced with download_file
-    def cache_file(self, path):
-        dest = os.path.join(tempdir, path)
-        if not os.path.exists(dest):
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            self.download_file(path, dest)
-        return dest
+        if dest:
+            with open(dest, 'wb') as f:
+                f.write(resp.content)
+            return dest
+        return BytesIO(resp.content)
     
     def remove_file(self, path):
         url = f"{API_URL}/files/{self.userid}/{path}"
@@ -190,9 +181,7 @@ class Abraia:
         return Image.open(self.download_file(path))
 
     def save_image(self, path, im):
-        # TODO: Use BytesIO: buf = BytesIO(); im.save(buf, format='JPEG')
-        src = os.path.join(tempdir, path)
-        os.makedirs(os.path.dirname(src), exist_ok=True)
+        src = temporal_src(path)
         im.save(src)
         return self.upload_file(src, path)
     

@@ -1,5 +1,6 @@
 from __future__ import print_function, division
-from ..client import Abraia, tempdir
+from ..client import Abraia
+from ..utils import temporal_src
 
 import onnx
 import torch
@@ -233,8 +234,7 @@ class Model:
 
     def save(self, dataset, classes, device='cpu'):
         self.model.to(device)
-        model_src = os.path.join(tempdir, f"{dataset}/{self.model_name}.onnx")
-        os.makedirs(os.path.dirname(model_src), exist_ok=True)
+        model_src = temporal_src(f"{dataset}/{self.model_name}.onnx")
         dummy_input = torch.randn(1, 3, self.imgsz, self.imgsz)
         torch.onnx.export(self.model, dummy_input, model_src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
         onnx_model = onnx.load(model_src)

@@ -14,7 +14,8 @@ try:
 except ImportError:
     print('Install the scipy package to work with matlab files')
 
-from .client import Abraia, tempdir
+from .client import Abraia
+from .utils import temporal_src
 
 
 class Multiple(Abraia):
@@ -22,7 +23,7 @@ class Multiple(Abraia):
         super(Multiple, self).__init__()
 
     def load_header(self, path):
-        dest = self.cache_file(path)
+        dest = self.download_file(path, cache=True)
         return spectral.io.envi.read_envi_header(dest)
 
     def load_metadata(self, path):
@@ -31,12 +32,12 @@ class Multiple(Abraia):
         return super(Multiple, self).load_metadata(path)
 
     def load_envi(self, path):
-        dest = self.cache_file(path)
-        raw = self.cache_file(f"{path.split('.')[0]}.raw")
+        dest = self.download_file(path, cache=True)
+        raw = self.download_file(f"{path.split('.')[0]}.raw", cache=True)
         return np.array(spectral.io.envi.open(dest, raw)[:, :, :])
 
     def load_mat(self, path):
-        mat = scipy.io.loadmat(self.cache_file(path))
+        mat = scipy.io.loadmat(self.download_file(path, cache=True))
         for key, value in mat.items():
             if type(value) == np.ndarray:
                 return value
@@ -53,30 +54,27 @@ class Multiple(Abraia):
         elif path.lower().endswith('.mat'):
             img = self.load_mat(path)
         elif path.lower().endswith('.tiff') or path.lower().endswith('.tif'):
-            img = tifffile.imread(self.cache_file(path))
+            img = tifffile.imread(self.download_file(path, cache=True))
         else:
-            img = np.asarray(Image.open(self.cache_file(path)))
+            img = np.asarray(Image.open(self.download_file(path, cache=True)))
         if mosaic_size and len(img.shape) == 2:
             r, c = mosaic_size
             img = np.dstack([img[(k % r)::r, (k // c)::c] for k in range(r * c)])
         return img
 
     def save_envi(self, path, img, metadata={}):
-        src = os.path.join(tempdir, path)
-        os.makedirs(os.path.dirname(src), exist_ok=True)
+        src = temporal_src(path)
         spectral.io.envi.save_image(src, img, metadata=metadata, force=True)
         self.upload_file(f"{src.split('.')[0]}.img", f"{path.split('.')[0]}.raw")
         return self.upload_file(src, path)
 
     def save_mat(self, path, img):
-        src = os.path.join(tempdir, path)
-        os.makedirs(os.path.dirname(src), exist_ok=True)
+        src = temporal_src(path)
         scipy.io.savemat(src, {'raw': img})
         return self.upload_file(src, path)
 
     def save_image(self, path, img, metadata={}):
-        src = os.path.join(tempdir, path)
-        os.makedirs(os.path.dirname(src), exist_ok=True)
+        src = temporal_src(path)
         if path.lower().endswith('.hdr'):
             return self.save_envi(path, img, metadata)
         elif path.lower().endswith('.mat'):
