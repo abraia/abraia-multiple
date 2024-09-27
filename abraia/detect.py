@@ -4,9 +4,9 @@ import math
 import numpy as np
 import onnxruntime as ort
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
-from .utils import download_file, load_json, load_image, get_color, hex_to_rgb
+from .utils import download_file, load_json, load_image, get_color, hex_to_rgb, render_results
 from .video import Video
 
 
@@ -169,27 +169,6 @@ def count_objects(results):
         colors[label] = color
     objects = [{'label': label, 'count': counts[label], 'color': colors[label]} for label in counts.keys()]
     return objects
-
-
-def render_results(img, results):
-    draw = ImageDraw.Draw(img, "RGBA")
-    for result in results:
-        label = result.get('label')
-        prob = result.get('confidence')
-        color = hex_to_rgb(result.get('color', '#009BFF'))
-        x, y, w, h = result.get('box', [0, 0, 0, 0])
-        if result.get('polygon'):
-            draw.polygon(result['polygon'], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
-        elif result.get('box'):
-            draw.rectangle([(x, y), (x + w, y + h)], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
-        if (label):
-            text = f"{label} {round(100 * prob, 1)}%"
-            font = ImageFont.load_default()
-            y = max(y - 11, 0)
-            bbox = draw.textbbox((x, y), text, font=font)
-            draw.rectangle(bbox, fill=color)
-            draw.text((x, y), text, font=font)
-    return img
 
 
 class Model:

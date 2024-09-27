@@ -76,6 +76,34 @@ for frame in video:
 
 ### Faces recognition
 
+```python
+import os
+import numpy as np
+
+from abraia.utils import load_image, render_results
+from abraia.faces import Recognition
+
+
+im = load_image('images/rolling-stones.jpg')
+img = np.array(im)
+
+recognition = Recognition()
+results = recognition.represent_faces(img)
+
+for src in ['mick-jagger.jpg', 'keith-richards.jpg', 'ronnie-wood.jpg', 'charlie-watts.jpg']:
+    img = np.array(load_image(f"images/{src}"))
+    rslt = recognition.represent_faces(img)[0]
+    sims = [recognition.compute_similarity(rslt['embeddings'], result['embeddings']) for result in results]
+    idx = np.argmax(sims)
+    if sims[idx] > 0.45:
+        results[idx]['label'] = os.path.splitext(src)[0]
+        results[idx]['confidence'] = sims[idx]
+    print(src, sims[idx], sims)
+
+render_results(im, results)
+im.show()
+```
+
 ![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
 
 ## Image analysis toolbox
