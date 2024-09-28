@@ -41,7 +41,7 @@ Detect objects with a pre-trained YOLOv8 model on images, videos, or even camera
 ```python
 from abraia import detect
 
-model_uri = f"https://api.abraia.me/files/multiple/camera/yolov8n.onnx"
+model_uri = f"https://api.abraia.me/files/multiple/models/yolov8n.onnx"
 
 model = detect.load_model(model_uri)
 
@@ -61,7 +61,7 @@ from PIL import Image
 from abraia import detect
 
 
-model_uri = f"https://api.abraia.me/files/multiple/camera/yolov8n.onnx"
+model_uri = f"https://api.abraia.me/files/multiple/models/yolov8n.onnx"
 
 model = detect.load_model(model_uri)
 
@@ -80,18 +80,18 @@ for frame in video:
 import os
 import numpy as np
 
-from abraia.utils import load_image, render_results
+from abraia.draw import load_image, save_image, render_results
 from abraia.faces import Recognition
 
 
-im = load_image('images/rolling-stones.jpg')
-img = np.array(im)
+img = load_image('images/rolling-stones.jpg')
+out = img.copy()
 
 recognition = Recognition()
 results = recognition.represent_faces(img)
 
 for src in ['mick-jagger.jpg', 'keith-richards.jpg', 'ronnie-wood.jpg', 'charlie-watts.jpg']:
-    img = np.array(load_image(f"images/{src}"))
+    img = load_image(f"images/{src}")
     rslt = recognition.represent_faces(img)[0]
     sims = [recognition.compute_similarity(rslt['embeddings'], result['embeddings']) for result in results]
     idx = np.argmax(sims)
@@ -100,8 +100,8 @@ for src in ['mick-jagger.jpg', 'keith-richards.jpg', 'ronnie-wood.jpg', 'charlie
         results[idx]['confidence'] = sims[idx]
     print(src, sims[idx], sims)
 
-render_results(im, results)
-im.show()
+render_results(out, results)
+save_image('images/rolling-stones-identified.jpg', out)
 ```
 
 ![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)

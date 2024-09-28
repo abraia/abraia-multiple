@@ -40,7 +40,7 @@ def align_face(img, src_pts, size=112):
 def align_faces(img, results, size=112):
     imgs = []
     for result in results:
-        src_pts = result['kps']
+        src_pts = result['keypoints']
         imgs.append(align_face(img, src_pts, size))
     return imgs
 

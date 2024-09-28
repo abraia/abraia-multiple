@@ -440,8 +440,8 @@ class MTCNN(object):
             results.append({
                 'box': [x, y, width, height],
                 'confidence': confidence,
-                'kps': keypoints,
-                'keypoints': {
+                'keypoints': keypoints,
+                'landmarks': {
                     'left_eye': (int(keypoints[0, 0]), int(keypoints[0, 1])),
                     'right_eye': (int(keypoints[1, 0]), int(keypoints[1, 1])),
                     'nose': (int(keypoints[2, 0]), int(keypoints[2, 1])),

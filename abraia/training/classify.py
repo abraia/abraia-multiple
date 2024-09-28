@@ -1,5 +1,5 @@
 from ..client import Abraia
-from ..utils import temporal_src
+from ..utils import temporal_src, load_image
 
 import onnx
 import torch
@@ -13,7 +13,6 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 
-from PIL import Image
 from tqdm import trange
 
 
@@ -26,7 +25,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def read_image(path):
     dest = abraia.download_file(path, cache=True)
-    return Image.open(dest).convert('RGB')
+    return load_image(dest)
 
 
 def load_dataset(dataset, shuffle=True):

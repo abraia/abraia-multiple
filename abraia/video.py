@@ -10,6 +10,7 @@ class Video:
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.frame_rate = self.fps
         print(self.width, self.height, self.fps)
         if output:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')

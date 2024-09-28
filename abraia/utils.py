@@ -28,7 +28,7 @@ def load_json(src):
 
 
 def load_image(src):
-    return Image.open(src)
+    return Image.open(src).convert('RGB')
 
 
 def get_color(idx):
