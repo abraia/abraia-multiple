@@ -6,29 +6,32 @@ import onnxruntime as ort
 
 from PIL import Image
 
-from .utils import download_file, load_json, load_image, get_color, hex_to_rgb, render_results
+from .utils import download_file, load_json, load_image, get_color, hex_to_rgb
 from .video import Video
+from . import utils
+from . import draw
 
 
 def resize(img, size):
-    width = size if img.height > img.width else round(size * img.width / img.height)
-    height = round(size * img.height / img.width) if img.height > img.width else size
-    return img.resize((width, height))
+    scale = max(size / img.shape[1], size / img.shape[0])
+    width, height = round(scale * img.shape[1]), round(scale * img.shape[0])
+    return cv2.resize(img, (width, height), interpolation=cv2.INTER_LINEAR)
 
 
 def crop(img, size):
-    left, top = (img.width - size) // 2, (img.height - size) // 2
+    height, width = img.shape[:2]
+    left, top = (width - size) // 2, (height - size) // 2
     right, bottom = left + size, top + size
-    return img.crop((left, top, right, bottom))
+    return img[top:bottom, left:right]
 
 
 def normalize(img, mean, std):
-    img = (np.array(img) / 255. - np.array(mean)) / np.array(std)
+    img = (img / 255 - np.array(mean)) / np.array(std)
     return img.astype(np.float32)
 
 
 def preprocess(img):
-    img = img.convert('RGB')
+    img = np.array(img.convert('RGB'))
     img = resize(img, 256)
     img = crop(img, 224)
     img = normalize(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -43,18 +46,21 @@ def softmax(x):
 def postprocess(outputs, classes):
     probs = softmax(outputs[0].flatten())
     idx = np.argmax(probs)
-    results = [{'label': classes[idx], 'confidence': probs[idx], 'color': get_color(idx)}]
-    return results
+    return [{'label': classes[idx], 'confidence': probs[idx], 'color': get_color(idx)}]
+
+
+def scale_size(size, new_size):
+    scale = min(new_size[0] / size[0], new_size[1] / size[1])
+    return round(scale * size[0]), round(scale * size[1])
 
 
 def prepare_input(img, shape):
-    """Converts the input image to RGB an return a (3, height, width) tensor."""
-    img = img.convert("RGB")
-    img = img.resize((shape[3], shape[2]))
-    input = np.array(img) / 255.0
-    input = input.transpose(2, 0, 1)
-    input = input.reshape(shape)
-    return input.astype(np.float32)
+    """Converts the input image array to a (3, height, width) tensor."""
+    size = scale_size((img.shape[1], img.shape[0]), (shape[3], shape[2]))
+    img = cv2.resize(img, size, interpolation=cv2.INTER_LINEAR)
+    left, top, right, bottom = 0, 0, shape[3] - size[0], shape[2] - size[1]
+    img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))
+    return (img / 255).astype(np.float32).transpose(2, 0, 1).reshape(shape)
 
 
 def intersection(box1, box2):
@@ -79,7 +85,7 @@ def iou(box1, box2):
     """Calculates the intersection-over-union of two boxes."""
     box1 = [box1[0], box1[1], box1[0] + box1[2], box1[1] + box1[3]]
     box2 = [box2[0], box2[1], box2[0] + box2[2], box2[1] + box2[3]]
-    return intersection(box1, box2) / union(box1, box2)
+    return intersection(box1, box2) / (union(box1, box2) + 0.000001)
 
 
 def non_maximum_suppression(objects, iou_threshold):
@@ -96,14 +102,14 @@ def sigmoid_mask(z):
     return (255 * mask).astype('uint8')
 
 
-def get_mask(row, box, img_width, img_height):
+def get_mask(row, box, size):
     """Extracts the segmentation mask for an object (box) in a row."""
-    size = round(math.sqrt(row.shape[0]))
-    mask = row.reshape(size, size)
+    shape = round(math.sqrt(row.shape[0]))
+    mask = row.reshape(shape, shape)
     mask = sigmoid_mask(mask)
     x, y, w, h = box
-    mask_x1, mask_y1 = round(x / img_width * size), round(y / img_height * size)
-    mask_x2, mask_y2 = round((x + w) / img_width * size), round((y + h) / img_height * size)
+    mask_x1, mask_y1 = round(x / size[0] * shape), round(y / size[1] * shape)
+    mask_x2, mask_y2 = round((x + w) / size[0] * shape), round((y + h) / size[1] * shape)
     mask = mask[mask_y1:mask_y2, mask_x1:mask_x2]
     img_mask = Image.fromarray(mask, "L")
     img_mask = img_mask.resize((round(w), round(h)), Image.BILINEAR)
@@ -128,12 +134,13 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
     """
     img_width, img_height = size
     model_width, model_height = shape[3], shape[2]
+    scale = 1 / min(model_width / img_width, model_height / img_height)
+    scale_width, scale_height = scale, scale
     output0 = outputs[0][0].astype("float")
     output0 = output0.transpose()
     if len(outputs) == 2:
         output1 = outputs[1][0].astype("float")
         output1 = output1.reshape(output1.shape[0], output1.shape[1] * output1.shape[2])
-
     objects = []
     for row in output0:
         xc, yc, w, h = row[:4]
@@ -141,8 +148,8 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
         idx = probs.argmax()
         if probs[idx] < confidence:
             continue
-        x1, y1 = (xc - w/2) / model_width * img_width, (yc - h/2) / model_height * img_height
-        x2, y2 = (xc + w/2) / model_width * img_width, (yc + h/2) / model_height * img_height
+        x1, y1 = round((xc - w/2) * scale_width), round((yc - h/2) * scale_height)
+        x2, y2 = round((xc + w/2) * scale_width), round((yc + h/2) * scale_height)
         obj = {'label': classes[idx], 'confidence': probs[idx], 'box': [x1, y1, x2 - x1, y2 - y1], 'color': get_color(idx)}
         if len(outputs) == 2:
             obj['mask'] = row[4+len(classes):]
@@ -153,7 +160,8 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
         if len(outputs) == 2:
             x, y, w, h = result['box']
             mask = result['mask'] @ output1
-            mask = get_mask(mask, result['box'], img_width, img_height)
+            size = (round(model_width * scale), round(model_height * scale))
+            mask = get_mask(mask, result['box'], size)
             mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)[1]
             result['polygon'] = mask_to_polygon(mask, (x, y))
             result.pop('mask', None)
@@ -177,15 +185,18 @@ class Model:
         config_src = download_file(config_uri)
         self.config = load_json(config_src)
         model_src = download_file(model_uri)
-        self.ort_session = ort.InferenceSession(model_src, providers=['CPUExecutionProvider'])
+        self.session = ort.InferenceSession(model_src, providers=['CPUExecutionProvider'])
+        self.input_name = self.session.get_inputs()[0].name
+        self.input_shape = self.config['inputShape']
 
     def run(self, img, confidence=0.25, iou_threshold=0.7):
         if self.config.get('task'):
-            input = prepare_input(img, self.config['inputShape'])
-            outputs = self.ort_session.run(None, {"images": input})
-            return process_output(outputs, img.size, self.config['inputShape'], self.config['classes'], confidence, iou_threshold)
-        input = preprocess(img)
-        outputs = self.ort_session.run(None, {"input": input})
+            img = img if isinstance(img, np.ndarray) else np.array(img.convert("RGB"))
+            img_size = img.shape[1], img.shape[0]
+            outputs = self.session.run(None, {self.input_name: prepare_input(img, self.input_shape)})
+            return process_output(outputs, img_size, self.input_shape, self.config['classes'], confidence, iou_threshold)
+        img = Image.fromarray(img) if isinstance(img, np.ndarray) else img
+        outputs = self.session.run(None, {self.input_name: preprocess(img)})
         results = postprocess(outputs, self.config['classes'])
         return results
     
@@ -195,3 +206,8 @@ def load_model(model_uri):
     model.load(model_uri)
     return model
     
+
+def render_results(img, results):
+    if isinstance(img, np.ndarray):
+        return draw.render_results(img, results)
+    return utils.render_results(img, results)

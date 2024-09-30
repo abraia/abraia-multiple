@@ -67,10 +67,8 @@ model = detect.load_model(model_uri)
 
 video = detect.Video('people-walking.mp4')
 for frame in video:
-    im = Image.fromarray(frame)
-    results = model.run(im, confidence=0.5, iou_threshold=0.5)
-    im = detect.render_results(im, results)
-    frame = np.array(im)
+    results = model.run(frame, confidence=0.5, iou_threshold=0.5)
+    frame = detect.render_results(frame, results)
     video.show(frame)
 ```
 

@@ -65,7 +65,7 @@ def draw_filled_polygon(img, polygon, color, opacity = 1):
     return img
 
 
-def draw_text(img, text, point, text_color = (0, 0, 0), text_scale = 0.5, text_thickness = 1, 
+def draw_text(img, text, point, text_color = (255, 255, 255), text_scale = 0.5, text_thickness = 1, 
               text_font = cv2.FONT_HERSHEY_SIMPLEX, padding = 5, background_color = None):
     x, y = point
     w, h = cv2.getTextSize(text, text_font, text_scale, text_thickness)[0]
@@ -112,7 +112,8 @@ def render_results(img, results):
                 for point in result['landmarks'].values():
                     draw_point(img, point, color)
             else:
-                draw_filled_rectangle(img, result['box'], color, opacity=0.2)
+                # draw_filled_rectangle(img, result['box'], color, opacity=0.2)
+                pass
             draw_rectangle(img, result['box'], color, thickness=2)
         if (label):
             text = f"{label} {round(100 * prob, 1)}%"
