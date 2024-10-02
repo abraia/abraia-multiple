@@ -3,7 +3,7 @@ import json
 import tempfile
 import requests
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 tempdir = tempfile.gettempdir()
 
@@ -41,24 +41,3 @@ def get_color(idx):
 def hex_to_rgb(hex):
     h = hex.lstrip('#')
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
-
-
-def render_results(img, results):
-    draw = ImageDraw.Draw(img, "RGBA")
-    for result in results:
-        label = result.get('label')
-        prob = result.get('confidence')
-        color = hex_to_rgb(result.get('color', '#009BFF'))
-        x, y, w, h = result.get('box', [0, 0, 0, 0])
-        if result.get('polygon'):
-            draw.polygon(result['polygon'], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
-        elif result.get('box'):
-            draw.rectangle([(x, y), (x + w, y + h)], fill=(color[0], color[1], color[2], 50), outline=color, width=2)
-        if (label):
-            text = f"{label} {round(100 * prob, 1)}%"
-            font = ImageFont.load_default()
-            y = max(y - 11, 0)
-            bbox = draw.textbbox((x, y), text, font=font)
-            draw.rectangle(bbox, fill=color)
-            draw.text((x, y), text, font=font)
-    return img

@@ -72,7 +72,7 @@ for frame in video:
     video.show(frame)
 ```
 
-### Faces recognition
+### Face recognition
 
 ```python
 import os

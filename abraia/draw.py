@@ -51,11 +51,13 @@ def draw_filled_rectangle(img, rect, color, opacity = 1):
 
 
 def draw_polygon(img, polygon, color, thickness = 2):
+    polygon = np.array(polygon)
     cv2.polylines(img, [polygon], True, color, thickness)
     return img
 
 
 def draw_filled_polygon(img, polygon, color, opacity = 1):
+    polygon = np.array(polygon)
     if opacity == 1:
         cv2.fillPoly(img, [polygon], color)
     else:
@@ -101,21 +103,19 @@ def calculate_optimal_line_thickness(img_size):
 def render_results(img, results):
     for result in results:
         label = result.get('label')
-        prob = result.get('confidence')
+        score = result.get('confidence')
         color = hex_to_rgb(result.get('color', '#009BFF'))
         x, y, w, h = result.get('box', [0, 0, 0, 0])
         if result.get('polygon'):
-            draw_filled_polygon(img, result['polygon'], color, opacity=0.2)
+            # draw_filled_polygon(img, result['polygon'], color, opacity=0.2)
             draw_polygon(img, result['polygon'], color, thickness=2)
         elif result.get('box'):
             if result.get('landmarks'):
                 for point in result['landmarks'].values():
                     draw_point(img, point, color)
-            else:
-                # draw_filled_rectangle(img, result['box'], color, opacity=0.2)
-                pass
+            #draw_filled_rectangle(img, result['box'], color, opacity=0.2)
             draw_rectangle(img, result['box'], color, thickness=2)
         if (label):
-            text = f"{label} {round(100 * prob, 1)}%"
+            text = f"{label} {round(100 * score, 1)}%"
             draw_text(img, text, (x, y), background_color=color)
     return img

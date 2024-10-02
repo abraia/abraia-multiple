@@ -6,9 +6,8 @@ import onnxruntime as ort
 
 from PIL import Image
 
-from .utils import download_file, load_json, load_image, get_color, hex_to_rgb
+from .utils import download_file, load_json, load_image, get_color
 from .video import Video
-from . import utils
 from . import draw
 
 
@@ -31,7 +30,6 @@ def normalize(img, mean, std):
 
 
 def preprocess(img):
-    img = np.array(img.convert('RGB'))
     img = resize(img, 256)
     img = crop(img, 224)
     img = normalize(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -58,9 +56,12 @@ def prepare_input(img, shape):
     """Converts the input image array to a (3, height, width) tensor."""
     size = scale_size((img.shape[1], img.shape[0]), (shape[3], shape[2]))
     img = cv2.resize(img, size, interpolation=cv2.INTER_LINEAR)
+    # dw, dh = (shape[3] - size[0]) / 2, (shape[2] - size[1]) / 2
+    # left, top, right, bottom = round(dw - 0.1), round(dh - 0.1), round(dw + 0.1), round(dh + 0.1)
     left, top, right, bottom = 0, 0, shape[3] - size[0], shape[2] - size[1]
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))
-    return (img / 255).astype(np.float32).transpose(2, 0, 1).reshape(shape)
+    img = img.transpose(2, 0, 1).reshape(shape).astype(np.float32)
+    return img / 255
 
 
 def intersection(box1, box2):
@@ -111,36 +112,34 @@ def get_mask(row, box, size):
     mask_x1, mask_y1 = round(x / size[0] * shape), round(y / size[1] * shape)
     mask_x2, mask_y2 = round((x + w) / size[0] * shape), round((y + h) / size[1] * shape)
     mask = mask[mask_y1:mask_y2, mask_x1:mask_x2]
-    img_mask = Image.fromarray(mask, "L")
-    img_mask = img_mask.resize((round(w), round(h)), Image.BILINEAR)
-    mask = np.array(img_mask)
+    mask = cv2.resize(mask, (round(w), round(h)), cv2.INTER_LINEAR)
     return mask
 
 
 def mask_to_polygon(mask, origin):
     """Returns the largest bounding polygon based on the segmentation mask."""
     contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-    polygon = []
+    polygon = np.array([])
     for contour in contours:
         contour = contour.reshape(-1, 2)
-        polygon = list(contour) if contour.shape[0] > len(polygon) else polygon
-    polygon = [(int(origin[0] + point[0]), int(origin[1] + point[1])) for point in polygon]
-    return polygon
+        polygon = contour if contour.shape[0] > polygon.shape[0] else polygon
+    polygon = polygon + np.array(origin)
+    return polygon.tolist()
 
 
 def process_output(outputs, size, shape, classes, confidence, iou_threshold):
     """Converts the RAW model output from YOLOv8 to an array of detected
     objects, containing the bounding box, label and the probability.
     """
-    img_width, img_height = size
-    model_width, model_height = shape[3], shape[2]
-    scale = 1 / min(model_width / img_width, model_height / img_height)
-    scale_width, scale_height = scale, scale
     output0 = outputs[0][0].astype("float")
     output0 = output0.transpose()
     if len(outputs) == 2:
         output1 = outputs[1][0].astype("float")
         output1 = output1.reshape(output1.shape[0], output1.shape[1] * output1.shape[2])
+    
+    img_width, img_height = size
+    model_width, model_height = shape[3], shape[2]
+    scale = 1 / min(model_width / img_width, model_height / img_height)
     objects = []
     for row in output0:
         xc, yc, w, h = row[:4]
@@ -148,8 +147,8 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
         idx = probs.argmax()
         if probs[idx] < confidence:
             continue
-        x1, y1 = round((xc - w/2) * scale_width), round((yc - h/2) * scale_height)
-        x2, y2 = round((xc + w/2) * scale_width), round((yc + h/2) * scale_height)
+        x1, y1 = round((xc - w/2) * scale), round((yc - h/2) * scale)
+        x2, y2 = round((xc + w/2) * scale), round((yc + h/2) * scale)
         obj = {'label': classes[idx], 'confidence': probs[idx], 'box': [x1, y1, x2 - x1, y2 - y1], 'color': get_color(idx)}
         if len(outputs) == 2:
             obj['mask'] = row[4+len(classes):]
@@ -190,12 +189,11 @@ class Model:
         self.input_shape = self.config['inputShape']
 
     def run(self, img, confidence=0.25, iou_threshold=0.7):
+        img = img if isinstance(img, np.ndarray) else np.array(img.convert("RGB"))
         if self.config.get('task'):
-            img = img if isinstance(img, np.ndarray) else np.array(img.convert("RGB"))
             img_size = img.shape[1], img.shape[0]
             outputs = self.session.run(None, {self.input_name: prepare_input(img, self.input_shape)})
             return process_output(outputs, img_size, self.input_shape, self.config['classes'], confidence, iou_threshold)
-        img = Image.fromarray(img) if isinstance(img, np.ndarray) else img
         outputs = self.session.run(None, {self.input_name: preprocess(img)})
         results = postprocess(outputs, self.config['classes'])
         return results
@@ -210,4 +208,6 @@ def load_model(model_uri):
 def render_results(img, results):
     if isinstance(img, np.ndarray):
         return draw.render_results(img, results)
-    return utils.render_results(img, results)
+    img = np.array(img)
+    img = draw.render_results(img, results)
+    return Image.fromarray(img)
