@@ -40,21 +40,30 @@ def load_labels(annotations):
 
 
 def load_task(annotations):
-    label, box, polygon = False, False, False
+    classify, detect, segment = False, False, False
     for annotation in annotations:
         for object in annotation.get('objects', []):
             if 'polygon' in object:
-                polygon = True
+                segment = True
             elif 'box' in object:
-                box = True
+                detect = True
             elif 'label' in object:
-                label = True
-    if polygon:
+                classify = True
+    if segment:
         return 'segment'
-    if box:
+    if detect:
         return 'detect'
-    if label:
+    if classify:
         return 'classify'
+
+
+def load_tasks(annotations):
+    tasks = ['classify', 'detect', 'segment']
+    task = load_task(annotations)
+    if task:
+        idx = tasks.index(task)
+        return tasks[:idx+1]
+    return []
 
 
 def download_file(path, folder):
@@ -72,20 +81,25 @@ def save_annotation(annotation, folder, classes, task):
                 src = os.path.join(folder, annotation['filename'])
                 dest = os.path.join(folder, label, annotation['filename'])
                 shutil.move(src, dest)
+                break
     else:
         im = Image.open(os.path.join(folder, 'images', annotation['filename']))
         label_lines = []
         for object in annotation.get('objects', []):
-            label, bbox, cords = object.get('label'), object.get('box'), object.get('polygon')
+            label, box, polygon = object.get('label'), object.get('box'), object.get('polygon')
             # Convert polygon or box to yolo format
-            label_line = ''
-            if task == 'segment' and cords:
-                label_line = f"{classes.index(label)} " + ' '.join([f"{cord[0] / im.width} {cord[1] / im.height}" for cord in cords])
-            elif task == 'detect' and bbox:
-                label_line = f"{classes.index(label)} {(bbox[0] + bbox[2] / 2) / im.width} {(bbox[1] + bbox[3] / 2) / im.height} {bbox[2] / im.width} {bbox[3] / im.height}"
-            elif task == 'classify':
-                label_line = f"{classes.index(label)}"
-            label_lines.append(label_line)
+            if task == 'segment':
+                if polygon:
+                    label_line = f"{classes.index(label)} " + ' '.join([f"{point[0] / im.width} {point[1] / im.height}" for point in polygon])
+                    label_lines.append(label_line)
+            elif task == 'detect':
+                if polygon:
+                    xx, yy = [point[0] for point in polygon], [point[1] for point in polygon]
+                    x1, y1, x2, y2 = min(xx), min(yy), max(xx), max(yy)
+                    box = [x1, y1, x2 - x1, y2 - y1]
+                if box:
+                    label_line = f"{classes.index(label)} {(box[0] + box[2] / 2) / im.width} {(box[1] + box[3] / 2) / im.height} {box[2] / im.width} {box[3] / im.height}"
+                    label_lines.append(label_line)
         label_path = os.path.join(folder, 'labels',  f"{os.path.splitext(annotation['filename'])[0]}.txt")
         with open(label_path, 'w') as f:
             f.write('\n'.join(label_lines))
