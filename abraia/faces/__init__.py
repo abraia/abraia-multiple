@@ -1,7 +1,7 @@
 import numpy as np
 from .mtcnn import MTCNN
 from .arcface import ArcFace
-from .transform import align_faces
+from .transform import align_faces, align_face
 
 
 def euclidean_distance(feat1, feat2):
@@ -21,15 +21,13 @@ class Recognition:
         return self.detector.detect_faces(img)
     
     def extract_faces(self, img, results=None):
-        if results == None:
-            results = self.detector.detect_faces(img)
+        results = self.detector.detect_faces(img) if results == None else results
         return align_faces(img, results)
     
     def represent_faces(self, img, results=None):
-        if results == None:
-            results = self.detector.detect_faces(img)
-        faces = align_faces(img, results)
-        for result, face in zip(results, faces):
+        results = self.detector.detect_faces(img) if results == None else results
+        for result in results:
+            face = align_face(img, result['keypoints'])
             result['embeddings'] = self.arcface.calculate_embeddings(face)
         return results
     

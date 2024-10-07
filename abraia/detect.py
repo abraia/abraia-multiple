@@ -64,34 +64,18 @@ def prepare_input(img, shape):
     return img / 255
 
 
-def intersection(box1, box2):
-    """Calculates the intersection area of two boxes."""
-    box1_x1, box1_y1, box1_x2, box1_y2 = box1
-    box2_x1, box2_y1, box2_x2, box2_y2 = box2
-    x1, y1 = max(box1_x1, box2_x1), max(box1_y1, box2_y1)
-    x2, y2 = min(box1_x2, box2_x2), min(box1_y2, box2_y2)
-    return (x2 - x1) * (y2 - y1)
-
-
-def union(box1, box2):
-    """Calculates the union area of two boxes."""
-    box1_x1, box1_y1, box1_x2, box1_y2 = box1
-    box2_x1, box2_y1, box2_x2, box2_y2 = box2
-    box1_area = (box1_x2 - box1_x1) * (box1_y2 - box1_y1)
-    box2_area = (box2_x2 - box2_x1) * (box2_y2 - box2_y1)
-    return box1_area + box2_area - intersection(box1, box2)
-
-
 def iou(box1, box2):
     """Calculates the intersection-over-union of two boxes."""
-    box1 = [box1[0], box1[1], box1[0] + box1[2], box1[1] + box1[3]]
-    box2 = [box2[0], box2[1], box2[0] + box2[2], box2[1] + box2[3]]
-    return intersection(box1, box2) / (union(box1, box2) + 0.000001)
+    tl1, wh1, br1 = [box1[0], box1[1]], [box1[2], box1[3]], [box1[0] + box1[2], box1[1] + box1[3]]
+    tl2, wh2, br2 = [box2[0], box2[1]], [box2[2], box2[3]], [box2[0] + box2[2], box2[1] + box2[3]]
+    intersection_area = np.prod(np.maximum(np.minimum(br1, br2) - np.maximum(tl1, tl2), 0))
+    union_area = np.prod(wh1) + np.prod(wh2) - intersection_area;
+    return intersection_area / union_area
 
 
 def non_maximum_suppression(objects, iou_threshold):
     results = []
-    objects.sort(key=lambda x: x['confidence'], reverse=True)
+    objects.sort(key=lambda obj: obj['confidence'], reverse=True)
     while len(objects) > 0:
         results.append(objects[0])
         objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]

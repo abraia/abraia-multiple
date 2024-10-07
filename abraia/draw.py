@@ -20,8 +20,8 @@ def show_image(img):
 
 
 def draw_point(img, point, color, thickness = 2):
-    center, radius = point, thickness
-    cv2.circle(img, center, radius, color, thickness)
+    center, radius = np.round(point).astype(np.int32), thickness
+    cv2.circle(img, center, radius, color, -1)
     return img
 
 
@@ -32,14 +32,14 @@ def draw_line(img, line, color, thickness = 2):
 
 
 def draw_rectangle(img, rect, color, thickness = 2):
-    x, y, w, h =  rect
+    x, y, w, h =  np.round(rect).astype(np.int32)
     pt1, pt2 = (x, y), (x + w, y + h)
     cv2.rectangle(img, pt1, pt2, color, thickness)
     return img
 
 
 def draw_filled_rectangle(img, rect, color, opacity = 1):
-    x, y, w, h = rect
+    x, y, w, h = np.round(rect).astype(np.int32)
     pt1, pt2 = (x, y), (x + w, y + h)
     if opacity == 1:
         cv2.rectangle(img, pt1, pt2, color, -1)
@@ -51,13 +51,13 @@ def draw_filled_rectangle(img, rect, color, opacity = 1):
 
 
 def draw_polygon(img, polygon, color, thickness = 2):
-    polygon = np.array(polygon)
+    polygon = np.round(polygon).astype(np.int32)
     cv2.polylines(img, [polygon], True, color, thickness)
     return img
 
 
 def draw_filled_polygon(img, polygon, color, opacity = 1):
-    polygon = np.array(polygon)
+    polygon = np.round(polygon).astype(np.int32)
     if opacity == 1:
         cv2.fillPoly(img, [polygon], color)
     else:
@@ -67,14 +67,15 @@ def draw_filled_polygon(img, polygon, color, opacity = 1):
     return img
 
 
-def draw_text(img, text, point, text_color = (255, 255, 255), text_scale = 0.5, text_thickness = 1, 
-              text_font = cv2.FONT_HERSHEY_SIMPLEX, padding = 5, background_color = None):
-    x, y = point
+def draw_text(img, text, point, background_color = None, text_color = (255, 255, 255), 
+              text_scale = 0.8, padding = 8):
+    text_font, text_thickness = cv2.FONT_HERSHEY_DUPLEX, 1
     w, h = cv2.getTextSize(text, text_font, text_scale, text_thickness)[0]
-    rect = [x, max(y - h - 2 * padding, 0), w + 2 * padding, h + 2 * padding]
-    org = (rect[0] + padding, rect[1] + padding + h)
+    width, height = w + 2 * padding, h + 2 * padding
+    x, y = point[0], max(point[1] - height, 0)
+    org = (x + padding, y + padding + h)
     if background_color is not None:
-        img = draw_filled_rectangle(img, rect, background_color)
+        img = draw_filled_rectangle(img, [x, y, width, height], background_color)
     cv2.putText(img, text, org, text_font, text_scale, text_color, text_thickness, cv2.LINE_AA)
     return img
 
@@ -94,28 +95,22 @@ def calculate_optimal_text_scale(img_size):
     return min(img_size) * 1e-3
 
 
-def calculate_optimal_line_thickness(img_size):
-    if min(img_size) < 1080:
-        return 2
-    return 4
-
-
 def render_results(img, results):
+    thickness = 2 if min(img.shape[:2]) < 1080 else 4
     for result in results:
         label = result.get('label')
         score = result.get('confidence')
         color = hex_to_rgb(result.get('color', '#009BFF'))
-        x, y, w, h = result.get('box', [0, 0, 0, 0])
         if result.get('polygon'):
             # draw_filled_polygon(img, result['polygon'], color, opacity=0.2)
-            draw_polygon(img, result['polygon'], color, thickness=2)
+            draw_polygon(img, result['polygon'], color, thickness)
         elif result.get('box'):
-            if result.get('landmarks'):
-                for point in result['landmarks'].values():
-                    draw_point(img, point, color)
+            for point in result.get('keypoints', []):
+                draw_point(img, point, color, thickness)
             #draw_filled_rectangle(img, result['box'], color, opacity=0.2)
-            draw_rectangle(img, result['box'], color, thickness=2)
+            draw_rectangle(img, result['box'], color, thickness)
         if (label):
             text = f"{label} {round(100 * score, 1)}%"
-            draw_text(img, text, (x, y), background_color=color)
+            point = result.get('box', [0, 0, 0, 0])[:2]
+            draw_text(img, text, point, background_color=color)
     return img

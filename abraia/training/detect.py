@@ -52,6 +52,6 @@ class Model:
                 x1, y1, x2, y2 = box.xyxy.squeeze().tolist()
                 object = {'label': label, 'confidence': confidence, 'box': [x1, y1, x2 - x1, y2 - y1]}
                 if self.task == 'segment':
-                    object['polygon'] = [(x, y) for x, y in mask.xy[0]]
+                    object['polygon'] = mask.xy[0]
                 objects.append(object)
         return objects
