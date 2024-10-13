@@ -103,12 +103,17 @@ def get_mask(row, box, size):
 def mask_to_polygon(mask, origin):
     """Returns the largest bounding polygon based on the segmentation mask."""
     contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-    polygon = np.array([])
-    for contour in contours:
-        contour = contour.reshape(-1, 2)
-        polygon = contour if contour.shape[0] > polygon.shape[0] else polygon
+    lengths = [len(contour) for contour in contours]
+    polygon = contours[np.argmax(lengths)].reshape(-1, 2)
     polygon = polygon + np.array(origin)
     return polygon.tolist()
+
+
+def approximate_polygon(polygon, approx=0.02):
+    contour = np.array([polygon]).astype(np.int32)
+    epsilon = approx * cv2.arcLength(contour, True)
+    contour = cv2.approxPolyDP(contour, epsilon, True)
+    return contour.reshape(-1, 2).tolist()
 
 
 def process_output(outputs, size, shape, classes, confidence, iou_threshold):
@@ -147,7 +152,8 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
             mask = get_mask(mask, result['box'], size)
             mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)[1]
             result['polygon'] = mask_to_polygon(mask, (x, y))
-            result.pop('mask', None)
+            # result.pop('mask', None)
+            result['mask'] = mask
     return results
 
 

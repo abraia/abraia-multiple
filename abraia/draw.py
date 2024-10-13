@@ -51,19 +51,30 @@ def draw_filled_rectangle(img, rect, color, opacity = 1):
 
 
 def draw_polygon(img, polygon, color, thickness = 2):
-    polygon = np.round(polygon).astype(np.int32)
-    cv2.polylines(img, [polygon], True, color, thickness)
+    points = np.round(polygon).astype(np.int32)
+    cv2.polylines(img, [points], True, color, thickness)
     return img
 
 
 def draw_filled_polygon(img, polygon, color, opacity = 1):
-    polygon = np.round(polygon).astype(np.int32)
+    points = np.round(polygon).astype(np.int32)
     if opacity == 1:
-        cv2.fillPoly(img, [polygon], color)
+        cv2.fillPoly(img, [points], color)
     else:
         img_copy = img.copy()
-        cv2.fillPoly(img_copy, [polygon], color)
+        cv2.fillPoly(img_copy, [points], color)
         cv2.addWeighted(img_copy, opacity, img, 1 - opacity, 0, img)
+    return img
+
+
+def draw_blurred_polygon(img, polygon):
+    w_k = int(0.1 * max(img.shape[:2]))
+    w_k = w_k + 1 if w_k % 2 == 0 else w_k
+    blurred_img = cv2.GaussianBlur(img, (w_k, w_k), 0)
+    points = np.round(polygon).astype(np.int32)
+    mask = np.zeros(img.shape, dtype=np.uint8)
+    mask = cv2.fillPoly(mask, [points], (255, 255, 255))
+    img = np.where(mask==0, img, blurred_img)
     return img
 
 
