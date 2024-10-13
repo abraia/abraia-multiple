@@ -8,7 +8,7 @@ def load_image(src):
     return cv2.cvtColor(cv2.imread(src), cv2.COLOR_BGR2RGB)
 
 
-def save_image(dest, img):
+def save_image(img, dest):
     cv2.imwrite(dest, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
 

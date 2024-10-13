@@ -74,6 +74,8 @@ for frame in video:
 
 ### Face recognition
 
+Identify people on images with face recognition as shown bellow. 
+
 ```python
 import os
 import numpy as np
@@ -103,6 +105,30 @@ save_image('images/rolling-stones-identified.jpg', out)
 ```
 
 ![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
+
+### Blur license plates
+
+Automatically blur car license plates in videos with just a few lines of code.
+
+```python
+from abraia import detect
+from abraia import draw
+
+model_uri = 'https://api.abraia.me/files/multiple/models/alpd-seg.onnx'
+model = detect.load_model(model_uri)
+
+src = 'images/cars.mp4'
+video = detect.Video(src, output='images/blur.mp4')
+for k, frame in enumerate(video):
+    results = model.run(frame)
+    for result in results:
+        polygon = detect.approximate_polygon(result['polygon'])
+        frame = draw.draw_blurred_polygon(frame, polygon)
+    video.write(frame)
+    video.show(frame)
+```
+
+![car license plate blurred](https://github.com/abraia/abraia-multiple/raw/master/images/blur.jpg)
 
 ## Image analysis toolbox
 
