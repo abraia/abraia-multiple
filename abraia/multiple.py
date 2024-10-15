@@ -1,4 +1,3 @@
-import os
 import tifffile
 import numpy as np
 from PIL import Image

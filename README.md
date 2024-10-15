@@ -60,7 +60,6 @@ import numpy as np
 from PIL import Image
 from abraia import detect
 
-
 model_uri = f"https://api.abraia.me/files/multiple/models/yolov8n.onnx"
 
 model = detect.load_model(model_uri)
@@ -83,23 +82,19 @@ import numpy as np
 from abraia.draw import load_image, save_image, render_results
 from abraia.faces import Recognition
 
-
 img = load_image('images/rolling-stones.jpg')
 out = img.copy()
 
 recognition = Recognition()
 results = recognition.represent_faces(img)
 
+index = []
 for src in ['mick-jagger.jpg', 'keith-richards.jpg', 'ronnie-wood.jpg', 'charlie-watts.jpg']:
     img = load_image(f"images/{src}")
     rslt = recognition.represent_faces(img)[0]
-    sims = [recognition.compute_similarity(rslt['embeddings'], result['embeddings']) for result in results]
-    idx = np.argmax(sims)
-    if sims[idx] > 0.45:
-        results[idx]['label'] = os.path.splitext(src)[0]
-        results[idx]['confidence'] = sims[idx]
-    print(src, sims[idx], sims)
+    index.append({'name': os.path.splitext(src)[0], 'embeddings': rslt['embeddings']})
 
+result = recognition.identify_faces(results, index)
 render_results(out, results)
 save_image('images/rolling-stones-identified.jpg', out)
 ```
@@ -255,7 +250,7 @@ The Multiple extension has being developed by [ABRAIA](https://abraia.me/about) 
 For instance, you can directly load and save ENVI files, and their metadata.
 
 ```python
-from abraia import Multiple
+from abraia.multiple import Multiple
 
 multiple = Multiple()
 

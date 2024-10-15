@@ -1,6 +1,6 @@
 import numpy as np
 
-from abraia import Multiple
+from abraia.multiple import Multiple
 
 multiple = Multiple()
 

@@ -5,11 +5,11 @@ from .transform import align_faces, align_face
 
 
 def euclidean_distance(feat1, feat2):
-    return np.sqrt(np.square(feat1 - feat2).sum())
+    return float(np.linalg.norm(feat1 - feat2))
 
 
 def cosine_similarity(feat1, feat2):
-    return np.dot(feat1, feat2) / (np.linalg.norm(feat1) * np.linalg.norm(feat2))
+    return float(np.dot(feat1, feat2) / (np.linalg.norm(feat1) * np.linalg.norm(feat2)))
 
 
 class Recognition:
@@ -31,8 +31,14 @@ class Recognition:
             result['embeddings'] = self.arcface.calculate_embeddings(face)
         return results
     
-    def compute_similarity(self, feat1, feat2):
-        return float(cosine_similarity(feat1, feat2))
+    def identify_faces(self, results, index, threshold=0.45):
+        for result in results:
+            sims = [cosine_similarity(result['embeddings'], ind['embeddings']) for ind in index]
+            idx = np.argmax(sims)
+            if sims[idx] > threshold:
+                result['confidence'] = sims[idx]
+                result['label'] = index[idx]['name']
+        return results
 
 
 __all__ = [Recognition]
