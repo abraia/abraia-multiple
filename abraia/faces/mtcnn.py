@@ -44,13 +44,13 @@ class MTCNN(object):
         self._steps_threshold = steps_threshold
         self._scale_factor = scale_factor
 
-        pnet_src = download_file('https://api.abraia.me/files/multiple/models/pnet.onnx')
+        pnet_src = download_file('multiple/models/pnet.onnx')
         self.pnet = ort.InferenceSession(pnet_src)
 
-        rnet_src = download_file('https://api.abraia.me/files/multiple/models/rnet.onnx')
+        rnet_src = download_file('multiple/models/rnet.onnx')
         self.rnet = ort.InferenceSession(rnet_src)
         
-        onet_src = download_file('https://api.abraia.me/files/multiple/models/onet.onnx')
+        onet_src = download_file('multiple/models/onet.onnx')
         self.onet = ort.InferenceSession(onet_src)
 
 

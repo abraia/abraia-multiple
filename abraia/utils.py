@@ -8,13 +8,21 @@ from PIL import Image
 tempdir = tempfile.gettempdir()
 
 
+API_URL = 'https://api.abraia.me'
+
+
+def url_path(path):
+    return f"{API_URL}/files/{path}"
+
+
 def temporal_src(path):
     dest = os.path.join(tempdir, path)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     return dest
 
 
-def download_file(url):
+def download_file(path):
+    url = url_path(path)
     dest = temporal_src(os.path.basename(url))
     if not os.path.exists(dest):
         r = requests.get(url, allow_redirects=True)

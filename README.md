@@ -41,8 +41,7 @@ Detect objects with a pre-trained YOLOv8 model on images, videos, or even camera
 ```python
 from abraia import detect
 
-model_uri = f"https://api.abraia.me/files/multiple/models/yolov8n.onnx"
-
+model_uri = f"multiple/models/yolov8n.onnx"
 model = detect.load_model(model_uri)
 
 im = detect.load_image('people-walking.png').convert('RGB')
@@ -60,8 +59,7 @@ import numpy as np
 from PIL import Image
 from abraia import detect
 
-model_uri = f"https://api.abraia.me/files/multiple/models/yolov8n.onnx"
-
+model_uri = f"multiple/models/yolov8n.onnx"
 model = detect.load_model(model_uri)
 
 video = detect.Video('people-walking.mp4')
@@ -109,7 +107,7 @@ Automatically blur car license plates in videos with just a few lines of code.
 from abraia import detect
 from abraia import draw
 
-model_uri = 'https://api.abraia.me/files/multiple/models/alpd-seg.onnx'
+model_uri = 'multiple/models/alpd-seg.onnx'
 model = detect.load_model(model_uri)
 
 src = 'images/cars.mp4'

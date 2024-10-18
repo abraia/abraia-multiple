@@ -10,9 +10,7 @@ from fnmatch import fnmatch
 from datetime import datetime
 
 from . import config
-from .utils import temporal_src
-
-API_URL = 'https://api.abraia.me'
+from .utils import API_URL, temporal_src
 
 
 def file_path(f, userid):

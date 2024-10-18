@@ -33,8 +33,7 @@ def align_face(img, src_pts, size=112):
     dst_pts = ref_pts * size / 112 if size != 112 else ref_pts
     M = similarity_transform(src_pts, dst_pts)
     # M = affine_transform(src_pts, ref_pts)
-    warped = cv2.warpAffine(img, M, (size, size), borderValue=0.0)
-    return warped
+    return cv2.warpAffine(img, M, (size, size), borderValue=0.0)
 
 
 def align_faces(img, results, size=112):

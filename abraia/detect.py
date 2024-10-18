@@ -6,6 +6,7 @@ import onnxruntime as ort
 
 from PIL import Image
 
+from .ops import py_cpu_nms, normalize
 from .utils import download_file, load_json, load_image, get_color
 from .video import Video
 from . import draw
@@ -22,11 +23,6 @@ def crop(img, size):
     left, top = (width - size) // 2, (height - size) // 2
     right, bottom = left + size, top + size
     return img[top:bottom, left:right]
-
-
-def normalize(img, mean, std):
-    img = (img / 255 - np.array(mean)) / np.array(std)
-    return img.astype(np.float32)
 
 
 def preprocess(img):
@@ -73,13 +69,24 @@ def iou(box1, box2):
     return intersection_area / union_area
 
 
+# def non_maximum_suppression(objects, iou_threshold):
+#     results = []
+#     objects.sort(key=lambda obj: obj['confidence'], reverse=True)
+#     while len(objects) > 0:
+#         results.append(objects[0])
+#         objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
+    # return results
+
+
 def non_maximum_suppression(objects, iou_threshold):
-    results = []
-    objects.sort(key=lambda obj: obj['confidence'], reverse=True)
-    while len(objects) > 0:
-        results.append(objects[0])
-        objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
-    return results
+    dets = []
+    for obj in objects:
+        s = obj['confidence']
+        x, y, w, h = obj['box']
+        dets.append([x, y, x + w, y + h, s])
+    dets = np.array(dets)
+    idxs = py_cpu_nms(dets, iou_threshold)
+    return [objects[idx] for idx in idxs]
 
 
 def sigmoid_mask(z):
@@ -173,8 +180,11 @@ class Model:
         config_uri = f"{os.path.splitext(model_uri)[0]}.json"
         config_src = download_file(config_uri)
         self.config = load_json(config_src)
+        
+        providers = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
+
         model_src = download_file(model_uri)
-        self.session = ort.InferenceSession(model_src, providers=['CPUExecutionProvider'])
+        self.session = ort.InferenceSession(model_src, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
         self.input_shape = self.config['inputShape']
 
