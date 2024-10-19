@@ -121,7 +121,7 @@ def render_results(img, results):
             #draw_filled_rectangle(img, result['box'], color, opacity=0.2)
             draw_rectangle(img, result['box'], color, thickness)
         if (label):
-            text = f"{label} {round(100 * score, 1)}%"
+            text = f"{label} {round(100 * score, 1)}%" if score else label
             point = result.get('box', [0, 0, 0, 0])[:2]
             draw_text(img, text, point, background_color=color)
     return img
