@@ -103,10 +103,9 @@ class ALPR():
             points = result['points']
             xmin, ymin = points.min(axis=0)
             img_lp = extract_plate(img, points, self.out_size)
-            boxes, rec_res = self.text_system(img_lp)
-            if rec_res:
-                lines = []
-                for text, score in rec_res[::-1]:
-                    lines.append({'text': text, 'score': float(score), 'point': [int(xmin), int(ymin)]})
-                result['lines'] = lines
+            outputs = self.text_system(img_lp)
+            lines = []
+            for output in outputs[::-1]:
+                lines.append({'text': output['text'], 'score': output['score'], 'point': [int(xmin), int(ymin)]})
+            result['lines'] = lines
         return results

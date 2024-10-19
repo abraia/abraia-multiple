@@ -35,28 +35,12 @@ def get_char(character_dict_path):
 class BaseRecLabelDecode():
     """ Convert between text-label and text-index """
     def __init__(self, character_dict_path=None, character_type='ch', use_space_char=False):
-        support_character_type = [
-            # release/2.0
-            'ch', 'en', 'EN_symbol', 'french', 'german', 'japan', 'korean',
-            'it', 'es', 'pt', 'ru', 'ar', 'ta', 'ug', 'fa', 'ur', 'rs_latin',
-            'oc', 'rs_cyrillic', 'bg', 'uk', 'be', 'te', 'kn', 'ch_tra', 'hi',
-            'mr', 'ne', 'EN'
-            # release/2.1
-            'xi', 'pu', 'rs', 'rsc', 'ka', 'chinese_cht', 'latin', 'arabic',
-            'cyrillic', 'devanagari']
-        
         self.beg_str = "sos"
         self.end_str = "eos"
-
-        if character_type == "en":
-            self.character_str = "0123456789abcdefghijklmnopqrstuvwxyz"
-        elif character_type == "EN_symbol":
-            # same with ASTER setting (use 94 char).
-            self.character_str = string.printable[:-6]
-        elif character_type in support_character_type:
-            self.character_str = get_char(character_dict_path)
-            if use_space_char:
-                self.character_str += " "    
+            
+        self.character_str = get_char(character_dict_path)
+        if use_space_char:
+            self.character_str += " "
         dict_character = list(self.character_str)
         dict_character = self.add_special_char(dict_character)
         
@@ -178,33 +162,26 @@ class DBPostProcess():
         cv2.fillPoly(mask, box.reshape(1, -1, 2).astype(np.int32), 1)
         return cv2.mean(bitmap[ymin:ymax + 1, xmin:xmax + 1], mask)[0]
 
-    def __call__(self, outs_dict, shape_list):
+    def __call__(self, outs_dict, image_size):
         pred = outs_dict['maps'][:, 0, :, :]
         segmentation = pred > self.thresh
         boxes_batch = []
         for batch_index in range(pred.shape[0]):
             mask = segmentation[batch_index]
-            src_h, src_w = shape_list[batch_index][:2]
-            boxes, scores = self.boxes_from_bitmap(pred[batch_index], mask, (src_w, src_h))
+            boxes, scores = self.boxes_from_bitmap(pred[batch_index], mask, image_size)
             boxes_batch.append({'points': boxes})
         return boxes_batch
 
 
 def resize_img(img, limit_side_len):
-    """Resize image to a size multiple of 32 which is required by the network.
-    return(tuple):
-        img, (ratio_h, ratio_w)
-    """
+    """Resize image to a size multiple of 32 which is required by the network."""
     h, w = img.shape[:2]
-    # limit the max side
     ratio = min(limit_side_len / max(h, w), 1)
-    resize_h = int(round(h * ratio / 32) * 32)
-    resize_w = int(round(w * ratio / 32) * 32)
-
-    img = cv2.resize(img, (int(resize_w), int(resize_h)))
-
+    resize_h = round(h * ratio / 32) * 32
+    resize_w = round(w * ratio / 32) * 32
+    img = cv2.resize(img, (resize_w, resize_h))
     ratio_h, ratio_w = resize_h / h, resize_w / w
-    return img, np.array([h, w, ratio_h, ratio_w])
+    return img, (ratio_h, ratio_w)
 
 
 def str_count(s):
@@ -286,17 +263,15 @@ class TextDetector():
 
     def __call__(self, img):
         height, width = img.shape[:2]
-        img, shape_list = resize_img(img, limit_side_len=960)
+        img, shape_ratio = resize_img(img, limit_side_len=960)
         img = (img / 255 - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
         img = img.astype(np.float32).transpose(2, 0, 1)
         img = np.expand_dims(img, axis=0)
-        shape_list = np.expand_dims(shape_list, axis=0)
 
         ort_inputs = {self.ort_session.get_inputs()[0].name:img}
         ort_outs = self.ort_session.run(None, ort_inputs)
 
-        preds = {'maps': ort_outs[0]}            
-        post_result = self.postprocess_op(preds, shape_list)
+        post_result = self.postprocess_op({'maps': ort_outs[0]}, (width, height))
         dt_boxes = post_result[0]['points']
         
         dt_boxes = self.filter_tag_det_res(dt_boxes, (width, height))
@@ -383,14 +358,14 @@ class TextSystem():
         return dst_img
 
     def __call__(self, img):
+        results = []
         dt_boxes = self.text_detector(img)
         if len(dt_boxes):
             dt_boxes = sorted_boxes(dt_boxes)
             img_crop_list = [self.get_rotate_crop_image(img, tmp_box) for tmp_box in dt_boxes]
             rec_res = self.text_recognizer(img_crop_list)
-            scores = [res[1] for res in rec_res]
-            filter_boxes = [dt_boxes[i] for i, score in enumerate(scores) if score >= self.drop_score]
-            filter_rec_res = [rec_res[i] for i, score in enumerate(scores) if score >= self.drop_score]
-            return filter_boxes, filter_rec_res
-        return None, None
+            for box, (text, score) in zip(dt_boxes, rec_res):
+                if score >= self.drop_score:
+                    results.append({'box': box, 'text': text, 'score': float(score)})
+        return results 
         
