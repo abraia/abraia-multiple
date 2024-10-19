@@ -16,7 +16,7 @@
 import cv2
 import math
 import string
-import pyclipper
+# import pyclipper
 import numpy as np
 import onnxruntime as ort
 
@@ -34,22 +34,17 @@ def get_char(character_dict_path):
 
 class BaseRecLabelDecode():
     """ Convert between text-label and text-index """
-    def __init__(self, character_dict_path=None, character_type='ch', use_space_char=False):
+    def __init__(self, character_dict_path=None, use_space_char=False):
         self.beg_str = "sos"
         self.end_str = "eos"
             
         self.character_str = get_char(character_dict_path)
         if use_space_char:
             self.character_str += " "
-        dict_character = list(self.character_str)
-        dict_character = self.add_special_char(dict_character)
+        dict_character = ['blank'] + list(self.character_str)
         
-        self.character_type = character_type
         self.dict = {char: i for i, char in enumerate(dict_character)}
         self.character = dict_character
-
-    def add_special_char(self, dict_character):
-        return ['blank'] + dict_character
 
     def decode(self, text_index, text_prob=None, is_remove_duplicate=False):
         """Convert text-index into text-label."""
@@ -80,6 +75,24 @@ class BaseRecLabelDecode():
         return text
 
 
+def makeOffsetPoly(poly, offset):
+    ccw, offset = np.sign(offset), np.abs(offset)
+    def normalizeVec(vec):
+        return vec / np.linalg.norm(vec)
+    points = []
+    num_points = len(poly)
+    for curr in range(num_points):
+        prev, next = (curr + num_points - 1) % num_points, (curr + 1) % num_points
+        vnnX, vnnY = normalizeVec(poly[next] - poly[curr])
+        nnnX, nnnY = np.array([vnnY, -vnnX])
+        vpnX, vpnY = normalizeVec(poly[curr] - poly[prev])
+        npnX, npnY = np.array([vpnY, -vpnX]) * ccw
+        bisn = normalizeVec(np.array([nnnX + npnX, nnnY + npnY]) * ccw)
+        bislen = offset /  np.sqrt((1 + nnnX * npnX + nnnY * npnY) / 2)
+        points.append(poly[curr] + bisn * bislen)
+    return np.array(points).round().astype(np.int32)
+
+
 class DBPostProcess():
     """The post process for Differentiable Binarization (DB)."""
 
@@ -94,73 +107,59 @@ class DBPostProcess():
         area = cv2.contourArea(box)
         perimeter = cv2.arcLength(box, True)
         distance = round(area * unclip_ratio / perimeter)
-        offset = pyclipper.PyclipperOffset()
-        offset.AddPath(box, pyclipper.JT_ROUND, pyclipper.ET_CLOSEDPOLYGON)
-        expanded = np.array(offset.Execute(distance))
-        return expanded
+        # offset = pyclipper.PyclipperOffset()
+        # offset.AddPath(box, pyclipper.JT_ROUND, pyclipper.ET_CLOSEDPOLYGON)
+        # expanded = np.array(offset.Execute(distance))
+        expanded = makeOffsetPoly(box, distance)
+        return expanded.reshape(-1, 1, 2)
+
+    def box_score_fast(self, bitmap, _box):
+        """Use bbox mean score as the mean score."""
+        h, w = bitmap.shape[:2]
+        box = _box.copy()
+        xmin = np.clip(np.floor(box[:, 0].min()).astype(np.int32), 0, w - 1)
+        ymin = np.clip(np.floor(box[:, 1].min()).astype(np.int32), 0, h - 1)
+        xmax = np.clip(np.ceil(box[:, 0].max()).astype(np.int32), 0, w - 1)
+        ymax = np.clip(np.ceil(box[:, 1].max()).astype(np.int32), 0, h - 1)
+        mask = np.zeros((ymax - ymin + 1, xmax - xmin + 1), dtype=np.uint8)
+        box = box - np.array([xmin, ymin])
+        cv2.fillPoly(mask, box.reshape(1, -1, 2).astype(np.int32), 1)
+        return cv2.mean(bitmap[ymin:ymax + 1, xmin:xmax + 1], mask)[0]
+
+    def get_mini_boxes(self, contour):
+        bounding_box = cv2.minAreaRect(contour)
+        points = sorted(list(cv2.boxPoints(bounding_box)), key=lambda x: x[0])
+        index_1, index_4 = (0, 1) if points[1][1] > points[0][1] else (1, 0)
+        index_2, index_3 = (2, 3) if points[3][1] > points[2][1] else (3, 2)
+        box = [points[index_1], points[index_2], points[index_3], points[index_4]]
+        return np.array(box), min(bounding_box[1])
 
     def boxes_from_bitmap(self, pred, bitmap, dest_size):
         """_bitmap: single map with shape (1, H, W), whose values are binarized as {0, 1}"""
         dest_width, dest_height = dest_size
         height, width = bitmap.shape
 
-        outs = cv2.findContours((bitmap * 255).astype(np.uint8), cv2.RETR_LIST,
-                                cv2.CHAIN_APPROX_SIMPLE)
-        if len(outs) == 3:
-            img, contours, _ = outs[0], outs[1], outs[2]
-        elif len(outs) == 2:
-            contours, _ = outs[0], outs[1]
-
+        contours, _ = cv2.findContours((bitmap * 255).astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         num_contours = min(len(contours), self.max_candidates)
 
-        boxes = []
-        scores = []
+        boxes, scores = [], []
         for index in range(num_contours):
             contour = contours[index]
             points, sside = self.get_mini_boxes(contour)
             if sside < self.min_size:
                 continue
-            points = np.array(points)
-            score = self.box_score_fast(pred, points.reshape(-1, 2))
+            score = self.box_score_fast(pred, points)
             if self.box_thresh > score:
                 continue
-
-            box = self.unclip(points, self.unclip_ratio).reshape(-1, 1, 2)
+            box = self.unclip(points, self.unclip_ratio)
             box, sside = self.get_mini_boxes(box)
             if sside < self.min_size + 2:
                 continue
-            
-            box = np.array(box)
             box[:, 0] = np.clip(np.round(box[:, 0] / width * dest_width), 0, dest_width)
             box[:, 1] = np.clip(np.round(box[:, 1] / height * dest_height), 0, dest_height)
-            boxes.append(box.astype(np.int16))
+            boxes.append(box)
             scores.append(score)
         return np.array(boxes, dtype=np.int16), scores
-
-    def get_mini_boxes(self, contour):
-        bounding_box = cv2.minAreaRect(contour)
-        points = sorted(list(cv2.boxPoints(bounding_box)), key=lambda x: x[0])
-
-        index_1, index_2, index_3, index_4 = 0, 1, 2, 3
-        index_1, index_4 = (0, 1) if points[1][1] > points[0][1] else (1, 0)
-        index_2, index_3 = (2, 3) if points[3][1] > points[2][1] else (3, 2)
-
-        box = [points[index_1], points[index_2], points[index_3], points[index_4]]
-        return box, min(bounding_box[1])
-
-    def box_score_fast(self, bitmap, _box):
-        """box_score_fast: use bbox mean score as the mean score"""
-        h, w = bitmap.shape[:2]
-        box = _box.copy()
-        xmin = np.clip(np.floor(box[:, 0].min()).astype(np.int32), 0, w - 1)
-        xmax = np.clip(np.ceil(box[:, 0].max()).astype(np.int32), 0, w - 1)
-        ymin = np.clip(np.floor(box[:, 1].min()).astype(np.int32), 0, h - 1)
-        ymax = np.clip(np.ceil(box[:, 1].max()).astype(np.int32), 0, h - 1)
-        mask = np.zeros((ymax - ymin + 1, xmax - xmin + 1), dtype=np.uint8)
-        box[:, 0] = box[:, 0] - xmin
-        box[:, 1] = box[:, 1] - ymin
-        cv2.fillPoly(mask, box.reshape(1, -1, 2).astype(np.int32), 1)
-        return cv2.mean(bitmap[ymin:ymax + 1, xmin:xmax + 1], mask)[0]
 
     def __call__(self, outs_dict, image_size):
         pred = outs_dict['maps'][:, 0, :, :]
@@ -287,7 +286,7 @@ class TextRecognizer():
         self.limited_min_width = 16
 
         char_dict_src = download_file('multiple/models/ppocr_keys_v1.txt')
-        self.postprocess_op = BaseRecLabelDecode(char_dict_src, character_type='ch', use_space_char=True)
+        self.postprocess_op = BaseRecLabelDecode(char_dict_src, use_space_char=True)
 
         rec_src = download_file('multiple/models/ocr_rec.onnx')
         self.ort_session = ort.InferenceSession(rec_src)
