@@ -56,7 +56,7 @@ def prepare_input(img, shape):
     # left, top, right, bottom = round(dw - 0.1), round(dh - 0.1), round(dw + 0.1), round(dh + 0.1)
     left, top, right, bottom = 0, 0, shape[3] - size[0], shape[2] - size[1]
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))
-    img = img.transpose(2, 0, 1).reshape(shape).astype(np.float32)
+    img = img.transpose((2, 0, 1)).reshape(shape).astype(np.float32)
     return img / 255
 
 

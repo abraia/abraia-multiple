@@ -223,7 +223,8 @@ class TextDetector():
         self.postprocess_op = DBPostProcess(thresh=0.3, box_thresh=0.5, max_candidates=1000, unclip_ratio=1.6)
 
         det_src = download_file('multiple/models/ocr_det.onnx')
-        self.ort_session = ort.InferenceSession(det_src)
+        self.session = ort.InferenceSession(det_src)
+        self.input_name = self.session.get_inputs()[0].name
     
     def order_points_clockwise(self, pts):
         """
@@ -260,17 +261,19 @@ class TextDetector():
         dt_boxes = np.array(dt_boxes_new)
         return dt_boxes
 
-    def __call__(self, img):
-        height, width = img.shape[:2]
+    def preprocess(self, img):
         img, shape_ratio = resize_img(img, limit_side_len=960)
         img = (img / 255 - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
-        img = img.astype(np.float32).transpose(2, 0, 1)
-        img = np.expand_dims(img, axis=0)
+        img = img.astype(np.float32).transpose((2, 0, 1))
+        return np.expand_dims(img, axis=0)
 
-        ort_inputs = {self.ort_session.get_inputs()[0].name:img}
-        ort_outs = self.ort_session.run(None, ort_inputs)
+    def __call__(self, img):
+        height, width = img.shape[:2]
 
-        post_result = self.postprocess_op({'maps': ort_outs[0]}, (width, height))
+        inputs = {self.input_name: self.preprocess(img)}
+        outputs = self.session.run(None, inputs)
+
+        post_result = self.postprocess_op({'maps': outputs[0]}, (width, height))
         dt_boxes = post_result[0]['points']
         
         dt_boxes = self.filter_tag_det_res(dt_boxes, (width, height))
@@ -289,7 +292,7 @@ class TextRecognizer():
         self.postprocess_op = BaseRecLabelDecode(char_dict_src, use_space_char=True)
 
         rec_src = download_file('multiple/models/ocr_rec.onnx')
-        self.ort_session = ort.InferenceSession(rec_src)
+        self.session = ort.InferenceSession(rec_src)
        
     def resize_norm_img(self, img, max_wh_ratio):
         imgC, imgH, imgW = self.rec_image_shape
@@ -302,7 +305,7 @@ class TextRecognizer():
         resized_w = imgW if ratio_imgH > imgW else int(ratio_imgH)
         resized_image = cv2.resize(img, (resized_w, imgH))
         resized_image = (resized_image / 255 - 0.5) / 0.5
-        resized_image = resized_image.astype(np.float32).transpose(2, 0, 1)
+        resized_image = resized_image.astype(np.float32).transpose((2, 0, 1))
         padding_im = np.zeros((imgC, imgH, imgW), dtype=np.float32)
         padding_im[:, :, 0:resized_w] = resized_image
         return padding_im
@@ -330,8 +333,8 @@ class TextRecognizer():
                 norm_img_batch.append(norm_img)
 
             norm_img_batch = np.concatenate(norm_img_batch)
-            ort_inputs = {self.ort_session.get_inputs()[0].name: norm_img_batch}
-            ort_outs = self.ort_session.run(None, ort_inputs)
+            ort_inputs = {self.session.get_inputs()[0].name: norm_img_batch}
+            ort_outs = self.session.run(None, ort_inputs)
             outputs1 = ort_outs[0]
         
         rec_result = self.postprocess_op(outputs1)

@@ -13,8 +13,8 @@ try:
 except ImportError:
     print('Install the scipy package to work with matlab files')
 
-from .client import Abraia
-from .utils import temporal_src
+from ..client import Abraia
+from ..utils import temporal_src
 
 
 class Multiple(Abraia):

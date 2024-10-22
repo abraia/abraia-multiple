@@ -1,5 +1,3 @@
-from .multiple import Multiple
-
 import math
 import numpy as np
 import scipy.ndimage as nd
@@ -17,6 +15,7 @@ from keras.utils import np_utils
 from keras.models import Model
 from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
+from . import Multiple
 
 multiple = Multiple()
 

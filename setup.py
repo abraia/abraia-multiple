@@ -9,10 +9,14 @@ with open('README.md') as f:
 with pathlib.Path('requirements.txt').open() as requirements_txt:
     install_requires = [str(requirement) for requirement
         in pkg_resources.parse_requirements(requirements_txt)]
+    
+extras_require = {
+    'multiple': ['spectral', 'scipy']
+}
 
 setup(
     name='abraia',
-    version='0.17.1',
+    version='0.17.2',
     description='Abraia Python SDK',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -25,5 +29,6 @@ setup(
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0', 'pytest-runner'],
     scripts=['scripts/abraia', 'scripts/abraia.bat'],
-    install_requires=install_requires
+    install_requires=install_requires,
+    extras_require=extras_require
 )
