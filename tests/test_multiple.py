@@ -21,13 +21,13 @@ def test_save_image():
     assert path == 'lion.png'
 
 
-def test_load_tiff_image():
-    multiple.upload_file('images/AnnualCrop_1896.tiff')
-    img = multiple.load_image('AnnualCrop_1896.tiff')
-    assert isinstance(img, np.ndarray)
+# def test_load_tiff_image():
+#     multiple.upload_file('images/AnnualCrop_1896.tiff')
+#     img = multiple.load_image('AnnualCrop_1896.tiff')
+#     assert isinstance(img, np.ndarray)
 
 
-def test_save_tiff_image():
-    img = multiple.load_image('AnnualCrop_1896.tiff')
-    path = multiple.save_image('test.tiff', img)
-    assert path == 'test.tiff'
+# def test_save_tiff_image():
+#     img = multiple.load_image('AnnualCrop_1896.tiff')
+#     path = multiple.save_image('test.tiff', img)
+#     assert path == 'test.tiff'

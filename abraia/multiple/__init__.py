@@ -1,6 +1,10 @@
-import tifffile
 import numpy as np
 from PIL import Image
+
+try:
+    import tifffile
+except ImportError:
+    print('Install the tifffile package to work with tiff files')
 
 try:
     import spectral

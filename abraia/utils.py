@@ -13,9 +13,10 @@ API_URL = 'https://api.abraia.me'
 
 
 def download(url, dest, chunk_size=1024):
+    filename = os.path.basename(dest)
     resp = requests.get(url, stream=True, allow_redirects=True)
     total = int(resp.headers.get('content-length', 0))
-    with open(dest, 'wb') as file, tqdm(desc=dest, total=total, unit='iB', unit_scale=True, unit_divisor=1024) as bar:
+    with open(dest, 'wb') as file, tqdm(desc=filename, total=total, unit='iB', unit_scale=True, unit_divisor=1024) as bar:
         for data in resp.iter_content(chunk_size=chunk_size):
             size = file.write(data)
             bar.update(size)
