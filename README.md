@@ -235,15 +235,21 @@ abraia convert --width 300 --height 300 --mode crop [path] [dest]
 
 ## Hyperspectral image analysis toolbox
 
-The Multiple class provides seamless integration of multispectral and hyperspectral images. ou just need to click on the open in Colab button to start with one of the available Abraia-Multiple notebooks:
+The Multiple extension provides seamless integration of multispectral and hyperspectral images. It has being developed by [ABRAIA](https://abraia.me/about) in the [Multiple project](https://multipleproject.eu/) to extend the Abraia SDK and Cloud Platform providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
+
+Just click on one of the available Colab's notebooks to directly start testing the multispectral capabilities:
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-classification.ipynb) Hyperspectral image classification
 
-The Multiple extension has being developed by [ABRAIA](https://abraia.me/about) in the [Multiple project](https://multipleproject.eu/) to extend the Abraia SDK and Cloud Platform providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
-
 ![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
+
+Or install the multiple extension to use the Abraia-Multiple SDK:
+
+```sh
+python -m pip install -U "abraia[multiple]"
+```
 
 For instance, you can directly load and save ENVI files, and their metadata.
 

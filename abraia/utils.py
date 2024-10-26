@@ -3,12 +3,22 @@ import json
 import tempfile
 import requests
 
+from tqdm import tqdm
 from PIL import Image
 
 tempdir = tempfile.gettempdir()
 
 
 API_URL = 'https://api.abraia.me'
+
+
+def download(url, dest, chunk_size=1024):
+    resp = requests.get(url, stream=True, allow_redirects=True)
+    total = int(resp.headers.get('content-length', 0))
+    with open(dest, 'wb') as file, tqdm(desc=dest, total=total, unit='iB', unit_scale=True, unit_divisor=1024) as bar:
+        for data in resp.iter_content(chunk_size=chunk_size):
+            size = file.write(data)
+            bar.update(size)
 
 
 def url_path(path):
@@ -25,8 +35,9 @@ def download_file(path):
     url = url_path(path)
     dest = temporal_src(os.path.basename(url))
     if not os.path.exists(dest):
-        r = requests.get(url, allow_redirects=True)
-        open(dest, 'wb').write(r.content)
+        # r = requests.get(url, allow_redirects=True)
+        # open(dest, 'wb').write(r.content)
+        download(url, dest)
     return dest
 
 
