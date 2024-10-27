@@ -79,7 +79,7 @@ def draw_blurred_polygon(img, polygon):
 
 
 def draw_text(img, text, point, background_color = None, text_color = (255, 255, 255), 
-              text_scale = 0.8, padding = 8):
+              text_scale = 0.8, padding = 6):
     text_font, text_thickness = cv2.FONT_HERSHEY_DUPLEX, 1
     w, h = cv2.getTextSize(text, text_font, text_scale, text_thickness)[0]
     width, height = w + 2 * padding, h + 2 * padding
@@ -102,12 +102,18 @@ def draw_overlay(img, overlay, rect, opacity = 1):
     return img
 
 
+def calculate_optimal_thickness(img_size):
+    return 2 if min(img_size) < 1080 else 4
+
+
 def calculate_optimal_text_scale(img_size):
-    return min(img_size) * 1e-3
+    return min(img_size) * 0.0008
 
 
 def render_results(img, results):
-    thickness = 2 if min(img.shape[:2]) < 1080 else 4
+    thickness = calculate_optimal_thickness(img.shape[:2])
+    text_scale = calculate_optimal_text_scale(img.shape[:2])
+    print(text_scale)
     for result in results:
         label = result.get('label')
         score = result.get('confidence')
@@ -123,5 +129,5 @@ def render_results(img, results):
         if (label):
             text = f"{label} {round(100 * score, 1)}%" if score else label
             point = result.get('box', [0, 0, 0, 0])[:2]
-            draw_text(img, text, point, background_color=color)
+            draw_text(img, text, point, background_color=color, text_scale=text_scale, padding=thickness*3)
     return img

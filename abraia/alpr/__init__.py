@@ -68,7 +68,7 @@ class LisencePlateDetector():
             pts = np.array(pts / np.array([w, h])) * np.array([width, height])
             pt1, pt2 = pts.min(axis=0), pts.max(axis=0)
             box = [round(pt1[0]), round(pt1[1]), round(pt2[0] - pt1[0]), round(pt2[1] - pt1[1])]
-            objects.append({'box': box, 'confidence': prob, 'points': pts.astype(np.int32)})
+            objects.append({'box': box, 'confidence': float(prob), 'points': pts.astype(np.int32)})
         results = nms(objects, self.iou_threshold)
         return results
 
@@ -101,11 +101,7 @@ class ALPR():
     def recognize(self, img, results):
         for result in results:
             points = result['points']
-            xmin, ymin = points.min(axis=0)
             img_lp = extract_plate(img, points, self.out_size)
             outputs = self.text_system(img_lp)
-            lines = []
-            for output in outputs[::-1]:
-                lines.append({'text': output['text'], 'score': output['score'], 'point': [int(xmin), int(ymin)]})
-            result['lines'] = lines
+            result['lines'] = outputs
         return results

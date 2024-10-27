@@ -258,8 +258,7 @@ class TextDetector():
             if rect_width <= 3 or rect_height <= 3:
                 continue
             dt_boxes_new.append(box)
-        dt_boxes = np.array(dt_boxes_new)
-        return dt_boxes
+        return np.array(dt_boxes_new)
 
     def preprocess(self, img):
         img, shape_ratio = resize_img(img, limit_side_len=960)
@@ -368,6 +367,6 @@ class TextSystem():
             rec_res = self.text_recognizer(img_crop_list)
             for box, (text, score) in zip(dt_boxes, rec_res):
                 if score >= self.drop_score:
-                    results.append({'box': box, 'text': text, 'score': float(score)})
+                    results.append({'box': box.astype(np.int32), 'text': text, 'score': float(score)})
         return results 
         

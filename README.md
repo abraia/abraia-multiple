@@ -99,7 +99,7 @@ save_image('images/rolling-stones-identified.jpg', out)
 
 ![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
 
-### Blur license plates
+### License plates blurring
 
 Automatically blur car license plates in videos with just a few lines of code.
 
@@ -122,6 +122,29 @@ for k, frame in enumerate(video):
 ```
 
 ![car license plate blurred](https://github.com/abraia/abraia-multiple/raw/master/images/blur.jpg)
+
+### License plate recognition
+
+Automatically recognize car license plates in images and video streams.
+
+```python
+from abraia import draw
+from abraia.alpr import ALPR
+
+alpr = ALPR()
+
+img = draw.load_image('images/car.jpg')
+results = alpr.detect(img)
+results = alpr.recognize(img, results)
+results = [result for result in results if len(result['lines'])]
+for result in results:
+    result['label'] = '\n'.join([line.get('text', '') for line in result['lines']])
+    del result['confidence']
+frame = draw.render_results(img, results)
+draw.show_image(img)
+```
+
+![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
 ## Image analysis toolbox
 
