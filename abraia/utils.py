@@ -4,7 +4,7 @@ import tempfile
 import requests
 
 from tqdm import tqdm
-from PIL import Image
+from PIL import Image, ImageOps
 
 tempdir = tempfile.gettempdir()
 
@@ -46,9 +46,10 @@ def load_json(src):
     with open(src, 'r') as file:
         return json.load(file)
 
-
-def load_image(src):
-    return Image.open(src).convert('RGB')
+def load_image(src, mode='RGB'):
+    # Fix image orientation based on its EXIF data
+    im = ImageOps.exif_transpose(Image.open(src)) 
+    return im.convert(mode)
 
 
 def get_color(idx):

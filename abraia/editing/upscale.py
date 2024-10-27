@@ -102,8 +102,10 @@ class Upscaler:
     def __init__(self, overlap = 8):
         self.scale = 4
         self.overlap = overlap
-        self.tile_size = (1024, 1024)
-        model_src = download_file('multiple/models/editing/4xNomosWebPhoto_RealPLKSR_fp32_opset17.onnx')
+        # self.tile_size = (1024, 1024)
+        # # model_src = download_file('multiple/models/editing/4xNomosWebPhoto_RealPLKSR_fp32_opset17.onnx')
+        self.tile_size = (128, 128)
+        model_src = download_file('multiple/models/editing/Real-ESRGAN-General-x4v3.onnx')
         self.session = ort.InferenceSession(model_src)
         self.input_name = self.session.get_inputs()[0].name
 

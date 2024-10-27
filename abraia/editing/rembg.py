@@ -2,12 +2,13 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
+from PIL import Image
+
 from ..utils import download_file
 
 ort.set_default_logger_severity(3)
 
 kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-
 
 def post_process(mask):
     """
@@ -22,6 +23,12 @@ def post_process(mask):
     return mask
 
 
+def naive_cutout(img, mask):
+    empty = Image.new("RGBA", (img.size), 0)
+    cutout = Image.composite(img, empty, mask)
+    return cutout
+
+
 class RemoveBG:
     
     def __init__(self):
@@ -33,7 +40,7 @@ class RemoveBG:
         self.input_name = self.session.get_inputs()[0].name
 
     def preprocess(self, img):
-        img = cv2.resize(img, self.image_size, interpolation=cv2.INTER_LINEAR)
+        img = cv2.resize(img, self.image_size, interpolation=cv2.INTER_CUBIC)
         img = img / np.max(img) - np.array(self.input_mean)
         img = img.transpose((2, 0, 1)).astype(np.float32)
         return np.expand_dims(img, axis=0)
@@ -57,6 +64,5 @@ class RemoveBG:
         mask = self.predict(img)
         if post_process_mask:
             mask = post_process(mask)
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2RGBA)
-        img[:, :, 3] = mask
+        img = np.array(naive_cutout(Image.fromarray(img), Image.fromarray(mask)))
         return img
