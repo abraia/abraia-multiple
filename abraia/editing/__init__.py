@@ -9,7 +9,7 @@ from .upscale import Upscaler
 def remove_background(im):
     rembg = RemoveBG()
     img = np.array(im)
-    out = rembg.remove(img, True)
+    out = rembg.remove(img)
     return Image.fromarray(out)
 
 

@@ -6,7 +6,7 @@ import onnxruntime as ort
 
 from PIL import Image
 
-from .ops import py_cpu_nms, normalize
+from .ops import py_cpu_nms, normalize, mask_to_polygon
 from .utils import download_file, load_json, load_image, get_color
 from .video import Video
 from . import draw
@@ -84,9 +84,10 @@ def non_maximum_suppression(objects, iou_threshold):
         s = obj['confidence']
         x, y, w, h = obj['box']
         dets.append([x, y, x + w, y + h, s])
-    dets = np.array(dets)
-    idxs = py_cpu_nms(dets, iou_threshold)
-    return [objects[idx] for idx in idxs]
+    if dets:
+        idxs = py_cpu_nms(np.array(dets), iou_threshold)
+        return [objects[idx] for idx in idxs]
+    return []
 
 
 def sigmoid_mask(z):
@@ -107,23 +108,7 @@ def get_mask(row, box, size):
     return mask
 
 
-def mask_to_polygon(mask, origin):
-    """Returns the largest bounding polygon based on the segmentation mask."""
-    contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-    lengths = [len(contour) for contour in contours]
-    polygon = contours[np.argmax(lengths)].reshape(-1, 2)
-    polygon = polygon + np.array(origin)
-    return polygon.tolist()
-
-
-def approximate_polygon(polygon, approx=0.02):
-    contour = np.array([polygon]).astype(np.int32)
-    epsilon = approx * cv2.arcLength(contour, True)
-    contour = cv2.approxPolyDP(contour, epsilon, True)
-    return contour.reshape(-1, 2).tolist()
-
-
-def process_output(outputs, size, shape, classes, confidence, iou_threshold):
+def process_output(outputs, size, shape, classes, confidence, iou_threshold, approx=0.001):
     """Converts the RAW model output from YOLOv8 to an array of detected
     objects, containing the bounding box, label and the probability.
     """
@@ -132,7 +117,6 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
     if len(outputs) == 2:
         output1 = outputs[1][0].astype("float")
         output1 = output1.reshape(output1.shape[0], output1.shape[1] * output1.shape[2])
-    
     img_width, img_height = size
     model_width, model_height = shape[3], shape[2]
     scale = 1 / min(model_width / img_width, model_height / img_height)
@@ -150,7 +134,6 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
             obj['mask'] = row[4+len(classes):]
         objects.append(obj)
     results = non_maximum_suppression(objects, iou_threshold)
-
     for result in results:
         if len(outputs) == 2:
             x, y, w, h = result['box']
@@ -158,7 +141,7 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold):
             size = (round(model_width * scale), round(model_height * scale))
             mask = get_mask(mask, result['box'], size)
             mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)[1]
-            result['polygon'] = mask_to_polygon(mask, (x, y))
+            result['polygon'] = mask_to_polygon(mask, (x, y), approx)
             # result.pop('mask', None)
             result['mask'] = mask
     return results
@@ -178,25 +161,21 @@ def count_objects(results):
 class Model:
     def load(self, model_uri):
         config_uri = f"{os.path.splitext(model_uri)[0]}.json"
-        config_src = download_file(config_uri)
-        self.config = load_json(config_src)
-        
+        self.config = load_json(download_file(config_uri))
         providers = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
-
-        model_src = download_file(model_uri)
-        self.session = ort.InferenceSession(model_src, providers=providers)
+        providers = [provider for provider in ort.get_available_providers() if provider in providers] 
+        self.session = ort.InferenceSession(download_file(model_uri), providers=providers)
         self.input_name = self.session.get_inputs()[0].name
         self.input_shape = self.config['inputShape']
 
-    def run(self, img, confidence=0.25, iou_threshold=0.7):
-        img = img if isinstance(img, np.ndarray) else np.array(img.convert("RGB"))
+    def run(self, img, confidence=0.25, iou_threshold=0.7, approx=0.0001):
         if self.config.get('task'):
             img_size = img.shape[1], img.shape[0]
-            outputs = self.session.run(None, {self.input_name: prepare_input(img, self.input_shape)})
-            return process_output(outputs, img_size, self.input_shape, self.config['classes'], confidence, iou_threshold)
+            inputs = {self.input_name: prepare_input(img, self.input_shape)}
+            outputs = self.session.run(None, inputs)
+            return process_output(outputs, img_size, self.input_shape, self.config['classes'], confidence, iou_threshold, approx)
         outputs = self.session.run(None, {self.input_name: preprocess(img)})
-        results = postprocess(outputs, self.config['classes'])
-        return results
+        return postprocess(outputs, self.config['classes'])
     
 
 def load_model(model_uri):

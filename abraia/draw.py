@@ -107,7 +107,7 @@ def calculate_optimal_thickness(img_size):
 
 
 def calculate_optimal_text_scale(img_size):
-    return min(img_size) * 0.0008
+    return max(min(img_size) * 0.0008, 0.8)
 
 
 def render_results(img, results):

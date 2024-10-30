@@ -33,12 +33,11 @@ def temporal_src(path):
 
 
 def download_file(path):
-    url = url_path(path)
-    dest = temporal_src(os.path.basename(url))
+    dest = temporal_src(path)
     if not os.path.exists(dest):
         # r = requests.get(url, allow_redirects=True)
         # open(dest, 'wb').write(r.content)
-        download(url, dest)
+        download(url_path(path), dest)
     return dest
 
 

@@ -123,7 +123,7 @@ for k, frame in enumerate(video):
 
 ![car license plate blurred](https://github.com/abraia/abraia-multiple/raw/master/images/blur.jpg)
 
-### License plate recognition
+### License plates recognition
 
 Automatically recognize car license plates in images and video streams.
 

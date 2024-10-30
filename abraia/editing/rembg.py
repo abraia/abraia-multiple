@@ -40,7 +40,7 @@ class RemoveBG:
         self.input_name = self.session.get_inputs()[0].name
 
     def preprocess(self, img):
-        img = cv2.resize(img, self.image_size, interpolation=cv2.INTER_CUBIC)
+        img = cv2.resize(img, self.image_size, interpolation=cv2.INTER_LINEAR)
         img = img / np.max(img) - np.array(self.input_mean)
         img = img.transpose((2, 0, 1)).astype(np.float32)
         return np.expand_dims(img, axis=0)
@@ -50,7 +50,7 @@ class RemoveBG:
         ma, mi = np.max(pred), np.min(pred)
         pred = (pred - mi) / (ma - mi)
         mask = (pred * 255).astype(np.uint8)
-        mask = cv2.resize(mask, size, interpolation=cv2.INTER_CUBIC)
+        mask = cv2.resize(mask, size, interpolation=cv2.INTER_LINEAR)
         return mask
 
     def predict(self, img):
