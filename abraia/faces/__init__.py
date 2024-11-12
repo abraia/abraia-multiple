@@ -1,5 +1,6 @@
 import numpy as np
 from .mtcnn import MTCNN
+from .retinaface import Retinaface
 from .arcface import ArcFace
 from .transform import align_faces, align_face
 
@@ -14,7 +15,8 @@ def cosine_similarity(feat1, feat2):
 
 class Recognition:
     def __init__(self):
-        self.detector = MTCNN()
+        # self.detector = MTCNN()
+        self.detector = Retinaface()
         self.arcface = ArcFace()
 
     def detect_faces(self, img):

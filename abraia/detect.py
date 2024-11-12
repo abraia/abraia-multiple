@@ -108,7 +108,7 @@ def get_mask(row, box, size):
     return mask
 
 
-def process_output(outputs, size, shape, classes, confidence, iou_threshold, approx=0.001):
+def process_output(outputs, size, shape, classes, conf_threshold=0.25, iou_threshold=0.7, approx=0.001):
     """Converts the RAW model output from YOLOv8 to an array of detected
     objects, containing the bounding box, label and the probability.
     """
@@ -125,7 +125,7 @@ def process_output(outputs, size, shape, classes, confidence, iou_threshold, app
         xc, yc, w, h = row[:4]
         probs = row[4:4+len(classes)]
         idx = probs.argmax()
-        if probs[idx] < confidence:
+        if probs[idx] < conf_threshold:
             continue
         x1, y1 = round((xc - w/2) * scale), round((yc - h/2) * scale)
         x2, y2 = round((xc + w/2) * scale), round((yc + h/2) * scale)
@@ -168,12 +168,12 @@ class Model:
         self.input_name = self.session.get_inputs()[0].name
         self.input_shape = self.config['inputShape']
 
-    def run(self, img, confidence=0.25, iou_threshold=0.7, approx=0.0001):
+    def run(self, img, conf_threshold=0.25, iou_threshold=0.7, approx=0.001):
         if self.config.get('task'):
             img_size = img.shape[1], img.shape[0]
             inputs = {self.input_name: prepare_input(img, self.input_shape)}
             outputs = self.session.run(None, inputs)
-            return process_output(outputs, img_size, self.input_shape, self.config['classes'], confidence, iou_threshold, approx)
+            return process_output(outputs, img_size, self.input_shape, self.config['classes'], conf_threshold, iou_threshold, approx)
         outputs = self.session.run(None, {self.input_name: preprocess(img)})
         return postprocess(outputs, self.config['classes'])
     

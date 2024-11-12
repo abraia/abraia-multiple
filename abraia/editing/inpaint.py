@@ -27,7 +27,7 @@ class LAMA:
         out_image = cv2.resize(image, self.image_size, interpolation=cv2.INTER_LINEAR)
         out_mask = cv2.resize(mask, self.image_size, interpolation=cv2.INTER_NEAREST)
 
-        out_image = (out_image.transpose((2, 0, 1)) / 255)
+        out_image = (out_image.transpose(2, 0, 1) / 255)
         out_mask = (out_mask[np.newaxis, ...] / 255)
 
         if pad_out_to_modulo is not None and pad_out_to_modulo > 1:

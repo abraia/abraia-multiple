@@ -424,7 +424,7 @@ class MTCNN(object):
 
         return result  # total_boxes, points
 
-    def detect_faces(self, img):
+    def detect_faces(self, img, iou_threshold = 0.5):
         """
         Detects bounding boxes from the specified image.
         :param img: image to process
@@ -438,8 +438,8 @@ class MTCNN(object):
             width, height = int(bbox[2] - x), int(bbox[3] - y)
             confidence = float(bbox[4])
             results.append({
-                'box': [x, y, width, height],
                 'confidence': confidence,
+                'box': [x, y, width, height],
                 'keypoints': keypoints,
                 'landmarks': {
                     'left_eye': (int(keypoints[0, 0]), int(keypoints[0, 1])),

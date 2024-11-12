@@ -63,9 +63,8 @@ def mask_to_polygon(mask, origin=[0, 0], approx=0.001):
     for contour, parent_idx in zip(contours, parent_idxs):
         if parent_idx >= 0 and len(contour) >= 3 and len(contours_parent[parent_idx]):
             contours_parent[parent_idx] = merge_with_parent(contours_parent[parent_idx], contour)
-    polygons = [contour for contour in contours_parent if len(contour)]
-    lengths = [len(polygon) for polygon in polygons]
-    polygon = polygons[np.argmax(lengths)] + np.array(origin)
+    lengths = [len(contour) for contour in contours_parent]
+    polygon = contours_parent[np.argmax(lengths)] + np.array(origin)
     return polygon.tolist()
 
 
@@ -125,3 +124,15 @@ def py_cpu_nms(dets, thresh):
         order = order[inds + 1]
 
     return keep
+
+
+def non_maximum_suppression(objects, iou_threshold):
+    dets = []
+    for obj in objects:
+        s = obj['confidence']
+        x, y, w, h = obj['box']
+        dets.append([x, y, x + w, y + h, s])
+    if dets:
+        idxs = py_cpu_nms(np.array(dets), iou_threshold)
+        return [objects[idx] for idx in idxs]
+    return []

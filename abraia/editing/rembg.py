@@ -42,13 +42,15 @@ class RemoveBG:
     def preprocess(self, img):
         img = cv2.resize(img, self.image_size, interpolation=cv2.INTER_LINEAR)
         img = img / np.max(img) - np.array(self.input_mean)
+        # img = img / 255 - np.array(self.input_mean)
         img = img.transpose((2, 0, 1)).astype(np.float32)
         return np.expand_dims(img, axis=0)
     
     def postprocess(self, out, size):
         pred = out.reshape(self.image_size)
-        ma, mi = np.max(pred), np.min(pred)
-        pred = (pred - mi) / (ma - mi)
+        # ma, mi = np.max(pred), np.min(pred)
+        # pred = (pred - mi) / (ma - mi)
+        pred[pred < 0.5] = 0
         mask = (pred * 255).astype(np.uint8)
         mask = cv2.resize(mask, size, interpolation=cv2.INTER_LINEAR)
         return mask

@@ -113,7 +113,6 @@ def calculate_optimal_text_scale(img_size):
 def render_results(img, results):
     thickness = calculate_optimal_thickness(img.shape[:2])
     text_scale = calculate_optimal_text_scale(img.shape[:2])
-    print(text_scale)
     for result in results:
         label = result.get('label')
         score = result.get('confidence')

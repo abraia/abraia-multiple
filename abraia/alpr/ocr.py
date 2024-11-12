@@ -23,12 +23,14 @@ import onnxruntime as ort
 from ..utils import download_file
 
 
-def get_char(character_dict_path):
+def get_char(character_dict_path, use_space_char=False):
     character_str = ""
     with open(character_dict_path, "rb") as fin:
         lines = fin.readlines()
         for line in lines:
             character_str += line.decode("utf-8").strip("\n").strip("\r\n")
+    if use_space_char:
+        character_str += " "
     return character_str
 
 
@@ -37,12 +39,8 @@ class BaseRecLabelDecode():
     def __init__(self, character_dict_path=None, use_space_char=False):
         self.beg_str = "sos"
         self.end_str = "eos"
-            
-        self.character_str = get_char(character_dict_path)
-        if use_space_char:
-            self.character_str += " "
-        dict_character = ['blank'] + list(self.character_str)
-        
+        character_str = get_char(character_dict_path, use_space_char)
+        dict_character = ['blank'] + list(character_str)
         self.dict = {char: i for i, char in enumerate(dict_character)}
         self.character = dict_character
 
@@ -57,7 +55,6 @@ class BaseRecLabelDecode():
                 if text_index[batch_idx][idx] in ignored_tokens:
                     continue
                 if is_remove_duplicate:
-                    # only for predict
                     if idx > 0 and text_index[batch_idx][idx - 1] == text_index[batch_idx][idx]:
                         continue
                 char_list.append(self.character[int(text_index[batch_idx][idx])])
@@ -221,7 +218,6 @@ def sorted_boxes(dt_boxes):
 class TextDetector():
     def __init__(self):
         self.postprocess_op = DBPostProcess(thresh=0.3, box_thresh=0.5, max_candidates=1000, unclip_ratio=1.6)
-
         det_src = download_file('multiple/models/ocr_det.onnx')
         self.session = ort.InferenceSession(det_src)
         self.input_name = self.session.get_inputs()[0].name
@@ -268,13 +264,10 @@ class TextDetector():
 
     def __call__(self, img):
         height, width = img.shape[:2]
-
         inputs = {self.input_name: self.preprocess(img)}
         outputs = self.session.run(None, inputs)
-
         post_result = self.postprocess_op({'maps': outputs[0]}, (width, height))
         dt_boxes = post_result[0]['points']
-        
         dt_boxes = self.filter_tag_det_res(dt_boxes, (width, height))
         return dt_boxes
 
