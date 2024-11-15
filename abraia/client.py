@@ -13,8 +13,8 @@ from . import config
 from .utils import API_URL, temporal_src
 
 
-def file_path(f, userid):
-    return f['source'][len(userid)+1:]
+def file_path(source, userid):
+    return source[len(userid)+1:]
 
 
 def md5sum(src):
@@ -42,6 +42,12 @@ class Abraia:
         self.auth = config.load_auth(abraia_key)
         self.userid = abraia_id
 
+    def get_api(self, url, params):
+        resp = requests.get(url, params=params, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        return resp.json()
+
     def list_files(self, path=''):
         dirname = os.path.dirname(path)
         basename = os.path.basename(path)
@@ -54,8 +60,8 @@ class Abraia:
         for f in resp['files']:
             f['date'] = datetime.fromtimestamp(f['date'])
         files, folders = resp['files'], resp['folders']
-        files = list(map(lambda f: {'path': file_path(f, self.userid), 'name': f['name'], 'size': f['size'], 'date': f['date']}, files))
-        folders = list(map(lambda f: {'path': file_path(f, self.userid), 'name': f['name']}, folders))
+        files = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name'], 'size': f['size'], 'date': f['date']}, files))
+        folders = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name']}, folders))
         if basename:
             files = list(filter(lambda f: fnmatch(f['path'], path), files))
             folders = list(filter(lambda f: fnmatch(f['path'], path), folders))
@@ -85,8 +91,8 @@ class Abraia:
             resp = requests.put(url, data=data, headers={'Content-Type': type})
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
-            return file_path({'name': name, 'source': f"{self.userid}/{path}"}, self.userid)
-        return file_path(resp['file'], self.userid)
+            return file_path(f"{self.userid}/{path}", self.userid)
+        return file_path(resp['file']['source'], self.userid)
 
     def check_file(self, path):
         url = f"{API_URL}/files/{self.userid}/{path}"
@@ -104,7 +110,7 @@ class Abraia:
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
-        return file_path(resp['file'], self.userid)
+        return file_path(resp['file']['source'], self.userid)
 
     def download_file(self, path, dest='', cache=False):
         url = f"{API_URL}/files/{self.userid}/{path}"
@@ -127,7 +133,7 @@ class Abraia:
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
-        return file_path(resp['file'], self.userid)
+        return file_path(resp['file']['source'], self.userid)
 
     def load_metadata(self, path):
         url = f"{API_URL}/metadata/{self.userid}/{path}"
@@ -157,6 +163,26 @@ class Abraia:
             raise APIError(resp.text, resp.status_code)
         with open(dest, 'wb') as f:
             f.write(resp.content)
+
+    def remove_background(self, path, output):
+        url = f"{API_URL}/rekognition/{self.userid}/{path}"
+        params = {'mode': 'background', 'output': output}
+        resp = self.get_api(url, params)
+        if 'Background' in resp:
+            return file_path(json.loads(resp['Background'])['output'], self.userid)
+        return file_path(resp['output'], self.userid)
+
+    def upscale_image(self, path, output):
+        url = f"{API_URL}/rekognition/{self.userid}/{path}"
+        params = {'mode': 'upscale', 'output': output}
+        resp = self.get_api(url, params)
+        return file_path(json.loads(resp)['output'], self.userid)
+
+    def detect_plates(self, path):
+        url = f"{API_URL}/rekognition/{self.userid}/{path}"
+        params = {'mode': 'onnx', 'model': 'multiple/models/alpd-seg.onnx'}
+        resp = self.get_api(url, params)
+        return resp['results']
 
     def load_file(self, path):
         stream = self.download_file(path)
