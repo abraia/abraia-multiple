@@ -6,9 +6,8 @@ from ..utils import download_file
 
 class ArcFace:
     def __init__(self):
-        model_src = download_file('multiple/models/mobilefacenet-res2-6-10-2-dim512.onnx')
+        model_src = download_file('multiple/models/mobilefacenet-res2-6-10-2-dim512.simplified.onnx')
         self.session = ort.InferenceSession(model_src, None)
-        
         self.input_mean, self.input_std = 0.0, 1.0
         inputs = self.session.get_inputs()
         self.input_name = inputs[0].name

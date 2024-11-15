@@ -3,7 +3,7 @@ import numpy as np
 from PIL import Image
 
 from .rembg import RemoveBG
-from .upscale import ESRGAN
+from .upscale import ESRGAN, SwinIR
 
 
 def remove_background(im):

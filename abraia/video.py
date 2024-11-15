@@ -2,7 +2,7 @@ import cv2
 
 
 class Video:
-    def __init__(self, src, output=None):
+    def __init__(self, src=0, output=None):
         self.out = None
         self.quit = False
         self.win_name = ''
@@ -11,7 +11,6 @@ class Video:
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.frame_rate = self.fps
-        print(self.width, self.height, self.fps)
         if output:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             self.out = cv2.VideoWriter(output, fourcc, self.fps, (self.width, self.height))

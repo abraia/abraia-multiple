@@ -71,7 +71,7 @@ class Retinaface:
     def __init__(self):
         self.image_size = (640, 640)
         self.landmarksScale = 0.18181818
-        model_src = download_file('multiple/models/retinaface_mnet25_v2.simplify.onnx')
+        model_src = download_file('multiple/models/retinaface_mnet25_v2.simplified.onnx')
         self.session = ort.InferenceSession(model_src)
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [out.name for out in self.session.get_outputs()]
