@@ -29,19 +29,11 @@ def affine_transform(src_pts, ref_pts):
     return M
 
 
-def align_face(img, src_pts, size=112):
+def align_face(img, src_pts, size):
     dst_pts = ref_pts * size / 112 if size != 112 else ref_pts
     M = similarity_transform(src_pts, dst_pts)
     # M = affine_transform(src_pts, ref_pts)
     return cv2.warpAffine(img, M, (size, size), borderValue=0.0)
-
-
-def align_faces(img, results, size=112):
-    imgs = []
-    for result in results:
-        src_pts = result['keypoints']
-        imgs.append(align_face(img, src_pts, size))
-    return imgs
 
 
 def _umeyama(src, dst, estimate_scale):

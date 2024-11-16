@@ -94,7 +94,7 @@ for src in ['mick-jagger.jpg', 'keith-richards.jpg', 'ronnie-wood.jpg', 'charlie
 
 result = recognition.identify_faces(results, index)
 render_results(out, results)
-save_image('images/rolling-stones-identified.jpg', out)
+save_image(out, 'images/rolling-stones-identified.jpg')
 ```
 
 ![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
@@ -104,6 +104,8 @@ save_image('images/rolling-stones-identified.jpg', out)
 Automatically blur car license plates in videos with just a few lines of code.
 
 ```python
+import numpy as np
+
 from abraia import detect
 from abraia import draw
 
@@ -113,10 +115,10 @@ model = detect.load_model(model_uri)
 src = 'images/cars.mp4'
 video = detect.Video(src, output='images/blur.mp4')
 for k, frame in enumerate(video):
-    results = model.run(frame)
-    for result in results:
-        polygon = detect.approximate_polygon(result['polygon'])
-        frame = draw.draw_blurred_polygon(frame, polygon)
+    results = model.run(frame, approx=0.02)
+    mask = np.zeros(frame.shape[:2], np.uint8)
+    [draw.draw_filled_polygon(mask, result['polygon'], 255) for result in results]
+    frame = draw.draw_blurred_mask(frame, mask)
     video.write(frame)
     video.show(frame)
 ```
