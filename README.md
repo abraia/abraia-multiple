@@ -44,10 +44,10 @@ from abraia import detect
 model_uri = f"multiple/models/yolov8n.onnx"
 model = detect.load_model(model_uri)
 
-im = detect.load_image('people-walking.png').convert('RGB')
-results = model.run(im, confidence=0.5, iou_threshold=0.5)
-im = detect.render_results(im, results)
-im.show()
+img = detect.load_image('people-walking.png')
+results = model.run(img, confidence=0.5, iou_threshold=0.5)
+img = detect.render_results(img, results)
+detect.show_image(img)
 ```
 
 ![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.png)
@@ -55,8 +55,6 @@ im.show()
 To run a multi-object detector on video or directly on a camera stream, you just need to use the Video class to process every frame as is done for images.
 
 ```python
-import numpy as np
-from PIL import Image
 from abraia import detect
 
 model_uri = f"multiple/models/yolov8n.onnx"
@@ -75,10 +73,10 @@ Identify people on images with face recognition as shown bellow.
 
 ```python
 import os
-import numpy as np
 
-from abraia.draw import load_image, save_image, render_results
 from abraia.faces import Recognition
+from abraia.utils import load_image, save_image
+from abraia.draw import render_results
 
 img = load_image('images/rolling-stones.jpg')
 out = img.copy()
@@ -132,10 +130,11 @@ Automatically recognize car license plates in images and video streams.
 ```python
 from abraia import draw
 from abraia.alpr import ALPR
+from abraia.utils import load_image, show_image
 
 alpr = ALPR()
 
-img = draw.load_image('images/car.jpg')
+img = load_image('images/car.jpg')
 results = alpr.detect(img)
 results = alpr.recognize(img, results)
 results = [result for result in results if len(result['lines'])]
@@ -143,7 +142,7 @@ for result in results:
     result['label'] = '\n'.join([line.get('text', '') for line in result['lines']])
     del result['confidence']
 frame = draw.render_results(img, results)
-draw.show_image(img)
+show_image(img)
 ```
 
 ![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)

@@ -3,12 +3,15 @@ import onnxruntime as ort
 
 from ..utils import download_file
 
+sess_options = ort.SessionOptions()
+sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
 
 class SwinIR:
 
     def __init__(self):
         model_src = download_file('multiple/models/editing/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.onnx')
-        self.session = ort.InferenceSession(model_src)
+        self.session = ort.InferenceSession(model_src, sess_options)
         self.input_name = self.session.get_inputs()[0].name
 
     def preprocess(self, img):
@@ -74,13 +77,13 @@ def tiled_upscale(samples, function, scale, tile_size, overlap = 8):
 class ESRGAN:
 
     def __init__(self, overlap = 8):
-        self.scale = 4
+        self.scale = 2
         self.overlap = overlap
         self.tile_size = (1024, 1024)
-        model_src = download_file('multiple/models/editing/4xNomosWebPhoto_RealPLKSR_fp32_opset17.onnx')
-        # self.tile_size = (128, 128)
-        # model_src = download_file('multiple/models/editing/Real-ESRGAN-General-x4v3.onnx')
-        self.session = ort.InferenceSession(model_src)
+        # model_src = download_file('multiple/models/editing/4xNomosWebPhoto_RealPLKSR_fp32_opset17.onnx')
+        # model_src = download_file('multiple/models/editing/4xNomosUni_span_multijpg_fp32_opset17.onnx')
+        model_src = download_file('multiple/models/editing/2xNomosUni_compact_multijpg_ldl_fp32_opset17.onnx')
+        self.session = ort.InferenceSession(model_src, sess_options)
         self.input_name = self.session.get_inputs()[0].name
 
     def preprocess(self, img):

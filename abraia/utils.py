@@ -2,6 +2,7 @@ import os
 import json
 import tempfile
 import requests
+import numpy as np
 
 from tqdm import tqdm
 from PIL import Image, ImageOps
@@ -45,10 +46,19 @@ def load_json(src):
     with open(src, 'r') as file:
         return json.load(file)
 
+
 def load_image(src, mode='RGB'):
     # Fix image orientation based on its EXIF data
     im = ImageOps.exif_transpose(Image.open(src)) 
-    return im.convert(mode)
+    return np.array(im.convert(mode))
+
+
+def save_image(img, dest):
+    Image.fromarray(img).save(dest)
+
+
+def show_image(img):
+    Image.fromarray(img).show()
 
 
 def get_color(idx):

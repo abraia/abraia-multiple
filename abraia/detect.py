@@ -4,12 +4,11 @@ import math
 import numpy as np
 import onnxruntime as ort
 
-from PIL import Image
-
 from .ops import py_cpu_nms, normalize, mask_to_polygon
-from .utils import download_file, load_json, load_image, get_color
+from .utils import download_file, load_json, get_color
+from .utils import load_image, show_image, save_image
+from .draw import render_results
 from .video import Video
-from . import draw
 
 
 def resize(img, size):
@@ -182,11 +181,3 @@ def load_model(model_uri):
     model = Model()
     model.load(model_uri)
     return model
-    
-
-def render_results(img, results):
-    if isinstance(img, np.ndarray):
-        return draw.render_results(img, results)
-    img = np.array(img)
-    img = draw.render_results(img, results)
-    return Image.fromarray(img)

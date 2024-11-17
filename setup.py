@@ -17,7 +17,7 @@ extras_require = {
 
 setup(
     name='abraia',
-    version='0.17.6',
+    version='0.17.7',
     description='Abraia Python SDK',
     long_description=long_description,
     long_description_content_type='text/markdown',

@@ -5,21 +5,6 @@ import numpy as np
 from .utils import hex_to_rgb
 
 
-def load_image(src):
-    return cv2.cvtColor(cv2.imread(src), cv2.COLOR_BGR2RGB)
-
-
-def save_image(img, dest):
-    cv2.imwrite(dest, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-
-
-def show_image(img):
-    cv2.namedWindow('Image', cv2.WINDOW_GUI_NORMAL)
-    cv2.imshow('Image',  cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-    cv2.waitKey(0)
-    cv2.destroyWindow('Image')
-
-
 def draw_point(img, point, color, thickness = 2):
     center, radius = np.round(point).astype(np.int32), thickness
     cv2.circle(img, center, radius, color, -1)
