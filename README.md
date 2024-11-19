@@ -45,7 +45,7 @@ model_uri = f"multiple/models/yolov8n.onnx"
 model = detect.load_model(model_uri)
 
 img = detect.load_image('people-walking.png')
-results = model.run(img, confidence=0.5, iou_threshold=0.5)
+results = model.run(img, conf_threshold=0.5, iou_threshold=0.5)
 img = detect.render_results(img, results)
 detect.show_image(img)
 ```
@@ -62,7 +62,7 @@ model = detect.load_model(model_uri)
 
 video = detect.Video('people-walking.mp4')
 for frame in video:
-    results = model.run(frame, confidence=0.5, iou_threshold=0.5)
+    results = model.run(frame, conf_threshold=0.5, iou_threshold=0.5)
     frame = detect.render_results(frame, results)
     video.show(frame)
 ```
@@ -147,77 +147,9 @@ show_image(img)
 
 ![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
-## Image analysis toolbox
-
-Abraia provides a direct interface to load and save images. You can easily load and show the image, load the file metadata, or save the image as a new one.
-
-```python
-from abraia import Abraia
-
-abraia = Abraia()
-
-im = abraia.load_image('usain.jpg')
-abraia.save_image('usain.png', im)
-im.show()
-```
-
-![plot image](https://github.com/abraia/abraia-multiple/raw/master/images/bolt.png)
-
-Read the image metadata and save it as a JSON file.
-
-```python
-metadata = abraia.load_metadata('usain.jpg')
-abraia.save_json('usain.json', metadata)
-```
-
-    {'FileType': 'JPEG',
-    'MIMEType': 'image/jpeg',
-    'JFIFVersion': 1.01,
-    'ResolutionUnit': 'None',
-    'XResolution': 1,
-    'YResolution': 1,
-    'Comment': 'CREATOR: gd-jpeg v1.0 (using IJG JPEG v62), quality = 80\n',
-    'ImageWidth': 640,
-    'ImageHeight': 426,
-    'EncodingProcess': 'Baseline DCT, Huffman coding',
-    'BitsPerSample': 8,
-    'ColorComponents': 3,
-    'YCbCrSubSampling': 'YCbCr4:2:0 (2 2)',
-    'ImageSize': '640x426',
-     'Megapixels': 0.273}
-
-### Upload and list files
-
-Upload a local `src` file to the cloud `path` and return the list of `files` and `folders` on the specified cloud `folder`.
-
-```python
-import pandas as pd
-
-folder = 'test/'
-abraia.upload_file('images/usain-bolt.jpeg', folder)
-files, folders = abraia.list_files(folder)
-
-pd.DataFrame(files)
-```
-
-![files](https://github.com/abraia/abraia-multiple/raw/master/images/files.png)
-
-To list the root folder just omit the folder value.
-
-### Download and remove files
-
-You can download or remove an stored file just specifying its `path`.
-
-```python
-path = 'test/birds.jpg'
-dest = 'images/birds.jpg'
-abraia.download_file(path, dest)
-abraia.remove_file(path)
-```
-
 ## Command line interface
 
-The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It provides a simple way to manage your files and enables the resize and conversion of different image formats. It is an easy way to compress your images for web - JPEG, WebP, or PNG -, and get then ready to publish on the web. 
+The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It makes simple to manage your files and enables bulk image editing capabilities. It provides and easy way to resize, convert, and compress your images - JPEG, WebP, or PNG -, and get them ready to publish on the web. Moreover, you can automatically remove the background, upscale, or anonymize your images in bulk.
 
 To compress an image you just need to specify the input and output paths for the image:
 
@@ -256,6 +188,34 @@ Or, automatically pad or crop all the images contained in the folder specifying 
 ```sh
 abraia convert --width 300 --height 300 --mode crop [path] [dest]
 ```
+
+### Remove background
+
+Automatically remove images background and make them transparent in bulk.
+
+```sh
+abraia editing "*.jpg" --mode rembg
+```
+
+![bolt transparent background](https://github.com/abraia/abraia-multiple/raw/master/images/bolt.png)
+
+### Upscale images
+
+Scale up and enhance images in bulk, doubling the size and preserving quality.
+
+```sh
+abraia editing "*.jpg" --mode upscale
+```
+
+### Anonymize images
+
+Anonymize images in bulk, automatically blurring faces, car license plates, and removing metadata.
+
+```sh
+abraia editing "*.jpg" --mode anonymize
+````
+
+![people and car anonymized](https://github.com/abraia/abraia-multiple/raw/master/images/people-car-anonymized.jpg)
 
 ## Hyperspectral image analysis toolbox
 

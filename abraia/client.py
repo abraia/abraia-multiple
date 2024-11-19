@@ -122,6 +122,7 @@ class Abraia:
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         if dest:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, 'wb') as f:
                 f.write(resp.content)
             return dest
@@ -161,28 +162,36 @@ class Abraia:
         resp = requests.get(url, params=params, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, 'wb') as f:
             f.write(resp.content)
 
     def remove_background(self, path, output):
         url = f"{API_URL}/rekognition/{self.userid}/{path}"
-        params = {'mode': 'background', 'output': output}
-        resp = self.get_api(url, params)
+        resp = self.get_api(url, {'output': output, 'mode': 'background'})
         if 'Background' in resp:
             return file_path(json.loads(resp['Background'])['output'], self.userid)
         return file_path(resp['output'], self.userid)
 
     def upscale_image(self, path, output):
         url = f"{API_URL}/rekognition/{self.userid}/{path}"
-        params = {'mode': 'upscale', 'output': output}
-        resp = self.get_api(url, params)
+        resp = self.get_api(url, {'output': output, 'mode': 'upscale'})
         return file_path(json.loads(resp)['output'], self.userid)
-
-    def detect_plates(self, path):
+    
+    def anonymize_image(self, path, output):
         url = f"{API_URL}/rekognition/{self.userid}/{path}"
-        params = {'mode': 'onnx', 'model': 'multiple/models/alpd-seg.onnx'}
-        resp = self.get_api(url, params)
-        return resp['results']
+        resp = self.get_api(url, {'output': output, 'mode': 'anonymize'})
+        return file_path(resp['output'], self.userid)
+
+    # def detect_faces(self, path):
+    #     url = f"{API_URL}/rekognition/{self.userid}/{path}"
+    #     resp = self.get_api(url, {'mode': 'faces'})
+    #     return resp['results']
+    
+    # def detect_plates(self, path):
+    #     url = f"{API_URL}/rekognition/{self.userid}/{path}"
+    #     resp = self.get_api(url, {'mode': 'plates'})
+    #     return resp['results']
 
     def load_file(self, path):
         stream = self.download_file(path)

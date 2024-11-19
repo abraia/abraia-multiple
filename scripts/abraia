@@ -4,13 +4,12 @@ from builtins import input
 import os
 import json
 import click
+import itertools
 from glob import glob
 from tqdm import tqdm
-
-try:
-    from urllib.parse import urlparse
-except ImportError:
-    from urlparse import urlparse
+from urllib.parse import urlparse
+from tqdm.contrib.concurrent import process_map
+# from concurrent.futures import ProcessPoolExecutor
 
 from abraia import config
 from abraia import Abraia
@@ -18,6 +17,11 @@ from abraia import APIError
 
 
 abraia = Abraia()
+
+
+# def process_map(task, values, max_workers=3):
+#     with ProcessPoolExecutor(max_workers) as exe:
+#         return list([result for result in exe.map(task, values)])
 
 
 def is_url(url):
@@ -40,7 +44,7 @@ def input_files(src):
 
 
 @click.group('abraia')
-@click.version_option('0.17.7')
+@click.version_option('0.18.0')
 def cli():
     """Abraia CLI tool"""
     pass
@@ -62,8 +66,16 @@ def configure():
 @cli.command()
 def info():
     """Show user account information"""
-    click.echo('abraia, version 0.17.7\n')
+    click.echo('abraia, version 0.18.0\n')
     click.echo('Go to [' + click.style('https://abraia.me/console/', fg='green') + '] to see your account information\n')
+
+
+def convert_file(src, dest, args):
+    if src.startswith('http'):
+        path, args['url'] = src, src
+    else:
+        path = abraia.upload_file(src, 'batch/')
+    abraia.transform_image(path, dest, args)
 
 
 @cli.command()
@@ -87,17 +99,39 @@ def convert(src, dest, width, height, mode, format, action):
                 path, name = os.path.split(filename)
             nam, ext = os.path.splitext(name)
             oext = format if format is not None else (ext and ext[1:])
-            dest = dest if dest else os.path.join(path, nam + '_o.' + oext)
+            dest = dest if dest else os.path.join(path, f"{nam}_o.{oext}")
             if dirname:
                 relpath = os.path.relpath(path, dirname)
-                os.makedirs(os.path.join(dirname + '_o', relpath), exist_ok=True)
-                dest = os.path.join(dirname + '_o', relpath, nam + '.' + oext)
-            if filename.startswith('http'):
-                path = filename
-                args['url'] = filename
-            else:
-                path = abraia.upload_file(filename, 'batch/')
-            abraia.transform_image(path, dest, args)
+                dest = os.path.join('output', relpath, f"{nam}.{oext}")
+            convert_file(filename, dest, args)
+    except APIError as error:
+        echo_error(error)
+
+
+def editing_file(src, dest, mode):
+    output = f"export/{os.path.basename(dest)}"
+    path = abraia.upload_file(src, 'batch/')
+    if mode == 'anonymize':
+        abraia.anonymize_image(path, output)
+    elif mode == 'upscale':
+        abraia.upscale_image(path, output)
+    else:
+        abraia.remove_background(path, output)
+    abraia.download_file(output, dest)
+
+
+@cli.command()
+@click.option('--mode', help='Select the edit mode', type=click.Choice(['rembg', 'upscale', 'anonymize']), default='rembg')
+@click.argument('src')
+def editing(src, mode):
+    """Edit an image or set of images"""
+    try:
+        inputs = input_files(src)
+        ext = 'png' if mode == 'rembg' else 'jpg'
+        dirname = src if os.path.isdir(src) else os.path.dirname(src)
+        paths = [os.path.splitext(os.path.relpath(src, dirname))[0] for src in inputs]
+        outputs = [os.path.join('output', f"{path}.{ext}") for path in paths]
+        process_map(editing_file, inputs, outputs, itertools.repeat(mode), max_workers=3)
     except APIError as error:
         echo_error(error)
 
@@ -117,6 +151,8 @@ def metadata(src, remove):
                 f.write(buffer.getvalue())
         else:
             meta = abraia.load_metadata(path)
+            # metadata = abraia.load_metadata('usain.jpg')
+            # abraia.save_json('usain.json', metadata)
             click.echo(json.dumps(meta, indent=2))
     except APIError as error:
         echo_error(error)

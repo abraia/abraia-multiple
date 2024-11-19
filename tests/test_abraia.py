@@ -92,10 +92,15 @@ def test_save_image():
     assert path == 'lion.png'
 
 
-def test_detect_plates():
-    plates = abraia.detect_plates('car.jpg')
-    assert isinstance(plates, list)
-    assert 'polygon' in plates[0]
+# def test_detect_plates():
+#     plates = abraia.detect_plates('car.jpg')
+#     assert isinstance(plates, list)
+#     assert 'polygon' in plates[0]
+
+
+def test_remove_background():
+    path = abraia.remove_background('car.jpg', 'rb-car.png')
+    assert path == 'rb-car.png'
 
 
 def test_upscale_image():
@@ -103,6 +108,6 @@ def test_upscale_image():
     assert path == 'sl-car.jpg'
 
 
-def test_remove_background():
-    path = abraia.remove_background('car.jpg', 'rb-car.png')
-    assert path == 'rb-car.png'
+def test_anonymize_image():
+    path = abraia.anonymize_image('car.jpg', 'an-car.png')
+    assert path == 'an-car.png'
