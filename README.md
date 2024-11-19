@@ -165,7 +165,7 @@ To resize and optimize and image maintaining the aspect ratio is enough to speci
 abraia convert --width 500 images/usain-bolt.jpeg images/usaint-bolt_500.jpeg
 ```
 
-![Usain Bolt resized](https://github.com/abraia/abraia-multiple/raw/master/images/usaint-bolt_500.jpeg)
+![Usain Bolt resized](https://github.com/abraia/abraia-multiple/raw/master/images/usain-bolt_500.jpeg)
 
 You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
 
@@ -197,7 +197,7 @@ Automatically remove images background and make them transparent in bulk.
 abraia editing "*.jpg" --mode rembg
 ```
 
-![bolt transparent background](https://github.com/abraia/abraia-multiple/raw/master/images/bolt.png)
+![bolt transparent background](https://github.com/abraia/abraia-multiple/raw/master/images/usain-bolt.png)
 
 ### Upscale images
 
@@ -206,6 +206,9 @@ Scale up and enhance images in bulk, doubling the size and preserving quality.
 ```sh
 abraia editing "*.jpg" --mode upscale
 ```
+
+![cat](https://github.com/abraia/abraia-multiple/raw/master/images/cat.jpg)
+![upscaled cat](https://github.com/abraia/abraia-multiple/raw/master/images/cat-upscaled.jpg)
 
 ### Anonymize images
 
