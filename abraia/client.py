@@ -12,6 +12,8 @@ from datetime import datetime
 from . import config
 from .utils import API_URL, temporal_src
 
+mimetypes.add_type('image/webp', '.webp')
+
 
 def file_path(source, userid):
     return source[len(userid)+1:]
