@@ -207,7 +207,6 @@ Scale up and enhance images in bulk, doubling the size and preserving quality.
 abraia editing "*.jpg" --mode upscale
 ```
 
-![cat](https://github.com/abraia/abraia-multiple/raw/master/images/cat.jpg)
 ![upscaled cat](https://github.com/abraia/abraia-multiple/raw/master/images/cat-upscaled.jpg)
 
 ### Anonymize images

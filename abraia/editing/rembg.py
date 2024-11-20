@@ -19,7 +19,7 @@ def post_process(mask):
     """
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.GaussianBlur(mask, (5, 5), sigmaX=2, sigmaY=2, borderType=cv2.BORDER_DEFAULT)
-    mask = np.where(mask < 127, 0, 255).astype(np.uint8)
+    # mask = np.where(mask < 127, 0, 255).astype(np.uint8)
     return mask
 
 
@@ -35,7 +35,8 @@ class RemoveBG:
         self.image_size = (1024, 1024)
         self.input_mean = (0.485, 0.456, 0.406)
         self.providers = ort.get_available_providers()
-        model_src = download_file('multiple/models/editing/isnet-general-use.onnx')
+        # model_src = download_file('multiple/models/editing/isnet-general-use.onnx')
+        model_src = download_file('multiple/models/editing/isnet-medium.onnx')
         self.session = ort.InferenceSession(model_src, providers=self.providers)
         self.input_name = self.session.get_inputs()[0].name
 
@@ -50,7 +51,6 @@ class RemoveBG:
         pred = out.reshape(self.image_size)
         # ma, mi = np.max(pred), np.min(pred)
         # pred = (pred - mi) / (ma - mi)
-        pred[pred < 0.5] = 0
         mask = (pred * 255).astype(np.uint8)
         mask = cv2.resize(mask, size, interpolation=cv2.INTER_LINEAR)
         return mask
@@ -66,5 +66,6 @@ class RemoveBG:
         mask = self.predict(img)
         if post_process_mask:
             mask = post_process(mask)
+        mask[mask < 127] = 0
         img = np.array(naive_cutout(Image.fromarray(img), Image.fromarray(mask)))
         return img

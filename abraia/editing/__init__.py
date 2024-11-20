@@ -3,6 +3,8 @@ import numpy as np
 
 from .rembg import RemoveBG
 from .upscale import ESRGAN, SwinIR
+from .smartcrop import Transform
+
 
 from ..detect import load_model
 from ..faces import Recognition
@@ -49,3 +51,8 @@ def upscale_image(img):
     upscaler = ESRGAN()
     out = upscaler.upscale(img)
     return out
+
+
+def smartcrop_image(img, width, height):
+    transform = Transform()
+    return transform.apply_transform(img, width, height)
