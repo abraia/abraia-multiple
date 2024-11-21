@@ -53,6 +53,6 @@ def upscale_image(img):
     return out
 
 
-def smartcrop_image(img, width, height):
+def smartcrop_image(img, size):
     transform = Transform()
-    return transform.apply_transform(img, width, height)
+    return transform.apply_transform(img, size)

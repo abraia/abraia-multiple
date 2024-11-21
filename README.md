@@ -8,27 +8,13 @@ The Abraia Python SDK provides and easy and practical way to develop and deploy 
 
 ![people walking](https://github.com/abraia/abraia-multiple/raw/master/images/people-walking.gif)
 
-## Installation
-
-Abraia is a Python SDK and CLI which can be installed on Windows, Mac, and Linux:
+Just install the Abraia Python SDK and CLI on Windows, Mac, or Linux:
 
 ```sh
 python -m pip install -U abraia
 ```
 
-To use the SDK you have to configure your [Id and Key](https://abraia.me/console/) as environment variables:
-
-```sh
-export ABRAIA_ID=user_id
-export ABRAIA_KEY=user_key
-```
-
-On Windows you need to use `set` instead of `export`:
-
-```sh
-set ABRAIA_ID=user_id
-set ABRAIA_KEY=user_key
-```
+And start working with deep learning models ready to work on your local devices.
 
 ## Load and run custom models
 
@@ -237,7 +223,21 @@ Or install the multiple extension to use the Abraia-Multiple SDK:
 python -m pip install -U "abraia[multiple]"
 ```
 
-For instance, you can directly load and save ENVI files, and their metadata.
+To use the SDK you have to configure your [Id and Key](https://abraia.me/console/) as environment variables:
+
+```sh
+export ABRAIA_ID=user_id
+export ABRAIA_KEY=user_key
+```
+
+On Windows you need to use `set` instead of `export`:
+
+```sh
+set ABRAIA_ID=user_id
+set ABRAIA_KEY=user_key
+```
+
+Then, you will be able to directly load and save ENVI files, and their metadata.
 
 ```python
 from abraia.multiple import Multiple
