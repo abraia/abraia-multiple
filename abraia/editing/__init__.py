@@ -1,9 +1,9 @@
 import cv2
 import numpy as np
 
-from .rembg import RemoveBG
+from .removebg import RemoveBG
 from .upscale import ESRGAN, SwinIR
-from .smartcrop import Transform
+from .smartcrop import Smartcrop
 
 
 from ..detect import load_model
@@ -11,14 +11,19 @@ from ..faces import Recognition
 from .. import draw
 
 
+def detect_faces(img):
+    recognition = Recognition()
+    return recognition.detect_faces(img)
+
+
 def detect_plates(img):
     detection = load_model('multiple/models/alpd-seg.onnx')
     return detection.run(img, approx=0.02)
 
 
-def detect_faces(img):
-    recognition = Recognition()
-    return recognition.detect_faces(img)
+def detect_smartcrop(img, size):
+    smartcrop = Smartcrop()
+    return smartcrop.detect(img, size)
 
 
 def build_mask(img, plates, faces):
@@ -37,8 +42,8 @@ def anonymize_image(img):
 
 
 def remove_background(img):
-    rembg = RemoveBG()
-    out = rembg.remove(img)
+    removebg = RemoveBG()
+    out = removebg.remove(img)
     return out
 
 
@@ -54,5 +59,5 @@ def upscale_image(img):
 
 
 def smartcrop_image(img, size):
-    transform = Transform()
-    return transform.apply_transform(img, size)
+    smartcrop = Smartcrop()
+    return smartcrop.transform(img, size)

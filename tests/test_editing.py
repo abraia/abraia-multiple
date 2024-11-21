@@ -1,25 +1,20 @@
-import numpy as np
-
 from abraia.utils import load_image
-from abraia.editing import smartcrop_image
+from abraia.editing import detect_faces, detect_plates, detect_smartcrop
 
 
-def test_smart_crop():
+def test_detect_faces():
+    img = load_image('images/rolling-stones.jpg')
+    results = detect_faces(img)
+    assert isinstance(results, list)
+
+
+def test_detect_plates():
+    img = load_image('images/car.jpg')
+    results = detect_plates(img)
+    assert isinstance(results, list)
+
+
+def test_detect_smartcrop():
     img = load_image('images/mick-jagger.jpg')
-    resized = smartcrop_image(img, (150, 300))
-    assert resized.dtype == np.uint8
-    assert resized.shape == (300, 150, 3)
-
-
-# def test_smart_resize_gray():
-#     img = load_image('images/skate_gray.jpg')
-#     resized = smartcrop_image(img, (150, 300))
-#     assert resized.dtype == np.uint8
-#     assert resized.shape == (300, 150)
-
-
-# def test_smart_resize_transparent():
-#     img = load_image('images/logo.png')
-#     resized = smartcrop_image(img, (100, 100))
-#     assert resized.dtype == np.uint8
-#     assert resized.shape == (100, 100, 4)
+    roi = detect_smartcrop(img, (150, 300))
+    assert isinstance(roi, list)

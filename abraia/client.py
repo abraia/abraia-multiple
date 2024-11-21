@@ -19,6 +19,15 @@ def file_path(source, userid):
     return source[len(userid)+1:]
 
 
+def save_data(dest, data):
+    dirname = os.path.dirname(dest)
+    if dirname:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, 'wb') as f:
+        f.write(data)
+    return dest
+
+
 def md5sum(src):
     hash_md5 = hashlib.md5()
     f = BytesIO(src.getvalue()) if isinstance(src, BytesIO) else open(src, 'rb')
@@ -124,9 +133,7 @@ class Abraia:
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         if dest:
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            with open(dest, 'wb') as f:
-                f.write(resp.content)
+            save_data(dest, resp.content)
             return dest
         return BytesIO(resp.content)
     
@@ -164,9 +171,7 @@ class Abraia:
         resp = requests.get(url, params=params, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with open(dest, 'wb') as f:
-            f.write(resp.content)
+        save_data(dest, resp.content)
 
     def remove_background(self, path, output):
         url = f"{API_URL}/rekognition/{self.userid}/{path}"

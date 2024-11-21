@@ -180,7 +180,7 @@ abraia convert --width 300 --height 300 --mode crop [path] [dest]
 Automatically remove images background and make them transparent in bulk.
 
 ```sh
-abraia editing "*.jpg" --mode rembg
+abraia editing "*.jpg" --mode removebg
 ```
 
 ![bolt transparent background](https://github.com/abraia/abraia-multiple/raw/master/images/usain-bolt.png)

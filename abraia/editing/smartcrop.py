@@ -261,7 +261,7 @@ def best_crop_area(salmap, energy, ratio, recti, recto):
     return rectangle_scale(rects[idx], (2, 2))
 
 
-class Transform:
+class Smartcrop:
     def __init__(self):
         self.faces = Faces()
         self.saliency = Saliency()
@@ -275,24 +275,22 @@ class Transform:
         size = round(width / scale), round(height / scale)
         return cv2.resize(img, size, interpolation=cv2.INTER_AREA)
 
-    def smart_crop(self, img, ar):
+    def detect(self, img, size):
         h, w = img.shape[:2]
-        rimg = self.preprocess(img)
-        rh, rw = rimg.shape[:2]
-        energy = laplacian(rimg)
-        faces = self.faces.detect(rimg)
-        salmap = self.saliency.predict(rimg, faces=faces)
-        # recti, recto = crop_region(salmap, faces)
-        recti, recto = crop_region(salmap)
-        rect = best_crop_area(salmap, energy, ar, recti, recto)
-        return rectangle_scale(rect, (w / rw, h / rh))
-
-    def apply_transform(self, img, size):
-        h, w = img.shape[:2]
-        rect = [0, 0, w, h]
         if (size[0] != w or size[1] != h) and (w > 24 and h > 24):
+            rimg = self.preprocess(img)
+            rh, rw = rimg.shape[:2]
+            energy = laplacian(rimg)
+            faces = self.faces.detect(rimg)
+            salmap = self.saliency.predict(rimg, faces=faces)
             ar = max(size[0] / size[1], 0.027)
-            rect = self.smart_crop(img, ar)
-            img = image_roi(img, rect)
-            return resize_image(img, size)
-        return img
+            recti, recto = crop_region(salmap)
+            # recti, recto = crop_region(salmap, faces)
+            rect = best_crop_area(salmap, energy, ar, recti, recto)
+            return rectangle_scale(rect, (w / rw, h / rh))
+        return [0, 0, w, h]
+
+    def transform(self, img, size):
+        rect = self.smart_crop(img, size)
+        img = image_roi(img, rect)
+        return resize_image(img, size)
