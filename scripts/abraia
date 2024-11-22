@@ -46,7 +46,7 @@ def input_files(src):
 
 
 @click.group('abraia')
-@click.version_option('0.19.0')
+@click.version_option('0.19.1')
 def cli():
     """Abraia CLI tool"""
     pass

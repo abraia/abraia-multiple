@@ -17,7 +17,7 @@ extras_require = {
 
 setup(
     name='abraia',
-    version='0.19.0',
+    version='0.19.1',
     description='Abraia Python SDK',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -27,6 +27,8 @@ setup(
     license='MIT',
     zip_safe=False,
     packages=find_packages(exclude=['tests']),
+    package_data={'': ['*.jpg']},
+    include_package_data=True,
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0', 'pytest-runner'],
     scripts=['scripts/abraia', 'scripts/abraia.bat'],
