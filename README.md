@@ -137,50 +137,12 @@ show_image(img)
 
 The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It makes simple to manage your files and enables bulk image editing capabilities. It provides and easy way to resize, convert, and compress your images - JPEG, WebP, or PNG -, and get them ready to publish on the web. Moreover, you can automatically remove the background, upscale, or anonymize your images in bulk.
 
-To compress an image you just need to specify the input and output paths for the image:
-
-```sh
-abraia convert images/birds.jpg images/birds_o.jpg
-```
-
-![Image compressed from url](https://github.com/abraia/abraia-multiple/raw/master/images/birds_o.jpg)
-
-To resize and optimize and image maintaining the aspect ratio is enough to specify the `width` or the `height` of the new image:
-
-```sh
-abraia convert --width 500 images/usain-bolt.jpeg images/usaint-bolt_500.jpeg
-```
-
-![Usain Bolt resized](https://github.com/abraia/abraia-multiple/raw/master/images/usain-bolt_500.jpeg)
-
-You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
-
-```sh
-abraia convert --width 333 --height 333 --mode pad images/lion.jpg images/lion_333x333.jpg
-abraia convert --width 333 --height 333 images/lion.jpg images/lion_333x333.jpg
-```
-
-![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333_pad.jpg)
-![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333.jpg)
-
-So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
-
-```sh
-abraia convert --width 300 [path] [dest]
-```
-
-Or, automatically pad or crop all the images contained in the folder specifying both `width` and `height`:
-
-```sh
-abraia convert --width 300 --height 300 --mode crop [path] [dest]
-```
-
 ### Remove background
 
 Automatically remove images background and make them transparent in bulk.
 
 ```sh
-abraia editing "*.jpg" --mode removebg
+abraia editing removebg "*.jpg"
 ```
 
 ![bolt transparent background](https://github.com/abraia/abraia-multiple/raw/master/images/usain-bolt.png)
@@ -190,7 +152,7 @@ abraia editing "*.jpg" --mode removebg
 Scale up and enhance images in bulk, doubling the size and preserving quality.
 
 ```sh
-abraia editing "*.jpg" --mode upscale
+abraia editing upscale "*.jpg"
 ```
 
 ![upscaled cat](https://github.com/abraia/abraia-multiple/raw/master/images/cat-upscaled.jpg)
@@ -200,10 +162,50 @@ abraia editing "*.jpg" --mode upscale
 Anonymize images in bulk, automatically blurring faces, car license plates, and removing metadata.
 
 ```sh
-abraia editing "*.jpg" --mode anonymize
+abraia editing anonymize "*.jpg"
 ````
 
 ![people and car anonymized](https://github.com/abraia/abraia-multiple/raw/master/images/people-car-anonymized.jpg)
+
+### Convert images
+
+Compress images in bulk specifying the input glob pattern or folder:
+
+```sh
+abraia editing convert "images/bird*.jpg"
+```
+
+![Image compressed from url](https://github.com/abraia/abraia-multiple/raw/master/images/birds_o.jpg)
+
+Resize and optimize images maintaining the aspect ratio just specifying the `width` or the `height` of the new image:
+
+```sh
+abraia editing convert images/usain-bolt.jpeg --width 500 
+```
+
+![Usain Bolt resized](https://github.com/abraia/abraia-multiple/raw/master/images/usain-bolt_500.jpeg)
+
+You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
+
+```sh
+abraia editing convert images/lion.jpg --width 333 --height 333 --mode pad 
+abraia editing convert images/lion.jpg --width 333 --height 333
+```
+
+![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333_pad.jpg)
+![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333.jpg)
+
+So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
+
+```sh
+abraia editing convert [src] --width 300 
+```
+
+Or, automatically pad or crop all the images contained in the folder specifying both `width` and `height`:
+
+```sh
+abraia editing convert [src] --width 300 --height 300 --mode crop
+```
 
 ## Hyperspectral image analysis toolbox
 

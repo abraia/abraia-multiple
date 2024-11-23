@@ -3,6 +3,8 @@ import pkg_resources
 
 from setuptools import setup, find_packages
 
+from abraia import __version__
+
 with open('README.md') as f:
     long_description = f.read()
 
@@ -17,7 +19,7 @@ extras_require = {
 
 setup(
     name='abraia',
-    version='0.19.1',
+    version=__version__,
     description='Abraia Python SDK',
     long_description=long_description,
     long_description_content_type='text/markdown',
