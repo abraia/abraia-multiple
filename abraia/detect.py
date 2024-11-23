@@ -141,8 +141,8 @@ def process_output(outputs, size, shape, classes, conf_threshold=0.25, iou_thres
             mask = get_mask(mask, result['box'], size)
             mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)[1]
             result['polygon'] = mask_to_polygon(mask, (x, y), approx)
-            # result.pop('mask', None)
-            result['mask'] = mask
+            result.pop('mask', None)
+            # result['mask'] = mask
     return results
 
 
