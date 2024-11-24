@@ -203,10 +203,8 @@ def sliding_window(img, step, size, rect):
 def max_pooling(img):
     w = img.shape[1] >> 1 << 1
     h = img.shape[0] >> 1 << 1
-    dstack = np.dstack([img[0:h:2, 0:w:2],
-                        img[0:h:2, 1:w:2],
-                        img[1:h:2, 0:w:2],
-                        img[1:h:2, 1:w:2]])
+    dstack = np.dstack([img[0:h:2, 0:w:2], img[0:h:2, 1:w:2],
+                        img[1:h:2, 0:w:2], img[1:h:2, 1:w:2]])
     return np.max(dstack, axis=2)
 
 
@@ -237,10 +235,12 @@ def attention_windows(salmap, ratio, recti, recto, step=2):
             areas.extend(rects[idxs])
         if sw < wi or sh < hi:
             break
+        break # disable crop zoom
     return np.array(areas)
 
 
-def best_crop_area(salmap, energy, ratio, recti, recto):
+def best_crop_area(salmap, faces, energy, ratio):
+    recti, recto = crop_region(salmap, faces)
     salmap = max_pooling(salmap)
     energy = max_pooling(energy)
     energy = energy.astype(np.float32) * salmap
@@ -250,10 +250,8 @@ def best_crop_area(salmap, energy, ratio, recti, recto):
     recti = rectangle_scale(recti, (0.5, 0.5))
     recti = rectangle_intersection(recto, recti)
     rects = attention_windows(salmap, ratio, recti, recto)
-    preservation = np.array([
-        content_preservation(salmap, rect) for rect in rects])
-    simplicities = np.array([
-        boundary_simplicity(energy, rect) for rect in rects])
+    preservation = np.array([content_preservation(salmap, rect) for rect in rects])
+    simplicities = np.array([boundary_simplicity(energy, rect) for rect in rects])
     content = preservation > 0.8 * np.max(preservation)
     if not np.all(content):
         simplicities = simplicities[:np.argmin(content)]
@@ -284,13 +282,11 @@ class Smartcrop:
             faces = self.faces.detect(rimg)
             salmap = self.saliency.predict(rimg, faces=faces)
             ar = max(size[0] / size[1], 0.027)
-            recti, recto = crop_region(salmap)
-            # recti, recto = crop_region(salmap, faces)
-            rect = best_crop_area(salmap, energy, ar, recti, recto)
+            rect = best_crop_area(salmap, faces, energy, ar)
             return rectangle_scale(rect, (w / rw, h / rh))
         return [0, 0, w, h]
 
     def transform(self, img, size):
-        rect = self.smart_crop(img, size)
+        rect = self.detect(img, size)
         img = image_roi(img, rect)
         return resize_image(img, size)
