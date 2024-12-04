@@ -4,7 +4,7 @@ import numpy as np
 from .removebg import RemoveBG
 from .upscale import ESRGAN, SwinIR
 from .smartcrop import Smartcrop
-
+from .inpaint import LAMA
 
 from ..detect import load_model
 from ..faces import Recognition
@@ -61,3 +61,8 @@ def upscale_image(img):
 def smartcrop_image(img, size):
     smartcrop = Smartcrop()
     return smartcrop.transform(img, size)
+
+
+def inpaint_image(img, mask):
+    lama = LAMA()
+    return lama.predict(img, mask) 

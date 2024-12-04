@@ -7,6 +7,9 @@ import numpy as np
 from tqdm import tqdm
 from PIL import Image, ImageOps
 
+from .video import Video
+from .sketcher import Sketcher
+
 tempdir = tempfile.gettempdir()
 
 
