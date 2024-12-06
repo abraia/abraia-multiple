@@ -133,6 +133,34 @@ show_image(img)
 
 ![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
+## Remove unwanted objects
+
+Directly remove unwanted objects in images and photos locally.
+
+```python
+from abraia.utils import load_image, Sketcher
+from abraia.editing.inpaint import LAMA
+from abraia.editing.sam import SAM
+
+
+img = load_image('images/dog.jpg')
+
+sam = SAM()
+lama = LAMA()
+sam.encode(img)
+
+sketcher = Sketcher(img)
+
+def on_click(point):
+    mask = sam.predict(img, f'[{{"type":"point","data":[{point[0]},{point[1]}],"label":1}}]')
+    sketcher.mask = sketcher.dilate(mask)
+
+sketcher.on_click(on_click)
+sketcher.run(lama.predict)
+```
+
+![inpaint output](https://github.com/abraia/abraia-multiple/raw/master/images/inpaint-output.jpg)
+
 ## Command line interface
 
 The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It makes simple to manage your files and enables bulk image editing capabilities. It provides and easy way to resize, convert, and compress your images - JPEG, WebP, or PNG -, and get them ready to publish on the web. Moreover, you can automatically remove the background, upscale, or anonymize your images in bulk.

@@ -5,7 +5,7 @@ import numpy as np
 import onnxruntime as ort
 
 from .ops import py_cpu_nms, normalize, mask_to_polygon
-from .utils import download_file, load_json, get_color
+from .utils import download_file, load_json, get_color, get_providers
 from .utils import load_image, show_image, save_image, Video
 from .draw import render_results
 
@@ -160,9 +160,7 @@ class Model:
     def load(self, model_uri):
         config_uri = f"{os.path.splitext(model_uri)[0]}.json"
         self.config = load_json(download_file(config_uri))
-        providers = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
-        providers = [provider for provider in ort.get_available_providers() if provider in providers] 
-        self.session = ort.InferenceSession(download_file(model_uri), providers=providers)
+        self.session = ort.InferenceSession(download_file(model_uri), providers=get_providers())
         self.input_name = self.session.get_inputs()[0].name
         self.input_shape = self.config['inputShape']
 

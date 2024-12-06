@@ -3,6 +3,7 @@ import json
 import tempfile
 import requests
 import numpy as np
+import onnxruntime as ort
 
 from tqdm import tqdm
 from PIL import Image, ImageOps
@@ -74,3 +75,9 @@ def get_color(idx):
 def hex_to_rgb(hex):
     h = hex.lstrip('#')
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+
+def get_providers():
+    available_providers = ort.get_available_providers()
+    providers = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
+    return [provider for provider in available_providers if provider in providers]

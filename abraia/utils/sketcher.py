@@ -1,37 +1,68 @@
+'''
+Sketcher.
+
+Keys:
+  SPACE - callback
+  r     - reset the mask
+  s     - save output
+  ESC   - exit
+'''
+
 import cv2
 import numpy as np
 
 
+def draw_mask(img, mask, color, opacity = 1):
+    img_copy = img.copy()
+    overlay = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+    overlay[mask == 255] = color
+    img_over = cv2.addWeighted(img_copy, 1 - opacity, overlay, opacity, 0)
+    img_copy[mask == 255] = img_over[mask == 255]
+    return img_copy
+
+
 class Sketcher:
-    def __init__(self, src, radius=15):
+    def __init__(self, img, radius=15):
         print(__doc__)
-        self.img = cv2.cvtColor(cv2.imread(src), cv2.COLOR_BGR2RGB)
-        self.img_msk = self.img.copy()
-        self.mask = np.zeros(self.img.shape[:2], np.uint8)
         self.prev_pt = None
         self.win_name = 'Image'
-        self.dests = [self.img_msk, self.mask]
-        self.colors = [(255, 255, 255), 255]
         self.radius = radius
-        self.dirty = False
-        self.show(self.img_msk)
+        self.load(img)
+        self.element = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
         cv2.setMouseCallback(self.win_name, self.on_mouse)
+        
+    def load(self, img):
+        self.img = img
+        self.prev_pt = None
+        self.mask = np.zeros(img.shape[:2], np.uint8)
+        self.show(self.img)
 
-    def show(self, img):
-        cv2.imshow(self.win_name, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+    def dilate(self, mask):
+        return cv2.dilate(mask, self.element)
+
+    def show(self, img, mask=None):
+        if mask is not None:
+            img = draw_mask(img, mask, (255, 0, 0), 0.5)
+        self.output = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        cv2.imshow(self.win_name, self.output)
+
+    def on_click(self, callback):
+        self.handle_click = callback
 
     def on_mouse(self, event, x, y, flags, param):
         pt = (x, y)
         if event == cv2.EVENT_LBUTTONDOWN:
             self.prev_pt = pt
         if self.prev_pt and flags & cv2.EVENT_FLAG_LBUTTON:
-            for dst, color in zip(self.dests, self.colors):
-                cv2.line(dst, self.prev_pt, pt, color, self.radius)
-            self.dirty = True
+            cv2.line(self.mask, self.prev_pt, pt, 255, self.radius)
             self.prev_pt = pt
-            self.show(self.img_msk)
         else:
             self.prev_pt = None
+        if event == cv2.EVENT_LBUTTONUP:
+            if self.handle_click:
+                self.handle_click(pt)
+        if self.prev_pt:
+            self.show(self.img, self.mask)
 
     def run(self, callback):
         while True:
@@ -41,7 +72,7 @@ class Sketcher:
             if ch == ord(' '):
                 self.show(callback(self.img, self.mask))
             if ch == ord('r'):
-                self.img_msk[:] = self.img
-                self.mask[:] = 0
-                self.show(self.img_msk)
+                self.load(self.img)
+            if ch == ord('s'):
+                cv2.imwrite('output.png', self.output)
         cv2.destroyWindow(self.win_name)

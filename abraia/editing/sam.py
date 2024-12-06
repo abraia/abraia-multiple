@@ -3,7 +3,7 @@ import json
 import numpy as np
 import onnxruntime as ort
 
-from ..utils import download_file
+from ..utils import download_file, get_providers
 
 
 def get_input_points(prompt):
@@ -26,19 +26,29 @@ class SAM:
     def __init__(self):
         self.target_size = 1024
         self.input_size = (684, 1024)
-        sess_options = ort.SessionOptions()
-        providers = ort.get_available_providers()
         encoder_src = download_file('multiple/models/mobile_sam.encoder.onnx')
         decoder_src = download_file('multiple/models/mobile_sam.decoder.onnx')
-        self.encoder = ort.InferenceSession(encoder_src, providers=providers, sess_options=sess_options)
-        self.decoder = ort.InferenceSession(decoder_src, providers=providers, sess_options=sess_options)
+        self.encoder = ort.InferenceSession(encoder_src, providers=get_providers())
+        self.decoder = ort.InferenceSession(decoder_src, providers=get_providers())
 
     def encode(self, img):
+        # TODO: Refactor to use resize
+        scale_x = self.input_size[1] / img.shape[1]
+        scale_y = self.input_size[0] / img.shape[0]
+        scale = min(scale_x, scale_y)
+
+        transform_matrix = np.array([[scale, 0, 0],
+                                     [0, scale, 0],
+                                     [0, 0, 1]])
+
+        size = (self.input_size[1], self.input_size[0])
+        img = cv2.warpAffine(img, transform_matrix[:2], size, flags=cv2.INTER_LINEAR)
+
         encoder_input_name = self.encoder.get_inputs()[0].name
         encoder_inputs = {encoder_input_name: img.astype(np.float32)}
         encoder_output = self.encoder.run(None, encoder_inputs)
-        image_embedding = encoder_output[0]
-        return image_embedding
+        self.image_embedding = encoder_output[0]
+        return self.image_embedding
     
     def decode(self, image_embedding, input_points, input_labels):
         onnx_coord = np.concatenate([input_points, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
@@ -68,22 +78,17 @@ class SAM:
         transform_matrix = np.array([[scale, 0, 0],
                                      [0, scale, 0],
                                      [0, 0, 1]])
-
-        size = (self.input_size[1], self.input_size[0])
-        img = cv2.warpAffine(img, transform_matrix[:2], size, flags=cv2.INTER_LINEAR)
-        image_embedding = self.encode(img)
-
-        # embedding = {"image_embedding": image_embedding, 
-        #              "original_size": (width, height), 
-        #              "transform_matrix": transform_matrix}
+        
+        if self.image_embedding is None:
+            self.image_embedding = self.encode(img)
 
         input_points, input_labels = get_input_points(prompt)
         input_points = input_points * scale
-        masks = self.decode(image_embedding, input_points, input_labels)
+        masks = self.decode(self.image_embedding, input_points, input_labels)
 
         inv_transform_matrix = np.linalg.inv(transform_matrix)
-        mask = np.zeros((height, width, 3), dtype=np.uint8)
+        mask = np.zeros((height, width), dtype=np.uint8)
         for m in masks:
             m = cv2.warpAffine(m, inv_transform_matrix[:2], (width, height), flags=cv2.INTER_LINEAR)
-            mask[m > 0.0] = [255, 255, 255]
+            mask[m > 0.0] = 255
         return mask
