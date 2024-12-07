@@ -6,8 +6,7 @@ import onnxruntime as ort
 
 from .ops import py_cpu_nms, normalize, mask_to_polygon, softmax
 from .utils import download_file, load_json, get_color, get_providers
-from .utils import load_image, show_image, save_image, Video
-from .draw import render_results
+from .utils import load_image, show_image, save_image, Video, render_results
 
 
 def resize(img, size):

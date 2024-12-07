@@ -11,14 +11,7 @@ Keys:
 import cv2
 import numpy as np
 
-
-def draw_mask(img, mask, color, opacity = 1):
-    img_copy = img.copy()
-    overlay = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
-    overlay[mask == 255] = color
-    img_over = cv2.addWeighted(img_copy, 1 - opacity, overlay, opacity, 0)
-    img_copy[mask == 255] = img_over[mask == 255]
-    return img_copy
+from .draw import draw_overlay_mask
 
 
 class Sketcher:
@@ -42,7 +35,7 @@ class Sketcher:
 
     def show(self, img, mask=None):
         if mask is not None:
-            img = draw_mask(img, mask, (255, 0, 0), 0.5)
+            img = draw_overlay_mask(img, mask, (255, 0, 0), 0.5)
         self.output = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         cv2.imshow(self.win_name, self.output)
 

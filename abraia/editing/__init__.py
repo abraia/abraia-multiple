@@ -8,7 +8,7 @@ from .inpaint import LAMA
 
 from ..detect import load_model
 from ..faces import Recognition
-from .. import draw
+from ..utils import draw
 
 
 def detect_faces(img):

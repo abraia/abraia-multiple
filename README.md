@@ -61,8 +61,7 @@ Identify people on images with face recognition as shown bellow.
 import os
 
 from abraia.faces import Recognition
-from abraia.utils import load_image, save_image
-from abraia.draw import render_results
+from abraia.utils import load_image, save_image, render_results
 
 img = load_image('images/rolling-stones.jpg')
 out = img.copy()
@@ -114,9 +113,8 @@ for k, frame in enumerate(video):
 Automatically recognize car license plates in images and video streams.
 
 ```python
-from abraia import draw
 from abraia.alpr import ALPR
-from abraia.utils import load_image, show_image
+from abraia.utils import load_image, show_image, render_results
 
 alpr = ALPR()
 
@@ -127,7 +125,7 @@ results = [result for result in results if len(result['lines'])]
 for result in results:
     result['label'] = '\n'.join([line.get('text', '') for line in result['lines']])
     del result['confidence']
-frame = draw.render_results(img, results)
+frame = render_results(img, results)
 show_image(img)
 ```
 
@@ -167,8 +165,7 @@ Model to predict gender and age. It can be useful to anonymize minors faces.
 
 ```python
 from abraia.faces import Recognition, Attribute
-from abraia.utils import load_image, show_image
-from abraia.draw import render_results
+from abraia.utils import load_image, show_image, render_results
 
 recognition = Recognition()
 attribute = Attribute()

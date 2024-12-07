@@ -10,6 +10,7 @@ from PIL import Image, ImageOps
 
 from .video import Video
 from .sketcher import Sketcher
+from .draw import render_results
 
 tempdir = tempfile.gettempdir()
 
@@ -70,11 +71,6 @@ def get_color(idx):
     '#417505', '#BD10E0', '#9013FE', '#4A90E2', '#50E3C2', '#B8E986',
     '#000000', '#545454', '#737373', '#A6A6A6', '#D9D9D9', '#FFFFFF']
     return colors[idx % (len(colors) - 1)]
-
-
-def hex_to_rgb(hex):
-    h = hex.lstrip('#')
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
 
 def get_providers():

@@ -1,8 +1,10 @@
 import cv2
-import math
 import numpy as np
 
-from .utils import hex_to_rgb
+
+def hex_to_rgb(hex):
+    h = hex.lstrip('#')
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
 
 def draw_point(img, point, color, thickness = 2):
@@ -55,17 +57,22 @@ def draw_filled_polygon(img, polygon, color, opacity = 1):
 def draw_blurred_mask(img, mask):
     w_k = int(0.1 * max(img.shape[:2]))
     w_k = w_k + 1 if w_k % 2 == 0 else w_k
-    # m_k = int(math.sqrt(w_k))
-    # m_k = m_k + 1 if m_k % 2 == 0 else m_k
-    # print(w_k, m_k)
     mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     blurred_img = cv2.GaussianBlur(img, (w_k, w_k), 0)
-    # blurred_mask = cv2.blur(mask, (5, 5))
     img = np.where(mask==0, img, blurred_img)
     # img1 = cv2.multiply(1 - (blurred_mask / 255), img)
     # img2 = cv2.multiply(blurred_mask / 255, blurred_img)
     # img = (cv2.add(img1, img2)).astype(np.uint8)
     return img
+
+
+def draw_overlay_mask(img, mask, color = (255, 0, 0), opacity = 1):
+    img_copy = img.copy()
+    overlay = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+    overlay[mask == 255] = color
+    img_over = cv2.addWeighted(img_copy, 1 - opacity, overlay, opacity, 0)
+    img_copy[mask == 255] = img_over[mask == 255]
+    return img_copy
 
 
 def draw_text(img, text, point, background_color = None, text_color = (255, 255, 255), 
@@ -89,9 +96,6 @@ def draw_overlay(img, overlay, rect = None, opacity = 1):
     alpha_float = (cv2.convertScaleAbs(alpha_channel * opacity).astype(np.float32) / 255)[..., np.newaxis]
     blended_roi = cv2.convertScaleAbs((1 - alpha_float) * img[y1:y2, x1:x2] + alpha_float * overlay[:, :, :3])
     img[y1:y2, x1:x2] = blended_roi
-    # img_copy = img.copy()
-    # cv2.rectangle(img_copy, pt1, pt2, color, -1)
-    # cv2.addWeighted(img_copy, opacity, img, 1 - opacity, 0, img)
     return img
 
 
