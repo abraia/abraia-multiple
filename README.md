@@ -135,7 +135,7 @@ show_image(img)
 
 ## Remove unwanted objects
 
-Directly remove unwanted objects in images and photos locally.
+Directly remove unwanted objects in images and photos locally. Just click on the object and press the "spacebar" to automatically select and delete the object from the image. Finally, press "s" to save the final image.
 
 ```python
 from abraia.utils import load_image, Sketcher
@@ -161,6 +161,29 @@ sketcher.run(lama.predict)
 
 ![inpaint output](https://github.com/abraia/abraia-multiple/raw/master/images/inpaint-output.jpg)
 
+## Gender Age model
+
+Model to predict gender and age. It can be useful to anonymize minors faces.
+
+```python
+from abraia.faces import Recognition, Attribute
+from abraia.utils import load_image, show_image
+from abraia.draw import render_results
+
+recognition = Recognition()
+attribute = Attribute()
+
+img = load_image('images/image.jpg')
+results = recognition.detect_faces(img)
+faces = recognition.extract_faces(img, results)
+for face, result in zip(faces, results):
+    gender, age, score = attribute.predict(face)
+    result['label'] = f"{gender} {age}"
+    result['confidence'] = score
+img = render_results(img, results)
+show_image(img)
+```
+
 ## Command line interface
 
 The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It makes simple to manage your files and enables bulk image editing capabilities. It provides and easy way to resize, convert, and compress your images - JPEG, WebP, or PNG -, and get them ready to publish on the web. Moreover, you can automatically remove the background, upscale, or anonymize your images in bulk.
@@ -173,7 +196,7 @@ Automatically remove images background and make them transparent in bulk.
 abraia editing removebg "*.jpg"
 ```
 
-![bolt transparent background](https://github.com/abraia/abraia-multiple/raw/master/images/usain-bolt.png)
+![removebg output](https://github.com/abraia/abraia-multiple/raw/master/images/removebg-output.png)
 
 ### Upscale images
 
@@ -203,25 +226,18 @@ Compress images in bulk specifying the input glob pattern or folder:
 abraia editing convert "images/bird*.jpg"
 ```
 
-![Image compressed from url](https://github.com/abraia/abraia-multiple/raw/master/images/birds_o.jpg)
+![image optimized](https://github.com/abraia/abraia-multiple/raw/master/images/birds_optimized.jpg)
 
-Resize and optimize images maintaining the aspect ratio just specifying the `width` or the `height` of the new image:
-
-```sh
-abraia editing convert images/usain-bolt.jpeg --width 500 
-```
-
-![Usain Bolt resized](https://github.com/abraia/abraia-multiple/raw/master/images/usain-bolt_500.jpeg)
-
-You can also automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb):
+Automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb). Or simply resize images maintaining the aspect ratio just specifying the `width` or the `height` of the new image:
 
 ```sh
-abraia editing convert images/lion.jpg --width 333 --height 333 --mode pad 
-abraia editing convert images/lion.jpg --width 333 --height 333
+abraia editing convert images/birds.jpg --width 375 --height 375 --mode pad 
+abraia editing convert images/birds.jpg --width 375 --height 375
+abraia editing convert images/birds.jpg --width 750
 ```
 
-![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333_pad.jpg)
-![Image lion smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/lion_333x333.jpg)
+![image padded](https://github.com/abraia/abraia-multiple/raw/master/images/birds_padded.jpg)
+![image smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/birds_cropped.jpg)
 
 So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
 

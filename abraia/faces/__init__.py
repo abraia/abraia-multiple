@@ -3,6 +3,7 @@ from .mtcnn import MTCNN
 from .retinaface import Retinaface
 from .arcface import ArcFace
 from .transform import align_face
+from .genderage import Attribute
 
 
 def euclidean_distance(feat1, feat2):
@@ -35,11 +36,14 @@ class Recognition:
     
     def identify_faces(self, results, index, threshold=0.45):
         for result in results:
-            sims = [cosine_similarity(result['embeddings'], ind['embeddings']) for ind in index]
-            idx = np.argmax(sims)
-            if sims[idx] > threshold:
-                result['confidence'] = sims[idx]
-                result['label'] = index[idx]['name']
+            del result['confidence']
+            result['label'] = 'unknow'
+            if len(index):
+                sims = [cosine_similarity(result['embeddings'], ind['embeddings']) for ind in index]
+                idx = np.argmax(sims)
+                if sims[idx] > threshold:
+                    result['confidence'] = sims[idx]
+                    result['label'] = index[idx]['name']
         return results
 
 

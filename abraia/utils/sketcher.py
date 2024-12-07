@@ -22,7 +22,7 @@ def draw_mask(img, mask, color, opacity = 1):
 
 
 class Sketcher:
-    def __init__(self, img, radius=15):
+    def __init__(self, img, radius=11):
         print(__doc__)
         self.prev_pt = None
         self.win_name = 'Image'

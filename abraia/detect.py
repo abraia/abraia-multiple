@@ -4,7 +4,7 @@ import math
 import numpy as np
 import onnxruntime as ort
 
-from .ops import py_cpu_nms, normalize, mask_to_polygon
+from .ops import py_cpu_nms, normalize, mask_to_polygon, softmax
 from .utils import download_file, load_json, get_color, get_providers
 from .utils import load_image, show_image, save_image, Video
 from .draw import render_results
@@ -28,11 +28,6 @@ def preprocess(img):
     img = crop(img, 224)
     img = normalize(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     return np.expand_dims(img.transpose((2, 0, 1)), axis=0)
-
-
-def softmax(x):
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum(axis=0)
 
 
 def postprocess(outputs, classes):

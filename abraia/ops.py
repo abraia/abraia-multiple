@@ -136,3 +136,8 @@ def non_maximum_suppression(objects, iou_threshold):
         idxs = py_cpu_nms(np.array(dets), iou_threshold)
         return [objects[idx] for idx in idxs]
     return []
+
+
+def softmax(x):
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum(axis=0)
