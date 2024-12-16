@@ -23,16 +23,18 @@ def similarity_transform(src_pts, ref_pts):
     return M
 
 
-def affine_transform(src_pts, ref_pts):
-    # M, _ = cv2.estimateAffine2D(src_pts, ref_pts)
-    M, _ = cv2.estimateAffinePartial2D(src_pts, ref_pts)
+def affine_transform(src_pts, dst_pts):
+    src_tri = np.array([src_pts[0], src_pts[1], (src_pts[3] + src_pts[4]) / 2]).astype(np.float32)
+    dst_tri = np.array([dst_pts[0], dst_pts[1], (dst_pts[3] + dst_pts[4]) / 2]).astype(np.float32)
+    M = cv2.getAffineTransform(src_tri, dst_tri)
+    # M, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts)
     return M
 
 
 def align_face(img, src_pts, size):
     dst_pts = ref_pts * size / 112 if size != 112 else ref_pts
-    M = similarity_transform(src_pts, dst_pts)
-    # M = affine_transform(src_pts, ref_pts)
+    # M = similarity_transform(src_pts, dst_pts)
+    M = affine_transform(src_pts, dst_pts)
     return cv2.warpAffine(img, M, (size, size), borderValue=0.0)
 
 

@@ -5,6 +5,37 @@ import onnxruntime as ort
 from ..utils import download_file
 
 
+def tiling(img, tile_size, overlap = 8):
+    """Return an image in a tiled manner."""
+    tile_width, tile_height = tile_size
+    height, width = img.shape[:2]
+    for y in range(0, height, tile_height - overlap):
+        y_end = min(y + tile_height, height)
+        y = max(0, y_end - tile_height)
+        for x in range(0, width, tile_width - overlap):
+            x_end = min(x + tile_width, width)
+            x = max(0, x_end - tile_width)
+            tile = img[y:y_end, x:x_end]
+            yield tile
+
+
+def stitching(tiles, img_size, overlap = 8):
+    """Return an image from a set of tiles."""
+    tile_height, tile_width = tiles[0].shape[:2]
+    width, height = img_size
+    out = np.empty((height, width, 3), dtype=np.uint8)
+    k = 0
+    for y in range(0, height, tile_height - overlap):
+        for x in range(0, width, tile_width - overlap):
+            x_end = min(x + tile_width, width)
+            y_end = min(y + tile_height, height)
+            x = max(0, x_end - tile_width)
+            y = max(0, y_end - tile_height)
+            out[y:y_end, x:x_end, :] = tiles[k]
+            k += 1
+    return out
+
+
 def ceil_modulo(x, mod):
     return x if x % mod == 0 else (x // mod + 1) * mod
 
@@ -45,10 +76,19 @@ class LAMA:
         output = cv2.resize(output, size, interpolation=cv2.INTER_CUBIC)
         return output
 
-    def predict(self, image, mask):
-        h, w = image.shape[:2]
-        image, mask = self.preprocess(image, mask)
+    def process(self, img, mask):
+        h, w = img.shape[:2]
+        image, mask = self.preprocess(img, mask)
         outputs = self.session.run(None, {'image': image, 'mask': mask})
         output = self.postprocess(outputs[0], (w, h))
         return output
+    
+    def inpaint(self, img, mask):
+        outs = []
+        tile_size = self.image_size
+        img_size = (img.shape[1], img.shape[0])
+        for im, msk in zip(tiling(img, tile_size), tiling(mask, tile_size)):
+            outs.append(self.process(im, msk))
+        out = stitching(outs, img_size)
+        return out
     

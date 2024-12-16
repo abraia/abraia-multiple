@@ -10,6 +10,9 @@ from tqdm import tqdm
 from urllib.parse import urlparse
 from concurrent.futures import ProcessPoolExecutor
 
+from abraia.utils import load_image
+from abraia.editing import clean_image
+
 from abraia import config
 from abraia import Abraia
 from abraia import APIError
@@ -146,9 +149,17 @@ def upscale(src):
 
 @cli_editing.command()
 @click.argument('src')
-def anonymize(src, ):
+def anonymize(src):
     """Anonymize image blurring faces and car license plates."""
     editing_files(src, 'anonymize', desc="Anonymizing")
+
+
+@cli_editing.command()
+@click.argument('src')
+def clean(src):
+    """Clean images removing unwanted objects with inpating."""
+    img = load_image(src)
+    clean_image(img)
 
 
 @cli.group('files')

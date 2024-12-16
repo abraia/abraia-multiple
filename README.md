@@ -2,13 +2,13 @@
 [![Python Package](https://img.shields.io/pypi/v/abraia.svg)](https://pypi.org/project/abraia/)
 ![Package Downloads](https://img.shields.io/pypi/dm/abraia)
 
-# Abraia Python SDK image analysis toolbox
+# Abraia SDK and CLI
 
-The Abraia Python SDK provides and easy and practical way to develop and deploy Machine Learning image applications on the edge. You can easily annotate and train your custom deep learning model with [DeepLab](https://abraia.me/deeplab/), and deploy the model with this Python SDK.
+The Abraia SDK and CLI is a Python package which provides a set of tools to develop and deploy advanced Machine Learning image applications on the edge. Moreover, with [Abraia DeepLab](https://abraia.me/deeplab/) you can easily annotate and train, your own versions of some of the best state of the art deep learning models, and get them ready to deploy with this Python SDK.
 
 ![people walking](https://github.com/abraia/abraia-multiple/raw/master/images/people-walking.gif)
 
-Just install the Abraia Python SDK and CLI on Windows, Mac, or Linux:
+Just install the Abraia SDK and CLI on Windows, Mac, or Linux:
 
 ```sh
 python -m pip install -U abraia
@@ -82,32 +82,6 @@ save_image(out, 'images/rolling-stones-identified.jpg')
 
 ![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
 
-### License plates blurring
-
-Automatically blur car license plates in videos with just a few lines of code.
-
-```python
-import numpy as np
-
-from abraia import detect
-from abraia import draw
-
-model_uri = 'multiple/models/alpd-seg.onnx'
-model = detect.load_model(model_uri)
-
-src = 'images/cars.mp4'
-video = detect.Video(src, output='images/blur.mp4')
-for k, frame in enumerate(video):
-    results = model.run(frame, approx=0.02)
-    mask = np.zeros(frame.shape[:2], np.uint8)
-    [draw.draw_filled_polygon(mask, result['polygon'], 255) for result in results]
-    frame = draw.draw_blurred_mask(frame, mask)
-    video.write(frame)
-    video.show(frame)
-```
-
-![car license plate blurred](https://github.com/abraia/abraia-multiple/raw/master/images/blur.jpg)
-
 ### License plates recognition
 
 Automatically recognize car license plates in images and video streams.
@@ -130,34 +104,6 @@ show_image(img)
 ```
 
 ![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
-
-## Remove unwanted objects
-
-Directly remove unwanted objects in images and photos locally. Just click on the object and press the "spacebar" to automatically select and delete the object from the image. Finally, press "s" to save the final image.
-
-```python
-from abraia.utils import load_image, Sketcher
-from abraia.editing.inpaint import LAMA
-from abraia.editing.sam import SAM
-
-
-img = load_image('images/dog.jpg')
-
-sam = SAM()
-lama = LAMA()
-sam.encode(img)
-
-sketcher = Sketcher(img)
-
-def on_click(point):
-    mask = sam.predict(img, f'[{{"type":"point","data":[{point[0]},{point[1]}],"label":1}}]')
-    sketcher.mask = sketcher.dilate(mask)
-
-sketcher.on_click(on_click)
-sketcher.run(lama.predict)
-```
-
-![inpaint output](https://github.com/abraia/abraia-multiple/raw/master/images/inpaint-output.jpg)
 
 ## Gender Age model
 
@@ -185,6 +131,16 @@ show_image(img)
 
 The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It makes simple to manage your files and enables bulk image editing capabilities. It provides and easy way to resize, convert, and compress your images - JPEG, WebP, or PNG -, and get them ready to publish on the web. Moreover, you can automatically remove the background, upscale, or anonymize your images in bulk.
 
+### Remove unwanted objects
+
+Remove unwanted objects in images and photos locally. Just click on the object to automatically select and delete it from the image. Finally, press "s" to save the output image.
+
+```sh
+abraia editing clean dog.jpg
+```
+
+![inpaint output](https://github.com/abraia/abraia-multiple/raw/master/images/inpaint-output.jpg)
+
 ### Remove background
 
 Automatically remove images background and make them transparent in bulk.
@@ -207,7 +163,7 @@ abraia editing upscale "*.jpg"
 
 ### Anonymize images
 
-Anonymize images in bulk, automatically blurring faces, car license plates, and removing metadata.
+Automatically blur car license plates and faces to anonymize images in bulk.
 
 ```sh
 abraia editing anonymize "*.jpg"

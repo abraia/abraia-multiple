@@ -5,10 +5,11 @@ from .removebg import RemoveBG
 from .upscale import ESRGAN, SwinIR
 from .smartcrop import Smartcrop
 from .inpaint import LAMA
+from .sam import SAM
 
 from ..detect import load_model
 from ..faces import Recognition
-from ..utils import draw
+from ..utils import draw, Sketcher
 
 
 def detect_faces(img):
@@ -65,4 +66,20 @@ def smartcrop_image(img, size):
 
 def inpaint_image(img, mask):
     lama = LAMA()
-    return lama.predict(img, mask) 
+    return lama.inpaint(img, mask)
+
+
+def clean_image(img):
+    sam = SAM()
+    lama = LAMA()
+    sam.encode(img)
+
+    def handle_click(point):
+        mask = sam.predict(img, f'[{{"type":"point","data":[{point[0]},{point[1]}],"label":1}}]')
+        sketcher.mask = cv2.bitwise_or(sketcher.dilate(mask), sketcher.mask)
+        sketcher.show(sketcher.img, sketcher.mask)
+        return lama.inpaint(img, sketcher.mask)
+
+    sketcher = Sketcher(img)
+    sketcher.on_click(handle_click)
+    sketcher.run()

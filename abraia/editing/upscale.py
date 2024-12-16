@@ -43,14 +43,12 @@ def create_gradient_mask(shape, feather):
 
 def tiled_upscale(samples, function, scale, tile_size, overlap = 8):
     """Apply a scaling function to image samples in a tiled manner."""
+    height, width = samples.shape[2:]
     tile_width, tile_height = tile_size
-    _batch, _channels, height, width = samples.shape
     out_height, out_width = round(height * scale), round(width * scale)
-    # Initialize output tensors
     output = np.empty((1, 3, out_height, out_width))
     out = np.zeros((1, 3, out_height, out_width))
     out_div = np.zeros_like(output)
-    # Process the image in tiles
     for y in range(0, height, tile_height - overlap):
         for x in range(0, width, tile_width - overlap):
             # Ensure we don't go out of bounds
