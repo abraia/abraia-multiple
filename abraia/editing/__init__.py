@@ -48,6 +48,14 @@ def remove_background(img):
     return out
 
 
+def blur_background(img):
+    mask = (np.ones(img.shape[:2]) * 255).astype(np.uint8)
+    back = draw.draw_blurred_mask(img.copy(), mask)
+    fore = remove_background(img)
+    out = draw.draw_overlay(back, fore)
+    return out
+
+
 def upscale_image(img):
     if max(img.shape) > 1920:
         h, w = img.shape[:2]

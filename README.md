@@ -151,6 +151,16 @@ abraia editing removebg "*.jpg"
 
 ![removebg output](https://github.com/abraia/abraia-multiple/raw/master/images/removebg-output.png)
 
+### Blur background
+
+Automatically blur the images background to focus attentioin on the main objects.
+
+```sh
+abraia editing blur "*.jpg"
+```
+
+![blur background output](https://github.com/abraia/abraia-multiple/raw/master/images/blur-background.jpg)
+
 ### Upscale images
 
 Scale up and enhance images in bulk, doubling the size and preserving quality.
@@ -178,8 +188,6 @@ Compress images in bulk specifying the input glob pattern or folder:
 ```sh
 abraia editing convert "images/bird*.jpg"
 ```
-
-![image optimized](https://github.com/abraia/abraia-multiple/raw/master/images/birds_optimized.jpg)
 
 Automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb). Or simply resize images maintaining the aspect ratio just specifying the `width` or the `height` of the new image:
 

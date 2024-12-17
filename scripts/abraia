@@ -10,8 +10,8 @@ from tqdm import tqdm
 from urllib.parse import urlparse
 from concurrent.futures import ProcessPoolExecutor
 
-from abraia.utils import load_image
-from abraia.editing import clean_image
+from abraia.utils import load_image, save_image
+from abraia.editing import clean_image, blur_background
 
 from abraia import config
 from abraia import Abraia
@@ -80,6 +80,11 @@ def convert_file(src, dest, args):
 
 
 def editing_file(src, dest, mode):
+    if mode == 'blur':
+        img = load_image(src)
+        out = blur_background(img)
+        save_image(out, dest)
+        return dest
     output = f"export/{os.path.basename(dest)}"
     path = abraia.upload_file(src, 'batch/')
     if mode == 'anonymize':
@@ -156,8 +161,15 @@ def anonymize(src):
 
 @cli_editing.command()
 @click.argument('src')
+def blur(src):
+    """Blur the image background to focus attention on the main object."""
+    editing_files(src, 'blur', desc="Blur background")
+
+
+@cli_editing.command()
+@click.argument('src')
 def clean(src):
-    """Clean images removing unwanted objects with inpating."""
+    """Clean images removing unwanted objects with inpainting."""
     img = load_image(src)
     clean_image(img)
 
