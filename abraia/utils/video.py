@@ -1,8 +1,9 @@
+import os
 import cv2
 
 
 class Video:
-    def __init__(self, src=0, output=None):
+    def __init__(self, src=0, dest=None):
         self.out = None
         self.quit = False
         self.win_name = ''
@@ -11,9 +12,12 @@ class Video:
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.frame_rate = self.fps
-        if output:
+        if dest:
+            dirname = os.path.dirname(dest)
+            if dirname:
+                os.makedirs(dirname, exist_ok=True)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            self.out = cv2.VideoWriter(output, fourcc, self.fps, (self.width, self.height))
+            self.out = cv2.VideoWriter(dest, fourcc, self.fps, (self.width, self.height))
 
     def __iter__(self):
         while self.cap.isOpened():

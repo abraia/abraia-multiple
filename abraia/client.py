@@ -22,7 +22,7 @@ def file_path(source, userid):
 def save_data(dest, data):
     dirname = os.path.dirname(dest)
     if dirname:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        os.makedirs(dirname, exist_ok=True)
     with open(dest, 'wb') as f:
         f.write(data)
     return dest

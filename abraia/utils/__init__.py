@@ -59,6 +59,9 @@ def load_image(src, mode='RGB'):
 
 
 def save_image(img, dest):
+    dirname = os.path.dirname(dest)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
     Image.fromarray(img).save(dest)
 
 
