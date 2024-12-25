@@ -2,8 +2,9 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from .ocr import TextSystem
 from ..utils import download_file
+from .detect import Model
+from .ocr import TextSystem
 
 
 def iou(box1, box2):
@@ -28,16 +29,15 @@ def nms(objects, iou_threshold = 0.5):
     return results
 
 
-class LisencePlateDetector():
+class LicensePlateDetector():
     def __init__(self, threshold = 0.5, iou_threshold = 0.1, out_size = 300):
         self.out_size = out_size
         self.threshold = threshold
         self.iou_threshold = iou_threshold
-
         lpd_src = download_file('multiple/models/lpd.onnx')
         self.session = ort.InferenceSession(lpd_src)
     
-    def __call__(self, img, net_stride = 2**4):
+    def detect(self, img, net_stride = 2**4):
         height, width = img.shape[:2]
         factor = min(288 * max(width, height) / min(width, height), 608) / min(width, height)
         w, h = int(factor * width), int(factor * height)
@@ -73,6 +73,15 @@ class LisencePlateDetector():
         return results
 
 
+class PlateDetector():
+    def __init__(self):
+        model_uri = 'multiple/models/alpd-seg.onnx'
+        self.detection = Model(model_uri)
+
+    def detect(self, img):
+        return self.detection.run(img, approx=0.02)
+
+
 def extract_plate(img, points, out_size, offset=30):
     w1, w2 = np.linalg.norm(points[0] - points[1]), np.linalg.norm(points[2] - points[3])
     h1, h2 = np.linalg.norm(points[0] - points[3]), np.linalg.norm(points[1] - points[2])
@@ -89,14 +98,14 @@ def extract_plate(img, points, out_size, offset=30):
     return cv2.warpPerspective(img, H, size, borderValue=0.0)
 
 
-class ALPR():
+class PlateRecognizer():
     def __init__(self):
-        self.lp_detector = LisencePlateDetector(threshold=0.85, iou_threshold=0.15)
+        self.license_plate = LicensePlateDetector(threshold=0.85, iou_threshold=0.15)
         self.text_system = TextSystem()
         self.out_size = 300
 
     def detect(self, img):
-        return self.lp_detector(img)
+        return self.license_plate.detect(img)
         
     def recognize(self, img, results):
         for result in results:

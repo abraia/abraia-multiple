@@ -141,3 +141,14 @@ def non_maximum_suppression(objects, iou_threshold):
 def softmax(x):
     e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum(axis=0)
+
+
+def count_objects(results):
+    counts = {}
+    colors = {}
+    for result in results:
+        label, color = result['label'], result['color']
+        counts[label] = counts.get(label, 0) + 1
+        colors[label] = color
+    objects = [{'label': label, 'count': counts[label], 'color': colors[label]} for label in counts.keys()]
+    return objects

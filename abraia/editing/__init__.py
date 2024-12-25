@@ -1,25 +1,25 @@
 import cv2
 import numpy as np
 
-from .removebg import RemoveBG
-from .upscale import ESRGAN, SwinIR
+from .removebg import BackgroundRemover
+from .upscale import Upscaler, SwinIR
 from .smartcrop import Smartcrop
 from .inpaint import LAMA
 from .sam import SAM
 
-from ..detect import load_model
-from ..faces import Recognition
+from ..inference import PlateDetector
+from ..inference.faces import FaceRecognizer
 from ..utils import draw, Sketcher
 
 
 def detect_faces(img):
-    recognition = Recognition()
+    recognition = FaceRecognizer()
     return recognition.detect_faces(img)
 
 
 def detect_plates(img):
-    detection = load_model('multiple/models/alpd-seg.onnx')
-    return detection.run(img, approx=0.02)
+    plate = PlateDetector()
+    return plate.detect(img)
 
 
 def detect_smartcrop(img, size):
@@ -43,7 +43,7 @@ def anonymize_image(img):
 
 
 def remove_background(img):
-    removebg = RemoveBG()
+    removebg = BackgroundRemover()
     out = removebg.remove(img)
     return out
 
@@ -62,7 +62,7 @@ def upscale_image(img):
         scale = 1920 / max(img.shape)
         size = (round(scale * w), round(scale * h))
         img = cv2.resize(img, size, cv2.INTER_LINEAR)
-    upscaler = ESRGAN()
+    upscaler = Upscaler()
     out = upscaler.upscale(img)
     return out
 
@@ -91,3 +91,6 @@ def clean_image(img):
     sketcher = Sketcher(img)
     sketcher.on_click(handle_click)
     sketcher.run()
+
+
+# __all__ = [clean_image]

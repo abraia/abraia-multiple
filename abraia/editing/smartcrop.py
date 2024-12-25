@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from ..faces import Retinaface
+from ..inference.faces import Retinaface
 
 
 def spectral_residual_mono(gray):

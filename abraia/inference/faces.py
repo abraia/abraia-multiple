@@ -7,7 +7,26 @@ from itertools import product as product
 from math import ceil
 
 from ..utils import download_file
-from ..ops import non_maximum_suppression
+from .ops import non_maximum_suppression, softmax
+
+
+REFERENCE_FACIAL_POINTS = [[38.2946, 51.6963],
+                           [73.5318, 51.5014],
+                           [56.0252, 71.7366],
+                           [41.5493, 92.3655],
+                           [70.7299, 92.2041]]
+
+
+ref_pts = np.array(REFERENCE_FACIAL_POINTS, dtype=np.float32)
+
+
+def align_face(img, src_pts, size):
+    dst_pts = ref_pts * size / 112 if size != 112 else ref_pts
+    src_tri = np.array([src_pts[0], src_pts[1], (src_pts[3] + src_pts[4]) / 2]).astype(np.float32)
+    dst_tri = np.array([dst_pts[0], dst_pts[1], (dst_pts[3] + dst_pts[4]) / 2]).astype(np.float32)
+    M = cv2.getAffineTransform(src_tri, dst_tri)
+    # M, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts)
+    return cv2.warpAffine(img, M, (size, size), borderValue=0.0)
 
 
 def prior_box(min_sizes, steps, image_size):
@@ -103,3 +122,84 @@ class Retinaface:
             confidence, (x, y, w, h), keypoints = face['confidence'], face['box'], face['keypoints']
             faces[k] = {'confidence': confidence, 'box': [round(x / scale), round(y / scale), round(w / scale), round(h / scale)], 'keypoints': keypoints / scale }
         return faces
+
+
+class FaceAttribute:
+    def __init__(self):
+        """Age and Gender Prediction"""
+        model_src = download_file('multiple/models/faces/genderage.simplified.onnx')
+        self.session = ort.InferenceSession(model_src)
+        inputs = self.session.get_inputs()
+        self.input_size = tuple(inputs[0].shape[2:][::-1])
+        self.input_names = [x.name for x in self.session.get_inputs()]
+        self.output_names = [x.name for x in self.session.get_outputs()]
+
+    def preprocess(self, transformed_image):
+        return cv2.dnn.blobFromImage(transformed_image, 1.0, self.input_size, (0, 0, 0), swapRB=True)
+
+    def postprocess(self, predictions):
+        scores = softmax(predictions[:2])
+        gender = int(np.argmax(scores))
+        age = int(np.round(predictions[2]*100))
+        return 'Male' if gender == 1 else 'Female', age, float(scores[gender])
+
+    def predict(self, face):
+        blob = self.preprocess(face)
+        predictions = self.session.run(self.output_names, {self.input_names[0]: blob})[0][0]
+        gender, age, score = self.postprocess(predictions)
+        return gender, age, score
+
+
+class ArcFace:
+    def __init__(self):
+        model_src = download_file('multiple/models/mobilefacenet-res2-6-10-2-dim512.simplified.onnx')
+        self.session = ort.InferenceSession(model_src)
+        inputs = self.session.get_inputs()
+        self.input_name = inputs[0].name
+        self.image_size = tuple(inputs[0].shape[2:])
+        self.output_names = [out.name for out in self.session.get_outputs()]
+
+    def calculate_embeddings(self, img):
+        blob = cv2.dnn.blobFromImages([img], 1.0, self.image_size, (0, 0, 0), swapRB=True)
+        out = self.session.run(self.output_names, {self.input_name: blob})[0]
+        return out.flatten()
+
+
+def euclidean_distance(feat1, feat2):
+    return float(np.linalg.norm(feat1 - feat2))
+
+
+def cosine_similarity(feat1, feat2):
+    return float(np.dot(feat1, feat2) / (np.linalg.norm(feat1) * np.linalg.norm(feat2)))
+
+
+class FaceRecognizer:
+    def __init__(self):
+        self.detector = Retinaface()
+        self.arcface = ArcFace()
+
+    def detect_faces(self, img):
+        return self.detector.detect_faces(img)
+    
+    def extract_faces(self, img, results=None, size=112):
+        results = self.detector.detect_faces(img) if results == None else results
+        return [align_face(img, result['keypoints'], size) for result in results]
+    
+    def represent_faces(self, img, results=None, size=112):
+        results = self.detector.detect_faces(img) if results == None else results
+        for result in results:
+            face = align_face(img, result['keypoints'], size)
+            result['embeddings'] = self.arcface.calculate_embeddings(face)
+        return results
+    
+    def identify_faces(self, results, index, threshold=0.45):
+        for result in results:
+            del result['confidence']
+            result['label'] = 'unknow'
+            if len(index):
+                sims = [cosine_similarity(result['embeddings'], ind['embeddings']) for ind in index]
+                idx = np.argmax(sims)
+                if sims[idx] > threshold:
+                    result['confidence'] = sims[idx]
+                    result['label'] = index[idx]['name']
+        return results

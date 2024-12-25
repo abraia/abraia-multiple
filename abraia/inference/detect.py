@@ -4,9 +4,9 @@ import math
 import numpy as np
 import onnxruntime as ort
 
-from .ops import py_cpu_nms, normalize, mask_to_polygon, softmax
-from .utils import download_file, load_json, get_color, get_providers
-from .utils import load_image, show_image, save_image, Video, render_results
+from .ops import py_cpu_nms, normalize, mask_to_polygon, softmax, count_objects
+from ..utils import download_file, load_json, get_color, get_providers
+from ..utils import load_image, show_image, save_image, Video, render_results
 
 
 def resize(img, size):
@@ -15,6 +15,7 @@ def resize(img, size):
     return cv2.resize(img, (width, height), interpolation=cv2.INTER_LINEAR)
 
 
+# TODO: Refactor to convert to get detection
 def crop(img, size):
     height, width = img.shape[:2]
     left, top = (width - size) // 2, (height - size) // 2
@@ -22,9 +23,8 @@ def crop(img, size):
     return img[top:bottom, left:right]
 
 
-def preprocess(img):
-    img = resize(img, 256)
-    img = crop(img, 224)
+def preprocess(img, size = 224):
+    img = resize(img, size)
     img = normalize(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     return np.expand_dims(img.transpose((2, 0, 1)), axis=0)
 
@@ -139,19 +139,8 @@ def process_output(outputs, size, shape, classes, conf_threshold=0.25, iou_thres
     return results
 
 
-def count_objects(results):
-    counts = {}
-    colors = {}
-    for result in results:
-        label, color = result['label'], result['color']
-        counts[label] = counts.get(label, 0) + 1
-        colors[label] = color
-    objects = [{'label': label, 'count': counts[label], 'color': colors[label]} for label in counts.keys()]
-    return objects
-
-
 class Model:
-    def load(self, model_uri):
+    def __init__(self, model_uri):
         config_uri = f"{os.path.splitext(model_uri)[0]}.json"
         self.config = load_json(download_file(config_uri))
         self.session = ort.InferenceSession(download_file(model_uri), providers=get_providers())
@@ -169,6 +158,4 @@ class Model:
     
 
 def load_model(model_uri):
-    model = Model()
-    model.load(model_uri)
-    return model
+    return Model(model_uri)

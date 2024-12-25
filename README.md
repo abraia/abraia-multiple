@@ -25,7 +25,7 @@ Annotate your images and train a state-of-the-art model for classification, dete
 Detect objects with a pre-trained YOLOv8 model on images, videos, or even camera streams.
 
 ```python
-from abraia import detect
+from abraia.inference import detect
 
 model_uri = f"multiple/models/yolov8n.onnx"
 model = detect.load_model(model_uri)
@@ -41,7 +41,7 @@ detect.show_image(img)
 To run a multi-object detector on video or directly on a camera stream, you just need to use the Video class to process every frame as is done for images.
 
 ```python
-from abraia import detect
+from abraia.inference import detect
 
 model_uri = f"multiple/models/yolov8n.onnx"
 model = detect.load_model(model_uri)
@@ -60,13 +60,13 @@ Identify people on images with face recognition as shown bellow.
 ```python
 import os
 
-from abraia.faces import Recognition
+from abraia.inference import FaceRecognizer
 from abraia.utils import load_image, save_image, render_results
 
 img = load_image('images/rolling-stones.jpg')
 out = img.copy()
 
-recognition = Recognition()
+recognition = FaceRecognizer()
 results = recognition.represent_faces(img)
 
 index = []
@@ -87,10 +87,10 @@ save_image(out, 'images/rolling-stones-identified.jpg')
 Automatically recognize car license plates in images and video streams.
 
 ```python
-from abraia.alpr import ALPR
+from abraia.inference import PlateRecognizer
 from abraia.utils import load_image, show_image, render_results
 
-alpr = ALPR()
+alpr = PlateRecognizer()
 
 img = load_image('images/car.jpg')
 results = alpr.detect(img)
@@ -110,11 +110,11 @@ show_image(img)
 Model to predict gender and age. It can be useful to anonymize minors faces.
 
 ```python
-from abraia.faces import Recognition, Attribute
+from abraia.inference import FaceRecognizer, FaceAttribute
 from abraia.utils import load_image, show_image, render_results
 
-recognition = Recognition()
-attribute = Attribute()
+recognition = FaceRecognizer()
+attribute = FaceAttribute()
 
 img = load_image('images/image.jpg')
 results = recognition.detect_faces(img)

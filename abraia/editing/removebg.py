@@ -29,7 +29,7 @@ def naive_cutout(img, mask):
     return cutout
 
 
-class RemoveBG:
+class BackgroundRemover:
     
     def __init__(self):
         self.image_size = (1024, 1024)

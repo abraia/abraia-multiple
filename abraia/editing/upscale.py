@@ -8,7 +8,6 @@ sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_AL
 
 
 class SwinIR:
-
     def __init__(self):
         model_src = download_file('multiple/models/editing/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.onnx')
         self.session = ort.InferenceSession(model_src, sess_options)
@@ -72,8 +71,7 @@ def tiled_upscale(samples, function, scale, tile_size, overlap = 8):
     return output
 
 
-class ESRGAN:
-
+class Upscaler:
     def __init__(self, overlap = 8):
         self.scale = 2
         self.overlap = overlap
