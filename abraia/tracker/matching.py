@@ -110,19 +110,6 @@ def embedding_distance(tracks, detections, metric='cosine'):
     return cost_matrix
 
 
-# def gate_cost_matrix(kf, cost_matrix, tracks, detections, only_position=False):
-#     if cost_matrix.size == 0:
-#         return cost_matrix
-#     gating_dim = 2 if only_position else 4
-#     gating_threshold = kalman_filter.chi2inv95[gating_dim]
-#     measurements = np.asarray([det.to_xyah() for det in detections])
-#     for row, track in enumerate(tracks):
-#         gating_distance = kf.gating_distance(
-#             track.mean, track.covariance, measurements, only_position)
-#         cost_matrix[row, gating_distance > gating_threshold] = np.inf
-#     return cost_matrix
-
-
 def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda_=0.98):
     if cost_matrix.size == 0:
         return cost_matrix

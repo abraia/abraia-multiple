@@ -126,6 +126,24 @@ def py_cpu_nms(dets, thresh):
     return keep
 
 
+# def iou(box1, box2):
+#     """Calculates the intersection-over-union of two boxes."""
+#     tl1, wh1, br1 = [box1[0], box1[1]], [box1[2], box1[3]], [box1[0] + box1[2], box1[1] + box1[3]]
+#     tl2, wh2, br2 = [box2[0], box2[1]], [box2[2], box2[3]], [box2[0] + box2[2], box2[1] + box2[3]]
+#     intersection_area = np.prod(np.maximum(np.minimum(br1, br2) - np.maximum(tl1, tl2), 0))
+#     union_area = np.prod(wh1) + np.prod(wh2) - intersection_area;
+#     return intersection_area / union_area
+
+
+# def non_maximum_suppression(objects, iou_threshold):
+#     results = []
+#     objects.sort(key=lambda obj: obj['confidence'], reverse=True)
+#     while len(objects) > 0:
+#         results.append(objects[0])
+#         objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
+    # return results
+
+
 def non_maximum_suppression(objects, iou_threshold):
     dets = []
     for obj in objects:
@@ -152,3 +170,8 @@ def count_objects(results):
         colors[label] = color
     objects = [{'label': label, 'count': counts[label], 'color': colors[label]} for label in counts.keys()]
     return objects
+
+
+def crop_box(img, box):
+    x, y, w, h = box
+    return img[y:y+w, x:x+w]

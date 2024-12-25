@@ -4,7 +4,7 @@ import math
 import numpy as np
 import onnxruntime as ort
 
-from .ops import py_cpu_nms, normalize, mask_to_polygon, softmax, count_objects
+from .ops import non_maximum_suppression, normalize, mask_to_polygon, softmax, count_objects
 from ..utils import download_file, load_json, get_color, get_providers
 from ..utils import load_image, show_image, save_image, Video, render_results
 
@@ -13,14 +13,6 @@ def resize(img, size):
     scale = max(size / img.shape[1], size / img.shape[0])
     width, height = round(scale * img.shape[1]), round(scale * img.shape[0])
     return cv2.resize(img, (width, height), interpolation=cv2.INTER_LINEAR)
-
-
-# TODO: Refactor to convert to get detection
-def crop(img, size):
-    height, width = img.shape[:2]
-    left, top = (width - size) // 2, (height - size) // 2
-    right, bottom = left + size, top + size
-    return img[top:bottom, left:right]
 
 
 def preprocess(img, size = 224):
@@ -50,36 +42,6 @@ def prepare_input(img, shape):
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))
     img = img.transpose((2, 0, 1)).reshape(shape).astype(np.float32)
     return img / 255
-
-
-def iou(box1, box2):
-    """Calculates the intersection-over-union of two boxes."""
-    tl1, wh1, br1 = [box1[0], box1[1]], [box1[2], box1[3]], [box1[0] + box1[2], box1[1] + box1[3]]
-    tl2, wh2, br2 = [box2[0], box2[1]], [box2[2], box2[3]], [box2[0] + box2[2], box2[1] + box2[3]]
-    intersection_area = np.prod(np.maximum(np.minimum(br1, br2) - np.maximum(tl1, tl2), 0))
-    union_area = np.prod(wh1) + np.prod(wh2) - intersection_area;
-    return intersection_area / union_area
-
-
-# def non_maximum_suppression(objects, iou_threshold):
-#     results = []
-#     objects.sort(key=lambda obj: obj['confidence'], reverse=True)
-#     while len(objects) > 0:
-#         results.append(objects[0])
-#         objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
-    # return results
-
-
-def non_maximum_suppression(objects, iou_threshold):
-    dets = []
-    for obj in objects:
-        s = obj['confidence']
-        x, y, w, h = obj['box']
-        dets.append([x, y, x + w, y + h, s])
-    if dets:
-        idxs = py_cpu_nms(np.array(dets), iou_threshold)
-        return [objects[idx] for idx in idxs]
-    return []
 
 
 def sigmoid_mask(z):

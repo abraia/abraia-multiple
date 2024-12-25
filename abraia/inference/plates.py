@@ -15,6 +15,7 @@ def iou(box1, box2):
     return intersection_area / union_area
 
 
+# TODO: Replace with non_maximum_suppression from ops
 def nms(objects, iou_threshold = 0.5):
     results = []
     objects.sort(key=lambda obj: obj['confidence'], reverse=True)
