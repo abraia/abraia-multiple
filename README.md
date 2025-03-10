@@ -105,7 +105,7 @@ show_image(img)
 
 ![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
-## Gender Age model
+### Gender Age model
 
 Model to predict gender and age. It can be useful to anonymize minors faces.
 
@@ -125,6 +125,86 @@ for face, result in zip(faces, results):
     result['confidence'] = score
 img = render_results(img, results)
 show_image(img)
+```
+
+### Zero-shot classification
+
+Use "clip" model for zero-shot classification.
+
+```python
+from abraia.utils import load_image
+from abraia.inference.clip import Clip
+from abraia.inference.ops import cosine_similarity, softmax
+
+images = [load_image("franz-kafka.jpg")]
+texts = ["a photo of a man", "a photo of a woman"]
+
+cip_model = Clip(batch_size=16)
+image_embeddings = cip_model.get_image_embeddings(images)
+text_embeddings = cip_model.get_text_embeddings(texts)
+
+# To use the embeddings for zero-shot classification, you can use these two
+# functions. Here we run on a single image, but any number is supported.
+logits = [100 * cosine_similarity(image_embeddings[0], features) for features in text_embeddings]
+for text, p in zip(texts, softmax(logits)):
+    print(f"Probability that the image is '{text}': {p:.3f}")
+```
+
+### Blur license plate
+
+Automatically blur car license plates.
+
+```python
+from abraia.utils import load_image, save_image
+from abraia.inference import PlateDetector
+from abraia.editing import build_mask
+from abraia.utils.draw import draw_blurred_mask
+
+src = 'images/car.jpg'
+img = load_image(src)
+
+detector = PlateDetector()
+plates = detector.detect(img)
+mask = build_mask(img, plates, [])
+out = draw_blurred_mask(img, mask)
+
+save_image(out, 'blur-car.jpg')
+```
+
+![blur car license plate](https://github.com/abraia/abraia-multiple/raw/master/images/blur-car.jpg)
+
+### Semantic search
+
+Search on images with embeddings.
+
+```python
+import numpy as np
+from tqdm import tqdm
+from abraia.utils import load_image
+from abraia.inference.clip import Clip
+from abraia.inference.ops import cosine_similarity
+
+clip_model = Clip(batch_size=16)
+
+def get_image_embeddings(image_path):
+    return clip_model.get_image_embeddings([load_image(image_path)])[0]
+
+def get_text_embeddings(text_query):
+    return clip_model.get_text_embeddings([text_query])[0]
+
+def search_image(image_embeddings, features):
+    scores = [cosine_similarity(image_features, features) for image_features in image_embeddings]
+    index = np.argmax(np.array(scores)) 
+    return scores[index], image_paths[index]
+
+image_paths = ['images/cat.jpg', 'images/dog.jpg', 'images/car.jpg', 'images/mick-jagger.jpg']
+image_embeddings = [get_image_embeddings(image_path) for image_path in tqdm(image_paths)]
+
+text_query = "a man or a woman"
+features = get_text_embeddings(text_query)
+
+highest_score, highest_score_image_path = search_image(image_embeddings, features)
+print(f"Similarity score is {highest_score} for image {highest_score_image_path}")
 ```
 
 ## Command line interface

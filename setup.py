@@ -29,7 +29,7 @@ setup(
     license='MIT',
     zip_safe=False,
     packages=find_packages(exclude=['tests']),
-    package_data={'': ['*.jpg']},
+    package_data={'': ['*.jpg', '*.gz']},
     include_package_data=True,
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0', 'pytest-runner'],

@@ -7,7 +7,7 @@ from itertools import product as product
 from math import ceil
 
 from ..utils import download_file
-from .ops import non_maximum_suppression, softmax
+from .ops import non_maximum_suppression, softmax, cosine_similarity
 
 
 REFERENCE_FACIAL_POINTS = [[38.2946, 51.6963],
@@ -163,14 +163,6 @@ class ArcFace:
         blob = cv2.dnn.blobFromImages([img], 1.0, self.image_size, (0, 0, 0), swapRB=True)
         out = self.session.run(self.output_names, {self.input_name: blob})[0]
         return out.flatten()
-
-
-def euclidean_distance(feat1, feat2):
-    return float(np.linalg.norm(feat1 - feat2))
-
-
-def cosine_similarity(feat1, feat2):
-    return float(np.dot(feat1, feat2) / (np.linalg.norm(feat1) * np.linalg.norm(feat2)))
 
 
 class FaceRecognizer:

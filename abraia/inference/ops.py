@@ -157,6 +157,8 @@ def non_maximum_suppression(objects, iou_threshold):
 
 
 def softmax(x):
+    """Computes softmax values for each sets of scores in x.
+    This ensures the output sums to 1 for each image (along axis 1)."""
     e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum(axis=0)
 
@@ -175,3 +177,12 @@ def count_objects(results):
 def crop_box(img, box):
     x, y, w, h = box
     return img[y:y+w, x:x+w]
+
+
+def euclidean_distance(feat1, feat2):
+    return float(np.linalg.norm(feat1 - feat2))
+
+
+def cosine_similarity(feat1, feat2):
+    """Compute pairwise similarity scores between two arrays of embeddings."""
+    return float(np.dot(feat1, feat2) / (np.linalg.norm(feat1) * np.linalg.norm(feat2)))
