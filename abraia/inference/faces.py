@@ -7,7 +7,7 @@ from itertools import product as product
 from math import ceil
 
 from ..utils import download_file
-from .ops import non_maximum_suppression, softmax, cosine_similarity
+from .ops import non_maximum_suppression, softmax, search_vector
 
 
 REFERENCE_FACIAL_POINTS = [[38.2946, 51.6963],
@@ -187,11 +187,11 @@ class FaceRecognizer:
     def identify_faces(self, results, index, threshold=0.45):
         for result in results:
             del result['confidence']
-            result['label'] = 'unknow'
+            result['label'] = 'unknown'
             if len(index):
-                sims = [cosine_similarity(result['embeddings'], ind['embeddings']) for ind in index]
-                idx = np.argmax(sims)
-                if sims[idx] > threshold:
-                    result['confidence'] = sims[idx]
+                vectors = [ind['embeddings'] for ind in index]
+                idx, scores = search_vector(vectors, result['embeddings'])
+                if scores[idx] > threshold:
+                    result['confidence'] = scores[idx]
                     result['label'] = index[idx]['name']
         return results

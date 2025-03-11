@@ -182,7 +182,7 @@ import numpy as np
 from tqdm import tqdm
 from abraia.utils import load_image
 from abraia.inference.clip import Clip
-from abraia.inference.ops import cosine_similarity
+from abraia.inference.ops import search_vector
 
 clip_model = Clip(batch_size=16)
 
@@ -192,19 +192,14 @@ def get_image_embeddings(image_path):
 def get_text_embeddings(text_query):
     return clip_model.get_text_embeddings([text_query])[0]
 
-def search_image(image_embeddings, features):
-    scores = [cosine_similarity(image_features, features) for image_features in image_embeddings]
-    index = np.argmax(np.array(scores)) 
-    return scores[index], image_paths[index]
-
 image_paths = ['images/cat.jpg', 'images/dog.jpg', 'images/car.jpg', 'images/mick-jagger.jpg']
 image_embeddings = [get_image_embeddings(image_path) for image_path in tqdm(image_paths)]
 
 text_query = "a man or a woman"
 features = get_text_embeddings(text_query)
 
-highest_score, highest_score_image_path = search_image(image_embeddings, features)
-print(f"Similarity score is {highest_score} for image {highest_score_image_path}")
+index, scores = search_vector(image_embeddings, features)
+print(f"Similarity score is {scores[index]} for image {image_paths[index]}")
 ```
 
 ## Command line interface
