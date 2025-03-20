@@ -192,3 +192,7 @@ def search_vector(vectors, vector):
     scores = [cosine_similarity(vec, vector) for vec in vectors]
     index = np.argmax(scores)
     return index, scores
+
+
+def normalize_vector(vector):
+    return vector / np.linalg.norm(vector)

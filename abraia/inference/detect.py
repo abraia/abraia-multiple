@@ -4,9 +4,8 @@ import math
 import numpy as np
 import onnxruntime as ort
 
-from .ops import non_maximum_suppression, normalize, mask_to_polygon, softmax, count_objects
+from .ops import non_maximum_suppression, normalize, mask_to_polygon, softmax
 from ..utils import download_file, load_json, get_color, get_providers
-from ..utils import load_image, show_image, save_image, Video, render_results
 
 
 def resize(img, size):
@@ -117,7 +116,3 @@ class Model:
             return process_output(outputs, img_size, self.input_shape, self.config['classes'], conf_threshold, iou_threshold, approx)
         outputs = self.session.run(None, {self.input_name: preprocess(img)})
         return postprocess(outputs, self.config['classes'])
-    
-
-def load_model(model_uri):
-    return Model(model_uri)

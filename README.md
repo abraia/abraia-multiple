@@ -25,15 +25,15 @@ Annotate your images and train a state-of-the-art model for classification, dete
 Detect objects with a pre-trained YOLOv8 model on images, videos, or even camera streams.
 
 ```python
-from abraia.inference import detect
+from abraia.inference import Model
+from abraia.utils import load_image, show_image, render_results
 
-model_uri = f"multiple/models/yolov8n.onnx"
-model = detect.load_model(model_uri)
+model = Model("multiple/models/yolov8n.onnx")
 
-img = detect.load_image('people-walking.png')
+img = load_image('images/people-walking.png')
 results = model.run(img, conf_threshold=0.5, iou_threshold=0.5)
-img = detect.render_results(img, results)
-detect.show_image(img)
+img = render_results(img, results)
+show_image(img)
 ```
 
 ![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.png)
@@ -41,15 +41,15 @@ detect.show_image(img)
 To run a multi-object detector on video or directly on a camera stream, you just need to use the Video class to process every frame as is done for images.
 
 ```python
-from abraia.inference import detect
+from abraia.inference import Model
+from abraia.utils import Video, render_results
 
-model_uri = f"multiple/models/yolov8n.onnx"
-model = detect.load_model(model_uri)
+model = Model("multiple/models/yolov8n.onnx")
 
-video = detect.Video('people-walking.mp4')
+video = Video('images/people-walking.mp4')
 for frame in video:
     results = model.run(frame, conf_threshold=0.5, iou_threshold=0.5)
-    frame = detect.render_results(frame, results)
+    frame = render_results(frame, results)
     video.show(frame)
 ```
 
@@ -136,11 +136,11 @@ from abraia.utils import load_image
 from abraia.inference.clip import Clip
 from abraia.inference.ops import cosine_similarity, softmax
 
-images = [load_image("franz-kafka.jpg")]
+image = load_image("images/image.jpg")
 texts = ["a photo of a man", "a photo of a woman"]
 
-cip_model = Clip(batch_size=16)
-image_embeddings = cip_model.get_image_embeddings(images)
+cip_model = Clip()
+image_embeddings = cip_model.get_image_embeddings([image])[0]
 text_embeddings = cip_model.get_text_embeddings(texts)
 
 # To use the embeddings for zero-shot classification, you can use these two
@@ -178,25 +178,19 @@ save_image(out, 'blur-car.jpg')
 Search on images with embeddings.
 
 ```python
-import numpy as np
 from tqdm import tqdm
+from glob import glob
 from abraia.utils import load_image
 from abraia.inference.clip import Clip
 from abraia.inference.ops import search_vector
 
-clip_model = Clip(batch_size=16)
+clip_model = Clip()
 
-def get_image_embeddings(image_path):
-    return clip_model.get_image_embeddings([load_image(image_path)])[0]
-
-def get_text_embeddings(text_query):
-    return clip_model.get_text_embeddings([text_query])[0]
-
-image_paths = ['images/cat.jpg', 'images/dog.jpg', 'images/car.jpg', 'images/mick-jagger.jpg']
-image_embeddings = [get_image_embeddings(image_path) for image_path in tqdm(image_paths)]
+image_paths = glob('images/*.jpg')
+image_embeddings = [clip_model.get_image_embeddings([load_image(image_path)])[0] for image_path in tqdm(image_paths)]
 
 text_query = "a man or a woman"
-features = get_text_embeddings(text_query)
+features = clip_model.get_text_embeddings([text_query])[0]
 
 index, scores = search_vector(image_embeddings, features)
 print(f"Similarity score is {scores[index]} for image {image_paths[index]}")

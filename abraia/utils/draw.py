@@ -112,6 +112,7 @@ def render_results(img, results):
     text_scale = calculate_optimal_text_scale(img.shape[:2])
     for result in results:
         label = result.get('label')
+        # TODO: Rename confidence to score
         score = result.get('confidence')
         color = hex_to_rgb(result.get('color', '#009BFF'))
         if result.get('polygon'):
