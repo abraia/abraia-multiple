@@ -20,6 +20,8 @@ tempdir = tempfile.gettempdir()
 
 API_URL = 'https://api.abraia.me'
 
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'}
+
 
 def is_url(url):
     return url.startswith('http://') or url.startswith('https://')
@@ -39,7 +41,7 @@ def download_url(url: str, dest: str, chunk_size: int = 8192):
     filename = os.path.basename(dest)
     temp_dest = Path(dest).with_name(filename + '.part')
     temp_dest.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(url, stream=True, allow_redirects=True) as r:
+    with requests.get(url, headers=HEADERS, stream=True, allow_redirects=True) as r:
         r.raise_for_status()
         total = int(r.headers.get('content-length', 0))
         with open(temp_dest, 'wb') as f, tqdm(desc=filename, total=total, unit='iB', unit_scale=True, unit_divisor=1024) as bar:
@@ -50,28 +52,15 @@ def download_url(url: str, dest: str, chunk_size: int = 8192):
     temp_dest.rename(dest)
 
 
-# def download_url(url, dest, chunk_size=4096):
-#     filename = os.path.basename(dest)
-#     resp = requests.get(url, stream=True, allow_redirects=True)
-#     total = int(resp.headers.get('content-length', 0))
-#     with open(dest, 'wb') as f, tqdm(desc=filename, total=total, unit='iB', unit_scale=True, unit_divisor=1024) as bar:
-#         for chunk in resp.iter_content(chunk_size=chunk_size):
-#             size = f.write(chunk)
-#             bar.update(size)
-#         f.flush()
-
-
 def download_file(path):
     dest = temporal_src(path)
     if not os.path.exists(dest):
-        # r = requests.get(url, allow_redirects=True)
-        # open(dest, 'wb').write(r.content)
         download_url(url_path(path), dest)
     return dest
 
 
 def load_url(url):
-    return requests.get(url, stream=True).raw
+    return requests.get(url, headers=HEADERS, stream=True, allow_redirects=True).raw
 
 
 def load_json(src):

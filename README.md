@@ -139,9 +139,9 @@ from abraia.inference.ops import cosine_similarity, softmax
 image = load_image("images/image.jpg")
 texts = ["a photo of a man", "a photo of a woman"]
 
-cip_model = Clip()
-image_embeddings = cip_model.get_image_embeddings([image])[0]
-text_embeddings = cip_model.get_text_embeddings(texts)
+clip_model = Clip()
+image_embeddings = clip_model.get_image_embeddings([image])[0]
+text_embeddings = clip_model.get_text_embeddings(texts)
 
 # To use the embeddings for zero-shot classification, you can use these two
 # functions. Here we run on a single image, but any number is supported.
