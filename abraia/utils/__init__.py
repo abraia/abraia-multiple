@@ -3,6 +3,7 @@ import json
 import base64
 import tempfile
 import requests
+import mimetypes
 import numpy as np
 import onnxruntime as ort
 
@@ -17,10 +18,27 @@ from .draw import render_results
 
 tempdir = tempfile.gettempdir()
 
-
 API_URL = 'https://api.abraia.me'
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'}
+
+mimetypes.add_type('image/webp', '.webp')
+
+
+def get_type(path):
+    return mimetypes.guess_type(path)[0] or 'binary/octet-stream'
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """Special json encoder for numpy types."""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
 
 
 def is_url(url):
@@ -31,9 +49,16 @@ def url_path(path):
     return f"{API_URL}/files/{path}"
 
 
+def make_dirs(dest):
+    """Create directory if it doesn't exist."""
+    dirname = os.path.dirname(dest)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
+
+
 def temporal_src(path):
     dest = os.path.join(tempdir, path)
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    make_dirs(dest)
     return dest
 
 
@@ -64,8 +89,27 @@ def load_url(url):
 
 
 def load_json(src):
-    with open(src, 'r') as file:
-        return json.load(file)
+    with open(src, 'r') as f:
+        return json.load(f)
+    
+
+def save_json(data, dest):
+    make_dirs(dest)
+    with open(dest, 'w') as f:
+        f.write(json.dumps(data, cls=NumpyEncoder))
+    return dest
+
+
+def load_data(src):
+    with open(src, 'rb') as f:
+        return f.read()
+
+
+def save_data(dest, data):
+    make_dirs(dest)
+    with open(dest, 'wb') as f:
+        f.write(data)
+    return dest
 
 
 def load_image(src, mode='RGB'):
@@ -75,10 +119,9 @@ def load_image(src, mode='RGB'):
 
 
 def save_image(img, dest):
-    dirname = os.path.dirname(dest)
-    if dirname:
-        os.makedirs(dirname, exist_ok=True)
+    make_dirs(dest)
     Image.fromarray(img).save(dest)
+    return dest
 
 
 def show_image(img):

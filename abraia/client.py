@@ -2,7 +2,6 @@ import os
 import json
 import hashlib
 import requests
-import mimetypes
 
 from PIL import Image
 from io import BytesIO
@@ -10,26 +9,11 @@ from fnmatch import fnmatch
 from datetime import datetime
 
 from . import config
-from .utils import API_URL, temporal_src
-
-mimetypes.add_type('image/webp', '.webp')
-
-
-def get_type(path):
-    return mimetypes.guess_type(path)[0] or 'binary/octet-stream'
+from .utils import API_URL, get_type, temporal_src, save_data
 
 
 def file_path(source, userid):
     return source[len(userid)+1:]
-
-
-def save_data(dest, data):
-    dirname = os.path.dirname(dest)
-    if dirname:
-        os.makedirs(dirname, exist_ok=True)
-    with open(dest, 'wb') as f:
-        f.write(data)
-    return dest
 
 
 def md5sum(src):
@@ -116,6 +100,7 @@ class Abraia:
         return file_path(resp['file']['source'], self.userid)
 
     def download_file(self, path, dest='', cache=False):
+        # TODO: Remove BytesIO download option
         url = f"{API_URL}/files/{self.userid}/{path}"
         if cache and dest == '':
             dest = temporal_src(path)

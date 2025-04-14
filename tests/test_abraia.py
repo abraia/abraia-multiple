@@ -31,8 +31,8 @@ def test_check_file():
 
 
 def test_download_file():
-    stream = abraia.download_file('tiger.jpg')
-    assert isinstance(stream, BytesIO)
+    dest = abraia.download_file('tiger.jpg', 'images/tiger.jpg')
+    assert dest == 'images/tiger.jpg'
 
 
 def test_remove_file():

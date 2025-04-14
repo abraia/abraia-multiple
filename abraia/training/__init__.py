@@ -1,6 +1,6 @@
 
 from ..client import Abraia
-from ..utils import get_color, url_path
+from ..utils import get_color, url_path, make_dirs
 from . import classify, detect 
 
 import os
@@ -115,18 +115,18 @@ def save_annotation(annotation, folder, classes, task):
 
 def save_data(annotations, folder, classes, task):
     if (task == 'classify'):
-        os.makedirs(os.path.join(folder), exist_ok=True)
+        make_dirs(os.path.join(folder))
         paths = [annotation['path'] for annotation in annotations]
         process_map(download_file, paths, itertools.repeat(folder), max_workers=5)
         for label in classes:
-            os.makedirs(os.path.join(folder, label), exist_ok=True)
+            make_dirs(os.path.join(folder, label))
         for annotation in annotations:
             save_annotation(annotation, folder, classes, task)
     else:
-        os.makedirs(os.path.join(folder, 'images'), exist_ok=True)
+        make_dirs(os.path.join(folder, 'images'))
         paths = [annotation['path'] for annotation in annotations]
         process_map(download_file, paths, itertools.repeat(os.path.join(folder, 'images')), max_workers=5)
-        os.makedirs(os.path.join(folder, 'labels'), exist_ok=True)
+        make_dirs(os.path.join(folder, 'labels'))
         for annotation in annotations:
             save_annotation(annotation, folder, classes, task)
 
