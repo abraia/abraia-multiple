@@ -3,7 +3,6 @@ import re
 import urllib
 import requests
 import filetype
-import posixpath
 import itertools
 
 from PIL import Image
@@ -21,13 +20,14 @@ def download_page(url):
     return resp.text
 
 
-def save_image(link, file_path, timeout=10):
+def save_image(link, file_path, timeout=10, max_size=2048):
     resp = requests.get(link, headers=HEADERS, allow_redirects=True, timeout=timeout)
     kind = filetype.guess(resp.content)
     if kind and kind.mime.startswith('image'):
         with open(str(file_path), 'wb') as f:
             f.write(resp.content)
         im = Image.open(file_path).convert('RGB')
+        im.thumbnail([max_size, max_size])
         im.save(file_path)
     else:
         raise ValueError(f'Invalid image, not saving\n')

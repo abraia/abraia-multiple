@@ -1,6 +1,6 @@
 
 from ..client import Abraia
-from ..utils import get_color
+from ..utils import get_color, url_path
 from . import classify, detect 
 
 import os
@@ -17,6 +17,14 @@ abraia = Abraia()
 def load_projects():
     folders = abraia.list_files()[1]
     return [folder['name'] for folder in folders if abraia.check_file(f"{folder['name']}/annotations.json")]
+
+
+def load_dataset(dataset):
+    files = abraia.list_files(f"{dataset}/")[0]
+    dataset = [f for f in files if f['type'].startswith('image/')]
+    for data in dataset:
+        data['url'] = url_path(f"{abraia.userid}/{data['path']}")
+    return dataset
 
 
 def load_annotations(dataset):

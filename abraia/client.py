@@ -15,6 +15,10 @@ from .utils import API_URL, temporal_src
 mimetypes.add_type('image/webp', '.webp')
 
 
+def get_type(path):
+    return mimetypes.guess_type(path)[0] or 'binary/octet-stream'
+
+
 def file_path(source, userid):
     return source[len(userid)+1:]
 
@@ -60,19 +64,15 @@ class Abraia:
         return resp.json()
 
     def list_files(self, path=''):
-        dirname = os.path.dirname(path)
-        basename = os.path.basename(path)
+        dirname, basename = os.path.dirname(path), os.path.basename(path)
         folder = dirname + '/' if dirname else dirname
         url = f"{API_URL}/files/{self.userid}/{folder}"
         resp = requests.get(url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
-        for f in resp['files']:
-            f['date'] = datetime.fromtimestamp(f['date'])
-        files, folders = resp['files'], resp['folders']
-        files = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name'], 'size': f['size'], 'date': f['date']}, files))
-        folders = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name']}, folders))
+        files = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name'], 'type': get_type(f['name']), 'size': f['size'], 'date': datetime.fromtimestamp(f['date'])}, resp['files']))
+        folders = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name']}, resp['folders']))
         if basename:
             files = list(filter(lambda f: fnmatch(f['path'], path), files))
             folders = list(filter(lambda f: fnmatch(f['path'], path), folders))
@@ -81,16 +81,8 @@ class Abraia:
     def upload_file(self, src, path=''):
         if path == '' or path.endswith('/'):
             path = path + os.path.basename(src)
-        json = {}
-        name = os.path.basename(path)
-        type = mimetypes.guess_type(name)[0] or 'binary/octet-stream'
-        if isinstance(src, str) and src.startswith('http'):
-            json = {'url': src}
-        else:
-            json = {'name': name, 'type': type}
-            md5 = md5sum(src)
-            if md5:
-                json['md5'] = md5
+        name, type = os.path.basename(path), get_type(path)
+        json = {'url': src} if isinstance(src, str) and src.startswith('http') else {'name': name, 'type': type, 'md5': md5sum(src)}
         url = f"{API_URL}/files/{self.userid}/{path}"
         resp = requests.post(url, json=json, auth=self.auth)
         if resp.status_code != 201:
@@ -224,4 +216,3 @@ class Abraia:
         src = temporal_src(path)
         im.save(src)
         return self.upload_file(src, path)
-    
