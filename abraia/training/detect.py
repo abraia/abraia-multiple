@@ -45,13 +45,13 @@ class Model:
         objects = []
         results = self.model.predict(img, verbose=False)[0]
         if results:
-            for box, mask in zip(results.boxes, results.masks):
+            for k, box in enumerate(results.boxes):
                 class_id = int(box.cls)
                 label = results.names[class_id]
                 confidence = float(box.conf)
                 x1, y1, x2, y2 = box.xyxy.squeeze().tolist()
                 object = {'label': label, 'confidence': confidence, 'box': [x1, y1, x2 - x1, y2 - y1]}
                 if self.task == 'segment':
-                    object['polygon'] = mask.xy[0]
+                    object['polygon'] = results.masks[k].xy[0]
                 objects.append(object)
         return objects

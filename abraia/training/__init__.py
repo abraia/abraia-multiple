@@ -19,22 +19,23 @@ def load_projects():
     return [folder['name'] for folder in folders if abraia.check_file(f"{folder['name']}/annotations.json")]
 
 
-def load_dataset(dataset):
-    files = abraia.list_files(f"{dataset}/")[0]
+def load_dataset(project):
+    files = abraia.list_files(f"{project}/")[0]
     dataset = [f for f in files if f['type'].startswith('image/')]
     for data in dataset:
         data['url'] = url_path(f"{abraia.userid}/{data['path']}")
     return dataset
 
 
-def load_annotations(dataset):
-    try:
-        annotations = abraia.load_json(f"{dataset}/annotations.json")
-        for annotation in annotations:
-            annotation['path'] = f"{dataset}/{annotation['filename']}"
-        return annotations
-    except:
-        return []
+def load_annotations(project):
+    annotations = abraia.load_json(f"{project}/annotations.json")
+    for annotation in annotations:
+        annotation['path'] = f"{project}/{annotation['filename']}"
+    return annotations
+
+
+def save_annotations(project, annotations):
+    abraia.save_json(f"{project}/annotations.json", annotations)
 
 
 def load_labels(annotations):
@@ -152,10 +153,11 @@ def split_dataset(annotations):
 def create_dataset(dataset, task, classes):
     #shutil.rmtree(f"{dataset}/")
     # TODO: If folder exists skip or recreate based on cached files?
-    annotations = load_annotations(dataset)
-    train, val, test = split_dataset(annotations)
-    data_annotations = {'train': train, 'val': val, 'test': test}
-    #TODO: Download files in one single step
-    for x in ['train', 'val', 'test']:
-        save_data(data_annotations[x], f"{dataset}/{x}", classes, task)
-    save_config(dataset, classes)
+    if not os.path.exists(dataset):
+        annotations = load_annotations(dataset)
+        train, val, test = split_dataset(annotations)
+        data_annotations = {'train': train, 'val': val, 'test': test}
+        #TODO: Download files in one single step
+        for x in ['train', 'val', 'test']:
+            save_data(data_annotations[x], f"{dataset}/{x}", classes, task)
+        save_config(dataset, classes)

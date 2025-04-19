@@ -188,10 +188,10 @@ def cosine_similarity(feat1, feat2):
     return float(np.dot(feat1, feat2) / (np.linalg.norm(feat1) * np.linalg.norm(feat2)))
 
 
-def search_vector(vectors, vector):
-    scores = [cosine_similarity(vec, vector) for vec in vectors]
-    index = np.argmax(scores)
-    return index, scores
+def search_vector(vector, index):
+    distances = [cosine_similarity(vector, row['embeddings']) for row in index]
+    idx = np.argmax(distances)
+    return idx, distances
 
 
 def normalize_vector(vector):

@@ -212,8 +212,7 @@ class FaceRecognizer:
             del result['confidence']
             result['label'] = 'unknown'
             if len(index):
-                vectors = [ind['embeddings'] for ind in index]
-                idx, scores = search_vector(vectors, result['embeddings'])
+                idx, scores = search_vector(result['embeddings'], index)
                 if scores[idx] > threshold:
                     result['confidence'] = scores[idx]
                     result['label'] = index[idx]['name']
