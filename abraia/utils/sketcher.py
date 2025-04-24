@@ -48,13 +48,16 @@ class Sketcher:
                 self.show(self.handle_click([x, y]))
 
     def run(self):
+        out = self.img
         while True:
             ch = 0xFF & cv2.waitKey()
             if ch == 27 or ch == ord('q'):
+                out = self.img
                 break
             if ch == ord('r'):
                 self.load(self.img)
             if ch == ord('s'):
-                cv2.imwrite('output.png', self.output)
+                out = self.output
                 break
         cv2.destroyWindow(self.win_name)
+        return out

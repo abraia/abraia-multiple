@@ -35,8 +35,8 @@ class BackgroundRemover:
         self.image_size = (1024, 1024)
         self.input_mean = (0.485, 0.456, 0.406)
         self.providers = ort.get_available_providers()
-        # model_src = download_file('multiple/models/editing/isnet-general-use.onnx')
-        model_src = download_file('multiple/models/editing/isnet-medium.onnx')
+        # model_src = download_file('multiple/models/editing/isnet-medium.onnx')
+        model_src = download_file('multiple/models/editing/rmbg14_fp16.onnx')
         self.session = ort.InferenceSession(model_src, providers=self.providers)
         self.input_name = self.session.get_inputs()[0].name
 

@@ -299,7 +299,7 @@ Or install the multiple extension to use the Abraia-Multiple SDK:
 python -m pip install -U "abraia[multiple]"
 ```
 
-To use the SDK you have to configure your [Id and Key](https://abraia.me/console/) as environment variables:
+To use the SDK you have to configure your [Id and Key](https://abraia.me/editor/) as environment variables:
 
 ```sh
 export ABRAIA_ID=user_id

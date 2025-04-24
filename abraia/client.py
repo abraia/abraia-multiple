@@ -150,33 +150,6 @@ class Abraia:
             raise APIError(resp.text, resp.status_code)
         save_data(dest, resp.content)
 
-    def remove_background(self, path, output):
-        url = f"{API_URL}/rekognition/{self.userid}/{path}"
-        resp = self.get_api(url, {'output': output, 'mode': 'background'})
-        if 'Background' in resp:
-            return file_path(json.loads(resp['Background'])['output'], self.userid)
-        return file_path(resp['output'], self.userid)
-
-    def upscale_image(self, path, output):
-        url = f"{API_URL}/rekognition/{self.userid}/{path}"
-        resp = self.get_api(url, {'output': output, 'mode': 'upscale'})
-        return file_path(json.loads(resp)['output'], self.userid)
-    
-    def anonymize_image(self, path, output):
-        url = f"{API_URL}/rekognition/{self.userid}/{path}"
-        resp = self.get_api(url, {'output': output, 'mode': 'anonymize'})
-        return file_path(resp['output'], self.userid)
-
-    # def detect_faces(self, path):
-    #     url = f"{API_URL}/rekognition/{self.userid}/{path}"
-    #     resp = self.get_api(url, {'mode': 'faces'})
-    #     return resp['results']
-    
-    # def detect_plates(self, path):
-    #     url = f"{API_URL}/rekognition/{self.userid}/{path}"
-    #     resp = self.get_api(url, {'mode': 'plates'})
-    #     return resp['results']
-
     def load_file(self, path):
         stream = self.download_file(path)
         try:

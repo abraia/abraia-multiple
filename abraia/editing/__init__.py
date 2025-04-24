@@ -90,7 +90,8 @@ def clean_image(img):
 
     sketcher = Sketcher(img)
     sketcher.on_click(handle_click)
-    sketcher.run()
+    out = sketcher.run()
+    return out
 
 
 # __all__ = [clean_image]
