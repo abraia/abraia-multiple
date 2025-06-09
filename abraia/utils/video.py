@@ -9,8 +9,10 @@ class Video:
         self.win_name = ''
         self.cap = cv2.VideoCapture(src)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.duration = round(self.frames / self.fps, 3)
         self.frame_rate = self.fps
         if dest:
             dirname = os.path.dirname(dest)
@@ -18,6 +20,9 @@ class Video:
                 os.makedirs(dirname, exist_ok=True)
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             self.out = cv2.VideoWriter(dest, fourcc, self.fps, (self.width, self.height))
+
+    def __len__(self):
+        return self.frames
 
     def __iter__(self):
         while self.cap.isOpened():
