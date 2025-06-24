@@ -41,14 +41,18 @@ show_image(img)
 To run a multi-object detector on video or directly on a camera stream, you just need to use the Video class to process every frame as is done for images.
 
 ```python
-from abraia.inference import Model
+from abraia.inference import Model, Tracker
 from abraia.utils import Video, render_results
 
 model = Model("multiple/models/yolov8n.onnx")
 
 video = Video('images/people-walking.mp4')
+tracker = Tracker(frame_rate=video.frame_rate)
 for frame in video:
     results = model.run(frame, conf_threshold=0.5, iou_threshold=0.5)
+    results = tracker.update(results)
+    for result in results:
+        result['label'] = f"[{result.get('tracker_id', '')}] {result['label']}"
     frame = render_results(frame, results)
     video.show(frame)
 ```
