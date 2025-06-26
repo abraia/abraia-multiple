@@ -6,7 +6,7 @@ import filetype
 import itertools
 
 from PIL import Image
-from . import HEADERS, make_dirs
+from . import HEADERS
 
 GOOGLE_BASE_URL = 'https://www.google.com/search?q='
 GOOGLE_PICTURE_ID = '''&biw=1536&bih=674&tbm=isch&sxsrf=ACYBGNSXXpS6YmAKUiLKKBs6xWb4uUY5gA:1581168823770&source=lnms&sa=X&ved=0ahUKEwioj8jwiMLnAhW9AhAIHbXTBMMQ_AUI3QUoAQ'''
@@ -91,7 +91,7 @@ def search_google(query):
 def download(query, limit=100, output_dir='dataset', verbose=True):
     seen = set()
     download_count = 0
-    make_dirs(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
     links = [search_google(query), search_bing(query, adult='off', filter='')]
     ends = [False] * len(links)
     for id in itertools.cycle(range(len(links))):
@@ -101,9 +101,8 @@ def download(query, limit=100, output_dir='dataset', verbose=True):
                 seen.add(link)
                 if download_count < limit:
                     try:
-                        # path = urllib.parse.urlsplit(link).path
-                        # filename = posixpath.basename(path).split('?')[0]
-                        save_image(link, os.path.join(output_dir, f"Image_{download_count}.jpg"))
+                        filename = f"{'-'.join(query.split(' '))}_{download_count}.jpg"
+                        save_image(link, os.path.join(output_dir, filename))
                         download_count += 1
                         if verbose:
                             print(f"[%] Downloaded Image #{download_count} from {link}")

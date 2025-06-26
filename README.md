@@ -51,8 +51,6 @@ tracker = Tracker(frame_rate=video.frame_rate)
 for frame in video:
     results = model.run(frame, conf_threshold=0.5, iou_threshold=0.5)
     results = tracker.update(results)
-    for result in results:
-        result['label'] = f"[{result.get('tracker_id', '')}] {result['label']}"
     frame = render_results(frame, results)
     video.show(frame)
 ```

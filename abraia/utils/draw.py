@@ -121,8 +121,11 @@ def render_results(img, results):
             for point in result.get('keypoints', []):
                 draw_point(img, point, color, thickness)
             draw_rectangle(img, result['box'], color, thickness)
-        if (label):
+        if label:
             text = f"{label} {round(100 * score, 1)}%" if score else label
+            tracker_id = result.get('tracker_id')
+            if tracker_id is not None:
+                text = f"[{tracker_id}] {text}"
             point = result.get('box', [0, 0, 0, 0])[:2]
             draw_text(img, text, point, background_color=color, text_scale=text_scale, padding=thickness*3)
     return img
