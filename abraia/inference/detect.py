@@ -23,7 +23,7 @@ def preprocess(img, size = 224):
 def postprocess(outputs, classes):
     probs = softmax(outputs[0].flatten())
     idx = np.argmax(probs)
-    return [{'label': classes[idx], 'confidence': probs[idx], 'color': get_color(idx)}]
+    return [{'label': classes[idx], 'score': probs[idx], 'color': get_color(idx)}]
 
 
 def scale_size(size, new_size):
@@ -82,7 +82,7 @@ def process_output(outputs, size, shape, classes, conf_threshold=0.25, iou_thres
             continue
         x1, y1 = round((xc - w/2) * scale), round((yc - h/2) * scale)
         x2, y2 = round((xc + w/2) * scale), round((yc + h/2) * scale)
-        obj = {'label': classes[idx], 'confidence': probs[idx], 'box': [x1, y1, x2 - x1, y2 - y1], 'color': get_color(idx)}
+        obj = {'label': classes[idx], 'score': float(probs[idx]), 'box': [x1, y1, x2 - x1, y2 - y1], 'color': get_color(idx)}
         if len(outputs) == 2:
             obj['mask'] = row[4+len(classes):]
         objects.append(obj)
@@ -108,7 +108,7 @@ class Model:
         self.input_name = self.session.get_inputs()[0].name
         self.input_shape = self.config['inputShape']
 
-    def run(self, img, conf_threshold=0.25, iou_threshold=0.7, approx=0.001):
+    def run(self, img, conf_threshold=0.35, iou_threshold=0.7, approx=0.001):
         if self.config.get('task'):
             img_size = img.shape[1], img.shape[0]
             inputs = {self.input_name: prepare_input(img, self.input_shape)}

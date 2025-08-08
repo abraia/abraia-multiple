@@ -14,7 +14,7 @@ from PIL import Image, ImageOps
 
 from .video import Video
 from .sketcher import Sketcher
-from .draw import render_results
+from .draw import get_color, render_results
 
 tempdir = tempfile.gettempdir()
 
@@ -134,13 +134,6 @@ def image_base64(img, format='jpeg'):
         im.save(buffer, format=format)
         encoded = base64.b64encode(buffer.getvalue()).decode()
         return f'data:image/{format};base64,{encoded}'
-
-
-def get_color(idx):
-    colors = ['#D0021B', '#F5A623', '#F8E71C', '#8B572A', '#7ED321',
-              '#417505', '#BD10E0', '#9013FE', '#4A90E2', '#50E3C2', '#B8E986',
-              '#000000', '#545454', '#737373', '#A6A6A6', '#D9D9D9', '#FFFFFF']
-    return colors[idx % (len(colors) - 1)]
 
 
 def get_providers():

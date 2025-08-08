@@ -137,7 +137,7 @@ def py_cpu_nms(dets, thresh):
 
 # def non_maximum_suppression(objects, iou_threshold):
 #     results = []
-#     objects.sort(key=lambda obj: obj['confidence'], reverse=True)
+#     objects.sort(key=lambda obj: obj['score'], reverse=True)
 #     while len(objects) > 0:
 #         results.append(objects[0])
 #         objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
@@ -147,7 +147,7 @@ def py_cpu_nms(dets, thresh):
 def non_maximum_suppression(objects, iou_threshold):
     dets = []
     for obj in objects:
-        s = obj['confidence']
+        s = obj['score']
         x, y, w, h = obj['box']
         dets.append([x, y, x + w, y + h, s])
     if dets:
@@ -164,14 +164,38 @@ def softmax(x):
 
 
 def count_objects(results):
-    counts = {}
-    colors = {}
+    counts, colors = {}, {}
     for result in results:
         label, color = result['label'], result['color']
         counts[label] = counts.get(label, 0) + 1
         colors[label] = color
     objects = [{'label': label, 'count': counts[label], 'color': colors[label]} for label in counts.keys()]
     return objects
+
+
+def triplet_orientation(A, B, C):
+    """Return the orientation of the triplet (A, B, C)."""
+    val = (C[1] - A[1]) * (B[0] - A[0]) - (B[1] - A[1]) * (C[0] - A[0])
+    return 1 if val > 0 else -1 if val < 0 else 0
+
+
+def segments_intersect(A, B, C, D):
+    """Check if line segments AB and CD intersect."""
+    o1, o2 = triplet_orientation(A, B, C), triplet_orientation(A, B, D)
+    o3, o4 = triplet_orientation(C, D, A), triplet_orientation(C, D, B)
+    return (1 if o1 > 0 else -1) if (o1 != o2 and o3 != o4) else 0
+
+
+def point_in_polygon(point, polygon):
+    """Check if a point is inside a polygon using the ray-casting algorithm."""
+    x, y = point
+    inside = False
+    for i in range(len(polygon)):
+        (x1, y1), (x2, y2) = polygon[i-1], polygon[i]
+        intersect = ((y1 > y) != (y2 > y)) and (x < (x2 - x1) * (y - y1) / (y2 - y1) + x1)
+        if intersect:
+            inside = not inside
+    return inside
 
 
 def crop_box(img, box):

@@ -250,6 +250,6 @@ class Model:
         output = self.model(input_batch)
         pred = torch.softmax(output.squeeze(0), dim=0)
         idx = int(pred.argmax())
-        confidence = float(pred[idx])
+        score = float(pred[idx])
         label = self.classes[idx]
-        return [{'label': label, 'confidence': confidence}]
+        return [{'label': label, 'score': score}]

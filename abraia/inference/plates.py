@@ -18,7 +18,7 @@ def iou(box1, box2):
 # TODO: Replace with non_maximum_suppression from ops
 def nms(objects, iou_threshold = 0.5):
     results = []
-    objects.sort(key=lambda obj: obj['confidence'], reverse=True)
+    objects.sort(key=lambda obj: obj['score'], reverse=True)
     for object in objects:
         non_overlap = True
         for result in results:
@@ -69,7 +69,7 @@ class LicensePlateDetector():
             pts = np.array(pts / np.array([w, h])) * np.array([width, height])
             pt1, pt2 = pts.min(axis=0), pts.max(axis=0)
             box = [round(pt1[0]), round(pt1[1]), round(pt2[0] - pt1[0]), round(pt2[1] - pt1[1])]
-            objects.append({'box': box, 'confidence': float(prob), 'points': pts.astype(np.int32)})
+            objects.append({'box': box, 'score': float(prob), 'points': pts.astype(np.int32)})
         results = nms(objects, self.iou_threshold)
         return results
 

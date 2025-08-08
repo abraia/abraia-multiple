@@ -49,10 +49,10 @@ class Model:
             for k, box in enumerate(results.boxes):
                 class_id = int(box.cls)
                 label = results.names[class_id]
-                confidence = float(box.conf)
+                score = float(box.conf)
                 x1, y1, x2, y2 = box.xyxy.squeeze().tolist()
                 x1, y1, x2, y2 = round(x1), round(y1), round(x2), round(y2)
-                object = {'label': label, 'confidence': confidence, 'box': [x1, y1, x2 - x1, y2 - y1]}
+                object = {'label': label, 'score': score, 'box': [x1, y1, x2 - x1, y2 - y1]}
                 if self.task == 'segment':
                     object['polygon'] = results.masks[k].xy[0]
                 objects.append(object)

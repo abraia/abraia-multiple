@@ -506,12 +506,10 @@ class ByteTracker():
         scores_keep = scores[remain_inds]
         scores_second = scores[inds_second]
 
+        detections = []
         if len(dets) > 0:
-            '''Detections'''
             detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
                           (tlbr, s) in zip(dets, scores_keep)]
-        else:
-            detections = []
 
         ''' Add newly detected tracklets to tracked_stracks'''
         unconfirmed = []
@@ -657,7 +655,7 @@ def results_to_arrays(results):
         for result in results:
             x, y, w, h = result['box']
             bboxes.append([x, y, x + w, y + h])
-            scores.append(result['confidence'])
+            scores.append(result['score'])
         return np.array(bboxes), np.array(scores)
 
 
@@ -674,5 +672,5 @@ class Tracker():
                 ious = box_iou_batch(bboxes, track_bounding_boxes)
                 matches, _, _ = linear_assignment(1 - ious, 0.5)
                 for i_detection, i_track in matches:
-                    results[i_detection]['tracker_id'] = tracks[i_track].track_id
+                    results[i_detection]['track_id'] = tracks[i_track].track_id
         return results

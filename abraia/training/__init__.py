@@ -1,12 +1,14 @@
 
 from ..client import Abraia
-from ..utils import get_color, url_path, make_dirs
-from . import classify, detect 
+from ..utils import get_color, url_path, make_dirs, load_image, load_url
+from . import classify, detect
 
 import os
 import shutil
 import itertools
+from tqdm import tqdm
 from PIL import Image
+from transformers import pipeline
 from tqdm.contrib.concurrent import process_map
 from sklearn.model_selection import train_test_split
 
@@ -145,14 +147,16 @@ def save_config(dataset, classes):
 
 
 def split_dataset(annotations):
+    # TODO: Split dataset by classes to avoid class imbalance
+    backgrounds = [annotation for annotation in annotations if not annotation.get('objects')]
+    annotations = [annotation for annotation in annotations if annotation.get('objects')]
     train, test = train_test_split(annotations, test_size=0.3)
     val, test = train_test_split(test, test_size=0.5)
+    train.extend(backgrounds)
     return train, val, test
 
 
 def create_dataset(dataset, task, classes):
-    #shutil.rmtree(f"{dataset}/")
-    # TODO: If folder exists skip or recreate based on cached files?
     if not os.path.exists(dataset):
         annotations = load_annotations(dataset)
         train, val, test = split_dataset(annotations)
@@ -161,3 +165,43 @@ def create_dataset(dataset, task, classes):
         for x in ['train', 'val', 'test']:
             save_data(data_annotations[x], f"{dataset}/{x}", classes, task)
         save_config(dataset, classes)
+
+
+
+# As the Grounding DINO model was trained with a "." after each text, we'll do the same here.
+def preprocess_caption(caption: str) -> str:
+    result = caption.lower().strip()
+    return result if result.endswith('.') else result + '.'
+
+
+def format_results(results, threshold=0.6):
+    r = []
+    for result in results:
+        score = result["score"]
+        if score > threshold:
+            label = result["label"].rpartition('.')[0]
+            xmin, ymin, xmax, ymax = result['box'].values()
+            r.append({"label": label, "score": score, "box": [xmin, ymin, xmax - xmin, ymax - ymin]})
+    return r
+
+
+def annotate_image(pipe, img, classes, threshold=0.3):
+    im = Image.fromarray(img)
+    labels = [preprocess_caption(txt) for txt in classes]
+    objects = format_results(pipe(im, candidate_labels=labels, threshold=threshold))
+    return objects    
+
+
+def annotate_images(project, classes):
+    dataset = load_dataset(project)
+    pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
+    #pipe = pipeline(task="zero-shot-object-detection", model="google/owlv2-base-patch16-ensemble")
+    annotations = []
+    for row in tqdm(dataset):
+        url, filename = row['url'], row['name']
+        img = load_image(load_url(url))
+        objects = annotate_image(pipe, img, classes)
+        if objects:
+            annotation = {'url': url, 'filename': filename, 'objects': objects}
+            annotations.append(annotation)
+    save_annotations(project, annotations)

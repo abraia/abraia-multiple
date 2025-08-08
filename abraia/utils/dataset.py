@@ -1,9 +1,11 @@
 import os
 import re
+import io
 import urllib
 import requests
 import filetype
 import itertools
+import imagehash
 
 from PIL import Image
 from . import HEADERS
@@ -20,17 +22,18 @@ def download_page(url):
     return resp.text
 
 
-def save_image(link, file_path, timeout=10, max_size=2048):
+def save_image(link, file_path, timeout=10, max_size=1920):
     resp = requests.get(link, headers=HEADERS, allow_redirects=True, timeout=timeout)
     kind = filetype.guess(resp.content)
     if kind and kind.mime.startswith('image'):
-        with open(str(file_path), 'wb') as f:
-            f.write(resp.content)
-        im = Image.open(file_path).convert('RGB')
+        d = io.BytesIO(resp.content)
+        # d.seek(0)
+        im = Image.open(d).convert('RGB')
         im.thumbnail([max_size, max_size])
-        im.save(file_path)
+        phash = str(imagehash.phash(im))
+        im.save(os.path.join(os.path.dirname(file_path), phash + '.jpg'))
     else:
-        raise ValueError(f'Invalid image, not saving\n')
+        raise ValueError(f'Invalid image, not saving')
 
 
 def get_filter(shorthand):

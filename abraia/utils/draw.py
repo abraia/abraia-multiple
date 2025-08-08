@@ -2,6 +2,13 @@ import cv2
 import numpy as np
 
 
+def get_color(idx):
+    colors = ['#D0021B', '#F5A623', '#F8E71C', '#8B572A', '#7ED321',
+              '#417505', '#BD10E0', '#9013FE', '#4A90E2', '#50E3C2', '#B8E986',
+              '#000000', '#545454', '#737373', '#A6A6A6', '#D9D9D9', '#FFFFFF']
+    return colors[idx % (len(colors) - 1)]
+
+
 def hex_to_rgb(hex):
     h = hex.lstrip('#')
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
@@ -112,9 +119,11 @@ def render_results(img, results):
     text_scale = calculate_optimal_text_scale(img.shape[:2])
     for result in results:
         label = result.get('label')
-        # TODO: Rename confidence to score
-        score = result.get('confidence')
-        color = hex_to_rgb(result.get('color', '#009BFF'))
+        score = result.get('score')
+        track_id = result.get('track_id')
+        color = hex_to_rgb(result.get('color', get_color(0)))
+        if track_id is not None:
+            color = hex_to_rgb(get_color(track_id))
         if result.get('polygon'):
             draw_polygon(img, result['polygon'], color, thickness)
         elif result.get('box'):
@@ -122,10 +131,9 @@ def render_results(img, results):
                 draw_point(img, point, color, thickness)
             draw_rectangle(img, result['box'], color, thickness)
         if label:
-            text = f"{label} {round(100 * score, 1)}%" if score else label
-            tracker_id = result.get('tracker_id')
-            if tracker_id is not None:
-                text = f"[{tracker_id}] {text}"
+            text = f"{label} {round(score, 2)}" if score else label
+            if track_id is not None:
+                text = f"[{track_id}] {text}"
             point = result.get('box', [0, 0, 0, 0])[:2]
             draw_text(img, text, point, background_color=color, text_scale=text_scale, padding=thickness*3)
     return img

@@ -96,7 +96,7 @@ def generate_proposals(anchors, stride, score, bbox, landmark, prob_threshold, s
                     xy = cxy + anchorWH * np.array([dx, dy]) - 0.5 * wh
                     landmarks = landmark[10*q:10*(q+1), i, j].reshape(-1, 2)
                     landmarks = landmarks * (anchorWH * scale + 1) + cxy
-                    obj = { 'confidence': prob, 'box': [float(xy[0]), float(xy[1]), float(wh[0]), float(wh[1])], 'keypoints': landmarks }
+                    obj = { 'score': prob, 'box': [float(xy[0]), float(xy[1]), float(wh[0]), float(wh[1])], 'keypoints': landmarks }
                     faces.append(obj)
     return faces
 
@@ -142,8 +142,8 @@ class Retinaface:
         face_proposals.extend(process_stride(results, prob_threshold, 8, [2, 1], self.landmarksScale))
         faces = non_maximum_suppression(face_proposals, iou_threshold)
         for k, face in enumerate(faces):
-            confidence, (x, y, w, h), keypoints = face['confidence'], face['box'], face['keypoints']
-            faces[k] = {'confidence': confidence, 'box': [round(x / scale), round(y / scale), round(w / scale), round(h / scale)], 'keypoints': keypoints / scale }
+            score, (x, y, w, h), keypoints = face['score'], face['box'], face['keypoints']
+            faces[k] = {'score': score, 'box': [round(x / scale), round(y / scale), round(w / scale), round(h / scale)], 'keypoints': keypoints / scale }
         return faces
 
 
@@ -209,11 +209,11 @@ class FaceRecognizer:
     
     def identify_faces(self, results, index, threshold=0.45):
         for result in results:
-            del result['confidence']
+            del result['score']
             result['label'] = 'unknown'
             if len(index):
                 idx, scores = search_vector(result['embeddings'], index)
                 if scores[idx] > threshold:
-                    result['confidence'] = scores[idx]
+                    result['score'] = scores[idx]
                     result['label'] = index[idx]['name']
         return results
