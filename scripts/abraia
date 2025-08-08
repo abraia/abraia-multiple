@@ -30,21 +30,12 @@ def process_map(task, *values, desc='', max_workers=3):
                 pbar.update(1)
 
 
-def is_url(url):
-    res = urlparse(url)
-    if res.scheme and res.netloc:
-        return True
-    return False
-
-
 def echo_error(error):
     click.echo('[' + click.style('Error {}'.format(error.code),
                                  fg='red', bold=True) + '] {}'.format(error.message))
 
 
 def input_files(src):
-    if isinstance(src, str) and src.startswith('http'):
-        return [src]
     src = os.path.join(src, '**/*') if os.path.isdir(src) else src
     return glob(src, recursive=True)
 
@@ -69,11 +60,9 @@ def configure():
         pass
 
 
+# TODO: Refactor to work in local
 def convert_file(src, dest, args):
-    if src.startswith('http'):
-        path, args['url'] = src, src
-    else:
-        path = abraia.upload_file(src, 'batch/')
+    path = abraia.upload_file(src, 'batch/')
     abraia.transform_image(path, dest, args)
     return dest
 
@@ -128,8 +117,6 @@ def convert(src, width, height, mode, format):
         dests = []
         dirname = src if os.path.isdir(src) else os.path.dirname(src)
         for filename in filenames:
-            if filename.startswith('http'):
-                filename = os.path.basename(urlparse(filename).path) or 'screenshot.png'
             path, ext = os.path.splitext(os.path.relpath(filename, dirname))
             oext = format if format is not None else (ext and ext[1:])
             dests.append(os.path.join('output', f"{path}.{oext}"))

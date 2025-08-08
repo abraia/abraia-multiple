@@ -4,7 +4,7 @@
 
 # Abraia Vision SDK
 
-The Abraia Vision SDK is a Python package which provides a set of tools to develop and deploy advanced Machine Learning image applications on the edge. Moreover, with [Abraia DeepLab](https://abraia.me/deeplab/) you can easily annotate and train, your own versions of some of the best state of the art deep learning models, and get them ready to deploy with this Python SDK.
+The [Abraia Vision](https://abraia.me/vision/) SDK is a Python package which provides a set of tools to develop and deploy advanced Machine Learning image applications on the edge. Moreover, with [Abraia DeepLab](https://abraia.me/deeplab/) you can easily annotate and train, your own versions of some of the best state of the art deep learning models, and get them ready to deploy with this Python SDK.
 
 Just install the Abraia SDK and CLI on Windows, Mac, or Linux:
 
@@ -16,12 +16,13 @@ And start using deep learning models ready to work on your local devices.
 
 ## Deep learning custom models and applications
 
-Annotate your images and train a state-of-the-art model for classification, detection, or segmentation using [DeepLab](https://abraia.me/deeplab/). You can directly load and run the model on the edge using the browser or this Python SDK.
+Consult your problem or directly try to annotate your images and train a state-of-the-art model for classification, detection, or segmentation using [DeepLab](https://abraia.me/deeplab/). You can directly load and run the model on the edge using the browser or this Python SDK.
 
-### Object detection
+### Object detection and tracking
 
-Detect multiple objects with a pre-trained YOLOv8 model on images, videos, or even camera streams. You just need to use
-the Video class to process every frame as is done for images.
+Identify and track multiple objects with a custom detection model on videos and camera streams, enabling real-time counting applications. You just need to use
+the Video class to process every frame as is done for images, and use the tracker to follow each object through 
+every frame.
 
 ```python
 from abraia.inference import Model, Tracker
@@ -130,8 +131,6 @@ clip_model = Clip()
 image_embeddings = clip_model.get_image_embeddings([image])[0]
 text_embeddings = clip_model.get_text_embeddings(texts)
 
-# To use the embeddings for zero-shot classification, you can use these two
-# functions. Here we run on a single image, but any number is supported.
 logits = [100 * cosine_similarity(image_embeddings[0], features) for features in text_embeddings]
 for text, p in zip(texts, softmax(logits)):
     print(f"Probability that the image is '{text}': {p:.3f}")
@@ -183,10 +182,9 @@ index, scores = search_vector(vector, image_index)
 print(f"Similarity score is {scores[index]} for image {image_paths[index]}")
 ```
 
-
 ## Hyperspectral image analysis toolbox
 
-The Multiple extension provides seamless integration of multispectral and hyperspectral images. It has being developed by [ABRAIA](https://abraia.me/about) in the [Multiple project](https://multipleproject.eu/) to extend the Abraia SDK and Cloud Platform providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
+The Multiple extension provides seamless integration of multispectral and hyperspectral images, providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
 
 Just click on one of the available Colab's notebooks to directly start testing the multispectral capabilities:
 
@@ -196,7 +194,7 @@ Just click on one of the available Colab's notebooks to directly start testing t
 
 ![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
 
-Or install the multiple extension to use the Abraia-Multiple SDK:
+To install the multiple extension use the command bellow:
 
 ```sh
 python -m pip install -U "abraia[multiple]"
@@ -271,61 +269,6 @@ n_bands, n_classes = 30, 17
 model = hsi.create_model('hsn', (25, 25, n_bands), n_classes)
 model.train(X, y, train_ratio=0.3, epochs=5)
 y_pred = model.predict(X)
-```
-
-## Command line interface
-
-The Abraia CLI provides access to the Abraia Cloud Platform through the command line. It makes simple to manage your files and enables bulk image editing capabilities. It provides and easy way to resize, convert, and compress your images - JPEG, WebP, or PNG -, and get them ready to publish on the web. Moreover, you can automatically remove the background, upscale, or anonymize your images in bulk.
-
-### Remove unwanted objects
-
-Remove unwanted objects in images and photos locally. Just click on the object to automatically select and delete it from the image. Finally, press "s" to save the output image.
-
-```sh
-abraia editing clean dog.jpg
-```
-
-![inpaint output](https://github.com/abraia/abraia-multiple/raw/master/images/inpaint-output.jpg)
-
-### Upscale images
-
-Scale up and enhance images in bulk, doubling the size and preserving quality.
-
-```sh
-abraia editing upscale "*.jpg"
-```
-
-![upscaled cat](https://github.com/abraia/abraia-multiple/raw/master/images/cat-upscaled.jpg)
-
-### Convert images
-
-Compress images in bulk specifying the input glob pattern or folder:
-
-```sh
-abraia editing convert "images/bird*.jpg"
-```
-
-Automatically change the aspect ratio specifying both `width` and `height` parameters and setting the resize `mode` (pad, crop, thumb). Or simply resize images maintaining the aspect ratio just specifying the `width` or the `height` of the new image:
-
-```sh
-abraia editing convert images/birds.jpg --width 375 --height 375 --mode pad 
-abraia editing convert images/birds.jpg --width 375 --height 375
-abraia editing convert images/birds.jpg --width 750
-```
-
-![image padded](https://github.com/abraia/abraia-multiple/raw/master/images/birds_padded.jpg)
-![image smart cropped](https://github.com/abraia/abraia-multiple/raw/master/images/birds_cropped.jpg)
-
-So, you can automatically resize all the images in a specific folder preserving the aspect ration of each image just specifying the target `width` or `height`:
-
-```sh
-abraia editing convert [src] --width 300 
-```
-
-Or, automatically pad or crop all the images contained in the folder specifying both `width` and `height`:
-
-```sh
-abraia editing convert [src] --width 300 --height 300 --mode crop
 ```
 
 ## License
