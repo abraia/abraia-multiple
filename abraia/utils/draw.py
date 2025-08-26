@@ -137,3 +137,20 @@ def render_results(img, results):
             point = result.get('box', [0, 0, 0, 0])[:2]
             draw_text(img, text, point, background_color=color, text_scale=text_scale, padding=thickness*3)
     return img
+
+
+def render_counter(img, line, text='', color=(0, 0, 255)):
+    thickness = calculate_optimal_thickness(img.shape[:2])
+    text_scale = calculate_optimal_text_scale(img.shape[:2])
+    draw_line(img, line, color=color, thickness=thickness)
+    draw_text(img, text, line[0], background_color=color, text_scale=text_scale)
+    return img
+
+
+def render_region(img, region, text='', color=(0, 0, 0)):
+    point = np.min(region, axis=0).astype(np.int32)
+    thickness = calculate_optimal_thickness(img.shape[:2])
+    text_scale = calculate_optimal_text_scale(img.shape[:2])
+    draw_polygon(img, region, color=color, thickness=thickness)
+    draw_text(img, text, point, background_color=color, text_scale=text_scale)
+    return img

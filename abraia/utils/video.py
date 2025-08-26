@@ -18,7 +18,7 @@ class Video:
             dirname = os.path.dirname(dest)
             if dirname:
                 os.makedirs(dirname, exist_ok=True)
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')
             self.out = cv2.VideoWriter(dest, fourcc, self.fps, (self.width, self.height))
 
     def __len__(self):

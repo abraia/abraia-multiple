@@ -2,7 +2,7 @@ from ..client import Abraia
 from ..utils import temporal_src, load_image
 
 import onnx
-from onnxsim import simplify
+# from onnxsim import simplify
 
 import torch
 import torchvision
@@ -239,8 +239,9 @@ class Model:
         torch.onnx.export(self.model, dummy_input, model_src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
         onnx_model = onnx.load(model_src)
         onnx.checker.check_model(onnx_model)
-        model_simp, check = simplify(onnx_model)
-        onnx.save(model_simp, model_src)
+        # model_simp, check = simplify(onnx_model)
+        # onnx.save(model_simp, model_src)
+        onnx.save(onnx_model, model_src)
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
         abraia.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
 
