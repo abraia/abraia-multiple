@@ -167,7 +167,6 @@ def create_dataset(dataset, task, classes):
         save_config(dataset, classes)
 
 
-
 # As the Grounding DINO model was trained with a "." after each text, we'll do the same here.
 def preprocess_caption(caption: str) -> str:
     result = caption.lower().strip()
