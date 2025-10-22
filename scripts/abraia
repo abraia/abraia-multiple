@@ -7,10 +7,9 @@ import click
 import itertools
 from glob import glob
 from tqdm import tqdm
-from urllib.parse import urlparse
 from concurrent.futures import ProcessPoolExecutor
 
-from abraia.utils import load_image, save_image
+from abraia.utils import load_image, save_image, temporal_src
 from abraia.editing import anonymize_image, blur_background, clean_image, remove_background, upscale_image
 
 from abraia import config
@@ -160,8 +159,8 @@ def clean(src):
     editing_files(src, 'clean', desc="Removing objects")
 
 
-@cli.group('cloud')
-def cli_cloud():
+@cli.group('files')
+def cli_files():
     """Manage files on the cloud storage."""
     pass
 
@@ -186,7 +185,7 @@ def format_output(files, folders=[]):
     return output
 
 
-@cli_cloud.command()
+@cli_files.command()
 @click.argument('folder', required=False, default='')
 def list(folder):
     """List files in abraia."""
@@ -197,7 +196,7 @@ def list(folder):
         echo_error(error)
 
 
-@cli_cloud.command()
+@cli_files.command()
 @click.argument('src', type=click.Path())
 @click.argument('folder', required=False, default='')
 def upload(src, folder):
@@ -209,7 +208,7 @@ def upload(src, folder):
         echo_error(error)
 
 
-@cli_cloud.command()
+@cli_files.command()
 @click.argument('path')
 @click.argument('folder', required=False, default='')
 def download(path, folder):
@@ -222,7 +221,7 @@ def download(path, folder):
         echo_error(error)
 
 
-@cli_cloud.command()
+@cli_files.command()
 @click.argument('path')
 def remove(path):
     """Remove files from abraia."""
@@ -236,7 +235,7 @@ def remove(path):
         echo_error(error)
 
 
-@cli_cloud.command()
+@cli_files.command()
 @click.option('--remove', help='Remove file metadata', is_flag=True)
 @click.argument('path')
 def metadata(path, remove):
@@ -248,6 +247,43 @@ def metadata(path, remove):
         click.echo(json.dumps(meta, indent=2))
     except APIError as error:
         echo_error(error)
+
+
+@cli.group('dataset')
+def cli_dataset():
+    """Manage dataset commands."""
+    pass
+
+
+@cli_dataset.command()
+def list():
+    """List available datasets."""
+    from abraia.training import dataset
+    click.echo(dataset.list_datasets())
+
+
+@cli_dataset.command()
+@click.argument('project')
+@click.argument('query')
+def create(project, query):
+    """Create a dataset from a query search."""
+    from abraia.training import dataset
+    output_dir = temporal_src(project + '/')
+    files = dataset.search_images(query, limit=100, output_dir=output_dir, verbose=True)
+    process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading")
+    if project not in dataset.list_datasets():
+        dataset.save_annotations(project=project, annotations=[])
+
+
+@cli_dataset.command()
+@click.argument('project')
+@click.argument('label')
+def annotate(project, label):
+    """Annotate a dataset using Grounding Dino."""
+    from abraia.training import dataset
+    images = dataset.list_images(project)
+    annotations = dataset.annotate_images(images, [label])
+    dataset.save_annotations(project, annotations)
 
 
 if __name__ == '__main__':

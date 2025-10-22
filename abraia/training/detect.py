@@ -1,6 +1,8 @@
 from ..client import Abraia
 
 import os
+import io
+import contextlib
 import numpy as np
 #os.environ['YOLO_VERBOSE'] = 'False'
 
@@ -29,18 +31,31 @@ class Model:
         model_name = build_model_name(model_type, task)
         self.model = YOLO(f"{model_name}.pt", verbose=False)
         self.model_name = model_name
+        self.metrics = {}
         self.task = task
 
     def train(self, dataset, epochs=100, batch=32, imgsz=640):
         data = f"{dataset}" if self.task == 'classify' else f"{dataset}/data.yaml"
         results = self.model.train(data=data, batch=batch, epochs=epochs, imgsz=imgsz)
+        # TODO: Merge with test and add parse metrics
         metrics = self.model.val(data=data)
+        # self.metrics = self.test(split='val')
         return metrics
 
+    def test(self, split='val'):
+        out = io.StringIO()
+        with contextlib.redirect_stderr(out):
+            metrics = self.model.val(split=split)
+        return {'mAP': metrics.box.map50, 'P': metrics.box.p, 'R': metrics.box.r, 
+                'confusionMatrix': metrics.confusion_matrix.matrix}
+
     def save(self, dataset, classes, imgsz=640, device="cpu"):
+        # TODO: Add versioning
         model_src = self.model.export(format="onnx", device=device)
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
-        abraia.save_json(f"{dataset}/{self.model_name}.json", {'task': self.task, 'inputShape': [1, 3, imgsz, imgsz], 'classes': classes})
+        abraia.save_json(f"{dataset}/{self.model_name}.json", 
+                         {'task': self.task, 'inputShape': [1, 3, imgsz, imgsz], 
+                          'classes': classes, 'metrics': self.metrics})
 
     def run(self, img):
         objects = []

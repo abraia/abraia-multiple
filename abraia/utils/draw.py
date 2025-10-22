@@ -45,8 +45,20 @@ def draw_rectangle(img, rect, color, thickness = 2):
     return img
 
 
-def draw_filled_rectangle(img, rect, color):
-    return draw_rectangle(img, rect, color, -1)
+# def draw_filled_rectangle(img, rect, color):
+#     return draw_rectangle(img, rect, color, -1)
+
+
+def draw_filled_rectangle(img, rect, color, opacity = 1):
+    x, y, w, h = np.round(rect).astype(np.int32)
+    pt1, pt2 = (x, y), (x + w, y + h)
+    if opacity == 1:
+        cv2.rectangle(img, pt1, pt2, color, -1)
+    else:
+        img_copy = img.copy()
+        cv2.rectangle(img_copy, pt1, pt2, color, -1)
+        cv2.addWeighted(img_copy, opacity, img, 1 - opacity, 0, img)
+    return img
 
 
 def draw_polygon(img, polygon, color, thickness = 2):
@@ -55,10 +67,37 @@ def draw_polygon(img, polygon, color, thickness = 2):
     return img
 
 
+# def draw_filled_polygon(img, polygon, color, opacity = 1):
+#     points = np.round(polygon).astype(np.int32)
+#     cv2.fillPoly(img, [points], color)
+#     return img
+
+
 def draw_filled_polygon(img, polygon, color, opacity = 1):
     points = np.round(polygon).astype(np.int32)
-    cv2.fillPoly(img, [points], color)
+    if opacity == 1:
+        cv2.fillPoly(img, [points], color)
+    else:
+        img_copy = img.copy()
+        cv2.fillPoly(img_copy, [points], color)
+        cv2.addWeighted(img_copy, opacity, img, 1 - opacity, 0, img)
     return img
+
+
+# def draw_blurred_mask(img, mask):
+#     w_k = int(0.1 * max(img.shape[:2]))
+#     w_k = w_k + 1 if w_k % 2 == 0 else w_k
+#     blurred_img = cv2.GaussianBlur(img, (w_k, w_k), 0)
+#     mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+#     img = np.where(mask==0, img, blurred_img)
+#     return img
+
+
+# def draw_blurred_polygon(img, polygon):
+#     points = np.round(polygon).astype(np.int32)
+#     mask = np.zeros(img.shape, dtype=np.uint8)
+#     mask = cv2.fillPoly(mask, [points], 255)
+#     return draw_blurred_mask(img, mask)
 
 
 def draw_blurred_mask(img, mask):
@@ -82,16 +121,24 @@ def draw_overlay_mask(img, mask, color = (255, 0, 0), opacity = 1):
     return img_copy
 
 
+def calculate_contrast_text_color(background_color):
+    r, g, b = background_color
+    brightness = (r * 299 + g * 587 + b * 114) / 1000
+    return (0, 0, 0) if brightness > 150 else (255, 255, 255)
+
+
 def draw_text(img, text, point, background_color = None, text_color = (255, 255, 255), 
               text_scale = 0.8, padding = 6):
-    text_font, text_thickness = cv2.FONT_HERSHEY_DUPLEX, 1
-    w, h = cv2.getTextSize(text, text_font, text_scale, text_thickness)[0]
-    width, height = w + 2 * padding, h + 2 * padding
-    x, y = point[0], max(point[1] - height, 0)
-    org = (x + padding, y + padding + h)
-    if background_color is not None:
-        img = draw_filled_rectangle(img, [x, y, width, height], background_color)
-    cv2.putText(img, text, org, text_font, text_scale, text_color, text_thickness, cv2.LINE_AA)
+    if text:
+        text_font, text_thickness = cv2.FONT_HERSHEY_DUPLEX, 1
+        w, h = cv2.getTextSize(text, text_font, text_scale, text_thickness)[0]
+        width, height = w + 2 * padding, h + 2 * padding
+        x, y = point[0], max(point[1] - height, 0)
+        org = (x + padding, y + padding + h)
+        if background_color is not None:
+            img = draw_filled_rectangle(img, [x, y, width, height], background_color)
+            text_color = calculate_contrast_text_color(background_color)
+        cv2.putText(img, text, org, text_font, text_scale, text_color, text_thickness, cv2.LINE_AA)
     return img
 
 
@@ -147,10 +194,11 @@ def render_counter(img, line, text='', color=(0, 0, 255)):
     return img
 
 
-def render_region(img, region, text='', color=(0, 0, 0)):
+def render_region(img, region, text='', color=(255, 0, 0)):
     point = np.min(region, axis=0).astype(np.int32)
     thickness = calculate_optimal_thickness(img.shape[:2])
     text_scale = calculate_optimal_text_scale(img.shape[:2])
     draw_polygon(img, region, color=color, thickness=thickness)
+    draw_filled_polygon(img, region, color=color, opacity=0.2)
     draw_text(img, text, point, background_color=color, text_scale=text_scale)
     return img
