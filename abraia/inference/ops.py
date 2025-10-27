@@ -208,14 +208,14 @@ def euclidean_distance(feat1, feat2):
 
 
 def cosine_similarity(feat1, feat2):
-    """Compute pairwise similarity scores between two arrays of embeddings."""
+    """Compute pairwise similarity scores between two vectors."""
     return float(np.dot(feat1, feat2) / (np.linalg.norm(feat1) * np.linalg.norm(feat2)))
 
 
-def search_vector(vector, index):
-    distances = [cosine_similarity(vector, row['embeddings']) for row in index]
-    idx = np.argmax(distances)
-    return idx, distances
+def search_vector(vector, index, max_results=1):
+    distances = [cosine_similarity(vector, row['vector']) for row in index]
+    idxs = np.argsort(distances)[-max_results:][::-1]
+    return idxs, [distances[idx] for idx in idxs]
 
 
 def normalize_vector(vector):

@@ -173,13 +173,13 @@ from abraia.inference.ops import search_vector
 clip_model = Clip()
 
 image_paths = glob('images/*.jpg')
-image_index = [{'embeddings': clip_model.get_image_embeddings([load_image(image_path)])[0]} for image_path in tqdm(image_paths)]
+image_index = [{'vector': clip_model.get_image_embeddings([load_image(image_path)])[0]} for image_path in tqdm(image_paths)]
 
-text_query = "a man or a woman"
+text_query = "full body person"
 vector = clip_model.get_text_embeddings([text_query])[0]
 
-index, scores = search_vector(vector, image_index)
-print(f"Similarity score is {scores[index]} for image {image_paths[index]}")
+idxs, scores = search_vector(vector, image_index)
+print(f"Similarity score is {scores[0]} for image {image_paths[idxs[0]]}")
 ```
 
 ## Hyperspectral image analysis toolbox

@@ -9,7 +9,7 @@ from typing import Union, Iterable, Optional
 from .preprocessor import Preprocessor
 from .tokenizer import Tokenizer
 
-from ...utils import download_url
+from ...utils import download_url, download_file
 
 
 class Clip:
@@ -32,12 +32,10 @@ class Clip:
             cache_dir: If provided, the models will be downloaded to / loaded from this location
         """
 
-        IMAGE_MODEL_FILE = "clip_image_model_vitb32.onnx"
-        TEXT_MODEL_FILE = "clip_text_model_vitb32.onnx"
-
-        # TODO: Refactor to load from Abraia
-        self.image_model = Clip._load_model(os.path.join(cache_dir, IMAGE_MODEL_FILE))
-        self.text_model = Clip._load_model(os.path.join(cache_dir, TEXT_MODEL_FILE))
+        image_model_path = download_file('multiple/models/clip/clip_image_model_vitb32.onnx')
+        text_model_path = download_file('multiple/models/clip/clip_text_model_vitb32.onnx')
+        self.image_model = Clip._load_model(image_model_path)
+        self.text_model = Clip._load_model(text_model_path)
         
         self.embedding_size = 512
         self._tokenizer = Tokenizer()

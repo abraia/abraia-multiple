@@ -204,7 +204,7 @@ class FaceRecognizer:
         results = self.detector.detect_faces(img) if results == None else results
         for result in results:
             face = align_face(img, result['keypoints'], size)
-            result['embeddings'] = self.arcface.calculate_embeddings(face)
+            result['vector'] = self.arcface.calculate_embeddings(face)
         return results
     
     def identify_faces(self, results, index, threshold=0.45):
@@ -212,8 +212,8 @@ class FaceRecognizer:
             del result['score']
             result['label'] = 'unknown'
             if len(index):
-                idx, scores = search_vector(result['embeddings'], index)
-                if scores[idx] > threshold:
-                    result['score'] = scores[idx]
-                    result['label'] = index[idx]['name']
+                idxs, scores = search_vector(result['vector'], index)
+                if len(idxs) and scores[0] > threshold:
+                    result['score'] = scores[0]
+                    result['label'] = index[idxs[0]]['name']
         return results
