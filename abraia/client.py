@@ -1,6 +1,5 @@
 import os
 import json
-import hashlib
 import requests
 
 from PIL import Image
@@ -9,20 +8,11 @@ from fnmatch import fnmatch
 from datetime import datetime
 
 from . import config
-from .utils import API_URL, get_type, temporal_src, save_data
+from .utils import API_URL, md5sum, get_type, temporal_src, save_data
 
 
 def file_path(source, userid):
     return source[len(userid)+1:]
-
-
-def md5sum(src):
-    hash_md5 = hashlib.md5()
-    f = BytesIO(src.getvalue()) if isinstance(src, BytesIO) else open(src, 'rb')
-    for chunk in iter(lambda: f.read(4096), b''):
-        hash_md5.update(chunk)
-    f.close()
-    return hash_md5.hexdigest()
 
 
 class APIError(Exception):

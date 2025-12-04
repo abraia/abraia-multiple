@@ -9,8 +9,7 @@ import imagehash
 
 from tqdm import tqdm
 from PIL import Image
-from transformers import pipeline
-from ..utils import HEADERS, load_image, load_url
+from ..utils import HEADERS, load_image, load_url, list_dir
 from . import list_datasets, list_images, load_annotations, save_annotations
 
 GOOGLE_BASE_URL = 'https://www.google.com/search?q='
@@ -123,8 +122,7 @@ def download(query, limit=100, output_dir='dataset', verbose=True):
 def search_images(query, limit=100, output_dir='dataset', verbose=True):
     """Search and download images from Google and Bing."""
     download(query, limit=limit, output_dir=output_dir,  verbose=verbose)
-    files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
-    return files
+    return list_dir(output_dir)
 
 
 # As the Grounding DINO model was trained with a "." after each text, we'll do the same here.
@@ -153,6 +151,7 @@ def annotate_image(pipe, img, classes, threshold=0.3):
 
 def annotate_images(images, classes):
     """Annotate a dataset using Grounding Dino."""
+    from transformers import pipeline
     pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
     #pipe = pipeline(task="zero-shot-object-detection", model="google/owlv2-base-patch16-ensemble")
     annotations = []

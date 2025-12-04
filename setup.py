@@ -13,7 +13,7 @@ with pathlib.Path('requirements.txt').open() as requirements_txt:
         in pkg_resources.parse_requirements(requirements_txt)]
     
 extras_require = {
-    'multiple': ['spectral>=0.23.1', 'scipy>=1.14.1', 'tifffile>=2020.9.4'],
+    'multiple': ['spectral>=0.23.1', 'scipy>=1.14.1', 'tifffile>=2024.8.30'],
     'dev': ['opencv-python>=4.10.0.84', 'ultralytics>=8.3.59', 'onnx>=1.18.0', 'transformers>=4.57.1'],#, 'onnxsim>=0.4.36'],
 }
 

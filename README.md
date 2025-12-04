@@ -55,13 +55,12 @@ img = load_image('images/rolling-stones.jpg')
 out = img.copy()
 
 recognition = FaceRecognizer()
-results = recognition.represent_faces(img)
 
 index = []
 for src in ['mick-jagger.jpg', 'keith-richards.jpg', 'ronnie-wood.jpg', 'charlie-watts.jpg']:
     img = load_image(f"images/{src}")
-    rslt = recognition.represent_faces(img)[0]
-    index.append({'name': os.path.splitext(src)[0], 'embeddings': rslt['embeddings']})
+    rslt = recognition.identify_faces(img)[0]
+    index.append({'name': os.path.splitext(src)[0], 'vector': rslt['vector']})
 
 results = recognition.identify_faces(results, index)
 render_results(out, results)
@@ -113,27 +112,6 @@ for face, result in zip(faces, results):
     result['score'] = score
 img = render_results(img, results)
 show_image(img)
-```
-
-### Zero-shot classification
-
-Use "clip" model for zero-shot classification.
-
-```python
-from abraia.utils import load_image
-from abraia.inference.clip import Clip
-from abraia.inference.ops import cosine_similarity, softmax
-
-image = load_image("images/image.jpg")
-texts = ["a photo of a man", "a photo of a woman"]
-
-clip_model = Clip()
-image_embeddings = clip_model.get_image_embeddings([image])[0]
-text_embeddings = clip_model.get_text_embeddings(texts)
-
-logits = [100 * cosine_similarity(image_embeddings[0], features) for features in text_embeddings]
-for text, p in zip(texts, softmax(logits)):
-    print(f"Probability that the image is '{text}': {p:.3f}")
 ```
 
 ### Blur license plate
@@ -251,9 +229,7 @@ imgs, indexes = hsi.random(img)
 hsi.plot_images(imgs, cmap='jet')
 ```
 
-### Pseudocolor visualization
-
-A common operation with spectral images is to reduce the dimensionality, applying principal components analysis (PCA). We can get the first three principal components into a three bands pseudoimage, and visualize this pseudoimage.
+Or, we can reduce the dimensionality applying principal components analysis (PCA). We can get the first three principal components into a three bands pseudoimage, and visualize this pseudoimage.
 
 ```python
 pc_img = hsi.principal_components(img)

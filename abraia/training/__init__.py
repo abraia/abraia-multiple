@@ -21,7 +21,7 @@ def list_datasets():
 
 def list_images(project):
     files = abraia.list_files(f"{project}/")[0]
-    dataset = [f for f in files if f['type'].startswith('image/')]
+    dataset = [f for f in files if f['type'] in ['image/jpeg', 'image/png']]
     for data in dataset:
         data['url'] = url_path(f"{abraia.userid}/{data['path']}")
     return dataset

@@ -1,6 +1,8 @@
 import os
+import gzip
 import json
 import base64
+import hashlib
 import tempfile
 import requests
 import mimetypes
@@ -11,6 +13,7 @@ from tqdm import tqdm
 from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageOps
+from concurrent.futures import ProcessPoolExecutor
 
 from .video import Video
 from .sketcher import Sketcher
@@ -27,6 +30,15 @@ mimetypes.add_type('image/webp', '.webp')
 
 def get_type(path):
     return mimetypes.guess_type(path)[0] or 'binary/octet-stream'
+
+
+def md5sum(src):
+    hash_md5 = hashlib.md5()
+    f = BytesIO(src.getvalue()) if isinstance(src, BytesIO) else open(src, 'rb')
+    for chunk in iter(lambda: f.read(4096), b''):
+        hash_md5.update(chunk)
+    f.close()
+    return hash_md5.hexdigest()
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -47,6 +59,10 @@ def is_url(url):
 
 def url_path(path):
     return f"{API_URL}/files/{path}"
+
+
+def list_dir(folder):
+    return [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
 
 
 def make_dirs(dest):
@@ -85,29 +101,30 @@ def download_file(path):
 
 
 def load_url(url):
-    return requests.get(url, headers=HEADERS, stream=True, allow_redirects=True).raw
+    r = requests.get(url, headers=HEADERS, stream=True, allow_redirects=True)
+    return r.raw if r.status_code == 200 else None
 
 
-def load_json(src):
-    with open(src, 'r') as f:
+def load_json(src, gz=False):
+    with gzip.open(src, 'rt') if gz else open(src, 'r') as f:
         return json.load(f)
     
 
-def save_json(data, dest):
+def save_json(data, dest, gz=False):
     make_dirs(dest)
-    with open(dest, 'w') as f:
+    with gzip.open(dest, 'wt') if gz else open(dest, 'w') as f:    
         f.write(json.dumps(data, cls=NumpyEncoder))
     return dest
 
 
-def load_data(src):
-    with open(src, 'rb') as f:
+def load_data(src, gz=False):
+    with gzip.open(src, 'rb') if gz else open(src, 'rb') as f:
         return f.read()
 
 
-def save_data(dest, data):
+def save_data(dest, data, gz=False):
     make_dirs(dest)
-    with open(dest, 'wb') as f:
+    with gzip.open(dest, 'wb') if gz else open(dest, 'wb') as f:
         f.write(data)
     return dest
 
@@ -140,3 +157,11 @@ def get_providers():
     available_providers = ort.get_available_providers()
     providers = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
     return [provider for provider in available_providers if provider in providers]
+
+
+def process_map(task, *values, desc='', max_workers=3):
+    with ProcessPoolExecutor(max_workers) as exe:
+        with tqdm(total=len(values[0]), desc=desc) as pbar:
+            for result in exe.map(task, *values):
+                pbar.set_postfix_str(result)
+                pbar.update(1)

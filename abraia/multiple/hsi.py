@@ -1,12 +1,8 @@
-import math
 import numpy as np
 import scipy.ndimage as nd
-import matplotlib.pyplot as plt
 
 from PIL import Image
 from sklearn.svm import SVC
-from sklearn.utils import resample
-from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
@@ -15,7 +11,7 @@ from keras.utils import np_utils
 from keras.models import Model
 from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
-from . import Multiple
+from . import Multiple, random, principal_components, rgb, ndvi, resample, plot_image, plot_images
 
 multiple = Multiple()
 
@@ -73,39 +69,6 @@ def load_dataset(dataset, shuffle=False):
     return paths, labels
 
 
-def random(img, n_bands=6, indexes=False):
-    """Returns a list of random bands"""
-    bands = []
-    indexes = []
-    for i in range(n_bands):
-        q = np.random.randint(img.shape[2])
-        indexes.append(q)
-        bands.append(img[:, :, q])
-    if indexes:
-        return bands, indexes
-    return bands
-
-
-def rgb(img, bands=None):
-    """Returns the RGB image from the selected bands (R, G, B)"""
-    from spectral import get_rgb
-    return get_rgb(img, bands=bands)
-
-
-def ndvi(img, red_band, nir_band):
-    """Returns the NDVI image from the specified read and nir bands"""
-    from spectral import ndvi
-    return ndvi(img, red_band, nir_band)
-
-
-def resample(img, n_samples=32):
-    """Resamples the number of spectral bands (n_samples)"""
-    h, w, d = img.shape
-    X = img.reshape((h * w), d)
-    r = resample(np.transpose(X), n_samples=n_samples)
-    return np.transpose(r).reshape(h, w, n_samples)
-
-
 def resize(img, size):
     """Resize the image to the given size (w, h)"""
     return np.array(Image.fromarray(img).resize(size, resample=Image.LANCZOS))
@@ -148,17 +111,6 @@ def split_train_test(X, y, train_ratio=0.7):
     """Split data for training and test"""
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_ratio, stratify=y)
     return X_train, X_test, y_train, y_test
-
-
-def principal_components(img, n_components=3, spectrum=False):
-    """Calculate principal components of the image"""
-    h, w, d = img.shape
-    X = img.reshape((h * w), d)
-    pca = PCA(n_components=n_components, whiten=True)
-    bands = pca.fit_transform(X).reshape(h, w, n_components)
-    if spectrum:
-        bands, pca.components_
-    return bands
 
 
 def pad_with_zeros(X, margin=2):
@@ -227,28 +179,6 @@ def predict_hsn_model(model, X, patch_size):
     X_pred = create_patches(X, patch_size)
     y_pred = np.argmax(model.predict(X_pred), axis=1)
     return y_pred.reshape(height, width).astype(int)
-
-
-def plot_image(img, title=''):
-    plt.figure()
-    plt.title(title)
-    plt.imshow(img)
-    plt.axis('off')
-    plt.show()
-
-
-def plot_images(imgs, titles=None, cmap='nipy_spectral'):
-    plt.figure()
-    k = len(imgs)
-    r = int(math.sqrt(k))
-    c = math.ceil(k / r)
-    ax = plt.subplots(r, c)[1].reshape(-1)
-    for i in range(k):
-        if titles and len(titles) >= k:
-            ax[i].title.set_text(titles[i])
-        ax[i].imshow(imgs[i], cmap=cmap)
-        ax[i].axis('off')
-    plt.show()
 
 
 def plot_train_history(history):

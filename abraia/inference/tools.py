@@ -62,8 +62,9 @@ class RegionTimer():
                     if start_time == None:
                         self.timers[track_id] = frame_time
                     else:
-                        print(f'Time in zone [{track_id}]: {round(frame_time - start_time, 2)}')
-                        result['label'] = f"waiting {round(frame_time - start_time, 2)}s"
+                        # Time in zone
+                        result['time'] = round(frame_time - start_time, 2)
+                        result['label'] = f"time {result['time']}s"
                         del result['score']
                 else:
                     out_objects.append(result)

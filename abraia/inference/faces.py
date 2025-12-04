@@ -20,7 +20,7 @@ REFERENCE_FACIAL_POINTS = [[38.2946, 51.6963],
 ref_pts = np.array(REFERENCE_FACIAL_POINTS, dtype=np.float32)
 
 
-def align_face(img, src_pts, size):
+def align_face(img, src_pts, size=112):
     dst_pts = ref_pts * size / 112 if size != 112 else ref_pts
     src_tri = np.array([src_pts[0], src_pts[1], (src_pts[3] + src_pts[4]) / 2]).astype(np.float32)
     dst_tri = np.array([dst_pts[0], dst_pts[1], (dst_pts[3] + dst_pts[4]) / 2]).astype(np.float32)
@@ -47,9 +47,9 @@ def find_pose(points):
     dXnose = (LMxr[1] - LMxr[2] + LMxr[4] - LMxr[2]) / 2
     dYnose = (LMyr[3] - LMyr[2] + LMyr[4] - LMyr[2]) / 2
     # relative rotation 0 degree is frontal 90 degree is profile
-    Xfrontal = (-90 + 90 / 0.5 * dXnose / dXtot) if dXtot != 0 else 0
-    Yfrontal = (-90 + 90 / 0.5 * dYnose / dYtot) if dYtot != 0 else 0
-    return round(angle * 180 / np.pi, 2), round(Xfrontal, 2), round(Yfrontal, 2)
+    Xfrontal = (-90 + 180 * dXnose / dXtot) if dXtot != 0 else 0
+    Yfrontal = (-90 + 180 * dYnose / dYtot) if dYtot != 0 else 0
+    return round(angle * 180 / np.pi, 2), round(Xfrontal / 2, 2), round(Yfrontal / 2, 2)
 
 
 def prior_box(min_sizes, steps, image_size):
@@ -200,17 +200,13 @@ class FaceRecognizer:
         results = self.detector.detect_faces(img) if results == None else results
         return [align_face(img, result['keypoints'], size) for result in results]
     
-    def represent_faces(self, img, results=None, size=112):
+    def identify_faces(self, img, results=None, index = [], threshold=0.45):
         results = self.detector.detect_faces(img) if results == None else results
-        for result in results:
-            face = align_face(img, result['keypoints'], size)
-            result['vector'] = self.arcface.calculate_embeddings(face)
-        return results
-    
-    def identify_faces(self, results, index, threshold=0.45):
         for result in results:
             del result['score']
             result['label'] = 'unknown'
+            face = align_face(img, result['keypoints'])
+            result['vector'] = self.arcface.calculate_embeddings(face)
             if len(index):
                 idxs, scores = search_vector(result['vector'], index)
                 if len(idxs) and scores[0] > threshold:

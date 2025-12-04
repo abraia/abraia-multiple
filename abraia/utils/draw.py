@@ -67,12 +67,6 @@ def draw_polygon(img, polygon, color, thickness = 2):
     return img
 
 
-# def draw_filled_polygon(img, polygon, color, opacity = 1):
-#     points = np.round(polygon).astype(np.int32)
-#     cv2.fillPoly(img, [points], color)
-#     return img
-
-
 def draw_filled_polygon(img, polygon, color, opacity = 1):
     points = np.round(polygon).astype(np.int32)
     if opacity == 1:
@@ -194,11 +188,11 @@ def render_counter(img, line, text='', color=(0, 0, 255)):
     return img
 
 
-def render_region(img, region, text='', color=(255, 0, 0)):
+def render_region(img, region, text='', color=(255, 0, 0), opacity=0.2):
     point = np.min(region, axis=0).astype(np.int32)
     thickness = calculate_optimal_thickness(img.shape[:2])
     text_scale = calculate_optimal_text_scale(img.shape[:2])
     draw_polygon(img, region, color=color, thickness=thickness)
-    draw_filled_polygon(img, region, color=color, opacity=0.2)
+    draw_filled_polygon(img, region, color=color, opacity=opacity)
     draw_text(img, text, point, background_color=color, text_scale=text_scale)
     return img

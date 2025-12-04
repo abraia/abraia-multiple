@@ -32,7 +32,6 @@ class SAM:
         self.decoder = ort.InferenceSession(decoder_src, providers=get_providers())
 
     def encode(self, img):
-        # TODO: Refactor to use resize
         scale_x = self.input_size[1] / img.shape[1]
         scale_y = self.input_size[0] / img.shape[0]
         scale = min(scale_x, scale_y)

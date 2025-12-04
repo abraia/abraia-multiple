@@ -37,6 +37,13 @@ class Video:
             cv2.destroyWindow(self.win_name)
             cv2.waitKey(1)
 
+    def get_frame(self, frame_num):
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+        ret, frame = self.cap.read()
+        if ret is False or frame is None:
+            return None
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
     def write(self, frame):
         self.out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
     

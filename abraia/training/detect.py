@@ -51,7 +51,7 @@ class Model:
 
     def save(self, dataset, classes, imgsz=640, device="cpu"):
         # TODO: Add versioning
-        model_src = self.model.export(format="onnx", device=device)
+        model_src = self.model.export(format="onnx", device=device, half=True)
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
         abraia.save_json(f"{dataset}/{self.model_name}.json", 
                          {'task': self.task, 'inputShape': [1, 3, imgsz, imgsz], 

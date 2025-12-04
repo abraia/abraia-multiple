@@ -6,10 +6,8 @@ import json
 import click
 import itertools
 from glob import glob
-from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor
 
-from abraia.utils import load_image, save_image, temporal_src
+from abraia.utils import load_image, save_image, get_type, temporal_src, list_dir, process_map
 from abraia.editing import anonymize_image, blur_background, clean_image, remove_background, upscale_image
 
 from abraia import config
@@ -19,14 +17,6 @@ from abraia import __version__
 
 
 abraia = Abraia()
-
-
-def process_map(task, *values, desc='', max_workers=3):
-    with ProcessPoolExecutor(max_workers) as exe:
-        with tqdm(total=len(values[0]), desc=desc) as pbar:
-            for result in exe.map(task, *values):
-                pbar.set_postfix_str(result)
-                pbar.update(1)
 
 
 def echo_error(error):
@@ -87,10 +77,9 @@ def editing_file(src, dest, mode):
 def editing_files(src, mode, desc="Editing"):
     try:
         inputs = input_files(src)
-        ext = 'png' if mode == 'removebg' else 'jpg'
+        new_ext = 'png' if mode == 'removebg' else 'jpg'
         dirname = src if os.path.isdir(src) else os.path.dirname(src)
-        paths = [os.path.splitext(os.path.relpath(src, dirname))[0] for src in inputs]
-        outputs = [os.path.join('output', f"{path}.{ext}") for path in paths]
+        outputs = [os.path.join('output', f"{os.path.splitext(os.path.relpath(src, dirname))[0]}.{new_ext}") for src in inputs]
         process_map(editing_file, inputs, outputs, itertools.repeat(mode), desc=desc)
     except APIError as error:
         echo_error(error)
@@ -264,13 +253,24 @@ def list():
 
 @cli_dataset.command()
 @click.argument('project')
-@click.argument('query')
-def create(project, query):
-    """Create a dataset from a query search."""
+@click.argument('query', required=False)
+def create(project, query=''):
+    """Create or update a dataset."""
     from abraia.training import dataset
-    output_dir = temporal_src(project + '/')
-    files = dataset.search_images(query, limit=100, output_dir=output_dir, verbose=True)
-    process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading")
+    files = []
+    project = project.strip('/')
+    # output_dir = temporal_src(project)
+    output_dir = f"{project}/"
+    if query:
+        files = dataset.search_images(query, limit=100, output_dir=output_dir, verbose=True)
+    if os.path.exists(project):
+        files = list_dir(project)
+        tiffs = [f for f in files if get_type(f) == 'image/tiff']
+        if len(tiffs):
+            from abraia.multiple import create_visible
+            process_map(create_visible, tiffs, desc="Creating images")    
+            files = list_dir(project)
+    process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading images")
     if project not in dataset.list_datasets():
         dataset.save_annotations(project=project, annotations=[])
 
