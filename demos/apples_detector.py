@@ -9,7 +9,6 @@ from abraia.editing.sam import SAM
 
 model_uri = 'multiple/models/yolov8n.onnx'
 model = Model(model_uri)
-sam = SAM()
 
 # src = 'rtsp://192.168.1.41:8554/mystream'
 src = '5479199-hd_1920_1080_25fps.mp4'
@@ -30,6 +29,7 @@ for k, frame in enumerate(video):
 
 # Automatically segment apples from the previously detected boxes
 import json
+sam = SAM()
 sam.encode(frame)
 out = frame.copy()
 for result in results:
