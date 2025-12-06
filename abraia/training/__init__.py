@@ -154,12 +154,35 @@ def split_dataset(annotations):
     return train, val, test
 
 
-def create_dataset(dataset, task, classes):
-    if not os.path.exists(dataset):
-        annotations = load_annotations(dataset)
+def create_dataset(project, task, classes):
+    if not os.path.exists(project):
+        annotations = load_annotations(project)
         train, val, test = split_dataset(annotations)
         data_annotations = {'train': train, 'val': val, 'test': test}
         #TODO: Download files in one single step
         for x in ['train', 'val', 'test']:
-            save_data(data_annotations[x], f"{dataset}/{x}", classes, task)
-        save_config(dataset, classes)
+            save_data(data_annotations[x], f"{project}/{x}", classes, task)
+        save_config(project, classes)
+
+
+def train_model(project, task, classes, epochs, batch=32, imgsz=640):
+    if task == 'classify':
+        training_session = classify.Model()
+        dataloaders, classes = training_session.create_dataset(project)
+        model = training_session.train(project, epochs=epochs)
+        # training.classify.visualize_data(dataloaders['train'])
+        #training.classify.visualize_model(model, dataloaders['val'])
+    else:
+        training_session = detect.Model(task, imgsz=imgsz)
+        def print_train_end(trainer):
+            print('# End training')
+            print('Metrics:', trainer.metrics)
+        #training_session.model.add_callback('on_train_start', print_train_start)
+        #training_session.model.add_callback('on_train_epoch_start', print_train_epoch)
+        training_session.model.add_callback('on_train_end', print_train_end)
+        metrics = training_session.train(project, epochs=epochs, batch=batch)
+        print("Train metrics")
+        print(training_session.test('val'))
+        #TODO: Save metrics with model
+        training_session.metrics = training_session.test('test')
+    return training_session

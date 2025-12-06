@@ -236,17 +236,6 @@ pc_img = hsi.principal_components(img)
 hsi.plot_image(pc_img, 'Principal components')
 ```
 
-### Classification model
-
-Two classification models are directly available for automatic identification on hysperspectral images. One is based on support vector machines ('svm') while the other is based on deep image classification ('hsn'). Both models are available under a simple interface like bellow:
-
-```python
-n_bands, n_classes = 30, 17
-model = hsi.create_model('hsn', (25, 25, n_bands), n_classes)
-model.train(X, y, train_ratio=0.3, epochs=5)
-y_pred = model.predict(X)
-```
-
 ## License
 
 This software is licensed under the MIT License. [View the license](LICENSE).

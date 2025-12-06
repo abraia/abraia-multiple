@@ -27,16 +27,17 @@ def build_model_name(model_name, task):
 
 
 class Model:
-    def __init__(self, task, model_type='yolov8n'):
+    def __init__(self, task, model_type='yolov8n', imgsz=640):
         model_name = build_model_name(model_type, task)
         self.model = YOLO(f"{model_name}.pt", verbose=False)
         self.model_name = model_name
         self.metrics = {}
         self.task = task
+        self.imgsz = imgsz
 
-    def train(self, dataset, epochs=100, batch=32, imgsz=640):
+    def train(self, dataset, epochs=100, batch=32):
         data = f"{dataset}" if self.task == 'classify' else f"{dataset}/data.yaml"
-        results = self.model.train(data=data, batch=batch, epochs=epochs, imgsz=imgsz)
+        results = self.model.train(data=data, batch=batch, epochs=epochs, imgsz=self.imgsz)
         # TODO: Merge with test and add parse metrics
         metrics = self.model.val(data=data)
         # self.metrics = self.test(split='val')
@@ -46,15 +47,17 @@ class Model:
         out = io.StringIO()
         with contextlib.redirect_stderr(out):
             metrics = self.model.val(split=split)
-        return {'mAP': metrics.box.map50, 'P': metrics.box.p, 'R': metrics.box.r, 
-                'confusionMatrix': metrics.confusion_matrix.matrix}
+        return {'mAP': float(metrics.box.map50), 'P': metrics.box.p.tolist(), 'R': metrics.box.r.tolist(), 
+                'confusionMatrix': metrics.confusion_matrix.matrix.tolist()}
 
-    def save(self, dataset, classes, imgsz=640, device="cpu"):
+    def save(self, dataset, classes, device="cpu"):
         # TODO: Add versioning
-        model_src = self.model.export(format="onnx", device=device, opset=21, half=True)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            model_src = self.model.export(format="onnx", device=device, opset=19, half=True)
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
         abraia.save_json(f"{dataset}/{self.model_name}.json", 
-                         {'task': self.task, 'inputShape': [1, 3, imgsz, imgsz], 
+                         {'task': self.task, 'inputShape': [1, 3, self.imgsz, self.imgsz], 
                           'classes': classes, 'metrics': self.metrics})
 
     def run(self, img):

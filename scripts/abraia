@@ -286,6 +286,27 @@ def annotate(project, label):
     dataset.save_annotations(project, annotations)
 
 
+@cli_dataset.command()
+@click.argument('project')
+def train(project):
+    """Train a model on the specified dataset."""
+    from abraia import training
+    annotations = training.load_annotations(project)
+    classes = training.load_labels(annotations)
+    tasks = training.load_tasks(annotations)
+    task = tasks[-1] if len(tasks) else 'detect'
+    epochs = 25 if task == 'classify' else 250
+    imgsz = 224 if task == 'classify' else 640
+    click.echo('Loading dataset...')
+    if not os.path.exists(project):
+        training.create_dataset(project, task, classes)
+    click.echo('Dataset loaded.')
+    training_session = training.train_model(project, task, classes, epochs, imgsz=imgsz)
+    click.echo('Trained model.')
+    training_session.save(project, classes)
+    click.echo('Model saved.')
+
+
 if __name__ == '__main__':
     if not abraia.userid:
         configure()
