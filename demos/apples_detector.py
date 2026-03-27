@@ -4,7 +4,7 @@ from abraia.utils import Video, show_image, save_image
 from abraia.inference import Model, Tracker
 from abraia.utils.draw import render_results, draw_overlay_mask, get_color, hex_to_rgb
 from abraia.inference.ops import count_objects
-from abraia.editing.sam import SAM
+from abraia.editing import SAM
 
 
 model_uri = 'multiple/models/yolov8n.onnx'

@@ -9,6 +9,7 @@ import itertools
 from PIL import Image
 from tqdm.contrib.concurrent import process_map
 from sklearn.model_selection import train_test_split
+from typing import Dict, Any
 
 
 abraia = Abraia()
@@ -31,6 +32,7 @@ def load_annotations(project):
     annotations = abraia.load_json(f"{project}/annotations.json")
     for annotation in annotations:
         annotation['path'] = f"{project}/{annotation['filename']}"
+        annotation['url'] = url_path(f"{abraia.userid}/{annotation['path']}")
     return annotations
 
 
@@ -154,35 +156,41 @@ def split_dataset(annotations):
     return train, val, test
 
 
-def create_dataset(project, task, classes):
-    if not os.path.exists(project):
-        annotations = load_annotations(project)
-        train, val, test = split_dataset(annotations)
-        data_annotations = {'train': train, 'val': val, 'test': test}
-        #TODO: Download files in one single step
-        for x in ['train', 'val', 'test']:
-            save_data(data_annotations[x], f"{project}/{x}", classes, task)
-        save_config(project, classes)
+class ModelTrainer:
+    """High-level trainer orchestrator using models and dataset utilities."""
+    def __init__(self, task: str, imgsz: int = 640):
+        self.task = task
+        if task == 'classify':
+            self.model = classify.Model()
+        else:
+            self.model = detect.Model(task, imgsz=imgsz)
+    
+    def prepare_dataset(self, project: str, classes, force: bool = False):
+        if force or not os.path.exists(project):
+            annotations = load_annotations(project)
+            train, val, test = split_dataset(annotations)
+            data_annotations = {'train': train, 'val': val, 'test': test}
+            #TODO: Download files in one single step
+            for x in ['train', 'val', 'test']:
+                save_data(data_annotations[x], f"{project}/{x}", classes, self.task)
+            save_config(project, classes)
 
+    def train(self, dataset: str, epochs: int, batch: int = 32, **kwargs) -> None:
+        if self.task == 'classify':
+            self.model.train(dataset, epochs=epochs)
+        else:
+            self.model.train(dataset, epochs=epochs, batch=batch)
 
-def train_model(project, task, classes, epochs, batch=32, imgsz=640):
-    if task == 'classify':
-        training_session = classify.Model()
-        dataloaders, classes = training_session.create_dataset(project)
-        model = training_session.train(project, epochs=epochs)
-        # training.classify.visualize_data(dataloaders['train'])
-        #training.classify.visualize_model(model, dataloaders['val'])
-    else:
-        training_session = detect.Model(task, imgsz=imgsz)
-        def print_train_end(trainer):
-            print('# End training')
-            print('Metrics:', trainer.metrics)
-        #training_session.model.add_callback('on_train_start', print_train_start)
-        #training_session.model.add_callback('on_train_epoch_start', print_train_epoch)
-        training_session.model.add_callback('on_train_end', print_train_end)
-        metrics = training_session.train(project, epochs=epochs, batch=batch)
-        print("Train metrics")
-        print(training_session.test('val'))
-        #TODO: Save metrics with model
-        training_session.metrics = training_session.test('test')
-    return training_session
+    def test(self, split: str = 'val') -> Dict[str, Any]:
+        if self.task == 'classify':
+            # classify.Model currently has no .test
+            return {}
+        else:
+            return self.model.test(split=split)
+
+    def save(self, dataset: str, classes, device='cpu') -> None:
+        self.model.save(dataset, classes, device=device)
+
+    def run(self, img):
+        return self.model.run(img)
+    

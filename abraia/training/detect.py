@@ -35,13 +35,16 @@ class Model:
         self.task = task
         self.imgsz = imgsz
 
+#         def print_train_end(trainer):
+#             print('# End training')
+#             print('Metrics:', trainer.metrics)
+#         #training_session.model.add_callback('on_train_start', print_train_start)
+#         #training_session.model.add_callback('on_train_epoch_start', print_train_epoch)
+#         training_session.model.add_callback('on_train_end', print_train_end)
+
     def train(self, dataset, epochs=100, batch=32):
         data = f"{dataset}" if self.task == 'classify' else f"{dataset}/data.yaml"
         results = self.model.train(data=data, batch=batch, epochs=epochs, imgsz=self.imgsz)
-        # TODO: Merge with test and add parse metrics
-        metrics = self.model.val(data=data)
-        # self.metrics = self.test(split='val')
-        return metrics
 
     def test(self, split='val'):
         out = io.StringIO()

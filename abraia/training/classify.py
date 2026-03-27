@@ -72,7 +72,7 @@ class Dataset(torch.utils.data.Dataset):
 
 
 def create_model(class_names, pretrained=True):
-    model = models.resnet18(pretrained=pretrained)
+    model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
     for param in model.parameters():
         param.requires_grad = False
     num_ftrs = model.fc.in_features
@@ -230,7 +230,10 @@ class Model:
         model_conv = create_model(classes)
         self.classes = classes
         self.model = train_model(model_conv, dataloaders, num_epochs=epochs)
-        return self.model
+        #dataloaders, classes = training_session.create_dataset(project)
+        #training_session.train(project, epochs=epochs)
+        # training.classify.visualize_data(dataloaders['train'])
+        #training.classify.visualize_model(model, dataloaders['val'])
 
     def save(self, dataset, classes, device='cpu'):
         self.model.to(device)

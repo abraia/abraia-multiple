@@ -5,7 +5,7 @@ from .removebg import BackgroundRemover
 from .upscale import Upscaler, SwinIR
 from .smartcrop import Smartcrop
 from .inpaint import LAMA
-from .sam import SAM
+from ..inference.sam import SAM
 
 from ..inference import PlateDetector
 from ..inference.faces import FaceRecognizer
