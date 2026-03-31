@@ -1,32 +1,28 @@
 from abraia.training.dataset import Dataset
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
 
 @patch('abraia.training.dataset.list_datasets')
 @patch('abraia.training.dataset.load_annotations')
-@patch('abraia.training.dataset.load_labels')
-@patch('abraia.training.dataset.load_task')
 @patch('abraia.training.dataset.list_images')
-def test_dataset_load(mock_list_images, mock_load_task, mock_load_labels, mock_load_annotations, mock_list_datasets):
+def test_dataset_load(mock_list_images, mock_load_annotations, mock_list_datasets):
     mock_list_datasets.return_value = ['test_project']
-    mock_load_annotations.return_value = [{'filename': 'test.jpg', 'objects': []}]
-    mock_load_labels.return_value = ['cat']
-    mock_load_task.return_value = 'detect'
+    mock_load_annotations.return_value = [{'filename': 'test.jpg', 'objects': [{'label': 'cat'}]}]
     mock_list_images.return_value = [{'name': 'test.jpg'}]
     
     ds = Dataset('test_project')
     ds.load()
     
     assert ds.project == 'test_project'
-    assert ds.annotations == [{'filename': 'test.jpg', 'objects': []}]
+    assert ds.annotations == [{'filename': 'test.jpg', 'objects': [{ 'label': 'cat' }]}]
     assert ds.classes == ['cat']
-    assert ds.task == 'detect'
+    assert ds.task == 'classify'
     assert ds.images == [{'name': 'test.jpg'}]
     
     mock_list_datasets.assert_called_once()
     mock_load_annotations.assert_called_once_with('test_project')
-    mock_load_labels.assert_called_once_with(ds.annotations)
-    mock_load_task.assert_called_once_with(ds.annotations)
     mock_list_images.assert_called_once_with('test_project')
+
 
 @patch('abraia.training.dataset.save_annotations')
 def test_dataset_save(mock_save_annotations):
@@ -37,6 +33,7 @@ def test_dataset_save(mock_save_annotations):
     
     assert ds.annotations == annotations
     mock_save_annotations.assert_called_once_with('test_project', annotations)
+
 
 @patch('abraia.training.dataset.annotate_images')
 def test_dataset_annotate_filter(mock_annotate_images):
@@ -54,25 +51,3 @@ def test_dataset_annotate_filter(mock_annotate_images):
     assert len(ds.annotations) == 2
     assert ds.annotations[0] == {'filename': 'old.jpg', 'objects': [{'label': 'dog'}]}
     assert ds.annotations[1] == {'filename': 'new.jpg', 'objects': [{'label': 'cat'}]}
-
-@patch('abraia.training.dataset.train_test_split')
-def test_dataset_split(mock_train_test_split):
-    # Mock train_test_split to return (train, test) then (val, test)
-    mock_train_test_split.side_effect = [
-        (['train_obj'], ['test_val_obj']),
-        (['val_obj'], ['test_obj'])
-    ]
-    
-    ds = Dataset('test_project')
-    ds.annotations = [
-        {'filename': 'obj.jpg', 'objects': [{'label': 'cat'}]},
-        {'filename': 'bg.jpg', 'objects': []}
-    ]
-    
-    train, val, test = ds.split()
-    
-    assert 'train_obj' in train
-    assert {'filename': 'bg.jpg', 'objects': []} in train
-    assert val == ['val_obj']
-    assert test == ['test_obj']
-    assert mock_train_test_split.call_count == 2

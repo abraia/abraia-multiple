@@ -5,11 +5,9 @@ import urllib
 import requests
 import filetype
 import itertools
-import imagehash
 
 from tqdm import tqdm
 from PIL import Image
-from sklearn.model_selection import train_test_split
 
 from ..client import Abraia
 from ..utils import HEADERS, load_image, load_url, list_dir, url_path
@@ -33,8 +31,8 @@ def save_image_file(link, output_dir, timeout=10, max_size=1920):
     resp = requests.get(link, headers=HEADERS, allow_redirects=True, timeout=timeout)
     kind = filetype.guess(resp.content)
     if kind and kind.mime.startswith('image'):
+        import imagehash
         d = io.BytesIO(resp.content)
-        # d.seek(0)
         im = Image.open(d).convert('RGB')
         im.thumbnail([max_size, max_size])
         phash = str(imagehash.phash(im))
@@ -264,6 +262,7 @@ class Dataset:
         save_annotations(self.project, self.annotations)
 
     def split(self):
+        from sklearn.model_selection import train_test_split
         # TODO: Split dataset by classes to avoid class imbalance
         backgrounds = [annotation for annotation in self.annotations if not annotation.get('objects')]
         annotations = [annotation for annotation in self.annotations if annotation.get('objects')]

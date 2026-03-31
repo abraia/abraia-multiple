@@ -6,7 +6,6 @@ from PIL import Image
 from typing import Dict, Any
 from tqdm.contrib.concurrent import process_map
 
-from . import classify, detect
 from .dataset import list_datasets, load_dataset, search_images, list_models
 from ..utils import make_dirs, download_file
 
@@ -80,32 +79,36 @@ def save_config(dataset, classes):
     with open(path, 'w') as f:
         f.write(yaml_content)
 
+    
+def prepare_dataset(dataset, force = False):
+    if force or not os.path.exists(dataset.project):
+        train, val, test = dataset.split()
+        data_annotations = {'train': train, 'val': val, 'test': test}
+        for x in ['train', 'val', 'test']:
+            save_data(data_annotations[x], f"{dataset.project}/{x}", dataset.classes, dataset.task)
+        save_config(dataset.project, dataset.classes)
+
 
 class ModelTrainer:
     """High-level trainer orchestrator using models and dataset utilities."""
-    def __init__(self, task: str, imgsz: int = None):
-        imgsz = imgsz or (224 if task == 'classify' else 640)
+    def __init__(self, project: str, task: str, classes: list, imgsz: int = None):
+        self.project = project
         self.task = task
+        self.classes = classes
+        imgsz = imgsz or (224 if task == 'classify' else 640)
         if task == 'classify':
+            from . import classify
             self.model = classify.Model()
         else:
+            from . import detect
             self.model = detect.Model(task, imgsz=imgsz)
-    
-    def prepare_dataset(self, project: str, classes, force: bool = False):
-        if force or not os.path.exists(project):
-            dataset = load_dataset(project)
-            train, val, test = dataset.split()
-            data_annotations = {'train': train, 'val': val, 'test': test}
-            for x in ['train', 'val', 'test']:
-                save_data(data_annotations[x], f"{project}/{x}", classes, self.task)
-            save_config(project, classes)
 
-    def train(self, dataset: str, epochs: int = None, batch: int = 32) -> None:
+    def train(self, epochs: int = None, batch: int = 32) -> None:
         epochs = epochs or (30 if self.task == 'classify' else 300)
         if self.task == 'classify':
-            self.model.train(dataset, epochs=epochs)
+            self.model.train(self.project, epochs=epochs)
         else:
-            self.model.train(dataset, epochs=epochs, batch=batch)
+            self.model.train(self.project, epochs=epochs, batch=batch)
 
     def test(self, split: str = 'val') -> Dict[str, Any]:
         if self.task == 'classify':
@@ -114,8 +117,8 @@ class ModelTrainer:
         else:
             return self.model.test(split=split)
 
-    def save(self, dataset: str, classes, device='cpu') -> None:
-        self.model.save(dataset, classes, device=device)
+    def save(self, device='cpu') -> None:
+        self.model.save(self.project, self.classes, device=device)
 
     def run(self, img):
         return self.model.run(img)

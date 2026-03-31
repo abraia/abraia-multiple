@@ -297,15 +297,15 @@ def annotate(project, label='', segment=False):
 @click.argument('epochs', type=int, required=False)
 def train(project, epochs=None):
     """Train a model on the specified dataset."""
-    from abraia.training import load_dataset, ModelTrainer
-    dataset = load_dataset(project)
-    training_session = ModelTrainer(dataset.task)
+    from abraia.training import load_dataset, prepare_dataset, ModelTrainer
     click.echo('Loading dataset...')
-    training_session.prepare_dataset(project, dataset.classes)
+    dataset = load_dataset(project)
+    prepare_dataset(dataset)
     click.echo('Training model...')
-    training_session.train(project, epochs)
+    training_session = ModelTrainer(project, dataset.task, dataset.classes)
+    training_session.train(epochs)
     click.echo('Saving model...')
-    training_session.save(project, dataset.classes)
+    training_session.save()
 
 
 @cli_datasets.command()
