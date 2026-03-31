@@ -20,6 +20,23 @@ from abraia import __version__
 abraia = Abraia()
 
 
+def list_files(folder):
+    return abraia.list_files(folder)
+
+
+def upload_file(file, folder):
+    return abraia.upload_file(file, folder)
+
+
+def download_file(path, folder):
+    dest = os.path.join(folder, os.path.basename(path))
+    return abraia.download_file(path, dest)
+
+
+def remove_file(path):
+    return abraia.remove_file(path)
+
+
 def echo_error(error):
     click.echo('[' + click.style('Error {}'.format(error.code),
                                  fg='red', bold=True) + '] {}'.format(error.message))
@@ -155,19 +172,6 @@ def cli_files():
     pass
 
 
-def upload_file(file, folder):
-    return abraia.upload_file(file, folder)
-
-
-def download_file(path, folder):
-    dest = os.path.join(folder, os.path.basename(path))
-    return abraia.download_file(path, dest)
-
-
-def remove_file(path):
-    return abraia.remove_file(path)
-
-
 def format_output(files, folders=[]):
     output = '\n'.join(['{:>28}  {}/'.format('', click.style(f['name'], fg='blue', bold=True)) for f in folders]) + '\n'
     output += '\n'.join(['{}  {:>7}  {}'.format(f['date'], f['size'], f['name']) for f in files])
@@ -180,7 +184,7 @@ def format_output(files, folders=[]):
 def list(folder):
     """List files in abraia."""
     try:
-        files, folders = abraia.list_files(folder)
+        files, folders = list_files(folder)
         click.echo(format_output(files, folders))
     except APIError as error:
         echo_error(error)
@@ -204,7 +208,7 @@ def upload(src, folder):
 def download(path, folder):
     """Download files from abraia."""
     try:
-        files = abraia.list_files(path)[0]
+        files = list_files(path)[0]
         paths = [file['path'] for file in files]
         process_map(download_file, paths, itertools.repeat(folder), desc="Downloading")
     except APIError as error:
@@ -216,7 +220,7 @@ def download(path, folder):
 def remove(path):
     """Remove files from abraia."""
     try:
-        files = abraia.list_files(path)[0]
+        files = list_files(path)[0]
         click.echo(format_output(files))
         if files and click.confirm('Are you sure you want to remove the files?'):
             paths = [file['path'] for file in files]
@@ -239,31 +243,30 @@ def metadata(path, remove):
         echo_error(error)
 
 
-@cli.group('dataset')
-def cli_dataset():
+@cli.group('datasets')
+def cli_datasets():
     """Manage datasets and annotations."""
     pass
 
 
-@cli_dataset.command()
+@cli_datasets.command()
 def list():
     """List available datasets."""
-    from abraia.training import dataset
-    click.echo(dataset.list_datasets())
+    from abraia.training import list_datasets
+    click.echo(json.dumps(list_datasets(), indent=2))
 
 
-@cli_dataset.command()
+@cli_datasets.command()
 @click.argument('project')
 @click.argument('query', required=False)
 def create(project, query=''):
     """Create or update a dataset."""
-    from abraia.training import dataset
-    files = []
-    project = project.strip('/')
-    # output_dir = temporal_src(project)
+    from abraia.training import search_images, load_dataset
+    dataset = load_dataset(project)
     output_dir = f"{project}/"
+    files = []
     if query:
-        files = dataset.search_images(query, limit=100, output_dir=output_dir, verbose=True)
+        files = search_images(query, limit=100, output_dir=output_dir, verbose=True)
     if os.path.exists(project):
         files = list_dir(project)
         tiffs = [f for f in files if get_type(f) == 'image/tiff']
@@ -271,74 +274,55 @@ def create(project, query=''):
             from abraia.multiple import create_visible
             process_map(create_visible, tiffs, desc="Creating images")    
             files = list_dir(project)
+    # TODO: Add option to update existing dataset with new images without removing previous annotations
     process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading images")
-    if project not in dataset.list_datasets():
-        dataset.save_annotations(project=project, annotations=[])
+    dataset.save()
 
 
-@cli_dataset.command()
-@click.option('--segment', help='Segment objects from boxes', is_flag=True)
+@cli_datasets.command()
 @click.argument('project')
-@click.argument('label', required=False)
+@click.argument('label', type=str, required=False)
+@click.option('--segment', help='Segment objects from boxes', is_flag=True)
 def annotate(project, label='', segment=False):
     """Annotate a dataset using Grounding Dino."""
-    from abraia.training import dataset
-    annotations = []
+    from abraia.training import load_dataset
     if label:
-        # TODO: Only annotate images without existing label
-        images = dataset.list_images(project)
-        annotations = dataset.annotate_images(images, [label])
-    if segment:
-        # TODO: Move to dataset
-        from abraia.inference.detect import segment_objects
-        annotations = dataset.load_annotations(project)
-        for annotation in tqdm(annotations):
-            try:
-                img = load_image(load_url(annotation['url']))
-                results = annotation.get('objects', [])
-                results = segment_objects(img, results)
-                annotation['objects'] = results
-            except:
-                continue
-    if len(annotations):
-        dataset.save_annotations(project, annotations)
+        dataset = load_dataset(project)
+        annotations = dataset.annotate(label, segment=segment)
+        dataset.save(annotations)
 
 
-@cli_dataset.command()
+@cli_datasets.command()
 @click.argument('project')
-def train(project):
+@click.argument('epochs', type=int, required=False)
+def train(project, epochs=None):
     """Train a model on the specified dataset."""
-    from abraia import training
-    annotations = training.load_annotations(project)
-    classes = training.load_labels(annotations)
-    tasks = training.load_tasks(annotations)
-    task = tasks[-1] if len(tasks) else 'detect'
-    epochs = 30 if task == 'classify' else 300
-    imgsz = 224 if task == 'classify' else 640
-    training_session = training.ModelTrainer(task, imgsz=imgsz)
+    from abraia.training import load_dataset, ModelTrainer
+    dataset = load_dataset(project)
+    training_session = ModelTrainer(dataset.task)
     click.echo('Loading dataset...')
-    training_session.prepare_dataset(project, classes)
+    training_session.prepare_dataset(project, dataset.classes)
     click.echo('Training model...')
     training_session.train(project, epochs)
     click.echo('Saving model...')
-    training_session.save(project, classes)
+    training_session.save(project, dataset.classes)
 
 
-@cli_dataset.command()
+@cli_datasets.command()
 @click.argument('project')
 @click.argument('src')
 def predict(project, src):
     """Run trained model on a specified image."""
     try:
+        from abraia.training import list_models
         from abraia.inference.detect import Model
         from abraia.utils import load_image, render_results, show_image
-        files, _ = abraia.list_files(f"{project}/")
-        onnx_files = [f for f in files if f['name'].endswith('.onnx')]
-        if not onnx_files:
+        models = list_models(project)
+        if not models:
             click.echo(f"No trained model found in project '{project}'")
             return
-        model_path = onnx_files[0]['path']
-        model_uri = f"{abraia.userid}/{model_path}"
+        model_name = models[0]
+        model_uri = f"{abraia.userid}/{project}/{model_name}"
         model = Model(model_uri)
         img = load_image(src)
         results = model.run(img)

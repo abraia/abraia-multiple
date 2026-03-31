@@ -1,87 +1,22 @@
-
-from ..client import Abraia
-from ..utils import url_path, make_dirs
-from . import classify, detect
-
 import os
 import shutil
 import itertools
+
 from PIL import Image
-from tqdm.contrib.concurrent import process_map
-from sklearn.model_selection import train_test_split
 from typing import Dict, Any
+from tqdm.contrib.concurrent import process_map
+
+from . import classify, detect
+from .dataset import list_datasets, load_dataset, search_images, list_models
+from ..utils import make_dirs, download_file
 
 
-abraia = Abraia()
-
-
-def list_datasets():
-    folders = abraia.list_files()[1]
-    return [folder['name'] for folder in folders if abraia.check_file(f"{folder['name']}/annotations.json")]
-
-
-def list_images(project):
-    files = abraia.list_files(f"{project}/")[0]
-    dataset = [f for f in files if f['type'] in ['image/jpeg', 'image/png']]
-    for data in dataset:
-        data['url'] = url_path(f"{abraia.userid}/{data['path']}")
-    return dataset
-
-
-def load_annotations(project):
-    annotations = abraia.load_json(f"{project}/annotations.json")
-    for annotation in annotations:
-        annotation['path'] = f"{project}/{annotation['filename']}"
-        annotation['url'] = url_path(f"{abraia.userid}/{annotation['path']}")
-    return annotations
-
-
-def save_annotations(project, annotations):
-    abraia.save_json(f"{project}/annotations.json", annotations)
-
-
-def load_labels(annotations):
-    labels = []
-    for annotation in annotations:
-        for object in annotation.get('objects', []):
-            label = object.get('label')
-            if label and label not in labels:
-                labels.append(label)
-    return list(set(labels))
-
-
-def load_task(annotations):
-    classify, detect, segment = False, False, False
-    for annotation in annotations:
-        for object in annotation.get('objects', []):
-            if 'polygon' in object:
-                segment = True
-            elif 'box' in object:
-                detect = True
-            elif 'label' in object:
-                classify = True
-    if segment:
-        return 'segment'
-    if detect:
-        return 'detect'
-    if classify:
-        return 'classify'
-
-
-def load_tasks(annotations):
+def load_tasks(task):
     tasks = ['classify', 'detect', 'segment']
-    task = load_task(annotations)
     if task:
         idx = tasks.index(task)
         return tasks[:idx+1]
     return []
-
-
-def download_file(path, folder):
-    dest = os.path.join(folder, os.path.basename(path))
-    if not os.path.exists(dest):
-        abraia.download_file(path, dest)
-    return dest
 
 
 def save_annotation(annotation, folder, classes, task):
@@ -146,19 +81,10 @@ def save_config(dataset, classes):
         f.write(yaml_content)
 
 
-def split_dataset(annotations):
-    # TODO: Split dataset by classes to avoid class imbalance
-    backgrounds = [annotation for annotation in annotations if not annotation.get('objects')]
-    annotations = [annotation for annotation in annotations if annotation.get('objects')]
-    train, test = train_test_split(annotations, test_size=0.3)
-    val, test = train_test_split(test, test_size=0.5)
-    train.extend(backgrounds)
-    return train, val, test
-
-
 class ModelTrainer:
     """High-level trainer orchestrator using models and dataset utilities."""
-    def __init__(self, task: str, imgsz: int = 640):
+    def __init__(self, task: str, imgsz: int = None):
+        imgsz = imgsz or (224 if task == 'classify' else 640)
         self.task = task
         if task == 'classify':
             self.model = classify.Model()
@@ -167,15 +93,15 @@ class ModelTrainer:
     
     def prepare_dataset(self, project: str, classes, force: bool = False):
         if force or not os.path.exists(project):
-            annotations = load_annotations(project)
-            train, val, test = split_dataset(annotations)
+            dataset = load_dataset(project)
+            train, val, test = dataset.split()
             data_annotations = {'train': train, 'val': val, 'test': test}
-            #TODO: Download files in one single step
             for x in ['train', 'val', 'test']:
                 save_data(data_annotations[x], f"{project}/{x}", classes, self.task)
             save_config(project, classes)
 
-    def train(self, dataset: str, epochs: int, batch: int = 32, **kwargs) -> None:
+    def train(self, dataset: str, epochs: int = None, batch: int = 32) -> None:
+        epochs = epochs or (30 if self.task == 'classify' else 300)
         if self.task == 'classify':
             self.model.train(dataset, epochs=epochs)
         else:
@@ -193,4 +119,3 @@ class ModelTrainer:
 
     def run(self, img):
         return self.model.run(img)
-    
