@@ -247,7 +247,7 @@ class Dataset:
             self.classes = load_labels(self.annotations)
             self.task = load_task(self.annotations)
             self.images = list_images(self.project)
-        return self
+            return self
     
     def annotate(self, label, segment=False):
         annotated_filenames = {a['filename'] for a in self.annotations}

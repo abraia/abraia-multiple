@@ -6,8 +6,8 @@ from PIL import Image
 from typing import Dict, Any
 from tqdm.contrib.concurrent import process_map
 
-from .dataset import list_datasets, load_dataset, search_images, list_models
-from ..utils import make_dirs, download_file
+from .dataset import list_datasets, load_dataset, search_images, list_models, download_file
+from ..utils import make_dirs
 
 
 def load_tasks(task):
