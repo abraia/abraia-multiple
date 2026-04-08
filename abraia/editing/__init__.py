@@ -94,4 +94,16 @@ def clean_image(img):
     return out
 
 
-# __all__ = [clean_image]
+def edit_image(img, mode=''):
+    out = img
+    if mode == 'anonymize':
+        out = anonymize_image(img)
+    elif mode == 'blur':
+        out = blur_background(img)
+    elif mode == 'clean':
+        out = clean_image(img)
+    elif mode == 'removebg':
+        out = remove_background(img)
+    elif mode == 'upscale':
+        out = upscale_image(img)
+    return out

@@ -8,8 +8,8 @@ import itertools
 from glob import glob
 from tqdm import tqdm
 
-from abraia.utils import load_url, load_image, save_image, get_type, temporal_src, list_dir, process_map
-from abraia.editing import anonymize_image, blur_background, clean_image, remove_background, upscale_image
+from abraia.utils import load_image, save_image, get_type, list_dir, process_map
+from abraia.editing import edit_image
 
 from abraia import config
 from abraia import Abraia
@@ -76,18 +76,7 @@ def convert_file(src, dest, args):
 
 def editing_file(src, dest, mode):
     img = load_image(src)
-    if mode == 'anonymize':
-        out = anonymize_image(img)
-    elif mode == 'blur':
-        out = blur_background(img)
-    elif mode == 'clean':
-        out = clean_image(img)
-    elif mode == 'removebg':
-        out = remove_background(img)
-    elif mode == 'upscale':
-        out = upscale_image(img)
-    else:
-        out = img
+    out = edit_image(img, mode)
     save_image(out, dest)
     return dest
 
@@ -258,8 +247,8 @@ def list():
 
 @cli_datasets.command()
 @click.argument('project')
-@click.argument('query', required=False)
-def create(project, query=''):
+@click.argument('query', required=False, default='')
+def create(project, query):
     """Create or update a dataset."""
     from abraia.training import search_images, load_dataset
     dataset = load_dataset(project)
@@ -281,9 +270,9 @@ def create(project, query=''):
 
 @cli_datasets.command()
 @click.argument('project')
-@click.argument('label', type=str, required=False)
+@click.argument('label', type=str, required=False, default='')
 @click.option('--segment', help='Segment objects from boxes', is_flag=True)
-def annotate(project, label='', segment=False):
+def annotate(project, label, segment=False):
     """Annotate a dataset using Grounding Dino."""
     from abraia.training import load_dataset
     if label:
@@ -294,8 +283,8 @@ def annotate(project, label='', segment=False):
 
 @cli_datasets.command()
 @click.argument('project')
-@click.argument('epochs', type=int, required=False)
-def train(project, epochs=None):
+@click.argument('epochs', type=int, required=False, default=None)
+def train(project, epochs):
     """Train a model on the specified dataset."""
     from abraia.training import load_dataset, prepare_dataset, ModelTrainer
     click.echo('Loading dataset...')
@@ -310,13 +299,13 @@ def train(project, epochs=None):
 
 @cli_datasets.command()
 @click.argument('project')
-@click.argument('src')
+@click.argument('src', required=False, default=0)
 def predict(project, src):
     """Run trained model on a specified image."""
     try:
         from abraia.training import list_models
         from abraia.inference.detect import Model
-        from abraia.utils import load_image, render_results, show_image
+        from abraia.utils import get_type, load_image, render_results, show_image, Video
         models = list_models(project)
         if not models:
             click.echo(f"No trained model found in project '{project}'")
@@ -324,10 +313,17 @@ def predict(project, src):
         model_name = models[0]
         model_uri = f"{abraia.userid}/{project}/{model_name}"
         model = Model(model_uri)
-        img = load_image(src)
-        results = model.run(img)
-        out = render_results(img, results)
-        show_image(out)
+        if get_type(str(src)).startswith('image'):
+            img = load_image(src)
+            results = model.run(img)
+            out = render_results(img, results)
+            show_image(out)
+        else:
+            video = Video(src)
+            for frame in video:
+                results = model.run(frame)
+                out = render_results(frame, results)
+                video.show(out)
         click.echo(json.dumps(results, indent=2))
     except APIError as error:
         echo_error(error)
