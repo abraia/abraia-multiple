@@ -22,6 +22,14 @@ GOOGLE_PICTURE_ID = '''&biw=1536&bih=674&tbm=isch&sxsrf=ACYBGNSXXpS6YmAKUiLKKBs6
 BING_BASE_URL = 'https://www.bing.com/images/async?q='
 
 
+def convert_to_jpg(src, output_dir, max_size=1920):
+    import imagehash
+    im = Image.open(src).convert('RGB')
+    im.thumbnail([max_size, max_size], Image.LANCZOS)
+    phash = str(imagehash.phash(im))
+    im.save(os.path.join(output_dir, phash + '.jpg'))
+
+
 def download_page(url):
     resp = requests.get(url, headers=HEADERS)
     resp.raise_for_status()
@@ -32,29 +40,10 @@ def save_image_file(link, output_dir, timeout=10, max_size=1920):
     resp = requests.get(link, headers=HEADERS, allow_redirects=True, timeout=timeout)
     kind = filetype.guess(resp.content)
     if kind and kind.mime.startswith('image'):
-        import imagehash
         d = io.BytesIO(resp.content)
-        im = Image.open(d).convert('RGB')
-        im.thumbnail([max_size, max_size])
-        phash = str(imagehash.phash(im))
-        im.save(os.path.join(output_dir, phash + '.jpg'))
+        convert_to_jpg(d, output_dir, max_size)
     else:
         raise ValueError(f'Invalid image, not saving')
-
-
-def get_filter(shorthand):
-    if shorthand == "line" or shorthand == "linedrawing":
-        return "+filterui:photo-linedrawing"
-    elif shorthand == "photo":
-        return "+filterui:photo-photo"
-    elif shorthand == "clipart":
-        return "+filterui:photo-clipart"
-    elif shorthand == "gif" or shorthand == "animatedgif":
-        return "+filterui:photo-animatedgif"
-    elif shorthand == "transparent":
-        return "+filterui:photo-transparent"
-    else:
-        return ""
 
 
 def scan_bing_page(html):
@@ -64,12 +53,10 @@ def scan_bing_page(html):
         yield link
 
 
-def search_bing(query, limit=50, adult='off', filter=''):
+def search_bing(query, limit=50):
     for page_counter in range(100):
-        # Parse the page source and download pics
         request_url = BING_BASE_URL + urllib.parse.quote_plus(query) \
-                        + '&first=' + str(page_counter) + '&count=' + str(limit) \
-                        + '&adlt=' + adult + '&qft=' + get_filter(filter)
+                        + '&first=' + str(page_counter) + '&count=' + str(limit) + '&adlt=off'
         html = download_page(request_url)
         for link in scan_bing_page(html):
             yield link
@@ -101,7 +88,7 @@ def download(query, limit=100, output_dir='dataset', verbose=True):
     seen = set()
     download_count = 0
     os.makedirs(output_dir, exist_ok=True)
-    links = [search_google(query), search_bing(query, adult='off', filter='')]
+    links = [search_google(query), search_bing(query)]
     ends = [False] * len(links)
     for id in itertools.cycle(range(len(links))):
         try:
@@ -156,10 +143,7 @@ def detect_ollama(img, label, model='gemma4:e2b'):
     for match in matches:
         ymin, xmin, ymax, xmax = map(float, match)
         # Assuming 0-1000 normalized coordinates from moondream
-        if any(v > 1.0 for v in [ymin, xmin, ymax, xmax]):
-            xmin, ymin, xmax, ymax = xmin * width / 1000, ymin * height / 1000, xmax * width / 1000, ymax * height / 1000
-        else:
-            xmin, ymin, xmax, ymax = xmin * width, ymin * height, xmax * width, ymax * height
+        xmin, ymin, xmax, ymax = round(xmin * width / 1000), round(ymin * height / 1000), round(xmax * width / 1000), round(ymax * height / 1000)
         objects.append({'label': label, 'score': 1.0, 'box': [xmin, ymin, xmax - xmin, ymax - ymin]})
     return objects
 

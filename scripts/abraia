@@ -263,7 +263,6 @@ def create(project, query):
             from abraia.multiple import create_visible
             process_map(create_visible, tiffs, desc="Creating images")    
             files = list_dir(project)
-    # TODO: Add option to update existing dataset with new images without removing previous annotations
     process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading images")
     dataset.save()
 

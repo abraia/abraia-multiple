@@ -132,10 +132,11 @@ def save_data(dest, data, gz=False):
     return dest
 
 
-def load_image(src, mode='RGB'):
-    # Fix image orientation based on its EXIF data
-    im = ImageOps.exif_transpose(Image.open(src)) 
-    return np.array(im.convert(mode))
+def load_image(src, mode='RGB', max_size=2048):
+    im = ImageOps.exif_transpose(Image.open(src).convert(mode)) 
+    if im.width > max_size or im.height > max_size:
+        im.thumbnail((max_size, max_size), Image.LANCZOS)
+    return np.array(im)
 
 
 def save_image(img, dest):

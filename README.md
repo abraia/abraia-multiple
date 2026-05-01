@@ -164,11 +164,9 @@ print(f"Similarity score is {scores[0]} for image {image_paths[idxs[0]]}")
 
 The Multiple extension provides seamless integration of multispectral and hyperspectral images, providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
 
-Just click on one of the available Colab's notebooks to directly start testing the multispectral capabilities:
+Just click on the available Colab's notebooks to directly start testing the multispectral capabilities:
 
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-analysis.ipynb) Hyperspectral image analysis
-
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral-classification.ipynb) Hyperspectral image classification
+* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral.ipynb) Hyperspectral image analysis and classification
 
 ![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
 
@@ -192,35 +190,22 @@ set ABRAIA_ID=user_id
 set ABRAIA_KEY=user_key
 ```
 
-Then, you will be able to directly load and save ENVI files, and their metadata.
+### Basic HSI visualization
+
+Load an ENVI hyperspectral file, inspect its metadata, and save the image back with the same information.
 
 ```python
 from abraia.multiple import Multiple
 
 multiple = Multiple()
 
+multiple.upload_file('test.hdr')
 img = multiple.load_image('test.hdr')
 meta = multiple.load_metadata('test.hdr')
 multiple.save_image('test.hdr', img, metadata=meta)
 ```
 
-### Upload and load HSI data
-
-To start with, we may [upload some data](https://abraia.me/deeplab/) directly using the graphical interface, or using the multiple api:
-
-```python
-multiple.upload_file('PaviaU.mat')
-```
-
-Now, we can load the hyperspectral image data (HSI cube) directly from the cloud:
-
-```python
-img = multiple.load_image('PaviaU.mat')
-```
-
-### Basic HSI visualization
-
-Hyperspectral images cannot be directly visualized, so we can get some random bands from our HSI cube, and visualize these bands as like any other monochannel image.
+Because hyperspectral data is multi-band, it cannot be displayed directly as a normal RGB image. You can extract a few individual bands and plot them as grayscale images instead.
 
 ```python
 from abraia.multiple import hsi
@@ -229,7 +214,7 @@ imgs, indexes = hsi.random(img)
 hsi.plot_images(imgs, cmap='jet')
 ```
 
-Or, we can reduce the dimensionality applying principal components analysis (PCA). We can get the first three principal components into a three bands pseudoimage, and visualize this pseudoimage.
+Another option is to reduce dimensionality using PCA and create a 3-channel pseudo-RGB image from the first three principal components.
 
 ```python
 pc_img = hsi.principal_components(img)
