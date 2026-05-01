@@ -4,38 +4,40 @@
 
 # Abraia Vision SDK
 
-The [Abraia Vision](https://abraia.me/vision/) SDK is a Python package which provides a set of tools to develop and deploy advanced Machine Learning image applications on the edge. Moreover, with [Abraia DeepLab](https://abraia.me/deeplab/) you can easily annotate and train, your own versions of some of the best state of the art deep learning models, and get them ready to deploy with this Python SDK.
+The [Abraia Vision](https://abraia.me/vision/) SDK helps developers create, customize, and deploy edge-ready vision applications. It unifies image processing, model training, and inference so you can transform visual data into production-ready solutions, including real-time video analysis and object tracking.
 
-Just install the Abraia SDK and CLI on Windows, Mac, or Linux:
+Install the Abraia SDK and CLI on Windows, Mac, or Linux:
 
 ```sh
 python -m pip install -U abraia
 ```
 
-And start using deep learning models ready to work on your local devices.
+With [Abraia DeepLab](https://abraia.me/deeplab/), you can annotate images, train custom classification, detection, and segmentation models, and export them for use in this Python SDK.
 
-## Deep learning custom models and applications
+### People monitoring
 
-Consult your problem or directly try to annotate your images and train a state-of-the-art model for classification, detection, or segmentation using [DeepLab](https://abraia.me/deeplab/). You can directly load and run the model on the edge using the browser or this Python SDK.
-
-### Object detection and tracking
-
-Identify and track multiple objects with a custom detection model on videos and camera streams, enabling real-time counting applications. You just need to use
-the Video class to process every frame as is done for images, and use the tracker to follow each object through 
-every frame.
+Abraia SDK provides a set of tools to monitor people flow and waiting time in public spaces or commercial areas. You can easily implement queue monitoring or flow counting applications using the specialized tools available in the `abraia.inference.tools` module.
 
 ```python
 from abraia.inference import Model, Tracker
-from abraia.utils import Video, render_results
+from abraia.inference.tools import LineCounter, RegionTimer
+from abraia.utils import Video, render_results, render_counter, render_region
 
 model = Model("multiple/models/yolov8n.onnx")
-
 video = Video('images/people-walking.mp4')
 tracker = Tracker(frame_rate=video.frame_rate)
-for frame in video:
-    results = model.run(frame, conf_threshold=0.5, iou_threshold=0.5)
+line_counter = LineCounter([(0, 650), (1920, 650)])
+region_timer = RegionTimer([(10, 600), (1690, 600), (1690, 700), (10, 700)])
+
+for k, frame in enumerate(video):
+    results = model.run(frame)
+    results = [result for result in results if result['label'] == 'person']
     results = tracker.update(results)
-    frame = render_results(frame, results)
+    in_count, out_count = line_counter.update(results)
+    in_objects, out_objects = region_timer.update(results, k / video.frame_rate)
+    frame = render_counter(frame, line_counter.line, f"In: {in_count} | Out: {out_count}")
+    frame = render_region(frame, region_timer.region, f"Count: {len(in_objects)}")
+    frame = render_results(frame, in_objects)
     video.show(frame)
 ```
 
@@ -92,7 +94,7 @@ show_image(img)
 
 ![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
-### Gender Age model
+### Gender Age estimation
 
 Model to predict gender and age. It can be useful to anonymize minors faces.
 
@@ -160,7 +162,7 @@ idxs, scores = search_vector(vector, image_index)
 print(f"Similarity score is {scores[0]} for image {image_paths[idxs[0]]}")
 ```
 
-## Hyperspectral image analysis toolbox
+## Hyperspectral imaging
 
 The Multiple extension provides seamless integration of multispectral and hyperspectral images, providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
 
