@@ -162,66 +162,17 @@ idxs, scores = search_vector(vector, image_index)
 print(f"Similarity score is {scores[0]} for image {image_paths[idxs[0]]}")
 ```
 
-## Hyperspectral imaging
+### Hyperspectral imaging
 
-The Multiple extension provides seamless integration of multispectral and hyperspectral images, providing support for straightforward HyperSpectral Image (HSI) analysis and classification.
+The `abraia.multiple` module simplifies working with multispectral and hyperspectral images, offering HSI analysis and classification workflows.
 
-Just click on the available Colab's notebooks to directly start testing the multispectral capabilities:
+Hyperspectral data contains many spectral bands, so it cannot be shown directly as a standard RGB image. Instead, extract a few bands and plot them as grayscale images, or apply PCA to generate a 3-channel pseudo-RGB image from the first three principal components.
+
+Use the available Colab notebooks to start experimenting with the multispectral tools:
 
 * [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral.ipynb) Hyperspectral image analysis and classification
 
 ![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
-
-To install the multiple extension use the command bellow:
-
-```sh
-python -m pip install -U "abraia[multiple]"
-```
-
-To use the SDK you have to configure your [Id and Key](https://abraia.me/editor/) as environment variables:
-
-```sh
-export ABRAIA_ID=user_id
-export ABRAIA_KEY=user_key
-```
-
-On Windows you need to use `set` instead of `export`:
-
-```sh
-set ABRAIA_ID=user_id
-set ABRAIA_KEY=user_key
-```
-
-### Basic HSI visualization
-
-Load an ENVI hyperspectral file, inspect its metadata, and save the image back with the same information.
-
-```python
-from abraia.multiple import Multiple
-
-multiple = Multiple()
-
-multiple.upload_file('test.hdr')
-img = multiple.load_image('test.hdr')
-meta = multiple.load_metadata('test.hdr')
-multiple.save_image('test.hdr', img, metadata=meta)
-```
-
-Because hyperspectral data is multi-band, it cannot be displayed directly as a normal RGB image. You can extract a few individual bands and plot them as grayscale images instead.
-
-```python
-from abraia.multiple import hsi
-
-imgs, indexes = hsi.random(img)
-hsi.plot_images(imgs, cmap='jet')
-```
-
-Another option is to reduce dimensionality using PCA and create a 3-channel pseudo-RGB image from the first three principal components.
-
-```python
-pc_img = hsi.principal_components(img)
-hsi.plot_image(pc_img, 'Principal components')
-```
 
 ## License
 

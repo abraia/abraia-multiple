@@ -1,7 +1,10 @@
+import math
 import numpy as np
 import scipy.ndimage as nd
+import matplotlib.pyplot as plt
 
 from PIL import Image
+
 from sklearn.svm import SVC
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
@@ -11,7 +14,7 @@ from keras.utils import np_utils
 from keras.models import Model
 from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
-from . import Multiple, random, principal_components, rgb, ndvi, resample, plot_image, plot_images
+from . import Multiple, random, principal_components, rgb, ndvi, resample
 
 multiple = Multiple()
 
@@ -179,6 +182,29 @@ def predict_hsn_model(model, X, patch_size):
     X_pred = create_patches(X, patch_size)
     y_pred = np.argmax(model.predict(X_pred), axis=1)
     return y_pred.reshape(height, width).astype(int)
+
+
+def plot_image(img, title=''):
+    plt.figure()
+    plt.title(title)
+    plt.imshow(img)
+    plt.axis('off')
+    plt.show()
+
+
+def plot_images(imgs, titles=None, cmap='nipy_spectral'):
+    import matplotlib.pyplot as plt
+    plt.figure()
+    k = len(imgs)
+    r = int(math.sqrt(k))
+    c = math.ceil(k / r)
+    ax = plt.subplots(r, c)[1].reshape(-1)
+    for i in range(k):
+        if titles and len(titles) >= k:
+            ax[i].title.set_text(titles[i])
+        ax[i].imshow(imgs[i], cmap=cmap)
+        ax[i].axis('off')
+    plt.show()
 
 
 def plot_train_history(history):
