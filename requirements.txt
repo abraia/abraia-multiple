@@ -10,3 +10,4 @@ tqdm>=4.62.3
 ftfy>=6.2.3
 lap>=0.5.12
 regex>=2024.11.6
+pillow-heif

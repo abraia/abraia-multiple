@@ -8,6 +8,7 @@ import itertools
 
 from tqdm import tqdm
 from PIL import Image
+from io import BytesIO
 
 from ..client import Abraia
 from ..utils import HEADERS, load_image, load_url, list_dir, url_path
@@ -136,39 +137,59 @@ def download_file(path, folder):
     return dest
 
 
-# As the Grounding DINO model was trained with a "." after each text, we'll do the same here.
-def preprocess_caption(caption: str) -> str:
-    result = caption.lower().strip()
-    return result if result.endswith('.') else result + '.'
+def detect_ollama(img, label, model='gemma4:e2b'):
+    import ollama
+    
+    im = Image.fromarray(img)
+    with BytesIO() as buffer:
+        im.save(buffer, format='JPEG')
+        image_bytes = buffer.getvalue()
+
+    prompt = f"Detect {label} and provide the bounding box coordinates [ymin, xmin, ymax, xmax]."
+    response = ollama.generate(model=model, prompt=prompt, images=[image_bytes])
+
+    # Gemma4 returns coordinates in 0-1000 scale: [ymin, xmin, ymax, xmax]
+    matches = re.findall(r'\[\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\]', response['response'])
+    
+    height, width = img.shape[:2]
+    objects = []
+    for match in matches:
+        ymin, xmin, ymax, xmax = map(float, match)
+        # Assuming 0-1000 normalized coordinates from moondream
+        if any(v > 1.0 for v in [ymin, xmin, ymax, xmax]):
+            xmin, ymin, xmax, ymax = xmin * width / 1000, ymin * height / 1000, xmax * width / 1000, ymax * height / 1000
+        else:
+            xmin, ymin, xmax, ymax = xmin * width, ymin * height, xmax * width, ymax * height
+        objects.append({'label': label, 'score': 1.0, 'box': [xmin, ymin, xmax - xmin, ymax - ymin]})
+    return objects
 
 
-def format_results(results, threshold=0.6):
-    r = []
+def detect_dino(img, classes, threshold=0.3):
+    """Detect objects in an image using Grounding Dino."""
+    from transformers import pipeline
+
+    classes = [label.lower().strip() for label in classes]
+    labels = [f"{label}." if not label.endswith('.') else label for label in classes]
+    pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
+    results = pipe(Image.fromarray(img), candidate_labels=labels, threshold=threshold)
+
+    objects = []
     for result in results:
         score = result["score"]
         if score > threshold:
             label = result["label"].rpartition('.')[0]
             xmin, ymin, xmax, ymax = result['box'].values()
-            r.append({"label": label, "score": score, "box": [xmin, ymin, xmax - xmin, ymax - ymin]})
-    return r
-
-
-def annotate_image(pipe, img, classes, threshold=0.3):
-    im = Image.fromarray(img)
-    labels = [preprocess_caption(txt) for txt in classes]
-    objects = format_results(pipe(im, candidate_labels=labels, threshold=threshold))
+            objects.append({"label": label, "score": score, "box": [xmin, ymin, xmax - xmin, ymax - ymin]})
     return objects
 
 
 def annotate_images(images, classes, segment=False):
     """Annotate a dataset using Grounding Dino."""
-    from transformers import pipeline
-    pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
     annotations = []
     for row in tqdm(images):
         url, filename = row['url'], row['name']
         img = load_image(load_url(url))
-        objects = annotate_image(pipe, img, classes)
+        objects = detect_dino(img, classes)
         if objects:
             if segment:
                 try:

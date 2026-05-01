@@ -1,8 +1,8 @@
 # Abraia SDK practical demos
 
-- apples_detector.py: Detect apples on trees, directly on the field.
-- tomato_counting.py: Detects and counts tomatoes for direct yield estimation.
-- people_counting.py: Detects and count people entering an leaving a public place.
+- fruit_detector.py: Detects apples, strawberries, or grapes directly on the field. Moreover, 
+detects and counts tomatoes in real-time for direct yield estimation.
+- people_counting.py: Detects, tracks, and counts people entering an leaving a public place.
 - escalator_monitoring.py: Counts people accessing a mall through an escalator.
 - queue_monitoring.py: Tracks persons and waiting time in a supermarket queue.  
 - image_retrieval.py: Find images by content entering a search text query.

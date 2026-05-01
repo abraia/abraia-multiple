@@ -126,6 +126,6 @@ def segment_objects(frame, results):
     for result in results:
         x, y, w, h = result['box']
         mask = sam.predict(frame, prompt=json.dumps([{"type": "rectangle", "data": [x, y, x+w, y+h]}]))
-        result['polygon'] = mask_to_polygon(mask[y:y+h, x:x+w], (x, y))
-        # result['mask'] = mask[y:y+h, x:x+w]
+        # result['polygon'] = mask_to_polygon(mask[y:y+h, x:x+w], (x, y))
+        result['mask'] = mask[y:y+h, x:x+w]
     return results
