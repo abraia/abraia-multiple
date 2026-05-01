@@ -177,3 +177,15 @@ def process_map(task, *values, desc='', max_workers=3):
             for result in exe.map(task, *values):
                 pbar.set_postfix_str(result)
                 pbar.update(1)
+
+
+def process_media(src, callback):
+    if get_type(str(src)).startswith('image'):
+        img = load_image(src)
+        out = callback(img)
+        show_image(out)
+    else:
+        video = Video(src)
+        for frame in video:
+            out = callback(frame)
+            video.show(out)

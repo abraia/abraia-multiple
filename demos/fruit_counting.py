@@ -6,7 +6,6 @@ from abraia.inference import Model, Tracker
 from abraia.inference.tools import LineCounter
 from abraia.utils.draw import render_results, render_counter
 from abraia.inference.ops import count_objects
-from abraia.editing import SAM
 
 
 FRUITS = {

@@ -304,7 +304,7 @@ def predict(project, src):
     try:
         from abraia.training import list_models
         from abraia.inference.detect import Model
-        from abraia.utils import get_type, load_image, render_results, show_image, Video
+        from abraia.utils import process_media, render_results
         models = list_models(project)
         if not models:
             click.echo(f"No trained model found in project '{project}'")
@@ -312,18 +312,12 @@ def predict(project, src):
         model_name = models[0]
         model_uri = f"{abraia.userid}/{project}/{model_name}"
         model = Model(model_uri)
-        if get_type(str(src)).startswith('image'):
-            img = load_image(src)
+
+        def callback(img):
             results = model.run(img)
-            out = render_results(img, results)
-            show_image(out)
-        else:
-            video = Video(src)
-            for frame in video:
-                results = model.run(frame)
-                out = render_results(frame, results)
-                video.show(out)
-        click.echo(json.dumps(results, indent=2))
+            return render_results(img, results)
+        
+        process_media(src, callback)
     except APIError as error:
         echo_error(error)
 
