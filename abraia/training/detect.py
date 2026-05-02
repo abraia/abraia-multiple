@@ -57,7 +57,8 @@ class Model:
         # TODO: Add versioning
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            model_src = self.model.export(format="onnx", device=device, opset=19, half=True)
+            # model_src = self.model.export(format="onnx", device=device, opset=19, half=True)
+            model_src = self.model.export(format="onnx", device=device, opset=11)
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
         abraia.save_json(f"{dataset}/{self.model_name}.json", 
                          {'task': self.task, 'inputShape': [1, 3, self.imgsz, self.imgsz], 
