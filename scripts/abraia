@@ -6,7 +6,6 @@ import json
 import click
 import itertools
 from glob import glob
-from tqdm import tqdm
 
 from abraia.utils import load_image, save_image, get_type, list_dir, process_map
 from abraia.editing import edit_image
@@ -67,27 +66,20 @@ def configure():
         pass
 
 
-# TODO: Refactor to work in local
-def convert_file(src, dest, args):
-    path = abraia.upload_file(src, 'batch/')
-    abraia.transform_image(path, dest, args)
-    return dest
-
-
-def editing_file(src, dest, mode):
+def editing_file(src, dest, mode, size=None):
     img = load_image(src)
-    out = edit_image(img, mode)
+    out = edit_image(img, mode, size=size)
     save_image(out, dest)
     return dest
 
 
-def editing_files(src, mode, desc="Editing"):
+def editing_files(src, mode, size=None, desc="Editing"):
     try:
         inputs = input_files(src)
         new_ext = 'png' if mode == 'removebg' else 'jpg'
         dirname = src if os.path.isdir(src) else os.path.dirname(src)
         outputs = [os.path.join('output', f"{os.path.splitext(os.path.relpath(src, dirname))[0]}.{new_ext}") for src in inputs]
-        process_map(editing_file, inputs, outputs, itertools.repeat(mode), desc=desc)
+        process_map(editing_file, inputs, outputs, itertools.repeat(mode), itertools.repeat(size), desc=desc)
     except APIError as error:
         echo_error(error)
 
@@ -99,25 +91,13 @@ def cli_editing():
 
 
 @cli_editing.command()
-@click.option('--width', help='Resize to specified width', type=int)
-@click.option('--height', help='Resize to specified height', type=int)
-@click.option('--mode', help='Select the resize mode', type=click.Choice(['pad', 'crop', 'thumb']))
-@click.option('--format', help='Convert to specified image format', type=click.Choice(['jpeg', 'png', 'webp']))
+@click.option('--width', help='Width of the cropped image', type=int)
+@click.option('--height', help='Height of the cropped image', type=int)
 @click.argument('src')
-def convert(src, width, height, mode, format):
-    """Convert, resize, and optimize images in bulk."""
-    try:
-        args = {'width': width, 'height': height, 'mode': mode, 'format': format, 'quality': 'auto'}
-        filenames = input_files(src)
-        dests = []
-        dirname = src if os.path.isdir(src) else os.path.dirname(src)
-        for filename in filenames:
-            path, ext = os.path.splitext(os.path.relpath(filename, dirname))
-            oext = format if format is not None else (ext and ext[1:])
-            dests.append(os.path.join('output', f"{path}.{oext}"))
-        process_map(convert_file, filenames, dests, itertools.repeat(args), desc="Converting")
-    except APIError as error:
-        echo_error(error)
+def smartcrop(src, width, height):
+    """Smart crop images to the specified size."""
+    size = (width, height) if width and height else None
+    editing_files(src, 'smartcrop', size=size, desc="Smart cropping")
 
 
 @cli_editing.command()
@@ -232,20 +212,34 @@ def metadata(path, remove):
         echo_error(error)
 
 
-@cli.group('datasets')
-def cli_datasets():
-    """Manage datasets and annotations."""
-    pass
-
-
-@cli_datasets.command()
+@cli.command()
 def list():
     """List available datasets."""
     from abraia.training import list_datasets
     click.echo(json.dumps(list_datasets(), indent=2))
 
 
-@cli_datasets.command()
+def convert_to_jpg(src):
+    img = load_image(src)
+    save_image(img, f"{os.path.splitext(src)[0]}.jpg")
+    os.remove(src)
+
+
+def process_dataset(project):
+    files = list_dir(project)
+    heics = [f for f in files if get_type(f) == 'image/heic']
+    if len(heics):
+        process_map(convert_to_jpg, heics, desc="Converting images")
+        files = list_dir(project)
+    tiffs = [f for f in files if get_type(f) == 'image/tiff']
+    if len(tiffs):
+        from abraia.multiple import create_visible
+        process_map(create_visible, tiffs, desc="Creating images")
+        files = list_dir(project)
+    return files
+
+
+@cli.command()
 @click.argument('project')
 @click.argument('query', required=False, default='')
 def create(project, query):
@@ -257,17 +251,12 @@ def create(project, query):
     if query:
         files = search_images(query, limit=100, output_dir=output_dir, verbose=True)
     if os.path.exists(project):
-        files = list_dir(project)
-        tiffs = [f for f in files if get_type(f) == 'image/tiff']
-        if len(tiffs):
-            from abraia.multiple import create_visible
-            process_map(create_visible, tiffs, desc="Creating images")    
-            files = list_dir(project)
+        files = process_dataset(project)
     process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading images")
     dataset.save()
 
 
-@cli_datasets.command()
+@cli.command()
 @click.argument('project')
 @click.argument('label', type=str, required=False, default='')
 @click.option('--segment', help='Segment objects from boxes', is_flag=True)
@@ -280,7 +269,7 @@ def annotate(project, label, segment=False):
         dataset.save(annotations)
 
 
-@cli_datasets.command()
+@cli.command()
 @click.argument('project')
 @click.argument('epochs', type=int, required=False, default=None)
 def train(project, epochs):
@@ -296,7 +285,7 @@ def train(project, epochs):
     training_session.save()
 
 
-@cli_datasets.command()
+@cli.command()
 @click.argument('project')
 @click.argument('src', required=False, default=0)
 def predict(project, src):

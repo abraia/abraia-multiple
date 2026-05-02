@@ -94,7 +94,7 @@ def clean_image(img):
     return out
 
 
-def edit_image(img, mode=''):
+def edit_image(img, mode='', size=None):
     out = img
     if mode == 'anonymize':
         out = anonymize_image(img)
@@ -104,6 +104,9 @@ def edit_image(img, mode=''):
         out = clean_image(img)
     elif mode == 'removebg':
         out = remove_background(img)
+    elif mode == 'smartcrop':
+        if size:
+            out = smartcrop_image(img, size)
     elif mode == 'upscale':
         out = upscale_image(img)
     return out

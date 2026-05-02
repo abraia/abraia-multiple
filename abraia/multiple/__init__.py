@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 
 from ..client import Abraia
-from ..utils import temporal_src
+from ..utils import temporal_src, get_type
 
 
 def load_tiff(src):
@@ -44,7 +44,7 @@ def save_mat(src, img):
 def load_image(src):
     if src.lower().endswith('.mat'):
         return load_mat(src)
-    if src.lower().endswith('.tiff') or src.lower().endswith('.tif'):
+    if get_type(src) == 'image/tiff':
         return decode_mosaic(load_tiff(src))
     return np.asarray(Image.open(src))
 
@@ -52,7 +52,7 @@ def load_image(src):
 def save_image(src, img):
     if src.lower().endswith('.mat'):
         save_mat(src, img)
-    elif src.lower().endswith('.tiff') or src.lower().endswith('.tif'):
+    elif get_type(src) == 'image/tiff':
         save_tiff(src, img)
     else:
         Image.fromarray(img).save(src)

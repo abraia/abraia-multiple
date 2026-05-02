@@ -29,6 +29,8 @@ API_URL = 'https://api.abraia.me'
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'}
 
 mimetypes.add_type('image/webp', '.webp')
+mimetypes.add_type('image/heic', '.heic')
+mimetypes.add_type('image/heif', '.heif')
 
 
 def get_type(path):

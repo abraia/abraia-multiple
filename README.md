@@ -168,11 +168,11 @@ The `abraia.multiple` module simplifies working with multispectral and hyperspec
 
 Hyperspectral data contains many spectral bands, so it cannot be shown directly as a standard RGB image. Instead, extract a few bands and plot them as grayscale images, or apply PCA to generate a 3-channel pseudo-RGB image from the first three principal components.
 
-Use the available Colab notebooks to start experimenting with the multispectral tools:
-
-* [![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral.ipynb) Hyperspectral image analysis and classification
+Use the available Colab notebook to start experimenting with the multispectral tools:
 
 ![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
+
+[![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral.ipynb) Hyperspectral image analysis and classification
 
 ## License
 
