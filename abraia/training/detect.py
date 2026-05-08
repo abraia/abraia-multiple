@@ -53,14 +53,13 @@ class Model:
         return {'mAP': float(metrics.box.map50), 'P': metrics.box.p.tolist(), 'R': metrics.box.r.tolist(), 
                 'confusionMatrix': metrics.confusion_matrix.matrix.tolist()}
 
-    def save(self, dataset, classes, device="cpu"):
-        # TODO: Add versioning
+    def save(self, project, classes, device="cpu", half=False):
+        # TODO: Add model name versioning
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            # model_src = self.model.export(format="onnx", device=device, opset=19, half=True)
-            model_src = self.model.export(format="onnx", device=device)
-        abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
-        abraia.save_json(f"{dataset}/{self.model_name}.json", 
+            model_src = self.model.export(format="onnx", device=device, opset=11, half=half)
+        abraia.upload_file(model_src, f"{project}/{self.model_name}.onnx")
+        abraia.save_json(f"{project}/{self.model_name}.json", 
                          {'task': self.task, 'inputShape': [1, 3, self.imgsz, self.imgsz], 
                           'classes': classes, 'metrics': self.metrics})
 

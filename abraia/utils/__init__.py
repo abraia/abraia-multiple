@@ -17,6 +17,7 @@ from PIL import Image, ImageOps
 from concurrent.futures import ProcessPoolExecutor
 
 from .video import Video
+from .camera import Camera
 from .sketcher import Sketcher
 from .draw import get_color, render_results
 
