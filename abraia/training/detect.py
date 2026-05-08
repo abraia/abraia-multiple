@@ -35,14 +35,17 @@ class Model:
         self.task = task
         self.imgsz = imgsz
 
-#         def print_train_end(trainer):
-#             print('# End training')
-#             print('Metrics:', trainer.metrics)
-#         #training_session.model.add_callback('on_train_start', print_train_start)
-#         #training_session.model.add_callback('on_train_epoch_start', print_train_epoch)
-#         training_session.model.add_callback('on_train_end', print_train_end)
-
-    def train(self, dataset, epochs=100, batch=32):
+    def train(self, dataset, epochs=100, batch=32, callback=None):
+        if callback:
+            def on_train_epoch_end(trainer):
+                epoch = trainer.epoch
+                num_epochs = trainer.epochs
+                # trainer.label_loss_items contains training losses
+                loss = float(sum(trainer.loss_items)) / len(trainer.loss_items) if trainer.loss_items else 0
+                # For detection, we might want to report mAP if it's available (usually after val in epoch)
+                acc = trainer.metrics.get('metrics/mAP50(B)', 0) if hasattr(trainer, 'metrics') else 0
+                callback({'epoch': epoch, 'epochs': num_epochs, 'loss': loss, 'acc': float(acc)})
+            self.model.add_callback('on_train_epoch_end', on_train_epoch_end)
         data = f"{dataset}" if self.task == 'classify' else f"{dataset}/data.yaml"
         results = self.model.train(data=data, batch=batch, epochs=epochs, imgsz=self.imgsz)
 

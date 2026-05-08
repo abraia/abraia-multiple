@@ -105,17 +105,10 @@ class ModelTrainer:
 
     def train(self, epochs: int = None, batch: int = 32) -> None:
         epochs = epochs or (30 if self.task == 'classify' else 300)
-        if self.task == 'classify':
-            self.model.train(self.project, epochs=epochs)
-        else:
-            self.model.train(self.project, epochs=epochs, batch=batch)
+        self.model.train(self.project, epochs=epochs, batch=batch)
 
     def test(self, split: str = 'val') -> Dict[str, Any]:
-        if self.task == 'classify':
-            # classify.Model currently has no .test
-            return {}
-        else:
-            return self.model.test(split=split)
+        return self.model.test(split=split)
 
     def save(self, device='cpu') -> None:
         self.model.save(self.project, self.classes, device=device)

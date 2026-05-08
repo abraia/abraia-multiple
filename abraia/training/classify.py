@@ -2,8 +2,6 @@ from ..client import Abraia
 from ..utils import temporal_src, load_image
 
 import onnx
-# from onnxsim import simplify
-
 import torch
 import torchvision
 from torchvision import models, transforms, datasets
@@ -14,8 +12,6 @@ import time
 import random
 import numpy as np
 import matplotlib.pyplot as plt
-
-from tqdm import trange
 
 
 abraia = Abraia()
@@ -94,16 +90,12 @@ transform = transforms.Compose([
 # License: BSD
 # Author: Sasank Chilamkurthy
 
-def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=None, num_epochs=25):
+def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=None, num_epochs=25, callback=None):
     criterion = criterion or torch.nn.CrossEntropyLoss()
-    # Observe that only parameters of final layer are being optimized as opposed to before.
     optimizer = optimizer or torch.optim.SGD(model.fc.parameters(), lr=0.001, momentum=0.9)
-    # Decay LR by a factor of 0.1 every 7 epochs
     scheduler = scheduler or torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-    since = time.time()
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
-    # for epoch in trange(num_epochs, desc="Epoch"):
     for epoch in range(num_epochs):
         print(f'Epoch {epoch}/{num_epochs - 1}')
         print('-' * 10)
@@ -139,13 +131,13 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
             epoch_loss = running_loss / len(dataloaders[phase].dataset)
             epoch_acc = running_corrects.double() / len(dataloaders[phase].dataset)
             print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+            if callback:
+                callback({'epoch': epoch, 'epochs': num_epochs, 'loss': epoch_loss, 'acc': float(epoch_acc)})
             # deep copy the model
             if phase == 'val' and epoch_acc > best_acc:
                 best_acc = epoch_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
         print()
-    time_elapsed = time.time() - since
-    print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
     print(f'Best val Acc: {best_acc:4f}')
     # load best model weights
     model.load_state_dict(best_model_wts)
@@ -202,7 +194,7 @@ class Model:
         self.input_shape = [1, 3, self.imgsz, self.imgsz]
         self.model_name = 'resnet18'
 
-    def create_dataset(self, dataset):
+    def create_dataset(self, dataset, batch=8):
         # Data augmentation and normalization for training
         # Just normalization for validation
         data_transforms = {
@@ -219,21 +211,36 @@ class Model:
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ]),
         }
-        # image_datasets = {x: Dataset(os.path.join(dataset), data_transforms[x]) for x in ['train', 'val']}
         image_datasets = {x: datasets.ImageFolder(os.path.join(dataset, x), transform=data_transforms[x]) for x in ['train', 'val']}
-        dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=8, shuffle=True, num_workers=4) for x in ['train', 'val']}
+        dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=batch, shuffle=True, num_workers=4) for x in ['train', 'val']}
         classes = image_datasets['train'].classes
         return dataloaders, classes
 
-    def train(self, dataset, epochs=25):
-        dataloaders, classes = self.create_dataset(dataset)
+    def train(self, dataset, epochs=25, batch=8, callback=None):
+        dataloaders, classes = self.create_dataset(dataset, batch=batch)
         model_conv = create_model(classes)
+        self.dataloaders = dataloaders
         self.classes = classes
-        self.model = train_model(model_conv, dataloaders, num_epochs=epochs)
-        #dataloaders, classes = training_session.create_dataset(project)
-        #training_session.train(project, epochs=epochs)
-        # training.classify.visualize_data(dataloaders['train'])
-        #training.classify.visualize_model(model, dataloaders['val'])
+        since = time.time()
+        self.model = train_model(model_conv, dataloaders, num_epochs=epochs, callback=callback)
+        time_elapsed = time.time() - since
+        print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
+
+    def test(self, split='val'):
+        self.model.eval()
+        running_corrects = 0
+        confusion_matrix = np.zeros((len(self.classes), len(self.classes)), dtype=int)
+        with torch.no_grad():
+            for inputs, labels in self.dataloaders[split]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                outputs = self.model(inputs)
+                _, preds = torch.max(outputs, 1)
+                running_corrects += torch.sum(preds == labels.data)
+                for t, p in zip(labels.view(-1), preds.view(-1)):
+                    confusion_matrix[t.long(), p.long()] += 1
+        acc = running_corrects.double() / len(self.dataloaders[split].dataset)
+        return {'acc': float(acc), 'confusionMatrix': confusion_matrix.tolist()}
 
     def save(self, dataset, classes, device='cpu'):
         self.model.to(device)
@@ -242,8 +249,6 @@ class Model:
         torch.onnx.export(self.model, dummy_input, model_src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
         onnx_model = onnx.load(model_src)
         onnx.checker.check_model(onnx_model)
-        # model_simp, check = simplify(onnx_model)
-        # onnx.save(model_simp, model_src)
         onnx.save(onnx_model, model_src)
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
         abraia.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
