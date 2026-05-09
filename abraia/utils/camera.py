@@ -12,7 +12,7 @@ class Camera:
         self.fps = fps
         self.picam2 = Picamera2()
         self.picam2.configure(self.picam2.create_video_configuration(
-            main={"format": 'RGB888', "size": (self.width, self.height)},
+            main={"format": 'BGR888', "size": (self.width, self.height)},
             controls={"FrameRate": self.fps}))
         self.picam2.start()
         if dest:

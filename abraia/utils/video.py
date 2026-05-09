@@ -3,11 +3,15 @@ import cv2
 
 
 class Video:
-    def __init__(self, src=0, dest=None):
+    def __init__(self, src=0, resolution=(1920, 1080), fps=30, dest=None):
         self.out = None
         self.quit = False
         self.win_name = ''
         self.cap = cv2.VideoCapture(src)
+        if isinstance(src, int):
+            self.cap.set(cv2.CAP_PROP_FPS, fps)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -55,3 +59,9 @@ class Video:
         ch = 0xFF & cv2.waitKey(int(self.fps))
         if (ch == 27 or ch == ord('q')) or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1:
             self.quit = True
+
+
+if __name__ == "__main__":
+    video = Video()
+    for frame in video:
+        video.show(frame)
