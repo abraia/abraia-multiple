@@ -8,7 +8,7 @@ import itertools
 from glob import glob
 
 from abraia.utils import load_image, save_image, get_type, list_dir, process_map
-from abraia.editing import edit_image
+from abraia.editing import anonymize_image, upscale_image
 
 from abraia import config
 from abraia import Abraia
@@ -64,75 +64,6 @@ def configure():
         config.save(abraia_id, abraia_key)
     except:
         pass
-
-
-def editing_file(src, dest, mode, size=None):
-    img = load_image(src)
-    out = edit_image(img, mode, size=size)
-    save_image(out, dest)
-    return dest
-
-
-def editing_files(src, mode, size=None, desc="Editing"):
-    try:
-        inputs = input_files(src)
-        new_ext = 'png' if mode == 'removebg' else 'jpg'
-        dirname = src if os.path.isdir(src) else os.path.dirname(src)
-        outputs = [os.path.join('output', f"{os.path.splitext(os.path.relpath(src, dirname))[0]}.{new_ext}") for src in inputs]
-        process_map(editing_file, inputs, outputs, itertools.repeat(mode), itertools.repeat(size), desc=desc)
-    except APIError as error:
-        echo_error(error)
-
-
-@cli.group('editing')
-def cli_editing():
-    """Convert and edit images in bulk."""
-    pass
-
-
-@cli_editing.command()
-@click.option('--width', help='Width of the cropped image', type=int)
-@click.option('--height', help='Height of the cropped image', type=int)
-@click.argument('src')
-def smartcrop(src, width, height):
-    """Smart crop images to the specified size."""
-    size = (width, height) if width and height else None
-    editing_files(src, 'smartcrop', size=size, desc="Smart cropping")
-
-
-@cli_editing.command()
-@click.argument('src')
-def removebg(src):
-    """Remove the images background to make them transparent."""
-    editing_files(src, 'removebg', desc="Removing background")
-
-
-@cli_editing.command()
-@click.argument('src')
-def upscale(src):
-    """Upscale and enhance images increasing the resolution."""
-    editing_files(src, 'upscale', desc="Upscaling images")
-
-
-@cli_editing.command()
-@click.argument('src')
-def anonymize(src):
-    """Anonymize image blurring faces and car license plates."""
-    editing_files(src, 'anonymize', desc="Anonymizing images")
-
-
-@cli_editing.command()
-@click.argument('src')
-def blur(src):
-    """Blur the image background to focus attention on the main object."""
-    editing_files(src, 'blur', desc="Blur background")
-
-
-@cli_editing.command()
-@click.argument('src')
-def clean(src):
-    """Clean images removing unwanted objects with inpainting."""
-    editing_files(src, 'clean', desc="Removing objects")
 
 
 @cli.group('files')
@@ -225,7 +156,20 @@ def convert_to_jpg(src):
     os.remove(src)
 
 
-def process_dataset(project):
+def anonymize(src):
+    img = load_image(src)
+    img = anonymize_image(img)
+    save_image(img, src)
+
+
+def upscale(src, threshold):
+    img = load_image(src)
+    if max(img.shape) < threshold:
+        img = upscale_image(img)
+        save_image(img, src)
+
+
+def process_dataset(project, anonymize=False, upscale_threshold=0):
     files = list_dir(project)
     heics = [f for f in files if get_type(f) == 'image/heic']
     if len(heics):
@@ -236,13 +180,21 @@ def process_dataset(project):
         from abraia.multiple import create_visible
         process_map(create_visible, tiffs, desc="Creating images")
         files = list_dir(project)
+    if anonymize:
+        images = [f for f in files if get_type(f).startswith('image')]
+        process_map(anonymize, images, desc="Anonymizing images")
+    if upscale_threshold > 0:
+        images = [f for f in files if get_type(f).startswith('image')]
+        process_map(upscale, images, itertools.repeat(upscale_threshold), desc="Upscaling images")
     return files
 
 
 @cli.command()
 @click.argument('project')
 @click.argument('query', required=False, default='')
-def create(project, query):
+@click.option('--anonymize', help='Anonymize images (blur faces and plates)', is_flag=True)
+@click.option('--upscale', help='Upscale images smaller than threshold', type=int, default=0)
+def create(project, query, anonymize=False, upscale=0):
     """Create or update a dataset."""
     from abraia.training import search_images, load_dataset
     dataset = load_dataset(project)
@@ -251,7 +203,7 @@ def create(project, query):
     if query:
         files = search_images(query, limit=100, output_dir=output_dir, verbose=True)
     if os.path.exists(project):
-        files = process_dataset(project)
+        files = process_dataset(project, anonymize=anonymize, upscale_threshold=upscale)
     process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading images")
     dataset.save()
 

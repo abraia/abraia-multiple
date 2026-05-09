@@ -92,21 +92,3 @@ def clean_image(img):
     sketcher.on_click(handle_click)
     out = sketcher.run()
     return out
-
-
-def edit_image(img, mode='', size=None):
-    out = img
-    if mode == 'anonymize':
-        out = anonymize_image(img)
-    elif mode == 'blur':
-        out = blur_background(img)
-    elif mode == 'clean':
-        out = clean_image(img)
-    elif mode == 'removebg':
-        out = remove_background(img)
-    elif mode == 'smartcrop':
-        if size:
-            out = smartcrop_image(img, size)
-    elif mode == 'upscale':
-        out = upscale_image(img)
-    return out
