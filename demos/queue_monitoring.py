@@ -1,10 +1,11 @@
 import time
+import psutil
 import argparse
 
 from abraia.utils import Video
 from abraia.inference import Model, Tracker
 from abraia.inference.tools import LineCounter, RegionFilter, RegionTimer
-from abraia.utils.draw import render_results, render_counter, render_region
+from abraia.utils.draw import render_results, render_counter, render_region, draw_text
 from abraia.inference.ops import count_objects
 
 
@@ -61,6 +62,9 @@ for k, frame in enumerate(video):
         frame = render_results(frame, results)
     
     t1 = time.time()
+    draw_text(frame, f"FPS: {round(1 / (t1 - t0), 1)}", (10, 40))
+    draw_text(frame, f"CPU: {psutil.cpu_percent()}%", (10, 70))
+    draw_text(frame, f"RAM: {round(psutil.virtual_memory().used / (1024**3), 2)} GB", (10, 100))
     print(f"#{k} [{frame_time}s] {count_objects(results)} {round((t1 - t0) * 1000, 1)}ms")
     video.show(frame)
 

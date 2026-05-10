@@ -94,51 +94,6 @@ show_image(img)
 
 ![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
-### Gender Age estimation
-
-Model to predict gender and age. It can be useful to anonymize minors faces.
-
-```python
-from abraia.inference import FaceRecognizer, FaceAttribute
-from abraia.utils import load_image, show_image, render_results
-
-recognition = FaceRecognizer()
-attribute = FaceAttribute()
-
-img = load_image('images/image.jpg')
-results = recognition.detect_faces(img)
-faces = recognition.extract_faces(img, results)
-for face, result in zip(faces, results):
-    gender, age, score = attribute.predict(face)
-    result['label'] = f"{gender} {age}"
-    result['score'] = score
-img = render_results(img, results)
-show_image(img)
-```
-
-### Blur license plate
-
-Anonymize images automatically bluring car license plates.
-
-```python
-from abraia.utils import load_image, save_image
-from abraia.inference import PlateDetector
-from abraia.editing import build_mask
-from abraia.utils.draw import draw_blurred_mask
-
-src = 'images/car.jpg'
-img = load_image(src)
-
-detector = PlateDetector()
-plates = detector.detect(img)
-mask = build_mask(img, plates, [])
-out = draw_blurred_mask(img, mask)
-
-save_image(out, 'blur-car.jpg')
-```
-
-![blur car license plate](https://github.com/abraia/abraia-multiple/raw/master/images/blur-car.jpg)
-
 ### Semantic search
 
 Search on images with embeddings.

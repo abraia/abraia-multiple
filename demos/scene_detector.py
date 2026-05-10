@@ -1,11 +1,24 @@
-from scenedetect import detect, AdaptiveDetector
 from abraia.utils import Video, show_image
+from abraia.inference import PlateDetector
+from abraia.editing import build_mask
+from abraia.utils.draw import draw_blurred_mask
 
-video_src = '../images/cars.mp4'
+src = '../images/cars.mp4'
+video = Video(src)
+detector = PlateDetector()
+
+for k, frame in enumerate(video):
+    plates = detector.detect(frame)
+    mask = build_mask(frame, plates, [])
+    out = draw_blurred_mask(frame, mask)
+    video.show(out)
+
+
+from scenedetect import detect, AdaptiveDetector
 
 frames = []
-video = Video(video_src)
-content_list = detect(video_src, AdaptiveDetector(), start_in_scene=True)
+video = Video(src)
+content_list = detect(src, AdaptiveDetector(), start_in_scene=True)
 for content in content_list:
     frame_num = (content[1] - content[0]).frame_num // 2 + content[0].frame_num
     img = video.get_frame(frame_num)

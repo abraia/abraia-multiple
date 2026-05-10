@@ -115,3 +115,9 @@ class ModelTrainer:
 
     def run(self, img):
         return self.model.run(img)
+
+    def compile(self, device='hailo8'):
+        if self.task != 'detect':
+            raise NotImplementedError("Model compilation is only implemented for detection models.")
+        self.model.compile(self.project, self.classes, device=device)
+    

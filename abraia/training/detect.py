@@ -35,7 +35,7 @@ class Model:
         self.task = task
         self.imgsz = imgsz
 
-    def train(self, dataset, epochs=100, batch=32, callback=None):
+    def train(self, project, epochs=100, batch=32, callback=None):
         if callback:
             def on_train_epoch_end(trainer):
                 epoch = trainer.epoch
@@ -46,7 +46,7 @@ class Model:
                 acc = trainer.metrics.get('metrics/mAP50(B)', 0) if hasattr(trainer, 'metrics') else 0
                 callback({'epoch': epoch, 'epochs': num_epochs, 'loss': loss, 'acc': float(acc)})
             self.model.add_callback('on_train_epoch_end', on_train_epoch_end)
-        data = f"{dataset}" if self.task == 'classify' else f"{dataset}/data.yaml"
+        data = f"{project}" if self.task == 'classify' else f"{project}/data.yaml"
         results = self.model.train(data=data, batch=batch, epochs=epochs, imgsz=self.imgsz)
 
     def test(self, split='val'):
@@ -56,7 +56,7 @@ class Model:
         return {'mAP': float(metrics.box.map50), 'P': metrics.box.p.tolist(), 'R': metrics.box.r.tolist(), 
                 'confusionMatrix': metrics.confusion_matrix.matrix.tolist()}
 
-    def save(self, project, classes, device="cpu", half=False):
+    def save(self, project, classes, device='cpu', half=False):
         # TODO: Add model name versioning
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -81,3 +81,8 @@ class Model:
                     object['polygon'] = results.masks[k].xy[0]
                 objects.append(object)
         return objects
+    
+    def compile(self, project, classes, device='hailo8'):
+        print("Compile model for edge deployment to hailo hef format...")
+        print(f"hailomz compile yolov8n --ckpt=yolov8n.onnx --hw-arch {device} --calib-path {project}/train/images --classes {len(classes)} --performance")
+
