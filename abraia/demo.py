@@ -1,7 +1,7 @@
 from abraia.inference import FaceRecognizer, FaceAttribute
 from abraia.inference.faces import find_pose
 from abraia.utils.draw import render_results, draw_overlay, draw_text
-from abraia.utils import Video
+from abraia.utils import Video, is_raspberry, Camera
 
 
 def faces_tracking(src=0, resolution=(1280, 720)):
@@ -10,7 +10,7 @@ def faces_tracking(src=0, resolution=(1280, 720)):
     attribute = FaceAttribute()
 
     index = []
-    video = Video(src, resolution=resolution)
+    video = Camera(src, resolution=resolution) if src == 0 and is_raspberry() else Video(src, resolution=resolution)
     for frame in video:
         results = recognition.detect_faces(frame)
         faces = recognition.extract_faces(frame, results)
