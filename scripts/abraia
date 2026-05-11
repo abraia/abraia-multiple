@@ -238,29 +238,37 @@ def train(project, epochs):
 
 
 @cli.command()
-@click.argument('project')
+@click.argument('task')
+@click.argument('classes', required=False, default='faces')
 @click.argument('src', required=False, default=0)
-def predict(project, src):
-    """Run trained model on a specified image."""
-    try:
-        from abraia.training import list_models
-        from abraia.inference.detect import Model
-        from abraia.utils import process_media, render_results
-        models = list_models(project)
-        if not models:
-            click.echo(f"No trained model found in project '{project}'")
-            return
-        model_name = models[0]
-        model_uri = f"{abraia.userid}/{project}/{model_name}"
-        model = Model(model_uri)
+def run(task, classes, src):
+    """Run a task (tracking) or a trained model (project name)."""
+    if task == 'tracking':
+        if classes == 'faces':
+            from abraia.demo import faces_tracking
+            faces_tracking(src)
+    else:
+        project = task
+        src = classes if classes != 'faces' else src
+        try:
+            from abraia.training import list_models
+            from abraia.inference.detect import Model
+            from abraia.utils import process_media, render_results
+            models = list_models(project)
+            if not models:
+                click.echo(f"No trained model found in project '{project}'")
+                return
+            model_name = models[0]
+            model_uri = f"{abraia.userid}/{project}/{model_name}"
+            model = Model(model_uri)
 
-        def callback(img):
-            results = model.run(img)
-            return render_results(img, results)
-        
-        process_media(src, callback)
-    except APIError as error:
-        echo_error(error)
+            def callback(img):
+                results = model.run(img)
+                return render_results(img, results)
+            
+            process_media(src, callback)
+        except APIError as error:
+            echo_error(error)
 
 
 if __name__ == '__main__':

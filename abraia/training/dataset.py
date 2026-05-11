@@ -14,6 +14,7 @@ from ..client import Abraia
 from ..utils import HEADERS, load_image, load_url, list_dir, url_path
 from ..inference.detect import segment_objects
 
+
 abraia = Abraia()
 
 GOOGLE_BASE_URL = 'https://www.google.com/search?q='

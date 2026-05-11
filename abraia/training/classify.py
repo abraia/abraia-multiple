@@ -1,17 +1,16 @@
-from ..client import Abraia
-from ..utils import temporal_src, load_image
-
-import onnx
-import torch
-import torchvision
-from torchvision import models, transforms, datasets
-
 import os
 import copy
 import time
-import random
+import onnx
+import torch
+import torchvision
 import numpy as np
 import matplotlib.pyplot as plt
+
+from torchvision import models, transforms, datasets
+
+from ..client import Abraia
+from ..utils import temporal_src
 
 
 abraia = Abraia()
@@ -21,50 +20,50 @@ torch.backends.cudnn.benchmark = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def read_image(path):
-    dest = abraia.download_file(path, cache=True)
-    return load_image(dest)
+# def read_image(path):
+#     dest = abraia.download_file(path, cache=True)
+#     return load_image(dest)
 
 
-def load_dataset(dataset, shuffle=True):
-    paths, labels = [], []
-    annotations = abraia.load_json(f"{dataset}/annotations.json")
-    keys = list(filter(lambda k: k != 'filename', annotations[0].keys()))
-    paths = [f"{dataset}/{annotation['filename']}" for annotation in annotations]
-    labels = [annotation['label'] for annotation in annotations]
-    if shuffle:
-        ids = list(range(len(paths)))
-        random.shuffle(ids)
-        paths = [paths[id] for id in ids]
-        labels = [labels[id] for id in ids]
-    return paths, labels
+# def load_dataset(dataset, shuffle=True):
+#     paths, labels = [], []
+#     annotations = abraia.load_json(f"{dataset}/annotations.json")
+#     keys = list(filter(lambda k: k != 'filename', annotations[0].keys()))
+#     paths = [f"{dataset}/{annotation['filename']}" for annotation in annotations]
+#     labels = [annotation['label'] for annotation in annotations]
+#     if shuffle:
+#         ids = list(range(len(paths)))
+#         random.shuffle(ids)
+#         paths = [paths[id] for id in ids]
+#         labels = [labels[id] for id in ids]
+#     return paths, labels
 
 
-class Dataset(torch.utils.data.Dataset):
-    def __init__(self, root_dir, transform=None, target_transform=None):
-        paths, labels = load_dataset(root_dir)
-        self.paths = paths
-        self.labels = labels
-        self.root_dir = root_dir
-        self.transform = transform
-        self.target_transform = target_transform
-        self.classes = list(np.sort(np.unique(labels)))
+# class Dataset(torch.utils.data.Dataset):
+#     def __init__(self, root_dir, transform=None, target_transform=None):
+#         paths, labels = load_dataset(root_dir)
+#         self.paths = paths
+#         self.labels = labels
+#         self.root_dir = root_dir
+#         self.transform = transform
+#         self.target_transform = target_transform
+#         self.classes = list(np.sort(np.unique(labels)))
 
-    def __len__(self):
-        return len(self.paths)
+#     def __len__(self):
+#         return len(self.paths)
 
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        path = self.paths[idx]
-        label = self.labels[idx]
-        label = self.classes.index(label)
-        img = read_image(path)
-        if self.transform:
-            img = self.transform(img)
-        if self.target_transform:
-            label = self.target_transform(label)
-        return img, label
+#     def __getitem__(self, idx):
+#         if torch.is_tensor(idx):
+#             idx = idx.tolist()
+#         path = self.paths[idx]
+#         label = self.labels[idx]
+#         label = self.classes.index(label)
+#         img = read_image(path)
+#         if self.transform:
+#             img = self.transform(img)
+#         if self.target_transform:
+#             label = self.target_transform(label)
+#         return img, label
 
 
 def create_model(class_names, pretrained=True):
