@@ -1,5 +1,8 @@
 import os
 import cv2
+import time
+import psutil
+from .draw import draw_text_multiline
 
 
 def is_raspberry():
@@ -47,6 +50,7 @@ class Video:
                 os.makedirs(dirname, exist_ok=True)
             fourcc = cv2.VideoWriter_fourcc(*'avc1')
             self.out = cv2.VideoWriter(dest, fourcc, self.fps, (self.width, self.height))
+        self.t0 = time.time()
 
     def __len__(self):
         return self.frames
@@ -86,6 +90,11 @@ class Video:
             self.out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
     
     def show(self, frame):
+        t1 = time.time()
+        draw_text_multiline(frame, [f"FPS: {round(1 / (t1 - self.t0), 1)}", 
+                                    f"CPU: {psutil.cpu_percent()}%", 
+                                    f"RAM: {round(psutil.virtual_memory().used / (1024**3), 2)} GB"], (10, 40), background_color=(192, 192, 192))
+        self.t0 = t1
         if not self.win_name:
             self.win_name = 'Video'
             cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)

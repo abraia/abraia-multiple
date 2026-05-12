@@ -136,6 +136,17 @@ def draw_text(img, text, point, background_color = None, text_color = (255, 255,
     return img
 
 
+def draw_text_multiline(img, lines, point, background_color = None, text_color = (255, 255, 255), 
+                        text_scale = 0.8, padding = 6):
+    x, y = point
+    for line in lines:
+        draw_text(img, line, (x, y), background_color, text_color, text_scale, padding)
+        text_font, text_thickness = cv2.FONT_HERSHEY_DUPLEX, 1
+        h = cv2.getTextSize(line, text_font, text_scale, text_thickness)[0][1]
+        y += h + 2 * padding + 2
+    return img
+
+
 def draw_overlay(img, overlay, rect = None, opacity = 1):
     x, y, width, height = rect if rect is not None else [0, 0, img.shape[1], img.shape[0]]
     x1, y1, x2, y2 = x, y, x + width, y + height

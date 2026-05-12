@@ -238,22 +238,24 @@ def train(project, epochs):
 
 
 @cli.command()
-@click.argument('task')
-@click.argument('classes', required=False, default='faces')
-@click.argument('src', required=False, default=0)
-def run(task, classes, src):
-    """Run a task (tracking, detect) or a trained model (project name)."""
-    if task == 'tracking':
+@click.argument('project')
+@click.argument('classes', required=False, default='')
+@click.argument('src', required=False, default=None)
+def run(project, classes, src):
+    """Run a project (demo) or a custom trained model (project name)."""
+    if project == 'demo':
         if classes == 'faces':
             from abraia.demo import track_faces
             track_faces(src)
-    elif task == 'detect':
-        from abraia.demo import detect_objects
-        src = classes if classes != 'faces' else src
-        detect_objects(src)
+        elif classes == 'plates':
+            from abraia.demo import detect_plates
+            detect_plates(src)
+        else:
+            from abraia.demo import monitor_objects
+            project = classes if classes != 'faces' else 'detect'
+            monitor_objects(src, project)
     else:
-        project = task
-        src = classes if classes != 'faces' else src
+        src = classes if classes != 'faces' else src or 0
         try:
             from abraia.training import list_models
             from abraia.inference.detect import Model

@@ -2,7 +2,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-__version__ = '0.25.12'
+__version__ = '0.25.13'
 
 from . import config
 from .client import Abraia, APIError

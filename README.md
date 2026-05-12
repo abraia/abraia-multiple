@@ -24,7 +24,7 @@ from abraia.inference.tools import LineCounter, RegionTimer
 from abraia.utils import Video, render_results, render_counter, render_region
 
 model = Model("multiple/models/yolov8n.onnx")
-video = Video('images/people-walking.mp4')
+video = Video('people-walking.mp4')
 tracker = Tracker(frame_rate=video.frame_rate)
 line_counter = LineCounter([(0, 650), (1920, 650)])
 region_timer = RegionTimer([(10, 600), (1690, 600), (1690, 700), (10, 700)])
