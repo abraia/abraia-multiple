@@ -11,3 +11,4 @@ ftfy>=6.2.3
 lap>=0.5.12
 regex>=2024.11.6
 pillow-heif>=0.18.0
+psutil>=5.9.0
