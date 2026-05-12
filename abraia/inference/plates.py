@@ -105,13 +105,15 @@ class PlateRecognizer():
         self.text_system = TextSystem()
         self.out_size = 300
 
-    def detect(self, img):
-        return self.license_plate.detect(img)
-        
-    def recognize(self, img, results):
+    def recognize(self, img):
+        results = self.license_plate.detect(img)
         for result in results:
             points = result['points']
             img_lp = extract_plate(img, points, self.out_size)
             outputs = self.text_system(img_lp)
             result['lines'] = outputs
+        results = [result for result in results if len(result['lines'])]
+        for result in results:
+            result['label'] = '\n'.join([line.get('text', '') for line in result['lines']])
+            del result['score']
         return results

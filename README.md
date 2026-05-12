@@ -30,8 +30,7 @@ line_counter = LineCounter([(0, 650), (1920, 650)])
 region_timer = RegionTimer([(10, 600), (1690, 600), (1690, 700), (10, 700)])
 
 for k, frame in enumerate(video):
-    results = model.run(frame)
-    results = [result for result in results if result['label'] == 'person']
+    results = model.run(frame, labels=['person'])
     results = tracker.update(results)
     in_count, out_count = line_counter.update(results)
     in_objects, out_objects = region_timer.update(results, k / video.frame_rate)
@@ -82,12 +81,7 @@ from abraia.utils import load_image, show_image, render_results
 alpr = PlateRecognizer()
 
 img = load_image('images/car.jpg')
-results = alpr.detect(img)
-results = alpr.recognize(img, results)
-results = [result for result in results if len(result['lines'])]
-for result in results:
-    result['label'] = '\n'.join([line.get('text', '') for line in result['lines']])
-    del result['score']
+results = alpr.recognize(img)
 frame = render_results(img, results)
 show_image(img)
 ```

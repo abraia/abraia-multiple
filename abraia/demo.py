@@ -3,6 +3,7 @@ import time
 
 from tqdm import tqdm
 from glob import glob
+
 from abraia.inference import Model, Tracker, FaceRecognizer, FaceAttribute, PlateRecognizer
 from abraia.inference.faces import find_pose
 from abraia.inference.clip import Clip
@@ -12,7 +13,7 @@ from abraia.utils.draw import render_results, render_counter, render_region, dra
 from abraia.utils import Video, download_url, load_image, show_image
 
 
-TASKS = {
+DEMOS = {
     'apple': {
         'src': '5479199-hd_1920_1080_25fps.mp4',
         'label': 'apple'
@@ -54,10 +55,10 @@ TASKS = {
 }
 
 
-def monitor_objects(src=None, task='detect', resolution=(1280, 720)):
+def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
     """Monitor, count, or just detect objects in a video stream."""
-    print(f"Available demos: {', '.join(TASKS.keys())}")
-    selected = TASKS.get(task) or {}
+    print(f"Available demos: {', '.join(DEMOS.keys())}")
+    selected = DEMOS.get(demo) or {}
     src = src or selected.get('src', 0)
     if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
         download_url(f"https://api.abraia.me/files/multiple/videos/{src}", src)
@@ -70,15 +71,11 @@ def monitor_objects(src=None, task='detect', resolution=(1280, 720)):
     region_filter = RegionFilter(selected['region']) if selected.get('region') else None
     region_timer = RegionTimer(selected['timer']) if selected.get('timer') else None
 
-    label = selected.get('label')
-
-    print(f"Running task {task} using {selected.get('model', 'multiple/models/yolov8n.onnx')} on {src}...")
+    labels = [selected.get('label')] if selected.get('label') else None
     for k, frame in enumerate(video):
         frame_time = round(k / video.frame_rate, 2)
         t0 = time.time()
-        results = model.run(frame)
-        if label:
-            results = [result for result in results if result['label'] == label]
+        results = model.run(frame, labels=labels)
         
         if region_filter:
             results, _ = region_filter.update(results)
@@ -87,7 +84,7 @@ def monitor_objects(src=None, task='detect', resolution=(1280, 720)):
         out = frame.copy()
         if line_counter:
             in_count, out_count = line_counter.update(results)
-            out = render_counter(out, line_counter.line, f"In: {in_count} | Out: {out_count}" if task in ['people', 'escalator'] else f"Count: {out_count}")
+            out = render_counter(out, line_counter.line, f"In: {in_count} | Out: {out_count}" if demo in ['people', 'escalator'] else f"Count: {out_count}")
         
         if region_timer:
             in_objects, out_objects = region_timer.update(results, frame_time)
@@ -96,7 +93,7 @@ def monitor_objects(src=None, task='detect', resolution=(1280, 720)):
         else:
             out = render_results(out, results)
         
-        print(f"#{k} [{frame_time}s] {count_objects(results)} {round((time.time() - t0) * 1000, 1)}ms")
+        print(f"#{k} {round((time.time() - t0) * 1000, 1)}ms {count_objects(results)}")
         video.show(out)
 
     if line_counter:
@@ -138,12 +135,7 @@ def detect_plates(src=None):
     video = Video(src)
     recognizer = PlateRecognizer()
     for frame in video:
-        results = recognizer.detect(frame)
-        results = recognizer.recognize(frame, results)
-        results = [result for result in results if len(result['lines'])]
-        for result in results:
-            result['label'] = '\n'.join([line.get('text', '') for line in result['lines']])
-            del result['score']
+        results = recognizer.recognize(frame)
         frame = render_results(frame, results)
         video.show(frame)
 
@@ -154,7 +146,6 @@ def retrieve_images(query="man with red shirt", path='images/*.jpg'):
     print("Building image index...")
     image_paths = glob(path)
     image_index = [{'vector': clip_model.get_image_embeddings([load_image(image_path)])[0]} for image_path in tqdm(image_paths)]
-
     print("Searching for images...")
     print("Query:", query)
     vector = clip_model.get_text_embeddings([query])[0]
