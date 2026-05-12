@@ -16,8 +16,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 from concurrent.futures import ProcessPoolExecutor
 
-from .video import Video
-from .camera import Camera
+from .video import Video, is_raspberry
 from .sketcher import Sketcher
 from .draw import get_color, render_results
 
@@ -164,14 +163,6 @@ def get_providers():
     available_providers = ort.get_available_providers()
     providers = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
     return [provider for provider in available_providers if provider in providers]
-
-
-def is_raspberry():
-    path = '/proc/device-tree/model'
-    if os.path.exists(path):
-        with open(path, 'r') as f:
-            return 'Raspberry Pi' in f.read()
-    return False
 
 
 def process_map(task, *values, desc='', max_workers=3):

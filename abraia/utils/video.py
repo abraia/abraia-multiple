@@ -2,21 +2,44 @@ import os
 import cv2
 
 
+def is_raspberry():
+    path = '/proc/device-tree/model'
+    if os.path.exists(path):
+        with open(path, 'r') as f:
+            return 'Raspberry Pi' in f.read()
+    return False
+
+
 class Video:
     def __init__(self, src=0, resolution=(1920, 1080), fps=30, dest=None):
         self.out = None
         self.quit = False
         self.win_name = ''
-        self.cap = cv2.VideoCapture(src)
-        if isinstance(src, int):
-            self.cap.set(cv2.CAP_PROP_FPS, fps)
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.duration = round(self.frames / self.fps, 3)
+        self.picam2 = None
+        if src == 0 and is_raspberry():
+            from picamera2 import Picamera2
+            from libcamera import Transform
+            self.picam2 = Picamera2()
+            self.picam2.configure(self.picam2.create_video_configuration(
+                main={"format": 'BGR888', "size": resolution},
+                transform=Transform(hflip=True, vflip=True),
+                controls={"FrameRate": fps}))
+            self.picam2.start()
+            self.fps = fps
+            self.width, self.height = resolution
+            self.frames = 0
+            self.duration = 0
+        else:
+            self.cap = cv2.VideoCapture(src)
+            if isinstance(src, int):
+                self.cap.set(cv2.CAP_PROP_FPS, fps)
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+            self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+            self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.duration = round(self.frames / self.fps, 3)
         self.frame_rate = self.fps
         if dest:
             dirname = os.path.dirname(dest)
@@ -29,12 +52,20 @@ class Video:
         return self.frames
 
     def __iter__(self):
-        while self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if ret is False or frame is None or self.quit:
-                break
-            yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self.cap.release()
+        if self.picam2:
+            while not self.quit:
+                frame = self.picam2.capture_array()
+                if frame is None:
+                    break
+                yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            self.picam2.stop()
+        else:
+            while self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret is False or frame is None or self.quit:
+                    break
+                yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            self.cap.release()
         if self.out:
             self.out.release()
         if self.win_name:
@@ -42,6 +73,8 @@ class Video:
             cv2.waitKey(1)
 
     def get_frame(self, frame_num):
+        if self.picam2:
+            return None
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
         ret, frame = self.cap.read()
         if ret is False or frame is None:
@@ -49,14 +82,15 @@ class Video:
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     def write(self, frame):
-        self.out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        if self.out:
+            self.out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
     
     def show(self, frame):
         if not self.win_name:
             self.win_name = 'Video'
             cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)
         cv2.imshow(self.win_name, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-        ch = 0xFF & cv2.waitKey(int(self.fps))
+        ch = 0xFF & cv2.waitKey(1 if self.picam2 else int(self.fps))
         if (ch == 27 or ch == ord('q')) or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1:
             self.quit = True
 

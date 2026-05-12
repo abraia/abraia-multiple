@@ -1,16 +1,26 @@
-from abraia.inference import FaceRecognizer, FaceAttribute
+from abraia.inference import Model, FaceRecognizer, FaceAttribute
 from abraia.inference.faces import find_pose
 from abraia.utils.draw import render_results, draw_overlay, draw_text
-from abraia.utils import Video, is_raspberry, Camera
+from abraia.utils import Video
 
 
-def faces_tracking(src=0, resolution=(1280, 720)):
+def detect_objects(src=0, resolution=(1280, 720)):
+    """Detect objects in a video stream from a file or webcam."""
+    model = Model('multiple/models/yolov8n.onnx')
+    video = Video(src, resolution=resolution)
+    for frame in video:
+        results = model.run(frame)
+        frame = render_results(frame, results)
+        video.show(frame)
+
+
+def track_faces(src=0, resolution=(1280, 720)):
     """Track faces in a video stream from a file or webcam."""
     recognition = FaceRecognizer()
     attribute = FaceAttribute()
 
     index = []
-    video = Camera(src, resolution=resolution) if src == 0 and is_raspberry() else Video(src, resolution=resolution)
+    video = Video(src, resolution=resolution)
     for frame in video:
         results = recognition.detect_faces(frame)
         faces = recognition.extract_faces(frame, results)
