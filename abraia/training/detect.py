@@ -84,5 +84,5 @@ class Model:
     
     def compile(self, project, classes, device='hailo8'):
         print("Compile model for edge deployment to hailo hef format...")
-        print(f"hailomz compile yolov8n --ckpt=yolov8n.onnx --hw-arch {device} --calib-path {project}/train/images --classes {len(classes)} --performance")
+        print(f"hailomz compile yolov8n --ckpt yolov8n.onnx --calib-path {project}/train/images --classes {len(classes)} --hw-arch {device} --performance")
 
