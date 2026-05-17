@@ -239,6 +239,19 @@ def train(project, epochs):
 
 @cli.command()
 @click.argument('project')
+@click.option('--device', help='Compilation device (e.g. hailo8)', default='hailo8')
+def compile(project, device):
+    """Compile a model for edge deployment."""
+    from abraia.training import load_dataset, ModelTrainer
+    click.echo('Loading dataset...')
+    dataset = load_dataset(project)
+    click.echo('Compiling model...')
+    training_session = ModelTrainer(project, dataset.task, dataset.classes)
+    training_session.compile(device=device)
+
+
+@cli.command()
+@click.argument('project')
 @click.argument('classes', required=False, default='')
 @click.argument('src', required=False, default=None)
 def run(project, classes, src):

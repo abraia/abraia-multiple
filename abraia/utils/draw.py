@@ -207,3 +207,15 @@ def render_region(img, region, text='', color=(255, 0, 0), opacity=0.2):
     draw_filled_polygon(img, region, color=color, opacity=opacity)
     draw_text(img, text, point, background_color=color, text_scale=text_scale)
     return img
+
+
+def render_resolution(img):
+    height, width = img.shape[:2]
+    text = f"{width}x{height}"
+    thickness = calculate_optimal_thickness(img.shape[:2])
+    text_scale = calculate_optimal_text_scale(img.shape[:2])
+    text_font, text_thickness = cv2.FONT_HERSHEY_DUPLEX, 1
+    w, h = cv2.getTextSize(text, text_font, text_scale, text_thickness)[0]
+    padding = thickness * 3
+    point = (width - w - 2 * padding, height)
+    return draw_text(img, text, point, background_color=(128, 128, 128), text_scale=text_scale, padding=padding)

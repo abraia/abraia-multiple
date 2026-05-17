@@ -2,7 +2,7 @@ import os
 import cv2
 import time
 import psutil
-from .draw import draw_text_multiline
+from .draw import draw_text_multiline, render_resolution
 
 
 def is_raspberry():
@@ -24,7 +24,7 @@ class Video:
             from libcamera import Transform
             self.picam2 = Picamera2()
             self.picam2.configure(self.picam2.create_video_configuration(
-                main={"format": 'BGR888', "size": resolution},
+                main={"format": 'RGB888', "size": resolution},
                 transform=Transform(hflip=True, vflip=True),
                 controls={"FrameRate": fps}))
             self.picam2.start()
@@ -94,12 +94,13 @@ class Video:
         draw_text_multiline(frame, [f"FPS: {round(1 / (t1 - self.t0), 1)}", 
                                     f"CPU: {psutil.cpu_percent()}%", 
                                     f"RAM: {round(psutil.virtual_memory().used / (1024**3), 2)} GB"], (10, 40), background_color=(192, 192, 192))
+        render_resolution(frame)
         self.t0 = t1
         if not self.win_name:
             self.win_name = 'Video'
             cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)
         cv2.imshow(self.win_name, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-        ch = 0xFF & cv2.waitKey(1 if self.picam2 else int(self.fps))
+        ch = 0xFF & cv2.waitKey(int(self.fps))
         if (ch == 27 or ch == ord('q')) or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1:
             self.quit = True
 
