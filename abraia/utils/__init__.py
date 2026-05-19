@@ -122,6 +122,18 @@ def save_json(data, dest, gz=False):
     return dest
 
 
+def load_text(src, gz=False):
+    with gzip.open(src, 'rt') if gz else open(src, 'r') as f:
+        return f.read()
+
+
+def save_text(dest, text, gz=False):
+    make_dirs(dest)
+    with gzip.open(dest, 'wt') if gz else open(dest, 'w') as f:
+        f.write(text)
+    return dest
+
+
 def load_data(src, gz=False):
     with gzip.open(src, 'rb') if gz else open(src, 'rb') as f:
         return f.read()

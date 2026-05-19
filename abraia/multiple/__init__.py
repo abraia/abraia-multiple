@@ -139,7 +139,8 @@ class Multiple(Abraia):
         super(Multiple, self).__init__()
 
     def load_header(self, path):
-        dest = self.download_file(path, cache=True)
+        dest = temporal_src(path)
+        self.download_file(path, dest, cache=True)
         return spectral.io.envi.read_envi_header(dest)
 
     def load_metadata(self, path):
@@ -148,14 +149,18 @@ class Multiple(Abraia):
         return super(Multiple, self).load_metadata(path)
 
     def load_envi(self, path):
-        dest = self.download_file(path, cache=True)
-        raw = self.download_file(f"{path.split('.')[0]}.raw", cache=True)
-        return np.array(spectral.io.envi.open(dest, raw)[:, :, :])
+        dest = temporal_src(path)
+        self.download_file(path, dest, cache=True)
+        raw_path = f"{path.split('.')[0]}.raw"
+        raw_dest = temporal_src(raw_path)
+        self.download_file(raw_path, raw_dest, cache=True)
+        return np.array(spectral.io.envi.open(dest, raw_dest)[:, :, :])
 
     def load_image(self, path):
         if path.lower().endswith('.hdr'):
             return self.load_envi(path)
-        return load_image(self.download_file(path, cache=True))
+        dest = temporal_src(path)
+        return load_image(self.download_file(path, dest, cache=True))
 
     def save_envi(self, path, img, metadata={}):
         src = temporal_src(path)

@@ -2,8 +2,8 @@ from ..client import Abraia
 
 import os
 import io
+import shutil
 import contextlib
-import numpy as np
 #os.environ['YOLO_VERBOSE'] = 'False'
 
 from ultralytics import YOLO
@@ -61,7 +61,8 @@ class Model:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             model_src = self.model.export(format="onnx", device=device, opset=11, half=half)
-        abraia.upload_file(model_src, f"{project}/{self.model_name}.onnx")
+            shutil.copy(model_src, f"{self.model_name}.onnx")
+        abraia.upload_file(f"{self.model_name}.onnx", f"{project}/{self.model_name}.onnx")
         abraia.save_json(f"{project}/{self.model_name}.json", 
                          {'task': self.task, 'inputShape': [1, 3, self.imgsz, self.imgsz], 
                           'classes': classes, 'metrics': self.metrics})
@@ -83,6 +84,7 @@ class Model:
         return objects
     
     def compile(self, project, classes, device='hailo8'):
+        abraia.download_file(f"{project}/{self.model_name}.onnx", f"{self.model_name}.onnx")
         print("Compile model for edge deployment to hailo hef format...")
         print(f"hailomz compile yolov8n --ckpt yolov8n.onnx --calib-path {project}/train/images --classes {len(classes)} --hw-arch {device} --performance")
 

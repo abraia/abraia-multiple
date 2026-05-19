@@ -16,39 +16,39 @@ from abraia.utils import Video, download_url, load_image, show_image
 DEMOS = {
     'apple': {
         'src': '5479199-hd_1920_1080_25fps.mp4',
-        'label': 'apple'
+        'labels': ['apple']
     },
     'strawberry': {
         'model': 'multiple/strawberry/yolov8n.onnx',
         'src': '9710983-hd_1920_1080_30fps.mp4',
-        'label': 'strawberry'
+        'labels': ['strawberry']
     },
     'grapes': {
         'model': 'multiple/grapes/yolov8n.onnx',
         'src': '5658544-hd_1366_720_24fps.mp4',
-        'label': 'grapes'
+        'labels': ['grapes']
     },
     'tomato': {
         'model': 'multiple/tomato/yolov8n_v6.onnx',
         'src': '10179855-hd_1920_1080_30fps.mp4',
-        'label': 'tomato',
-        'line': [(1440, 0), (1440, 1080)]
+        'labels': ['tomato'],
+        'counter': [(1440, 0), (1440, 1080)]
     },
     'people': {
         'src': '853889-hd_1920_1080_25fps.mp4',
-        'label': 'person',
-        'line': [(0, 650), (1920, 650)],
+        'labels': ['person'],
+        'counter': [(0, 650), (1920, 650)],
         'region': [(0, 600), (1920, 600), (1920, 700), (0, 700)]
     },
     'queue': {
         'src': '4775505-hd_1920_1080_30fps.mp4',
-        'label': 'person',
+        'labels': ['person'],
         'timer': [(10, 600), (1690, 600), (1690, 700), (10, 700)]
     },
     'escalator': {
         'src': '14393755-hd_1920_1080_30fps.mp4',
-        'label': 'person',
-        'line': [(950, 670), (270, 895)],
+        'labels': ['person'],
+        'counter': [(950, 670), (270, 895)],
         'region': [[0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0]],
         'timer': [[0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0]]
     }
@@ -67,32 +67,27 @@ def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
     tracker = Tracker(frame_rate=video.frame_rate)
     model = Model(selected.get('model', 'multiple/models/yolov8n.onnx'))
     
-    line_counter = LineCounter(selected['line']) if selected.get('line') else None
+    line_counter = LineCounter(selected['counter']) if selected.get('counter') else None
     region_filter = RegionFilter(selected['region']) if selected.get('region') else None
     region_timer = RegionTimer(selected['timer']) if selected.get('timer') else None
 
-    labels = [selected.get('label')] if selected.get('label') else None
+    labels = selected.get('labels')
     for k, frame in enumerate(video):
         frame_time = round(k / video.frame_rate, 2)
         t0 = time.time()
         results = model.run(frame, labels=labels)
-        
         if region_filter:
             results, _ = region_filter.update(results)
         results = tracker.update(results)
-        
         out = frame.copy()
         if line_counter:
             in_count, out_count = line_counter.update(results)
-            out = render_counter(out, line_counter.line, f"In: {in_count} | Out: {out_count}" if demo in ['people', 'escalator'] else f"Count: {out_count}")
-        
+            out = render_counter(out, line_counter.line, f"In: {in_count} | Out: {out_count}")
         if region_timer:
             in_objects, out_objects = region_timer.update(results, frame_time)
             out = render_region(out, region_timer.region, f"Count: {len(in_objects)}", color=(255, 255, 0))
-            out = render_results(out, in_objects)
-        else:
-            out = render_results(out, results)
-        
+            results = in_objects
+        out = render_results(out, results)
         print(f"#{k} {round((time.time() - t0) * 1000, 1)}ms {count_objects(results)}")
         video.show(out)
 

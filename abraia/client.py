@@ -89,20 +89,15 @@ class Abraia:
         resp = resp.json()
         return file_path(resp['file']['source'], self.userid)
 
-    def download_file(self, path, dest='', cache=False):
-        # TODO: Remove BytesIO download option
+    def download_file(self, path, dest, cache=False):
         url = f"{API_URL}/files/{self.userid}/{path}"
-        if cache and dest == '':
-            dest = temporal_src(path)
-            if os.path.exists(dest):
-                return dest
+        if cache and os.path.exists(dest):
+            return dest
         resp = requests.get(url, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
-        if dest:
-            save_data(dest, resp.content)
-            return dest
-        return BytesIO(resp.content)
+        save_data(dest, resp.content)
+        return dest
     
     def remove_file(self, path):
         url = f"{API_URL}/files/{self.userid}/{path}"
@@ -141,11 +136,14 @@ class Abraia:
         save_data(dest, resp.content)
 
     def load_file(self, path):
-        stream = self.download_file(path)
+        dest = temporal_src(path)
+        self.download_file(path, dest, cache=True)
         try:
-            return stream.getvalue().decode('utf-8')
+            with open(dest, 'r') as f:
+                return f.read()
         except:
-            return stream
+            with open(dest, 'rb') as f:
+                return BytesIO(f.read())
 
     def save_file(self, path, stream):
         stream =  BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
@@ -158,7 +156,8 @@ class Abraia:
         return self.save_file(path, json.dumps(values))
 
     def load_image(self, path):
-        return Image.open(self.download_file(path))
+        dest = temporal_src(path)
+        return Image.open(self.download_file(path, dest, cache=True))
 
     def save_image(self, path, im):
         src = temporal_src(path)
