@@ -355,4 +355,4 @@ OCR_RECOGNITION_POSTPROCESS_FUNCTION = "paddleocr_recognize"
 OCR_CROPPER_FUNCTION = "crop_text_regions"
 OCR_VIDEO_NAME = "ocr.mp4"
 
-DEFAULT_COCO_LABELS_PATH = str(REPO_ROOT / "local_resources" / "coco.txt")
+DEFAULT_COCO_LABELS_PATH = str(Path(__file__).parent / "coco.txt")
