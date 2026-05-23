@@ -87,4 +87,3 @@ class Model:
         abraia.download_file(f"{project}/{self.model_name}.onnx", f"{self.model_name}.onnx")
         print("Compile model for edge deployment to hailo hef format...")
         print(f"hailomz compile yolov8n --ckpt yolov8n.onnx --calib-path {project}/train/images --classes {len(classes)} --hw-arch {device} --performance")
-
