@@ -2,18 +2,12 @@ from __future__ import annotations
 """Core helpers: arch detection, buffer utils, model resolution."""
 
 import os
-import queue
 import sys
-import inspect
 from pathlib import Path
 from typing import Optional, Tuple
-from dataclasses import dataclass
-from dotenv import load_dotenv
 
 from .defines import (
-    DEFAULT_DOTENV_PATH,
     DEFAULT_LOCAL_RESOURCES_PATH,
-    DIC_CONFIG_VARIANTS,
     HAILO_ARCH_KEY,
     HAILO_FILE_EXTENSION,
     RESOURCES_JSON_DIR_NAME,
@@ -36,41 +30,6 @@ from .hailo_logger import get_logger
 from .installation_utils import detect_hailo_arch
 from .config_manager import get_default_models, get_inputs_for_app, get_supported_architectures
 hailo_logger = get_logger(__name__)
-
-
-def load_environment(env_file=DEFAULT_DOTENV_PATH, required_vars=None) -> bool:
-    hailo_logger.debug(f"Loading environment from: {env_file}")
-    if env_file is None:
-        env_file = DEFAULT_DOTENV_PATH
-    load_dotenv(dotenv_path=env_file)
-
-    env_path = Path(env_file)
-    if not os.path.exists(env_path):
-        hailo_logger.warning(f".env file not found: {env_file}")
-        return False
-    if not os.access(env_path, os.R_OK):
-        hailo_logger.warning(f".env file not readable: {env_file}")
-        return False
-    if not os.access(env_path, os.W_OK):
-        hailo_logger.warning(f".env file not writable: {env_file}")
-        return False
-    if not os.access(env_path, os.F_OK):
-        hailo_logger.warning(f".env file not found (F_OK): {env_file}")
-        return False
-
-    if required_vars is None:
-        required_vars = DIC_CONFIG_VARIANTS
-    missing = []
-    for var in required_vars:
-        value = os.getenv(var)
-        if not value:
-            missing.append(var)
-
-    if missing:
-        hailo_logger.warning(f"Missing environment variables: {missing}")
-        return False
-    hailo_logger.info("All required environment variables loaded successfully.")
-    return True
 
 
 def get_resource_path(
@@ -112,55 +71,11 @@ def get_resource_path(
     return None
 
 
-class FIFODropQueue(queue.Queue):
-    def put(self, item, block=False, timeout=None):
-        if self.full():
-            hailo_logger.debug("Queue full, dropping oldest item.")
-            self.get_nowait()
-        super().put(item, block, timeout)
-
-
-# =============================================================================
-# Model Resolution and Listing
-# =============================================================================
-
-# App type constants
-APP_TYPE_PIPELINE = "pipeline"
-APP_TYPE_STANDALONE = "standalone"
-
-
-def _detect_app_type_from_caller() -> str | None:
-    """
-    Auto-detect the app type (pipeline or standalone) based on the caller's module path.
-    
-    Inspects the call stack to determine if the caller is from a pipeline app
-    or a standalone app based on their file path.
-    
-    Returns:
-        "pipeline", "standalone", or None if unable to detect
-    """
-    import inspect
-    
-    # Walk up the call stack to find the actual application
-    for frame_info in inspect.stack():
-        filepath = frame_info.filename
-        
-        # Check if caller is from pipeline_apps directory
-        if "pipeline_apps" in filepath:
-            return APP_TYPE_PIPELINE
-        
-        # Check if caller is from standalone_apps directory
-        if "standalone_apps" in filepath:
-            return APP_TYPE_STANDALONE
-    
-    return None
-
-
 def resolve_hef_path(
     hef_path: str | None,
     app_name: str,
     arch: str | None = None,
-    app_type: str | None = None,
+    app_type: str | None = "standalone",
 ) -> Path | None:
     """
     Main method for resolving HEF (Hailo Executable Format) file paths.
@@ -192,12 +107,6 @@ def resolve_hef_path(
             hailo_logger.error("Could not detect Hailo architecture.")
             assert False, "Could not detect Hailo architecture."
         hailo_logger.debug(f"Auto-detected arch: {arch}")
-
-    # Auto-detect app_type if not provided
-    if app_type is None:
-        app_type = _detect_app_type_from_caller()
-        if app_type:
-            hailo_logger.debug(f"Auto-detected app_type: {app_type}")
 
     models_dir = resources_root / RESOURCES_MODELS_DIR_NAME / arch
 
@@ -308,181 +217,6 @@ def _download_resource(resource_name: str, resource_type: str, app_name: str, ar
         hailo_logger.error(f"Failed to download resource: {e}")
         return False
 
-
-def app_requires_multiple_models(app_name: str, arch: str) -> bool:
-    models = get_default_models(app_name, arch)
-    return len(models) > 1
-
-
-
-@dataclass
-class ResolvedModel:
-    name: str
-    path: Path
-
-
-def resolve_hef_paths(
-    hef_paths: list[str] | None,
-    app_name: str,
-    arch: str | None = None,
-) -> list[ResolvedModel]:
-    """
-    Resolve one or more HEF paths for apps that require multiple models.
-
-    Rules:
-    - If hef_paths is None:
-        → use ALL default models for the app
-    - If hef_paths is provided:
-        → length must match required model count
-    - Each model is resolved via resolve_hef_path()
-    """
-
-    # Auto-detect arch if not provided.
-    if arch is None:
-        arch = os.getenv(HAILO_ARCH_KEY) or detect_hailo_arch()
-        if not arch:
-            hailo_logger.error("Could not detect Hailo architecture.")
-            assert False, "Could not detect Hailo architecture."
-        hailo_logger.debug(f"Auto-detected arch: {arch}")
-
-    default_models = get_default_models(app_name, arch)
-    required_count = len(default_models)
-
-    # Normalize inputs
-    if hef_paths in (None, [], ""):
-        model_names = [m.name for m in default_models]
-    elif isinstance(hef_paths, str):
-        model_names = [hef_paths]
-    else:
-        model_names = list(hef_paths)
-
-    # Validate count
-    if len(model_names) != required_count:
-        raise ValueError(
-            f"{app_name} requires {required_count} models "
-            f"but {len(model_names)} were provided"
-        )
-
-    resolved: list[ResolvedModel] = []
-
-    for model_name in model_names:
-        path = resolve_hef_path(
-            hef_path=model_name,
-            app_name=app_name,
-            arch=arch,
-        )
-        if path is None:
-            raise RuntimeError(f"Failed to resolve model: {model_name}")
-
-        resolved.append(ResolvedModel(name=model_name, path=path))
-
-    return resolved
-
-
-def resolve_postprocess_onnx_path(
-    resolved_hef_path: Path,
-    onnx_path: str | None = None,
-    app_name: str | None = None,
-    app_type: str | None = None,
-) -> Path | None:
-    """
-    Resolve ONNX postprocessing file for a given HEF.
-
-    Order:
-    1. User-provided ONNX (--onnx)
-    2. Sibling file next to HEF
-    3. Resources directory
-    4. download (model package)
-
-    Naming:
-        <model_name>_postprocessing.onnx
-    """
-
-    # ------------------------------------------------------------------
-    # 1. User override
-    # ------------------------------------------------------------------
-    if onnx_path:
-        user_path = Path(onnx_path)
-        if user_path.exists():
-            resolved = user_path.resolve()
-            hailo_logger.info(f"Using ONNX from user path: {resolved}")
-            return resolved
-
-        hailo_logger.error(f"Provided ONNX path does not exist: {onnx_path}")
-        return None
-
-    # ------------------------------------------------------------------
-    # 2. Infer ONNX name from HEF
-    # ------------------------------------------------------------------
-    model_name = resolved_hef_path.stem
-    onnx_filename = f"{model_name}_postprocessing.onnx"
-
-    # ------------------------------------------------------------------
-    # 3. Check sibling (same folder as HEF)
-    # ------------------------------------------------------------------
-    sibling = resolved_hef_path.with_name(onnx_filename)
-    if sibling.exists():
-        hailo_logger.info(f"Using ONNX next to HEF: {sibling}")
-        return sibling.resolve()
-
-    # ------------------------------------------------------------------
-    # 4. Check resources directory
-    # ------------------------------------------------------------------
-
-    arch = os.getenv(HAILO_ARCH_KEY) or detect_hailo_arch()
-    if not arch:
-        hailo_logger.error("Could not detect Hailo architecture.")
-        return None
-
-    resources_root = Path(RESOURCES_ROOT_PATH_DEFAULT)
-    models_dir = resources_root / RESOURCES_MODELS_DIR_NAME / arch
-    resource_path = models_dir / onnx_filename
-
-    if resource_path.exists():
-        hailo_logger.info(f"Found ONNX in resources: {resource_path}")
-        return resource_path
-
-    # ------------------------------------------------------------------
-    # 5. Attempt download
-    # ------------------------------------------------------------------
-    if app_name is not None:
-        try:
-            from .config_manager import get_model_names
-            available_models = get_model_names(app_name, arch, tier="all", app_type=app_type)
-        except Exception:
-            available_models = []
-
-        if model_name in available_models:
-
-            onnx_resource_name = f"{model_name}_postprocessing.onnx"
-
-            print(f"\n⚠️  WARNING: Missing ONNX '{onnx_filename}'")
-            print(f"   Downloading ONNX resource for {app_name}/{arch}...\n")
-
-            if _download_resource(onnx_resource_name, RESOURCE_TYPE_ONNX, app_name, arch):
-                if resource_path.exists():
-                    hailo_logger.info(f"ONNX downloaded successfully: {resource_path}")
-                    return resource_path
-
-                hailo_logger.error(f"Download succeeded but ONNX not found: {resource_path}")
-                return None
-
-            hailo_logger.error(f"Failed to download model: {model_name}")
-            return None
-
-    # ------------------------------------------------------------------
-    # Final fallback
-    # ------------------------------------------------------------------
-    hailo_logger.error(
-        f"ONNX postprocess file not found for model '{model_name}'. "
-        f"Expected: {onnx_filename}"
-    )
-    return None
-
-
-# =============================================================================
-# Input Resolution and Listing
-# =============================================================================
 
 def resolve_input_arg(app: str, input_arg: str | None) -> str:
     """
@@ -658,90 +392,6 @@ def _map_app_to_resource_group(app_name: str) -> str:
     return app_mapping.get(app_name, app_name)
 
 
-
-# =============================================================================
-# Handle and Resolve Common Args
-# =============================================================================
-def handle_and_resolve_args(args, APP_NAME: str, multi_hef: bool = False, using_onnx_pp=False) -> None:
-    """
-    Handle common CLI argument logic for Hailo applications.
-
-    This function:
-    - Handles early-exit flags such as --list-models
-    - Resolves the HEF path for the given application
-    - Resolves the input source (camera / video / image)
-    - Resolves output resolution if the flag exists
-    - Ensures a valid output directory exists
-
-    Notes:
-    - This helper is intended mainly for standalone applications.
-
-    Args:
-        args: Parsed args from the application
-        APP_NAME: The application name for model/input resolution
-        using_onnx_pp: Whether the app uses ONNX postprocessing
-    """
-    # Auto-detect app_type from caller's location
-    app_type = _detect_app_type_from_caller()
-
-    if multi_hef:
-        # Resolve multiple HEF paths
-        try:
-            models = resolve_hef_paths(
-                hef_paths=args.hef_path,
-                app_name=APP_NAME
-            )
-            args.hef_path = [model.path for model in models]
-        except Exception as e:
-            hailo_logger.error(f"Failed to resolve HEF paths: {e}")
-            sys.exit(1)
-    else:
-        # Resolve network path
-        args.hef_path = resolve_hef_path(hef_path=args.hef_path, app_name=APP_NAME)
-        if args.hef_path is None:
-            hailo_logger.error("Failed to resolve HEF path for %s", APP_NAME)
-            sys.exit(1)
-
-
-        if using_onnx_pp:
-            # Resolve optional ONNX postprocess path
-            args.onnx = resolve_postprocess_onnx_path(
-                resolved_hef_path=args.hef_path,
-                onnx_path=args.onnx,
-                app_name=APP_NAME,
-                app_type=app_type,
-            )
-
-            if args.onnx is None:
-                hailo_logger.error("Failed to resolve ONNX path for %s", APP_NAME)
-                sys.exit(1)
-
-    #resolve input source
-    args.input = resolve_input_arg(APP_NAME, args.input)
-    if args.input is None:
-        hailo_logger.error("Failed to resolve input source for %s", APP_NAME)
-        sys.exit(1)
-
-    # Resolve output resolution if flag exists
-    if hasattr(args, "output_dir"):
-        try:
-            if args.output_dir is None:
-                args.output_dir = os.path.join(os.getcwd(), "output")
-                os.makedirs(args.output_dir, exist_ok=True)
-        except ValueError as e:
-            hailo_logger.error(str(e))
-            sys.exit(1)
-
-
-    # Resolve output resolution if flag exists
-    if hasattr(args, "output_resolution"):
-        try:
-            args.output_resolution = resolve_output_resolution_arg(args.output_resolution)
-        except ValueError as e:
-            hailo_logger.error(str(e))
-            sys.exit(1)
-
-
 def resolve_output_resolution_arg(res_arg: Optional[list[str]]) -> Optional[Tuple[int, int]]:
     """
     Parse --output-resolution argument.
@@ -774,3 +424,47 @@ def resolve_output_resolution_arg(res_arg: Optional[list[str]]) -> Optional[Tupl
         f"Invalid --output-resolution value: {res_arg}. "
         "Use 'sd', 'hd', 'fhd' or two integers, e.g. '--output-resolution 1920 1080'."
     )
+
+
+def handle_and_resolve_args(args, APP_NAME: str) -> None:
+    """
+    Handle common CLI argument logic for Hailo applications.
+
+    This function:
+    - Resolves the HEF path for the given application
+    - Resolves the input source (camera / video / image)
+    - Resolves output resolution if the flag exists
+    - Ensures a valid output directory exists
+
+    Notes:
+    - This helper is intended mainly for standalone applications.
+
+    Args:
+        args: Parsed args from the application
+        APP_NAME: The application name for model/input resolution
+    """
+    args.hef_path = resolve_hef_path(hef_path=args.hef_path, app_name=APP_NAME)
+    if args.hef_path is None:
+        hailo_logger.error("Failed to resolve HEF path for %s", APP_NAME)
+        sys.exit(1)
+
+    args.input = resolve_input_arg(APP_NAME, args.input)
+    if args.input is None:
+        hailo_logger.error("Failed to resolve input source for %s", APP_NAME)
+        sys.exit(1)
+
+    if hasattr(args, "output_dir"):
+        try:
+            if args.output_dir is None:
+                args.output_dir = os.path.join(os.getcwd(), "output")
+                os.makedirs(args.output_dir, exist_ok=True)
+        except ValueError as e:
+            hailo_logger.error(str(e))
+            sys.exit(1)
+
+    if hasattr(args, "output_resolution"):
+        try:
+            args.output_resolution = resolve_output_resolution_arg(args.output_resolution)
+        except ValueError as e:
+            hailo_logger.error(str(e))
+            sys.exit(1)

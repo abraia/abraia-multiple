@@ -86,20 +86,6 @@ apps:
       - "with_batch_size_2"
       - "pipeline_disable_sync"
 
-  depth:
-    name: "Depth Estimation Pipeline"
-    description: "Depth Estimation Pipeline"
-    module: "hailo_apps.python.pipeline_apps.depth.depth"
-    script: "hailo_apps/python/pipeline_apps/depth/depth.py"
-    cli: "hailo-depth"
-    default_test_suites:
-      - "basic_show_fps"
-      - "basic_input_video"
-      - "basic_input_usb"
-      - "input_video_with_hef"
-    extra_test_suites:
-      - "pipeline_disable_callback"
-
   tiling:
     name: "Tiling Pipeline"
     description: "Tiling Pipeline"
@@ -116,21 +102,6 @@ apps:
       - "tiling_tiles_2x2"
       - "tiling_multi_scale"
       - "with_labels_json"
-
-  paddle_ocr:
-    name: "Paddle OCR Pipeline"
-    description: "Paddle OCR Pipeline (multi-model: ocr_det + ocr)"
-    module: "hailo_apps.python.pipeline_apps.paddle_ocr.paddle_ocr"
-    script: "hailo_apps/python/pipeline_apps/paddle_ocr/paddle_ocr.py"
-    cli: "hailo-ocr"
-    # Multi-model app: test framework auto-detects and passes all HEF paths
-    default_test_suites:
-      - "basic_show_fps"
-      - "basic_input_video"
-      - "input_video_with_hef"
-      - "basic_input_usb"
-    extra_test_suites:
-      - "pipeline_disable_sync"
 
   clip:
     name: "CLIP Pipeline"
@@ -222,17 +193,6 @@ apps:
       - "basic_image_smoke"
       - "basic_show_fps"
       - "input_video_with_hef"
-    extra_test_suites: []
-
-  paddle_ocr_standalone:
-    name: "Paddle OCR Standalone"
-    description: "Standalone Paddle OCR app (multi-model)"
-    module: "hailo_apps.python.standalone_apps.paddle_ocr.paddle_ocr"
-    script: "hailo_apps/python/standalone_apps/paddle_ocr/paddle_ocr.py"
-    cli: ""
-    default_test_suites:
-      - "basic_image_smoke"
-      - "basic_show_fps"
     extra_test_suites: []
 
 # Test suites with flag combinations (aligned with FLAG_COMBINATIONS.md)
@@ -619,7 +579,6 @@ resources:
     - name: "example.mp4"
     - name: "example_640.mp4"
     - name: "face_recognition.mp4"
-    - name: "ocr.mp4"
     - name: "tiling_visdrone_720p.mp4"
     - name: "barcode.mp4"
 
@@ -628,8 +587,6 @@ resources:
     - name: "zidane.jpg"
     - name: "bus.jpg"
     - name: "input_image.png"
-    - name: "ocr_img1.png"
-    - name: "ocr_img2.png"
 
   json_files:
     - name: "hailo_4_classes.json"
@@ -649,9 +606,7 @@ test_run_combinations:
       - face_recognition
       - instance_segmentation
       - pose_estimation
-      - depth
       - tiling
-      - paddle_ocr
       - clip
       - retrain
       - lane_detection_standalone
@@ -669,9 +624,7 @@ test_run_combinations:
       - face_recognition
       - instance_segmentation
       - pose_estimation
-      - depth
       - tiling
-      - paddle_ocr
       - clip
       - retrain
       - lane_detection_standalone
@@ -689,9 +642,7 @@ test_run_combinations:
       - face_recognition
       - instance_segmentation
       - pose_estimation
-      - depth
       - tiling
-      - paddle_ocr
       - clip
       - retrain
       - lane_detection_standalone

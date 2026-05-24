@@ -94,7 +94,6 @@ DEFAULT_RESOURCES_CONFIG_PATH = _get_config_path("resources_config.yaml")
 
 # Symlink, dotenv, local resources defaults
 DEFAULT_RESOURCES_SYMLINK_PATH = str(REPO_ROOT / "resources")  # e.g. created by post-install
-DEFAULT_DOTENV_PATH = "/usr/local/hailo/resources/.env"  # your env file lives here
 DEFAULT_LOCAL_RESOURCES_PATH = _get_local_resources_path()  # bundled GIFs, JSON, etc.
 
 # Supported config options (used for validation in config_utils.py)
@@ -118,18 +117,6 @@ TAPPAS_POSTPROC_PATH_KEY = "tappas_postproc_path"
 HAILO_APPS_PATH_KEY = "hailo_apps_path"
 HAILO_LOG_LEVEL_KEY = "HAILO_LOG_LEVEL"
 
-# Environment variable groups
-DIC_CONFIG_VARIANTS = [
-    HAILORT_VERSION_KEY,
-    TAPPAS_VERSION_KEY,
-    MODEL_ZOO_VERSION_KEY,
-    HOST_ARCH_KEY,
-    HAILO_ARCH_KEY,
-    RESOURCES_PATH_KEY,
-    VIRTUAL_ENV_NAME_KEY,
-    TAPPAS_POSTPROC_PATH_KEY,
-]
-
 # Default config values
 HAILORT_VERSION_DEFAULT = AUTO_DETECT
 TAPPAS_VERSION_DEFAULT = AUTO_DETECT
@@ -151,13 +138,6 @@ RESOURCES_SO_DIR_NAME = "so"
 RESOURCES_PHOTOS_DIR_NAME = "images"  # Changed from "photos" to match actual directory name
 RESOURCES_JSON_DIR_NAME = "json"
 RESOURCES_NPY_DIR_NAME = "npy"
-
-# Depth pipeline defaults
-DEPTH_APP_TITLE = "Hailo Depth App"
-DEPTH_PIPELINE = "depth"
-DEPTH_POSTPROCESS_SO_FILENAME = "libdepth_postprocess.so"
-DEPTH_POSTPROCESS_FUNCTION = "filter_scdepth"
-DEPTH_MODEL_NAME = "scdepthv3"
 
 # Simple detection pipeline defaults
 SIMPLE_DETECTION_APP_TITLE = "Hailo Simple Detection App"
@@ -338,16 +318,5 @@ TTS_NOISE_SCALE = 0.6  # Voice variability (lower is more consistent)
 TTS_W_SCALE = 0.6  # Pronunciation variability (lower is more consistent)
 LLM_PROMPT_PREFIX = "Respond in up to three sentences. "
 TEMP_WAV_DIR = "/tmp"
-
-# OCR pipeline defaults
-PADDLE_OCR_PIPELINE = "paddle_ocr"
-OCR_APP_TITLE = "Hailo OCR App"
-OCR_DETECTION_MODEL_NAME = "ocr_det"
-OCR_RECOGNITION_MODEL_NAME = "ocr"
-OCR_POSTPROCESS_SO_FILENAME = "libocr_postprocess.so"
-OCR_DETECTION_POSTPROCESS_FUNCTION = "paddleocr_det"
-OCR_RECOGNITION_POSTPROCESS_FUNCTION = "paddleocr_recognize"
-OCR_CROPPER_FUNCTION = "crop_text_regions"
-OCR_VIDEO_NAME = "ocr.mp4"
 
 DEFAULT_COCO_LABELS_PATH = str(Path(__file__).parent / "coco.txt")

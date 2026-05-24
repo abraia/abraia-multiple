@@ -1,5 +1,4 @@
 from __future__ import annotations
-#!/usr/bin/env python3
 """
 Resource Download Manager for Hailo Apps Infrastructure.
 
@@ -27,15 +26,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-import yaml
-
 from .hailo_logger import get_logger
 
 hailo_logger = get_logger(__name__)
 
 from .config_manager import get_images_for_app, get_videos_for_app, _load_yaml as load_config
 
-from .core import load_environment
 from .defines import (
     DEFAULT_RESOURCES_CONFIG_PATH,
     HAILO8_ARCH,
@@ -740,44 +736,7 @@ class ResourceDownloader:
             name=npy_name
         )
         self._tasks.add(task)
-    
-    def _add_npy_task(self, npy_entry):
-        """Add a NPY download task from a NPY entry."""
-        if is_none_value(npy_entry):
-            return
 
-        if isinstance(npy_entry, dict):
-            npy_name = npy_entry.get("name")
-            source = npy_entry.get("source")
-            npy_url = npy_entry.get("url")
-
-            if not npy_name:
-                hailo_logger.warning(f"NPY entry missing name: {npy_entry}")
-                return
-
-            dest = self.resource_root / RESOURCES_NPY_DIR_NAME / npy_name
-
-            if source == "s3":
-                url = npy_url or f"{S3_RESOURCES_BASE_URL}/npy/{npy_name}"
-            elif npy_url:
-                url = npy_url
-            else:
-                hailo_logger.warning(f"NPY '{npy_name}' missing URL and source is not 's3'")
-                return
-        elif isinstance(npy_entry, str) and npy_entry.startswith(("http://", "https://")):
-            url = npy_entry
-            npy_name = Path(npy_entry).name
-            dest = self.resource_root / RESOURCES_NPY_DIR_NAME / npy_name
-        else:
-            return
-
-        task = DownloadTask(
-            url=url,
-            dest_path=dest,
-            resource_type="npy",
-            name=npy_name
-        )
-        self._tasks.add(task)
     # -------------------------------------------------------------------------
     # High-Level Collection Methods
     # -------------------------------------------------------------------------
@@ -842,18 +801,11 @@ class ResourceDownloader:
         if "json" in self.config:
             for json_entry in self.config["json"]:
                 self._add_json_task(json_entry)
+
     def collect_all_npy_files(self):
         """Collect all NPY download tasks from top-level npy section."""
         if "npy" in self.config:
             for npy_entry in self.config["npy"]:
-                self._add_npy_task(npy_entry)
-
-    def collect_npy_by_tag(self, tag: str):
-        """Collect NPY download tasks filtered by tag."""
-        if "npy" not in self.config:
-            return
-        for npy_entry in self.config["npy"]:
-            if isinstance(npy_entry, dict) and tag in npy_entry.get("tag", []):
                 self._add_npy_task(npy_entry)
 
     def collect_models_for_app(
@@ -965,32 +917,6 @@ class ResourceDownloader:
         """Collect a specific ONNX sidecar artifact for a specific app."""
         self._add_onnx_task(onnx_name)
 
-    def collect_specific_model(self, model_name: str):
-        """Collect a specific model by name."""
-        for app_name, app_config in self.config.items():
-            if not isinstance(app_config, dict) or "models" not in app_config:
-                continue
-            
-            models_config = app_config["models"]
-            if self.hailo_arch not in models_config:
-                continue
-            
-            arch_models = models_config[self.hailo_arch]
-            
-            # Check default model
-            if "default" in arch_models:
-                default_model = arch_models["default"]
-                if self._find_and_add_model_by_name(default_model, model_name):
-                    return
-            
-            # Check extra models
-            if "extra" in arch_models:
-                for model_entry in arch_models["extra"]:
-                    if self._find_and_add_model_by_name(model_entry, model_name):
-                        return
-        
-        hailo_logger.warning(f"Model '{model_name}' not found for architecture {self.hailo_arch}")
-    
     def _find_and_add_model_by_name(self, model_entry, target_name: str) -> bool:
         """Find and add a model if it matches the target name. Returns True if found."""
         if is_none_value(model_entry):
@@ -1173,89 +1099,6 @@ class ResourceDownloader:
             self.download_config.show_progress = original_show_progress
         
         return results
-    
-    def clear_tasks(self):
-        """Clear all collected tasks."""
-        self._tasks.clear()
-        self._results.clear()
-    
-    @property
-    def tasks(self) -> set[DownloadTask]:
-        """Get current download tasks."""
-        return self._tasks
-    
-    @property
-    def results(self) -> list[DownloadResult]:
-        """Get download results."""
-        return self._results
-
-
-# =============================================================================
-# Legacy API Compatibility
-# =============================================================================
-
-def download_file(url: str, dest_path: Path, show_progress: bool = True):
-    """Legacy function: Download a file from URL to destination path."""
-    config = DownloadConfig(show_progress=show_progress)
-    task = DownloadTask(
-        url=url,
-        dest_path=Path(dest_path),
-        resource_type="unknown",
-        name=Path(dest_path).name
-    )
-    
-    # Create a minimal downloader just for this download
-    downloader = ResourceDownloader(
-        config={},
-        hailo_arch=HAILO8_ARCH,
-        resource_root=Path(dest_path).parent,
-        download_config=config
-    )
-    result = downloader._download_file_with_retry(task)
-    
-    if not result.success:
-        raise RuntimeError(result.message)
-
-
-def download_group_resources(
-    group_name: str,
-    resource_config_path: str | None = None,
-    arch: str | None = None
-):
-    """Legacy function: Download resources for a specific group/app."""
-    cfg_path = Path(resource_config_path or DEFAULT_RESOURCES_CONFIG_PATH)
-    if not cfg_path.is_file():
-        hailo_logger.error(f"Config file not found at {cfg_path}")
-        return
-    
-    config = load_config(cfg_path)
-    
-    hailo_arch = arch or detect_hailo_arch()
-    if not hailo_arch:
-        hailo_logger.error("Could not detect Hailo architecture.")
-        print(
-            "\n❌ ERROR: Could not detect Hailo device architecture.\n"
-            "   Please ensure:\n"
-            "   - A Hailo device is connected\n"
-            "   - The HailoRT driver is installed and loaded\n"
-            "   - You have permissions to access the device\n"
-            "\n   Alternatively, specify the architecture manually with --arch (e.g., --arch hailo8)\n",
-            file=sys.stderr
-        )
-        sys.exit(1)
-    
-    hailo_logger.info(f"Using Hailo architecture: {hailo_arch}")
-    
-    resource_root = Path(RESOURCES_ROOT_PATH_DEFAULT)
-    
-    downloader = ResourceDownloader(
-        config=config,
-        hailo_arch=hailo_arch,
-        resource_root=resource_root
-    )
-    
-    downloader.collect_group_resources(group_name)
-    downloader.execute(parallel=True)
 
 
 def _create_downloader(
@@ -1279,9 +1122,7 @@ def _create_downloader(
         ResourceDownloader instance on success, None if configuration loading fails.
     """
 
-    # ------------------------------------------------------------
     # Resolve and validate resources configuration path
-    # ------------------------------------------------------------
     cfg_path = Path(resource_config_path or DEFAULT_RESOURCES_CONFIG_PATH)
     if not cfg_path.is_file():
         hailo_logger.error(f"Config file not found at {cfg_path}")
@@ -1291,9 +1132,7 @@ def _create_downloader(
     config = load_config(cfg_path)
     hailo_logger.info(f"Using resource config from: {cfg_path}")
 
-    # ------------------------------------------------------------
     # Detect or validate Hailo architecture
-    # ------------------------------------------------------------
     hailo_arch = arch or detect_hailo_arch()
     if not hailo_arch:
         hailo_logger.error("Could not detect Hailo architecture.")
@@ -1310,18 +1149,14 @@ def _create_downloader(
 
     hailo_logger.info(f"Using Hailo architecture: {hailo_arch}")
 
-    # ------------------------------------------------------------
     # Build download configuration
-    # ------------------------------------------------------------
     download_config = DownloadConfig(
         dry_run=dry_run,              # Preview-only mode (no actual downloads)
         force_redownload=force,       # Re-download even if files already exist
         include_gen_ai=include_gen_ai # Allow gen-ai resources/models
     )
 
-    # ------------------------------------------------------------
     # Create and return the downloader instance
-    # ------------------------------------------------------------
     return ResourceDownloader(
         config=config,
         hailo_arch=hailo_arch,
@@ -1358,11 +1193,9 @@ def download_resources(
         include_gen_ai: If True, include gen-ai models in downloads
     """
     
-    # ------------------------------------------------------------
     # Targeted mode:
     # Download exactly ONE resource (model OR image OR video).
     # This mode is strict and REQUIRES a valid group/app name.
-    # ------------------------------------------------------------
     if resource_name:
         # resource_type must be provided
         if not resource_type:
@@ -1412,18 +1245,23 @@ def download_resources(
         downloader.execute(parallel=parallel)
         return
 
-    # ------------------------------------------------------------
     # Group mode:
     # Download ALL resources for a specific group/app.
-    # ------------------------------------------------------------
     if group and group.lower() != "default":
-        download_group_resources(group, resource_config_path, arch)
+        downloader = _create_downloader(
+            resource_config_path,
+            arch,
+            dry_run,
+            force,
+            include_gen_ai
+        )
+        if downloader:
+            downloader.collect_group_resources(group)
+            downloader.execute(parallel=parallel)
         return
 
-    # ------------------------------------------------------------
     # Bootstrap / default mode:
     # Download shared resources and default (or all) models.
-    # ------------------------------------------------------------
     downloader = _create_downloader(
         resource_config_path,
         arch,
