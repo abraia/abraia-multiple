@@ -37,7 +37,6 @@ logger = get_logger(__name__)
 DEFAULT_OPTIONS = {
     "input": None,
     "hef_path": None,
-    "list_models": False,
     "batch_size": 1,
     "show_fps": False,
     "frame_rate": None,

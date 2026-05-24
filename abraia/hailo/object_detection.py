@@ -38,7 +38,6 @@ logger = get_logger(__name__)
 DEFAULT_OPTIONS = {
     "input": None,
     "hef_path": None,
-    "list_models": False,
     "batch_size": 1,
     "show_fps": False,
     "frame_rate": None,
@@ -234,8 +233,8 @@ def main(**kwargs) -> None:
     """
     options = DEFAULT_OPTIONS.copy()
     options.update(kwargs)
-
     args = SimpleNamespace(**options)
+    
     init_logging()
     handle_and_resolve_args(args, APP_NAME)
 

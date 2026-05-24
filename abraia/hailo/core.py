@@ -156,83 +156,6 @@ def _detect_app_type_from_caller() -> str | None:
     return None
 
 
-def list_models_for_app(app_name: str, arch: str | None = None, app_type: str | None = None) -> None:
-    """
-    List all available models for an application and exit.
-
-    Args:
-        app_name: The app name from resources config (e.g., 'detection', 'vlm_chat')
-        arch: Hailo architecture. If None, auto-detects.
-        app_type: Filter by app type ("pipeline" or "standalone"). 
-                  If None, auto-detects from caller's location.
-    """
-    from .config_manager import (
-        get_model_names,
-        get_supported_architectures,
-        is_gen_ai_app,
-    )
-    
-    # Auto-detect app_type if not provided
-    if app_type is None:
-        app_type = _detect_app_type_from_caller()
-        if app_type:
-            hailo_logger.debug(f"Auto-detected app_type: {app_type}")
-
-    # Detect architecture if not provided
-    if arch is None:
-        arch = os.getenv(HAILO_ARCH_KEY) or detect_hailo_arch()
-        if not arch:
-            print(
-                "\n❌ ERROR: Could not detect Hailo device architecture.\n"
-                "   Please ensure:\n"
-                "   - A Hailo device is connected\n"
-                "   - The HailoRT driver is installed and loaded\n"
-                "   - You have permissions to access the device\n"
-                "\n   Alternatively, specify the architecture manually with --arch (e.g., --arch hailo8)\n",
-                file=sys.stderr
-            )
-            sys.exit(1)
-
-    # Build header with app_type info
-    app_type_display = f" [{app_type}]" if app_type else ""
-    print(f"\n{'=' * 60}")
-    print(f"Available models for: {app_name} ({arch}){app_type_display}")
-    print(f"{'=' * 60}")
-
-    # Check if architecture is supported
-    supported_archs = get_supported_architectures(app_name)
-    if arch not in supported_archs:
-        if is_gen_ai_app(app_name):
-            print(f"\n⚠️  This is a Gen-AI app, only available on: {', '.join(supported_archs)}")
-        else:
-            print(f"\n⚠️  Architecture '{arch}' not supported. Available: {', '.join(supported_archs)}")
-        print()
-        sys.exit(0)
-
-    # Get models (filtered by app_type if detected/provided)
-    default_models = get_model_names(app_name, arch, tier="default", app_type=app_type)
-    extra_models = get_model_names(app_name, arch, tier="extra", app_type=app_type)
-
-    if default_models:
-        print("\n📦 Default Models:")
-        for model in default_models:
-            print(f"   • {model}")
-    else:
-        print("\n📦 Default Models: None")
-
-    if extra_models:
-        print("\n📚 Extra Models:")
-        for model in extra_models:
-            print(f"   • {model}")
-
-    print(f"\n{'=' * 60}")
-    print(f"Total: {len(default_models)} default, {len(extra_models)} extra")
-    print("\nUsage: --hef-path <model_name>")
-    print("       Model will be auto-downloaded if not found locally.")
-    print()
-    sys.exit(0)
-
-
 def resolve_hef_path(
     hef_path: str | None,
     app_name: str,
@@ -385,30 +308,6 @@ def _download_resource(resource_name: str, resource_type: str, app_name: str, ar
         hailo_logger.error(f"Failed to download resource: {e}")
         return False
 
-
-def handle_list_models_flag(args, app_name: str, app_type: str | None = None) -> None:
-    """
-    Handle the --list-models flag if present.
-
-    Args:
-        args: Parsed arguments (or parser to parse)
-        app_name: App name from resources config
-        app_type: App type ("pipeline" or "standalone"). 
-                  If None, will be auto-detected from caller's location.
-    """
-    # Parse args if it's a parser
-    if hasattr(args, 'parse_known_args'):
-        options, _ = args.parse_known_args()
-    else:
-        options = args
-
-    # Check if --list-models flag is set
-    if getattr(options, 'list_models', False):
-        arch = getattr(options, 'arch', None)
-        # Auto-detect app_type if not explicitly provided
-        if app_type is None:
-            app_type = _detect_app_type_from_caller()
-        list_models_for_app(app_name, arch, app_type)
 
 def app_requires_multiple_models(app_name: str, arch: str) -> bool:
     models = get_default_models(app_name, arch)
@@ -785,12 +684,7 @@ def handle_and_resolve_args(args, APP_NAME: str, multi_hef: bool = False, using_
     # Auto-detect app_type from caller's location
     app_type = _detect_app_type_from_caller()
 
-    #handle --list-models and exit
-    if args.list_models:
-        list_models_for_app(APP_NAME, app_type=app_type)
-        sys.exit(0)
-
-    elif multi_hef:
+    if multi_hef:
         # Resolve multiple HEF paths
         try:
             models = resolve_hef_paths(
