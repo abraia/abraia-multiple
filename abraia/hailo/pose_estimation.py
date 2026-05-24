@@ -14,10 +14,9 @@ from types import SimpleNamespace
 
 
 
-from .hailo_logger import get_logger, init_logging, level_from_args
+from .hailo_logger import get_logger, init_logging
 from .hailo_inference import HailoInfer
 from .core import handle_and_resolve_args
-from .parser import get_standalone_parser
 from .toolbox import (
     InputContext,
     VisualizationSettings,
@@ -49,30 +48,6 @@ DEFAULT_OPTIONS = {
     "output_dir": None,
     "save_output": False,
 }
-
-
-def parse_args():
-    """
-    Initialize argument parser for the script.
-
-    Returns:
-        argparse.Namespace: Parsed arguments.
-    """
-    parser = get_standalone_parser()
-    parser.description = "Pose estimation using Hailo inference with YOLOv8-pose models."
-
-    # App-specific arguments
-    parser.add_argument(
-        "--class-num",
-        "-cn",
-        type=int,
-        default=1,
-        help="The number of classes the model is trained on. Defaults to 1.",
-    )
-
-    args = parser.parse_args()
-    return args
-
 
 def inference_callback(
         completion_info,
@@ -263,14 +238,10 @@ def main(**kwargs) -> None:
         **kwargs: Programmatic arguments to override defaults.
     """
     options = DEFAULT_OPTIONS.copy()
-    if not kwargs and len(sys.argv) > 1:
-        args = parse_args()
-        options.update(vars(args))
-    else:
-        options.update(kwargs)
-
+    options.update(kwargs)
     args = SimpleNamespace(**options)
-    init_logging(level=level_from_args(args))
+
+    init_logging()
     handle_and_resolve_args(args, APP_NAME)
 
     input_context = InputContext(
@@ -296,7 +267,6 @@ def main(**kwargs) -> None:
         visualization_settings=visualization_settings,
         show_fps=args.show_fps,
     )
-
 
 
 if __name__ == "__main__":

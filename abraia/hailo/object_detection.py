@@ -11,7 +11,6 @@ from functools import partial
 from types import SimpleNamespace
 from pathlib import Path
 
-from .parser import get_standalone_parser
 from .core import handle_and_resolve_args
 from .hailo_logger import get_logger, init_logging
 from .hailo_inference import HailoInfer
@@ -52,52 +51,6 @@ DEFAULT_OPTIONS = {
     "output_dir": None,
     "save_output": False,
 }
-
-def parse_args():
-    """
-    Parse command-line arguments for the detection application.
-
-    Returns:
-        argparse.Namespace: Parsed CLI arguments.
-    """
-    parser = get_standalone_parser()
-    parser.description = "Run object detection with optional tracking and performance measurement."
-
-    parser.add_argument(
-        "--track",
-        action="store_true",
-        help=(
-            "Enable object tracking for detections. "
-            "When enabled, detected objects will be tracked across frames using a tracking algorithm "
-            "(e.g., ByteTrack). This assigns consistent IDs to objects over time, enabling temporal analysis, "
-            "trajectory visualization, and multi-frame association. Useful for video processing applications."
-        ),
-    )
-
-    parser.add_argument(
-        "--labels",
-        "-l",
-        type=str,
-        default=None,
-        help=(
-            "Path to a text file containing class labels, one per line. "
-            "Used for mapping model output indices to human-readable class names. "
-            "If not specified, default labels for the model will be used (e.g., COCO labels for detection models)."
-        ),
-    )
-
-    parser.add_argument(
-        "--draw-trail",
-        action="store_true",
-        help=(
-            "[Tracking only] Draw motion trails of tracked objects.\n"
-            "Uses the last 30 positions from the tracker history."
-        )
-    )
-
-    args = parser.parse_args()
-    return args
-
 
 def run_inference_pipeline(
     net,
@@ -274,13 +227,13 @@ def main(**kwargs) -> None:
 
     Args:
         **kwargs: Programmatic arguments to override defaults.
+
+    Example:
+        from abraia.hailo import object_detection
+        object_detection.main(input='video.mp4', track=True)
     """
     options = DEFAULT_OPTIONS.copy()
-    if not kwargs and len(sys.argv) > 1:
-        args = parse_args()
-        options.update(vars(args))
-    else:
-        options.update(kwargs)
+    options.update(kwargs)
 
     args = SimpleNamespace(**options)
     init_logging()

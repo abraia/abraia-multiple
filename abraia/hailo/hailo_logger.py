@@ -266,45 +266,6 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def add_logging_cli_args(parser: Any) -> None:
-    """Add --log-level/--debug/--log-file flags to an argparse parser.
-
-    Typical usage:
-
-        from hailo_logger import add_logging_cli_args, init_logging, level_from_args
-
-        parser = argparse.ArgumentParser()
-        add_logging_cli_args(parser)
-        args = parser.parse_args()
-        init_logging(level=level_from_args(args), log_file=args.log_file)
-    """
-    parser.add_argument(
-        "--log-level",
-        default=os.getenv("HAILO_LOG_LEVEL", "INFO"),
-        choices=[k.lower() for k in _LEVELS.keys()],
-        help="Logging level (default: %(default)s or $HAILO_LOG_LEVEL).",
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Shortcut for DEBUG log level (overrides --log-level).",
-    )
-    parser.add_argument(
-        "--log-file",
-        default=os.getenv("HAILO_LOG_FILE"),
-        help="Optional log file path (also respects $HAILO_LOG_FILE).",
-    )
-
-
-def level_from_args(args: Any) -> str:
-    """Resolve level string from argparse args."""
-    return (
-        "DEBUG"
-        if getattr(args, "debug", False)
-        else str(getattr(args, "log_level", "INFO")).upper()
-    )
-
-
 # Auto-configuration: set HAILO_LOG_AUTOCONFIG=1 to call init_logging() at import time.
 # Level comes from HAILO_LOG_LEVEL env var (defaults to INFO).
 # Noisy loggers are NOT suppressed when level is set via env var.

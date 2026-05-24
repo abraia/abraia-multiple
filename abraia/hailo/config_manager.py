@@ -35,8 +35,6 @@ CLI Usage:
 
 from __future__ import annotations
 
-import argparse
-import sys
 import yaml
 from dataclasses import dataclass
 from functools import lru_cache
@@ -1578,71 +1576,3 @@ def _test_all_functions():
     else:
         print("\n  🎉 All functions passed!")
         return True
-
-
-def main():
-
-    """CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Hailo Apps Configuration Manager",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python -m hailo_apps.config.config_manager --dry-run
-  python -m hailo_apps.config.config_manager --test-all
-  python -m hailo_apps.config.config_manager --list-apps
-  python -m hailo_apps.config.config_manager --show-models detection hailo8
-  python -m hailo_apps.config.config_manager --show-paths
-        """,
-    )
-
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Validate all configuration files and show summary",
-    )
-    parser.add_argument(
-        "--list-apps", action="store_true", help="List all available applications"
-    )
-    parser.add_argument(
-        "--show-models",
-        nargs=2,
-        metavar=("APP", "ARCH"),
-        help="Show models for an app and architecture",
-    )
-    parser.add_argument(
-        "--show-paths",
-        action="store_true",
-        help="Show configuration file paths",
-    )
-    parser.add_argument(
-        "--test-all",
-        action="store_true",
-        help="Test all API functions and print their outputs",
-    )
-
-    args = parser.parse_args()
-
-    if args.dry_run:
-        success = _dry_run()
-        sys.exit(0 if success else 1)
-    elif args.test_all:
-        success = _test_all_functions()
-        sys.exit(0 if success else 1)
-    elif args.list_apps:
-        _list_apps()
-    elif args.show_models:
-        _show_models(args.show_models[0], args.show_models[1])
-    elif args.show_paths:
-        _print_header("Configuration File Paths")
-        print(f"  Repo Root: {ConfigPaths.repo_root()}")
-        print(f"  Main Config: {ConfigPaths.main_config()}")
-        print(f"  Resources Config: {ConfigPaths.resources_config()}")
-        print(f"  Test Definition: {ConfigPaths.test_definition_config()}")
-        print(f"  Test Control: {ConfigPaths.test_control_config()}")
-    else:
-        parser.print_help()
-
-
-if __name__ == "__main__":
-    main()

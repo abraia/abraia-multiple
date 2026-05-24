@@ -63,8 +63,7 @@ from .defines import (
     MAX_ASYNC_INFER_JOBS
 )
 from .core import handle_and_resolve_args
-from .parser import get_standalone_parser
-from .hailo_logger import get_logger, init_logging, level_from_args
+from .hailo_logger import get_logger, init_logging
 
 
 APP_NAME = Path(__file__).stem
@@ -86,56 +85,6 @@ DEFAULT_OPTIONS = {
     "output_dir": None,
     "save_output": False,
 }
-
-
-def parse_args():
-    """
-    Initialize argument parser for the script.
-    Returns:
-        argparse.Namespace: Parsed arguments.
-    """
-    parser = get_standalone_parser()
-    parser.description = "Instance segmentation supporting Yolov5, Yolov8, and FastSAM architectures."
-
-    # App-specific argument: model architecture type
-    parser.add_argument(
-        "--model-type",
-        "-m",
-        type=str,
-        choices=["v5", "v8", "fast"],
-        default="v5",
-        help=(
-            "The architecture type of the segmentation model.\n"
-            "Options: 'v5' (YOLOv5-seg), 'v8' (YOLOv8-seg), 'fast' (FastSAM).\n"
-            "Defaults to 'v5'."
-        ),
-    )
-
-    parser.add_argument(
-        "--track",
-        action="store_true",
-        help=(
-            "Enable object tracking for detections. "
-            "When enabled, detected objects will be tracked across frames using a tracking algorithm "
-            "(e.g., ByteTrack). This assigns consistent IDs to objects over time, enabling temporal analysis, "
-            "trajectory visualization, and multi-frame association. Useful for video processing applications."
-        ),
-    )
-
-    parser.add_argument(
-        "--labels",
-        "-l",
-        type=str,
-        default=None,
-        help=(
-            "Path to a text file containing class labels, one per line. "
-            "Used for mapping model output indices to human-readable class names. "
-            "If not specified, default labels for the model will be used (e.g., COCO labels for detection models)."
-        ),
-    )
-
-    args = parser.parse_args()
-    return args
 
 def inference_callback(
         completion_info,
@@ -324,14 +273,10 @@ def main(**kwargs) -> None:
         **kwargs: Programmatic arguments to override defaults.
     """
     options = DEFAULT_OPTIONS.copy()
-    if not kwargs and len(sys.argv) > 1:
-        args = parse_args()
-        options.update(vars(args))
-    else:
-        options.update(kwargs)
+    options.update(kwargs)
 
     args = SimpleNamespace(**options)
-    init_logging(level=level_from_args(args))
+    init_logging()
     handle_and_resolve_args(args, APP_NAME)
 
     input_context = InputContext(

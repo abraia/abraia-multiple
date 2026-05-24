@@ -486,6 +486,7 @@ def _get_usb_video_devices_windows():
     hailo_logger.debug(f"USB video devices found on Windows: {usb_video_devices}")
     return usb_video_devices
 
+
 def main():
     hailo_logger.debug("Running main() to check for USB cameras.")
     usb_video_devices = get_usb_video_devices()

@@ -1,5 +1,5 @@
 from __future__ import annotations
-"""Core helpers: arch detection, parser, buffer utils, model resolution."""
+"""Core helpers: arch detection, buffer utils, model resolution."""
 
 import os
 import queue
@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import Optional, Tuple
 from dataclasses import dataclass
 from dotenv import load_dotenv
-from . import parser as common_parser
-import argparse
 
 from .defines import (
     DEFAULT_DOTENV_PATH,
@@ -73,31 +71,6 @@ def load_environment(env_file=DEFAULT_DOTENV_PATH, required_vars=None) -> bool:
         return False
     hailo_logger.info("All required environment variables loaded successfully.")
     return True
-
-
-def get_base_parser():
-    """Proxy to the shared base parser implementation."""
-    return common_parser.get_base_parser()
-
-
-def get_pipeline_parser():
-    """Proxy to the shared pipeline parser implementation."""
-    return common_parser.get_pipeline_parser()
-
-
-def get_standalone_parser():
-    """Proxy to the shared standalone parser implementation."""
-    return common_parser.get_standalone_parser()
-
-
-def get_default_parser():
-    """Legacy proxy preserved for backward compatibility."""
-    return common_parser.get_default_parser()
-
-
-def configure_multi_model_hef_path(parser):
-    """Proxy to configure --hef-path for multi-model apps."""
-    return common_parser.configure_multi_model_hef_path(parser)
 
 
 def get_resource_path(
@@ -790,7 +763,7 @@ def _map_app_to_resource_group(app_name: str) -> str:
 # =============================================================================
 # Handle and Resolve Common Args
 # =============================================================================
-def handle_and_resolve_args(args: argparse.Namespace, APP_NAME: str, multi_hef: bool = False, using_onnx_pp=False) -> None:
+def handle_and_resolve_args(args, APP_NAME: str, multi_hef: bool = False, using_onnx_pp=False) -> None:
     """
     Handle common CLI argument logic for Hailo applications.
 
@@ -805,7 +778,7 @@ def handle_and_resolve_args(args: argparse.Namespace, APP_NAME: str, multi_hef: 
     - This helper is intended mainly for standalone applications.
 
     Args:
-        args: Parsed argparse.Namespace from the application
+        args: Parsed args from the application
         APP_NAME: The application name for model/input resolution
         using_onnx_pp: Whether the app uses ONNX postprocessing
     """
