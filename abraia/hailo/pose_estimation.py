@@ -23,9 +23,7 @@ from .toolbox import (
     init_input_source,
     preprocess,
     visualize,
-    FrameRateTracker,
-    stop_after_timeout
-
+    FrameRateTracker
 )
 from .defines import (
     MAX_INPUT_QUEUE_SIZE,
@@ -149,7 +147,6 @@ def run_inference_pipeline(
     input_context: InputContext,
     visualization_settings: VisualizationSettings,
     show_fps: bool = False,
-    time_to_run: int | None = None,
 ) -> None:
     """
     Initialize queues, inference instance, and run the pipeline.
@@ -160,7 +157,6 @@ def run_inference_pipeline(
         input_context (InputContext): Context containing input source details.
         visualization_settings (VisualizationSettings): Settings for visualization.
         show_fps (bool): If True, display real-time FPS on the output.
-        time_to_run (int | None): Optional duration to run the pipeline.
 
     Returns:
         None
@@ -218,15 +214,6 @@ def run_inference_pipeline(
     if show_fps:
         fps_tracker.start()
 
-    if time_to_run is not None:
-        timer_thread = threading.Thread(
-            target=stop_after_timeout,
-            args=(stop_event, time_to_run),
-            name="timer-thread",
-            daemon=True,
-        )
-        timer_thread.start()
-
     try:
         visualize(
             input_context,
@@ -280,7 +267,6 @@ def main() -> None:
         input_context=input_context,
         visualization_settings=visualization_settings,
         show_fps=args.show_fps,
-        time_to_run=args.time_to_run
     )
 
 

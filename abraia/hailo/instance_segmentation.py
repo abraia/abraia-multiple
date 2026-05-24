@@ -50,7 +50,7 @@ import collections
 from .instance_segmentation_post_process import inference_result_handler
 
 
-from .byte_tracker import BYTETracker
+from .tracker.byte_tracker import BYTETracker
 from .hailo_inference import HailoInfer
 from .toolbox import (
     InputContext,
@@ -60,9 +60,7 @@ from .toolbox import (
     get_labels,
     visualize,
     preprocess,
-    FrameRateTracker,
-    stop_after_timeout
-
+    FrameRateTracker
 )
 from .defines import (
     MAX_INPUT_QUEUE_SIZE,
@@ -166,7 +164,6 @@ def run_inference_pipeline(
     visualization_settings: VisualizationSettings,
     enable_tracking=False,
     show_fps=False,
-    time_to_run: int | None = None,
 ) -> None:
     """
     Initialize queues, HailoAsyncInference instance, and run the inference.
@@ -231,15 +228,6 @@ def run_inference_pipeline(
 
     if show_fps:
         fps_tracker.start()
-
-    if time_to_run is not None:
-        timer_thread = threading.Thread(
-            target=stop_after_timeout,
-            args=(stop_event, time_to_run),
-            name="timer-thread",
-            daemon=True,
-        )
-        timer_thread.start()
 
     try:
         visualize(
@@ -346,7 +334,6 @@ def main() -> None:
         visualization_settings=visualization_settings,
         enable_tracking=args.track,
         show_fps=args.show_fps,
-        time_to_run=args.time_to_run
     )
 
 

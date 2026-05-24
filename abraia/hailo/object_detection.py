@@ -11,7 +11,7 @@ from functools import partial
 from types import SimpleNamespace
 from pathlib import Path
 
-from .byte_tracker import BYTETracker
+from .tracker.byte_tracker import BYTETracker
 from .hailo_inference import HailoInfer
 from .toolbox import (
     InputContext,
@@ -21,8 +21,7 @@ from .toolbox import (
     load_json_file,
     preprocess,
     visualize,
-    FrameRateTracker,
-    stop_after_timeout
+    FrameRateTracker
 )
 from .defines import (
     MAX_INPUT_QUEUE_SIZE,
@@ -95,7 +94,6 @@ def run_inference_pipeline(
     enable_tracking: bool = False,
     show_fps: bool = False,
     draw_trail: bool = False,
-    time_to_run: int | None = None,
 ) -> None:
     """
     Initialize queues, inference instance, and run the pipeline.
@@ -151,15 +149,6 @@ def run_inference_pipeline(
 
     if show_fps:
         fps_tracker.start()
-
-    if time_to_run is not None:
-        timer_thread = threading.Thread(
-            target=stop_after_timeout,
-            args=(stop_event, time_to_run),
-            name="timer-thread",
-            daemon=True,
-        )
-        timer_thread.start()
 
     try:
         visualize(
@@ -295,7 +284,6 @@ def main() -> None:
         enable_tracking=args.track,
         show_fps=args.show_fps,
         draw_trail=args.draw_trail,
-        time_to_run=args.time_to_run
     )
 
 if __name__ == "__main__":

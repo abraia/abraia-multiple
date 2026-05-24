@@ -384,19 +384,6 @@ def id_to_color(idx):
     return np.random.randint(0, 255, size=3, dtype=np.uint8)
 
 
-def stop_after_timeout(stop_event: threading.Event, timeout_seconds: int) -> None:
-    """
-    Stop the pipeline after the requested timeout.
-
-    Args:
-        stop_event (threading.Event): Global stop signal for the pipeline.
-        timeout_seconds (int): Number of seconds to wait before stopping.
-    """
-    time.sleep(timeout_seconds)
-    if not stop_event.is_set():
-        hailo_logger.info(f"Reached time limit ({timeout_seconds}s). Stopping application.")
-        stop_event.set()
-
 ####################################################################
 # PreProcess of Network Input
 ####################################################################
