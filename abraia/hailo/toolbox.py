@@ -13,40 +13,23 @@ from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 import cv2
 import numpy as np
 
-try:
-    from .defines import (
-        DEFAULT_COCO_LABELS_PATH,
-        IMAGE_EXTENSIONS,
-        VIDEO_SUFFIXES,
-    )
-    from .hailo_logger import get_logger
-    from .camera_utils import (
-        CapProcessingMode,
-        is_stream_url,
-        open_cv_capture,
-        open_rpi_camera,
-        open_usb_camera,
-        get_source_fps,
-        select_cap_processing_mode,
-    )
-    from .installation_utils import is_raspberry_pi
-except ImportError:
-    from .defines import (
-        DEFAULT_COCO_LABELS_PATH,
-        IMAGE_EXTENSIONS,
-        VIDEO_SUFFIXES,
-    )
-    from .hailo_logger import get_logger
-    from .camera_utils import (
-        CapProcessingMode,
-        is_stream_url,
-        open_cv_capture,
-        open_rpi_camera,
-        open_usb_camera,
-        get_source_fps,
-        select_cap_processing_mode,
-    )
-    from .installation_utils import is_raspberry_pi
+from .defines import (
+    DEFAULT_COCO_LABELS_PATH,
+    IMAGE_EXTENSIONS,
+    VIDEO_SUFFIXES,
+)
+from .hailo_logger import get_logger
+from .camera_utils import (
+    CapProcessingMode,
+    is_stream_url,
+    open_cv_capture,
+    open_rpi_camera,
+    open_usb_camera,
+    get_source_fps,
+    select_cap_processing_mode,
+)
+from .installation_utils import is_raspberry_pi
+
 
 hailo_logger = get_logger(__name__)
 
@@ -108,7 +91,6 @@ class VisualizationSettings:
     save_stream_output: bool = False
     output_resolution: Optional[Tuple[int, int]] = None
     side_by_side: bool = False
-    no_display: bool = False
 
 
 
@@ -663,7 +645,7 @@ def visualize(
     Responsibilities:
         • Receive frames and inference outputs from the output_queue
         • Apply the visualization callback
-        • Display frames in an OpenCV window (unless --no-display)
+        • Display frames in an OpenCV window
         • Optionally save output video
         • Support both capture-based pipelines and image-based pipelines
     """
@@ -680,9 +662,8 @@ def visualize(
     # ------------------------------------------------------------
     if cap is not None:
 
-        # Create display window only when display is enabled
-        if not visualization_settings.no_display:
-            cv2.namedWindow("Output", cv2.WINDOW_AUTOSIZE)
+        # Create display window
+        cv2.namedWindow("Output", cv2.WINDOW_AUTOSIZE)
 
         # Determine output resolution
         if visualization_settings.output_resolution is not None:
@@ -771,15 +752,13 @@ def visualize(
             if cap is not None:
 
                 # Display output window
-                if not visualization_settings.no_display:
+                cv2.imshow("Output", frame_to_show)
 
-                    cv2.imshow("Output", frame_to_show)
-
-                    # Allow quitting with 'q'
-                    if (cv2.waitKey(1) & 0xFF) == ord("q"):
-                        if stop_event is not None:
-                            stop_event.set()
-                        continue
+                # Allow quitting with 'q'
+                if (cv2.waitKey(1) & 0xFF) == ord("q"):
+                    if stop_event is not None:
+                        stop_event.set()
+                    continue
 
                 # Save video output if enabled
                 if (
@@ -823,8 +802,7 @@ def visualize(
     if cap is not None:
         cap.release()
 
-    if not visualization_settings.no_display:
-        cv2.destroyAllWindows()
+    cv2.destroyAllWindows()
 
 def resize_frame_for_output(frame: np.ndarray,
                             resolution: Optional[Tuple[int, int]]) -> np.ndarray:

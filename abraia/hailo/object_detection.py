@@ -11,7 +11,9 @@ from functools import partial
 from types import SimpleNamespace
 from pathlib import Path
 
-from .tracker.byte_tracker import BYTETracker
+from .parser import get_standalone_parser
+from .core import handle_and_resolve_args
+from .hailo_logger import get_logger, init_logging
 from .hailo_inference import HailoInfer
 from .toolbox import (
     InputContext,
@@ -28,17 +30,28 @@ from .defines import (
     MAX_OUTPUT_QUEUE_SIZE,
     MAX_ASYNC_INFER_JOBS,
 )
-from .parser import get_standalone_parser
-from .hailo_logger import (
-    get_logger,
-    init_logging,
-    level_from_args,
-)
-from .core import handle_and_resolve_args
+from .tracker.byte_tracker import BYTETracker
 from .object_detection_post_process import inference_result_handler
 
 APP_NAME = Path(__file__).stem
 logger = get_logger(__name__)
+
+DEFAULT_OPTIONS = {
+    "input": None,
+    "hef_path": None,
+    "list_models": False,
+    "batch_size": 1,
+    "show_fps": False,
+    "frame_rate": None,
+    "track": False,
+    "labels": None,
+    "draw_trail": False,
+    "camera_resolution": None,
+    "video_unpaced": False,
+    "output_resolution": None,
+    "output_dir": None,
+    "save_output": False,
+}
 
 def parse_args():
     """
@@ -254,9 +267,23 @@ def inference_callback(
                 }
             output_queue.put((input_batch[i], result))
 
-def main() -> None:
-    args = parse_args()
-    init_logging(level=level_from_args(args))
+
+def main(**kwargs) -> None:
+    """
+    Main entry point for the object detection application.
+
+    Args:
+        **kwargs: Programmatic arguments to override defaults.
+    """
+    options = DEFAULT_OPTIONS.copy()
+    if not kwargs and len(sys.argv) > 1:
+        args = parse_args()
+        options.update(vars(args))
+    else:
+        options.update(kwargs)
+
+    args = SimpleNamespace(**options)
+    init_logging()
     handle_and_resolve_args(args, APP_NAME)
 
     input_context = InputContext(
@@ -273,7 +300,6 @@ def main() -> None:
         output_dir=args.output_dir,
         save_stream_output=args.save_output,
         output_resolution=args.output_resolution,
-        no_display=args.no_display,
     )
 
     run_inference_pipeline(
@@ -285,6 +311,7 @@ def main() -> None:
         show_fps=args.show_fps,
         draw_trail=args.draw_trail,
     )
+
 
 if __name__ == "__main__":
     main()

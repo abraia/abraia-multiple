@@ -50,15 +50,10 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 def _get_package_config_path(filename: str) -> Path | None:
     """Get config file path from package location (when installed via pip)."""
-    try:
-        
-        package_dir = Path(__file__).parent
-        config_path = package_dir / filename
-        if config_path.exists():
-            return config_path
-    except (ImportError, AttributeError):
-        pass
-    return None
+    package_dir = Path(__file__).parent
+    config_path = package_dir / filename
+    if config_path.exists():
+        return config_path
 
 
 def _get_repo_config_path(filename: str) -> Path:

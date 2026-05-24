@@ -36,15 +36,7 @@ from .defines import (
 
 from .hailo_logger import get_logger
 from .installation_utils import detect_hailo_arch
-
-try:
-    from .config_manager import get_default_models, get_inputs_for_app, get_supported_architectures
-except ImportError:
-    import sys
-    from pathlib import Path
-    config_dir = Path(__file__).parent
-    sys.path.insert(0, str(config_dir))
-    from config_manager import get_default_models, get_inputs_for_app, get_supported_architectures
+from .config_manager import get_default_models, get_inputs_for_app, get_supported_architectures
 hailo_logger = get_logger(__name__)
 
 
@@ -201,16 +193,12 @@ def list_models_for_app(app_name: str, arch: str | None = None, app_type: str | 
         app_type: Filter by app type ("pipeline" or "standalone"). 
                   If None, auto-detects from caller's location.
     """
-    try:
-        from .config_manager import (
-            get_model_names,
-            get_supported_architectures,
-            is_gen_ai_app,
-        )
-    except ImportError:
-        hailo_logger.error("Error: Could not import config_manager. Run 'pip install -e .' first.")
-        sys.exit(1)
-
+    from .config_manager import (
+        get_model_names,
+        get_supported_architectures,
+        is_gen_ai_app,
+    )
+    
     # Auto-detect app_type if not provided
     if app_type is None:
         app_type = _detect_app_type_from_caller()
@@ -624,29 +612,6 @@ def resolve_postprocess_onnx_path(
 # Input Resolution and Listing
 # =============================================================================
 
-def list_inputs_for_app(app_name: str) -> None:
-    """
-    List all available inputs for an application and exit.
-
-    Args:
-        app_name: The app name from resources config (e.g., 'detection', 'vlm_chat')
-    """
-    inputs = get_inputs_for_app(app_name, is_standalone=True)
-    print(f"\n{'=' * 60}")
-    print(f"Available inputs for: {app_name}")
-    print(f"{'=' * 60}")    
-    for section in ["images", "videos"]:
-        entries = inputs.get(section, [])
-        if entries:
-            print(f"\n📂 {section.capitalize()}:")
-            for entry in entries:
-                name = entry.get("name", "Unnamed")
-                description = entry.get("description", "")
-                print(f"   • {name} - {description}")
-    print(f"\n{'=' * 60}\n")
-    sys.exit(0) 
-
-
 def resolve_input_arg(app: str, input_arg: str | None) -> str:
     """
     Resolve the CLI `--input` argument into a concrete input source.
@@ -830,7 +795,7 @@ def handle_and_resolve_args(args: argparse.Namespace, APP_NAME: str, multi_hef: 
     Handle common CLI argument logic for Hailo applications.
 
     This function:
-    - Handles early-exit flags such as --list-models and --list-inputs
+    - Handles early-exit flags such as --list-models
     - Resolves the HEF path for the given application
     - Resolves the input source (camera / video / image)
     - Resolves output resolution if the flag exists
@@ -850,11 +815,6 @@ def handle_and_resolve_args(args: argparse.Namespace, APP_NAME: str, multi_hef: 
     #handle --list-models and exit
     if args.list_models:
         list_models_for_app(APP_NAME, app_type=app_type)
-        sys.exit(0)
-
-    # Handle --list-inputs and exit
-    if args.list_inputs:
-        list_inputs_for_app(APP_NAME)
         sys.exit(0)
 
     elif multi_hef:

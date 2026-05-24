@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 from .pose_estimation_utils import PoseEstPostProcessing
 import collections
+from types import SimpleNamespace
 
 
 
@@ -33,6 +34,21 @@ from .defines import (
 
 APP_NAME = Path(__file__).stem
 logger = get_logger(__name__)
+
+DEFAULT_OPTIONS = {
+    "input": None,
+    "hef_path": None,
+    "list_models": False,
+    "batch_size": 1,
+    "show_fps": False,
+    "frame_rate": None,
+    "class_num": 1,
+    "camera_resolution": None,
+    "video_unpaced": False,
+    "output_resolution": None,
+    "output_dir": None,
+    "save_output": False,
+}
 
 
 def parse_args():
@@ -239,8 +255,21 @@ def run_inference_pipeline(
 
 
 
-def main() -> None:
-    args = parse_args()
+def main(**kwargs) -> None:
+    """
+    Main entry point for the pose estimation application.
+
+    Args:
+        **kwargs: Programmatic arguments to override defaults.
+    """
+    options = DEFAULT_OPTIONS.copy()
+    if not kwargs and len(sys.argv) > 1:
+        args = parse_args()
+        options.update(vars(args))
+    else:
+        options.update(kwargs)
+
+    args = SimpleNamespace(**options)
     init_logging(level=level_from_args(args))
     handle_and_resolve_args(args, APP_NAME)
 
@@ -258,7 +287,6 @@ def main() -> None:
         output_dir=args.output_dir,
         save_stream_output=args.save_output,
         output_resolution=args.output_resolution,
-        no_display=args.no_display,
     )
 
     run_inference_pipeline(

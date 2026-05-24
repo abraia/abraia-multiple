@@ -4,11 +4,7 @@
 from __future__ import annotations
 
 import argparse
-
-try:
-    from .hailo_logger import add_logging_cli_args, get_logger
-except ImportError:
-    from .hailo_logger import add_logging_cli_args, get_logger
+from .hailo_logger import add_logging_cli_args, get_logger
 
 hailo_logger = get_logger(__name__)
 
@@ -263,15 +259,6 @@ def get_standalone_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--list-inputs",
-        action="store_true",
-        help=(
-            "List available demo inputs for this application and exit. "
-            "This uses the shared resources catalog (images/videos) defined in resources_config.yaml."
-        ),
-    )
-
-    parser.add_argument(
         "-cr",
         "--camera-resolution",
         type=str,
@@ -281,17 +268,6 @@ def get_standalone_parser() -> argparse.ArgumentParser:
             "Options: 'sd' (640x480, Standard Definition), 'hd' (1280x720, High Definition), "
             "'fhd' (1920x1080, Full High Definition). "
             "Default is 'sd'. This flag is only applicable when using camera input sources."
-        ),
-    )
-
-    parser.add_argument(
-        "--no-display",
-        action="store_true",
-        default=False,
-        help=(
-            "Disable frame display. "
-            "When enabled, the application runs without opening a visualization window. "
-            "Useful for performance testing or headless execution."
         ),
     )
 
