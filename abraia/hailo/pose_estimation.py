@@ -32,6 +32,22 @@ from .defines import (
 APP_NAME = Path(__file__).stem
 logger = get_logger(__name__)
 
+
+DEFAULT_OPTIONS = {
+    "input": None,
+    "hef_path": None,
+    "batch_size": 1,
+    "frame_rate": None,
+    "track": True,
+    "labels": None,
+    "draw_trail": False,
+    "camera_resolution": None,
+    "video_unpaced": False,
+    "output_resolution": None,
+    "output_dir": None,
+    "save_output": False,
+}
+
 # Joint pairs used for drawing pose estimations
 JOINT_PAIRS = [
     [0, 1], [1, 3], [0, 2], [2, 4],
@@ -646,7 +662,6 @@ def run_inference_pipeline(
     class_num,
     input_context: InputContext,
     visualization_settings: VisualizationSettings,
-    show_fps: bool = False,
 ) -> None:
     """
     Initialize queues, inference instance, and run the pipeline.
@@ -656,7 +671,6 @@ def run_inference_pipeline(
         class_num (int): Number of output classes expected by the model.
         input_context (InputContext): Context containing input source details.
         visualization_settings (VisualizationSettings): Settings for visualization.
-        show_fps (bool): If True, display real-time FPS on the output.
 
     Returns:
         None
@@ -675,9 +689,7 @@ def run_inference_pipeline(
     )
 
     stop_event = threading.Event()
-    fps_tracker = None
-    if show_fps:
-        fps_tracker = FrameRateTracker()
+    fps_tracker = FrameRateTracker()
 
     hailo_inference = HailoInfer(net, input_context.batch_size, output_type="FLOAT32")
     height, width, _ = hailo_inference.get_input_shape()
@@ -711,8 +723,7 @@ def run_inference_pipeline(
     preprocess_thread.start()
     infer_thread.start()
 
-    if show_fps:
-        fps_tracker.start()
+    fps_tracker.start()
 
     try:
         visualize(
@@ -728,8 +739,7 @@ def run_inference_pipeline(
         preprocess_thread.join()
         infer_thread.join()
 
-    if show_fps:
-        logger.info(fps_tracker.frame_rate_summary())
+    logger.info(fps_tracker.frame_rate_summary())
 
     logger.success("Processing completed successfully.")
 
@@ -774,7 +784,6 @@ def main(**kwargs) -> None:
         class_num=args.class_num,
         input_context=input_context,
         visualization_settings=visualization_settings,
-        show_fps=args.show_fps,
     )
 
 

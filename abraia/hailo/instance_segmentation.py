@@ -76,7 +76,6 @@ DEFAULT_OPTIONS = {
     "input": None,
     "hef_path": None,
     "batch_size": 1,
-    "show_fps": False,
     "frame_rate": None,
     "model_type": "v5",
     "track": False,
@@ -1120,7 +1119,6 @@ def run_inference_pipeline(
     input_context: InputContext,
     visualization_settings: VisualizationSettings,
     enable_tracking=False,
-    show_fps=False,
 ) -> None:
     """
     Initialize queues, HailoAsyncInference instance, and run the inference.
@@ -1134,8 +1132,7 @@ def run_inference_pipeline(
     tracker = None
     fps_tracker = None
 
-    if show_fps:
-        fps_tracker = FrameRateTracker()
+    fps_tracker = FrameRateTracker()
 
     if enable_tracking:
         # Load tracker config from config_data
@@ -1183,8 +1180,7 @@ def run_inference_pipeline(
     preprocess_thread.start()
     infer_thread.start()
 
-    if show_fps:
-        fps_tracker.start()
+    fps_tracker.start()
 
     try:
         visualize(
@@ -1200,8 +1196,7 @@ def run_inference_pipeline(
         preprocess_thread.join()
         infer_thread.join()
 
-    if show_fps:
-        logger.info(fps_tracker.frame_rate_summary())
+    logger.info(fps_tracker.frame_rate_summary())
 
     logger.success("Processing completed successfully.")
 
@@ -1328,7 +1323,6 @@ def main(**kwargs) -> None:
         input_context=input_context,
         visualization_settings=visualization_settings,
         enable_tracking=args.track,
-        show_fps=args.show_fps,
     )
 
 
