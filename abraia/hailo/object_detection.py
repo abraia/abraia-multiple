@@ -42,6 +42,22 @@ trail_length = 30
 TRACKLET_CLASSES = [0, 67]  # PERSON, SMARTPHONE
 
 
+DEFAULT_OPTIONS = {
+    "input": None,
+    "hef_path": None,
+    "batch_size": 1,
+    "frame_rate": None,
+    "track": True,
+    "labels": None,
+    "draw_trail": False,
+    "camera_resolution": None,
+    "video_unpaced": False,
+    "output_resolution": None,
+    "output_dir": None,
+    "save_output": False,
+}
+
+
 def inference_result_handler(original_frame, infer_results, labels, config_data, tracker=None, draw_trail=False):
     """
     Processes inference results and draw detections (with optional tracking).
@@ -252,9 +268,6 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
                     # Draw a line between the points and draw the points as circles
                     cv2.line(img_out, point_a, point_b, color, 3) #(255, 0, 0), 2)
                     cv2.circle(img_out, point_b, radius=20, thickness=1, color=color) #, thickness=-1) # -1 for filled circle
-
-
-
     else:
         # No tracking — draw raw model detections
         for idx in range(num_detections):
@@ -310,29 +323,12 @@ def compute_iou(boxA, boxB):
     return inter / (areaA + areaB - inter + 1e-5)
 
 
-DEFAULT_OPTIONS = {
-    "input": None,
-    "hef_path": None,
-    "batch_size": 1,
-    "show_fps": False,
-    "frame_rate": None,
-    "track": False,
-    "labels": None,
-    "draw_trail": False,
-    "camera_resolution": None,
-    "video_unpaced": False,
-    "output_resolution": None,
-    "output_dir": None,
-    "save_output": False,
-}
-
 def run_inference_pipeline(
     net,
     labels,
     input_context: InputContext,
     visualization_settings: VisualizationSettings,
     enable_tracking: bool = False,
-    show_fps: bool = False,
     draw_trail: bool = False,
 ) -> None:
     """
@@ -344,7 +340,7 @@ def run_inference_pipeline(
     config_data = load_json_file(str(config_path))
 
     stop_event = threading.Event()
-    fps_tracker = FrameRateTracker() if show_fps else None
+    fps_tracker = FrameRateTracker()
     tracker = None
 
     if enable_tracking:
@@ -387,8 +383,7 @@ def run_inference_pipeline(
     preprocess_thread.start()
     infer_thread.start()
 
-    if show_fps:
-        fps_tracker.start()
+    fps_tracker.start()
 
     try:
         visualize(
@@ -404,9 +399,7 @@ def run_inference_pipeline(
         preprocess_thread.join()
         infer_thread.join()
 
-    if show_fps:
-        logger.info(fps_tracker.frame_rate_summary())
-
+    logger.info(fps_tracker.frame_rate_summary())
     logger.success("Processing completed successfully.")
 
     if visualization_settings.save_stream_output or input_context.has_images:
@@ -535,7 +528,6 @@ def main(**kwargs) -> None:
         input_context=input_context,
         visualization_settings=visualization_settings,
         enable_tracking=args.track,
-        show_fps=args.show_fps,
         draw_trail=args.draw_trail,
     )
 

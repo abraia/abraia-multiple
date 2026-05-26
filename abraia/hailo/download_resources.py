@@ -36,7 +36,6 @@ from .defines import (
     DEFAULT_RESOURCES_CONFIG_PATH,
     HAILO8_ARCH,
     HAILO8L_ARCH,
-    HAILO10H_ARCH,
     HAILO_FILE_EXTENSION,
     HAILORT_VERSION_KEY,
     MODEL_ZOO_URL,
@@ -48,16 +47,13 @@ from .defines import (
     RESOURCES_ROOT_PATH_DEFAULT,
     RESOURCES_VIDEOS_DIR_NAME,
     S3_RESOURCES_BASE_URL,
-    VALID_H8_MODEL_ZOO_VERSION,
-    VALID_H10_MODEL_ZOO_VERSION,
     RESOURCE_TYPE_MODEL,
     RESOURCE_TYPE_IMAGE,
     RESOURCE_TYPE_VIDEO,
-    RESOURCE_TYPE_ONNX,
     RESOURCE_TYPES,
 )
 
-from .installation_utils import detect_hailo_arch, auto_detect_hailort_version
+from .installation_utils import detect_hailo_arch
 
 
 # =============================================================================
@@ -159,8 +155,6 @@ def map_arch_to_config_key(hailo_arch: str) -> str:
     """Map Hailo architecture to config key (H8 or H10)."""
     if hailo_arch in (HAILO8_ARCH, HAILO8L_ARCH):
         return "H8"
-    elif hailo_arch == HAILO10H_ARCH:
-        return "H10"
     else:
         hailo_logger.warning(f"Unknown architecture {hailo_arch}, defaulting to H8")
         return "H8"
@@ -171,54 +165,11 @@ def map_arch_to_s3_path(hailo_arch: str) -> str:
     arch_map = {
         HAILO8_ARCH: "h8",
         HAILO8L_ARCH: "h8l",
-        HAILO10H_ARCH: "h10",
     }
     if hailo_arch not in arch_map:
         hailo_logger.warning(f"Unknown architecture {hailo_arch}, defaulting to h8")
         return "h8"
     return arch_map[hailo_arch]
-
-
-def get_model_zoo_version_for_arch(hailo_arch: str) -> tuple[str, str]:
-    """Get Model Zoo version and download architecture for a given Hailo architecture.
-    
-    For H10: Derives from HailoRT version (5.1.x -> v5.1.0, 5.2.x -> v5.2.0)
-    For H8/H8L: Uses static mapping v2.17.0
-    """
-    download_arch = hailo_arch
-    
-    # First check if explicitly set via environment
-    model_zoo_version = os.getenv(MODEL_ZOO_VERSION_KEY)
-    
-    if model_zoo_version is None:
-        # Auto-select default model zoo version based on device architecture
-        if hailo_arch == HAILO10H_ARCH:
-            hailort_version = os.getenv(
-                HAILORT_VERSION_KEY,
-                auto_detect_hailort_version()
-            )
-            if not hailort_version:
-                raise RuntimeError(
-                    "Failed to determine HailoRT version for Hailo-10H. "
-                    f"Please set {MODEL_ZOO_VERSION_KEY} manually."
-                )
-            # Keep 5.1 pinned to v5.1.0 for backward compatibility
-            if hailort_version.startswith("5.1"):
-                model_zoo_version = "v5.1.0"
-            else:
-                # For newer versions, use the exact HailoRT version
-                model_zoo_version = f"v{hailort_version}"
-        else:
-            # H8/H8L uses the fixed Model Zoo release
-            model_zoo_version = "v2.17.0"
-    
-    # Validate the version
-    if hailo_arch == HAILO10H_ARCH and model_zoo_version not in VALID_H10_MODEL_ZOO_VERSION:
-        model_zoo_version = "v5.1.0"
-    if hailo_arch in (HAILO8_ARCH, HAILO8L_ARCH) and model_zoo_version not in VALID_H8_MODEL_ZOO_VERSION:
-        model_zoo_version = "v2.17.0"
-    
-    return model_zoo_version, download_arch
 
 
 def get_remote_file_size(url: str, timeout: int = 30) -> Optional[int]:
@@ -314,7 +265,8 @@ class ResourceDownloader:
         self.download_config = download_config or DownloadConfig()
         
         # Setup model zoo parameters
-        self.model_zoo_version, self.download_arch = get_model_zoo_version_for_arch(hailo_arch)
+        self.model_zoo_version = "v2.17.0"
+        self.download_arch = hailo_arch
         
         # Track download tasks
         self._tasks: set[DownloadTask] = set()
@@ -1237,10 +1189,6 @@ def download_resources(
         elif resource_type == RESOURCE_TYPE_MODEL:
             hailo_logger.info(f"Collecting specific model: {resource_name} (group={group})")
             downloader.collect_specific_model_for_app(group, resource_name)
-
-        elif resource_type == RESOURCE_TYPE_ONNX:
-            hailo_logger.info(f"Collecting specific onnx: {resource_name} (group={group})")
-            downloader.collect_specific_onnx_for_app(group, resource_name)
 
         downloader.execute(parallel=parallel)
         return

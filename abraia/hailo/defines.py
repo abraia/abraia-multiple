@@ -99,9 +99,6 @@ DEFAULT_LOCAL_RESOURCES_PATH = _get_local_resources_path()  # bundled GIFs, JSON
 # Supported config options (used for validation in config_utils.py)
 VALID_HAILORT_VERSION = [AUTO_DETECT, "4.23.0", "5.1.1", "5.2.0", "5.3.0"]
 VALID_TAPPAS_VERSION = [AUTO_DETECT, "5.1.0", "5.2.0", "5.3.0"]
-VALID_H10_MODEL_ZOO_VERSION = ["v5.1.0", "v5.2.0", "v5.3.0"]  # First element is default
-VALID_H8_MODEL_ZOO_VERSION = ["v2.17.0"]
-VALID_MODEL_ZOO_VERSION = VALID_H10_MODEL_ZOO_VERSION + VALID_H8_MODEL_ZOO_VERSION
 VALID_HOST_ARCH = [AUTO_DETECT, "x86", "rpi", "arm"]
 VALID_HAILO_ARCH = [AUTO_DETECT, HAILO8_ARCH, HAILO8L_ARCH, HAILO10H_ARCH]
 
@@ -239,10 +236,6 @@ TILING_POSTPROCESS_FUNCTION = "filter"
 TEST_RUN_TIME = 10  # seconds
 TERM_TIMEOUT = 5  # seconds
 
-# USB device discovery
-UDEV_CMD = "udevadm"
-
-
 # Queue and async inference defaults
 MAX_INPUT_QUEUE_SIZE = 60
 MAX_OUTPUT_QUEUE_SIZE = 60
@@ -266,13 +259,11 @@ CAMERA_RESOLUTION_MAP: Dict[str, Tuple[int, int]] = {
 RESOURCE_TYPE_MODEL = "model"
 RESOURCE_TYPE_IMAGE = "image"
 RESOURCE_TYPE_VIDEO = "video"
-RESOURCE_TYPE_ONNX = "onnx"
 
 RESOURCE_TYPES = {
     RESOURCE_TYPE_MODEL,
     RESOURCE_TYPE_IMAGE,
     RESOURCE_TYPE_VIDEO,
-    RESOURCE_TYPE_ONNX,
 }
 
 CAMERA_KEYWORDS = ["usb", "rpi"]

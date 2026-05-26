@@ -2,16 +2,16 @@ from __future__ import annotations
 import json
 import os
 import sys
+import cv2
 import time
 import queue
 import threading
-from dataclasses import dataclass
+import numpy as np
+
 from enum import Enum
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
-
-import cv2
-import numpy as np
 
 from .defines import (
     DEFAULT_COCO_LABELS_PATH,
@@ -93,7 +93,6 @@ class VisualizationSettings:
     side_by_side: bool = False
 
 
-
 # -------------------------------------------------------------------
 # Main entry: init_input_source
 # -------------------------------------------------------------------
@@ -104,8 +103,7 @@ def init_input_source(input_context: InputContext) -> InputContext:
     Supported input values:
         - "usb"                : Open a USB/UVC camera using OpenCV
         - "rpi"                : Open Raspberry Pi camera using Picamera2
-        - "0", "1", ...        : Open camera by index (Windows)
-        - "/dev/videoX"        : Open a specific V4L2 device (Linux)
+        - "0", "1", ...        : Open camera by index
         - http(s):// or rtsp://: Open a network stream
         - video file path      : Open a video file
         - image file / folder  : Load images from disk
@@ -118,7 +116,7 @@ def init_input_source(input_context: InputContext) -> InputContext:
     # ------------------------------------------------
     # 1) USB camera
     # ------------------------------------------------
-    if src == "usb" or src.startswith("/dev/video") or src.isdigit():
+    if src == "usb" or src.isdigit():
         input_context.input_type = InputType.USB_CAMERA
         input_context.cap = open_usb_camera(src, input_context.resolution)
         input_context.source_fps = get_source_fps(input_context.cap, "USB camera")
@@ -167,8 +165,7 @@ def init_input_source(input_context: InputContext) -> InputContext:
             f"Invalid input '{src}'. Expected one of:\n"
             "  - 'usb'\n"
             "  - 'rpi'\n"
-            "  - Linux camera device (e.g., /dev/video0)\n"
-            "  - Windows camera index (e.g., 0, 1)\n"
+            "  - Camera index (e.g., 0, 1)\n"
             "  - http(s):// or rtsp:// stream\n"
             "  - video file path\n"
             "  - image directory / image file"
@@ -231,30 +228,6 @@ def load_json_file(path: str) -> Dict[str, Any]:
     return data
 
 
-def resolve_onnx_config_from_hef(hef_path: str, caller_file: str) -> str:
-    """
-    Resolve ONNX config JSON path based on HEF filename.
-
-    Uses caller_file to locate the app directory.
-    """
-    if not hef_path:
-        raise ValueError("HEF path is required to resolve ONNX config.")
-
-    hef_name = Path(hef_path).stem
-    app_dir = Path(caller_file).resolve().parent
-
-    config_path = app_dir / "onnx" / f"config_onnx_{hef_name}.json"
-
-    if not config_path.exists():
-        raise ValueError(
-            f"Missing ONNX config for model '{hef_name}'.\n"
-            f"Expected: {config_path}\n"
-            "Place it under the app 'onnx/' directory or pass --onnxconfig."
-        )
-
-    return str(config_path)
-
-
 def load_images_opencv(images_path: str) -> List[np.ndarray]:
     """
     Load images from the specified path as RGB.
@@ -287,26 +260,6 @@ def load_images_opencv(images_path: str) -> List[np.ndarray]:
 
     return []
 
-def load_input_images(images_path: str):
-    """
-    Load images from the specified path.
-
-    Args:
-        images_path (str): Path to the input image or directory of images.
-
-    Returns:
-        List[Image.Image]: List of PIL.Image.Image objects.
-    """
-    from PIL import Image
-    path = Path(images_path)
-    if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
-        return [Image.open(path)]
-    elif path.is_dir():
-        return [
-            Image.open(img) for img in path.glob("*")
-            if img.suffix.lower() in IMAGE_EXTENSIONS
-        ]
-    return []
 
 def validate_images(images: List[np.ndarray], batch_size: int) -> None:
     """
@@ -330,19 +283,6 @@ def validate_images(images: List[np.ndarray], batch_size: int) -> None:
             'without any remainder.'
         )
 
-
-def generate_color(class_id: int) -> tuple:
-    """
-    Generate a unique color for a given class ID.
-
-    Args:
-        class_id (int): The class ID to generate a color for.
-
-    Returns:
-        tuple: A tuple representing an RGB color.
-    """
-    np.random.seed(class_id)
-    return tuple(np.random.randint(0, 255, size=3).tolist())
 
 def get_labels(labels_path: str) -> list:
         """
@@ -891,44 +831,3 @@ class FrameRateTracker:
             str: e.g. "Processed 200 frames at 29.81 FPS"
         """
         return f"Processed {self.count} frames at {self.fps:.2f} FPS, Total time: {self.elapsed:.2f} seconds"
-
-    
-
-
-####################################################################
-# Resource Resolution Functions (for HACE compatibility)
-####################################################################
-def resolve_arch(arch: Optional[str]) -> str:
-    """
-    Resolve the target Hailo architecture using CLI, environment, or auto-detection.
-
-    Order:
-      1. Explicit --arch value
-      2. Environment variable HAILO_ARCH_KEY (used by pipelines)
-      3. Automatic detection via detect_hailo_arch()
-
-    Exits with an error message if none of the above succeed.
-    """
-    if arch:
-        return arch
-
-    env_arch = os.getenv(HAILO_ARCH_KEY)
-    if env_arch:
-        return env_arch
-
-    try:
-        from .installation_utils import detect_hailo_arch
-
-        detected_arch = detect_hailo_arch()
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.debug(f"Failed to auto-detect Hailo architecture: {exc}")
-        detected_arch = None
-
-    if detected_arch:
-        return detected_arch
-
-    logger.error(
-        "Could not determine Hailo architecture. "
-        "Please specify --arch or set the environment variable 'hailo_arch'."
-    )
-    sys.exit(1)
