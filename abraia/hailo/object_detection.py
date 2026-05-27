@@ -1,4 +1,3 @@
-from __future__ import annotations
 import cv2
 import queue
 import threading
@@ -9,7 +8,12 @@ from functools import partial
 from types import SimpleNamespace
 from pathlib import Path
 
-from .core import handle_and_resolve_args
+from .core import (
+    handle_and_resolve_args,
+    MAX_INPUT_QUEUE_SIZE,
+    MAX_OUTPUT_QUEUE_SIZE,
+    MAX_ASYNC_INFER_JOBS,
+)
 from .hailo_logger import get_logger, init_logging
 from .hailo_inference import HailoInfer
 from .toolbox import (
@@ -23,11 +27,6 @@ from .toolbox import (
     FrameRateTracker,
     id_to_color
 )
-from .defines import (
-    MAX_INPUT_QUEUE_SIZE,
-    MAX_OUTPUT_QUEUE_SIZE,
-    MAX_ASYNC_INFER_JOBS,
-)
 from .tracker.byte_tracker import BYTETracker
 
 APP_NAME = Path(__file__).stem
@@ -40,7 +39,6 @@ tracklet_history = {}
 trail_length = 30 
 # Only draw trail for certain classes (e.g., person=0, phone=67 in COCO)
 TRACKLET_CLASSES = [0, 67]  # PERSON, SMARTPHONE
-
 
 DEFAULT_OPTIONS = {
     "input": None,

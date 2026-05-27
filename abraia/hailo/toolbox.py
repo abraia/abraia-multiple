@@ -13,10 +13,11 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
-from .defines import (
+from .core import (
     DEFAULT_COCO_LABELS_PATH,
     IMAGE_EXTENSIONS,
     VIDEO_SUFFIXES,
+    is_raspberry_pi
 )
 from .hailo_logger import get_logger
 from .camera_utils import (
@@ -28,7 +29,6 @@ from .camera_utils import (
     get_source_fps,
     select_cap_processing_mode,
 )
-from .installation_utils import is_raspberry_pi
 
 
 hailo_logger = get_logger(__name__)

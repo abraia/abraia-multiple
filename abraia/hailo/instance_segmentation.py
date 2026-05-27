@@ -1,52 +1,14 @@
-from __future__ import annotations
-#!/usr/bin/env python3
-import os
-import sys
-import warnings
-
-def apply_runtime_compatibility() -> None:
-    """Apply minimal runtime compatibility fixes before third-party imports."""
-    _suppress_known_future_warnings()
-    _ensure_stdlib_distutils_for_older_python()
-
-
-def _suppress_known_future_warnings() -> None:
-    warnings.filterwarnings("ignore", category=FutureWarning, message=r".*np\.bool.*")
-    warnings.filterwarnings("ignore", category=FutureWarning, message=r".*np\.bytes.*")
-
-
-def _ensure_stdlib_distutils_for_older_python() -> None:
-    if sys.version_info >= (3, 12):
-        return
-
-    if os.environ.get("SETUPTOOLS_USE_DISTUTILS") == "stdlib":
-        return
-
-    env = os.environ.copy()
-    env["SETUPTOOLS_USE_DISTUTILS"] = "stdlib"
-
-    try:
-        os.execvpe(sys.executable, [sys.executable, *sys.argv], env)
-    except Exception as exc:
-        raise RuntimeError(
-            "Failed to restart process with SETUPTOOLS_USE_DISTUTILS=stdlib"
-        ) from exc
-
-
-apply_runtime_compatibility()
-
 import cv2
 import queue
 import threading
 import collections
 import numpy as np
-from types import SimpleNamespace
-from functools import partial
 from pathlib import Path
+from functools import partial
+from types import SimpleNamespace
 from scipy.special import expit
 from concurrent.futures import ThreadPoolExecutor
 
-from .cython_nms import nms as cnms
 from .tracker.byte_tracker import BYTETracker
 from .hailo_inference import HailoInfer
 from .toolbox import (
@@ -60,12 +22,12 @@ from .toolbox import (
     FrameRateTracker,
     id_to_color
 )
-from .defines import (
+from .core import (
+    handle_and_resolve_args,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
     MAX_ASYNC_INFER_JOBS
 )
-from .core import handle_and_resolve_args
 from .hailo_logger import get_logger, init_logging
 
 
@@ -86,6 +48,54 @@ DEFAULT_OPTIONS = {
     "output_dir": None,
     "save_output": False,
 }
+
+
+def nms(dets, thresh):
+    """
+    Pure Python NMS implementation using NumPy.
+    dets: (N, 5) - [x1, y1, x2, y2, score]
+    thresh: IoU threshold
+    """
+    if dets.shape[0] == 0:
+        return np.array([], dtype=np.int64)
+
+    x1 = dets[:, 0]
+    y1 = dets[:, 1]
+    x2 = dets[:, 2]
+    y2 = dets[:, 3]
+    scores = dets[:, 4]
+
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+
+    ndets = dets.shape[0]
+    suppressed = np.zeros((ndets), dtype=np.int64)
+
+    for _i in range(ndets):
+        i = order[_i]
+        if suppressed[i] == 1:
+            continue
+        ix1 = x1[i]
+        iy1 = y1[i]
+        ix2 = x2[i]
+        iy2 = y2[i]
+        iarea = areas[i]
+        for _j in range(_i + 1, ndets):
+            j = order[_j]
+            if suppressed[j] == 1:
+                continue
+            xx1 = max(ix1, x1[j])
+            yy1 = max(iy1, y1[j])
+            xx2 = min(ix2, x2[j])
+            yy2 = min(iy2, y2[j])
+            w = max(0.0, xx2 - xx1 + 1)
+            h = max(0.0, yy2 - yy1 + 1)
+            inter = w * h
+            ovr = inter / (iarea + areas[j] - inter)
+            if ovr >= thresh:
+                suppressed[j] = 1
+
+    return np.where(suppressed == 0)[0]
 
 
 def _sigmoid(x):
@@ -164,7 +174,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, max_det=300
         boxes = x[:, :4] + cls_shift
         conf = x[:, 4:5]
         preds = np.hstack([boxes.astype(np.float32), conf.astype(np.float32)])
-        keep = cnms(preds, iou_thres)
+        keep = nms(preds, iou_thres)
 
         if keep.shape[0] > max_det:
             keep = keep[:max_det]
@@ -539,6 +549,7 @@ def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image
 
     return resized_mask
 
+
 def extract_detections(image: np.ndarray, detections: list, config_data) -> dict:
     """
     Extract detections from the input data.
@@ -760,7 +771,6 @@ def draw_box_detection(image: np.ndarray, box: list, labels: list, score: float,
         else:
             bottom_text = labels[0]
 
-
     # Set colors
     text_color = (255, 255, 255)  # white
     border_color = (0, 0, 0)      # black
@@ -859,7 +869,6 @@ def decode_and_postprocess(raw_detections, config_data, arch_key):
             c = c_tag
         return (b, h, w, c)
 
-
     # Build endnodes based on resolved layer shapes
     endnodes = [raw_detections[layer_from_shape[resolve_shape(layer)]] for layer in layers]
 
@@ -911,6 +920,7 @@ def find_shape_closest_to_target(mask_size, target_height, target_width):
             best_shape = (h, w)
 
     return best_shape
+
 
 def process_mask_optimized(protos, masks_in, bboxes, shape, upsample=True, downsample=False):
     mh, mw, c = protos.shape
@@ -972,7 +982,6 @@ def fast_resize_masks(masks, out_shape):
     for i in range(masks.shape[0]):
         resized[i] = cv2.resize(masks[i], (iw, ih), interpolation=cv2.INTER_LINEAR)
     return resized
-
 
 
 def draw_single_detection(img_out, box, mask, score, labels, color, config_data, original_size, input_size, pad, skip_boxes, track=False):

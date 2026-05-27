@@ -5,7 +5,7 @@ import threading
 from enum import Enum
 from typing import Any, Optional
 
-from .defines import CAMERA_RESOLUTION_MAP
+from .core import CAMERA_RESOLUTION_MAP
 from .hailo_logger import get_logger
 
 hailo_logger = get_logger(__name__)
