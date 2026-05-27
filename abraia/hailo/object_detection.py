@@ -14,7 +14,10 @@ from .core import (
     MAX_OUTPUT_QUEUE_SIZE,
     MAX_ASYNC_INFER_JOBS,
 )
-from .hailo_logger import get_logger, init_logging
+import logging
+
+logger = logging.getLogger(__name__)
+
 from .hailo_inference import HailoInfer
 from .toolbox import (
     InputContext,
@@ -30,7 +33,23 @@ from .toolbox import (
 from .tracker.byte_tracker import BYTETracker
 
 APP_NAME = Path(__file__).stem
-logger = get_logger(__name__)
+
+DEFAULT_OPTIONS = {
+    "input": None,
+    "hef_path": None,
+    "batch_size": 1,
+    "frame_rate": None,
+    "track": False,
+    "labels": None,
+    "camera_resolution": None,
+    "video_unpaced": False,
+    "output_resolution": None,
+    "output_dir": None,
+    "save_output": False,
+}
+
+APP_NAME = Path(__file__).stem
+logger = logging.getLogger(__name__)
 
 # Dictionary to store a limited history of tracklet coordinates.
 # The keys will be the track IDs.
@@ -398,7 +417,7 @@ def run_inference_pipeline(
         infer_thread.join()
 
     logger.info(fps_tracker.frame_rate_summary())
-    logger.success("Processing completed successfully.")
+    logger.info("Processing completed successfully.")
 
     if visualization_settings.save_stream_output or input_context.has_images:
         logger.info(f"Saved outputs to '{visualization_settings.output_dir}'.")
@@ -501,7 +520,7 @@ def main(**kwargs) -> None:
     options.update(kwargs)
     args = SimpleNamespace(**options)
     
-    init_logging()
+    logging.basicConfig(level=logging.INFO)
     handle_and_resolve_args(args, APP_NAME)
 
     input_context = InputContext(

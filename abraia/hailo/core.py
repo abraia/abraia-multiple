@@ -17,8 +17,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..utils import download_url
 
-from .hailo_logger import get_logger
-hailo_logger = get_logger(__name__)
+import logging
+logger = logging.getLogger(__name__)
 
 # Base Defaults
 HAILO8_ARCH = "hailo8"
@@ -346,14 +346,14 @@ class ResourceDownloader:
         if not should_download:
             return DownloadResult(task, True, reason, True, task.dest_path.stat().st_size if task.dest_path.exists() else 0)
         if self.download_config.dry_run:
-            hailo_logger.info(f"[DRY RUN] Would download: {task.url} -> {task.dest_path}")
+            logger.info(f"[DRY RUN] Would download: {task.url} -> {task.dest_path}")
             return DownloadResult(task, True, "Dry run", True)
 
         task.dest_path.parent.mkdir(parents=True, exist_ok=True)
         last_err = None
         for attempt in range(self.download_config.max_retries):
             try:
-                hailo_logger.info(f"Downloading: {task.url}")
+                logger.info(f"Downloading: {task.url}")
                 download_url(task.url, str(task.dest_path))
                 
                 if remote_size and task.dest_path.stat().st_size != remote_size:
@@ -427,7 +427,7 @@ class ResourceDownloader:
             if entry_name == name:
                 self._add_resource_task(entry, resource_type)
                 return
-        hailo_logger.warning(f"{resource_type.capitalize()} '{name}' not found for app '{app_name}'")
+        logger.warning(f"{resource_type.capitalize()} '{name}' not found for app '{app_name}'")
 
     def collect_specific_model_for_app(self, app_name: str, model_name: str):
         """Collect a specific model entry for an app."""
@@ -440,7 +440,7 @@ class ResourceDownloader:
                 if name == model_name:
                     self._add_model_task(e, True)
                     return
-        hailo_logger.warning(f"Model '{model_name}' not found for app '{app_name}'")
+        logger.warning(f"Model '{model_name}' not found for app '{app_name}'")
 
     def collect_models_for_app(self, app_name: str, include_extra: bool = False, is_gen_ai_allowed: bool = False):
         """Collect models associated with an application."""
@@ -482,7 +482,7 @@ class ResourceDownloader:
         if not self._tasks:
             return []
             
-        hailo_logger.info(f"Executing {len(self._tasks)} download tasks...")
+        logger.info(f"Executing {len(self._tasks)} download tasks...")
         results = []
         
         if parallel and len(self._tasks) > 1 and not self.download_config.dry_run:
@@ -493,18 +493,18 @@ class ResourceDownloader:
                 for i, f in enumerate(as_completed(futures), 1):
                     res = f.result()
                     results.append(res)
-                    hailo_logger.info(f"[{i}/{len(self._tasks)}] {'✓' if res.success else '✗'} {res.task.name}")
+                    logger.info(f"[{i}/{len(self._tasks)}] {'✓' if res.success else '✗'} {res.task.name}")
             self.download_config.show_progress = orig_show
         else:
             for i, t in enumerate(self._tasks, 1):
-                hailo_logger.info(f"[{i}/{len(self._tasks)}] Processing {t.name}...")
+                logger.info(f"[{i}/{len(self._tasks)}] Processing {t.name}...")
                 results.append(self._download_file_with_retry(t))
                 
         failed = [r for r in results if not r.success]
-        hailo_logger.info(f"Summary: {sum(1 for r in results if r.success and not r.skipped)} downloaded, "
+        logger.info(f"Summary: {sum(1 for r in results if r.success and not r.skipped)} downloaded, "
                           f"{sum(1 for r in results if r.skipped)} skipped, {len(failed)} failed")
         for r in failed:
-            hailo_logger.warning(f"  - {r.task.name}: {r.message}")
+            logger.warning(f"  - {r.task.name}: {r.message}")
         return results
 
 
@@ -528,7 +528,7 @@ def download_resources(resource_config_path=None, arch=None, group=None, all_mod
     
     if resource_name:
         if not resource_type or not group:
-            hailo_logger.error("Targeted download requires resource_type and group")
+            logger.error("Targeted download requires resource_type and group")
             return
         if resource_type == RESOURCE_TYPE_MODEL:
             dl.collect_specific_model_for_app(group, resource_name)
@@ -536,7 +536,7 @@ def download_resources(resource_config_path=None, arch=None, group=None, all_mod
             dl.collect_specific_resource_for_app(group, resource_name, resource_type)
     elif group and group.lower() != "default":
         if group not in dl.config:
-            hailo_logger.error(f"Group '{group}' not found")
+            logger.error(f"Group '{group}' not found")
             return
         dl.collect_models_for_app(group, True, True)
         dl.collect_resources([RESOURCE_TYPE_VIDEO, RESOURCE_TYPE_IMAGE, "json", "npy"])
@@ -588,10 +588,10 @@ def resolve_hef_path(hef_path: Optional[str], app_name: str, arch: Optional[str]
 
     if hef_path is None:
         if not default_model:
-            hailo_logger.error(f"No default model found for {app_name}/{arch}")
+            logger.error(f"No default model found for {app_name}/{arch}")
             return None
         hef_path = default_model
-        hailo_logger.info(f"Using default model: {default_model}")
+        logger.info(f"Using default model: {default_model}")
 
     # Case 1: Existing local path
     path = Path(hef_path)
@@ -615,9 +615,9 @@ def resolve_hef_path(hef_path: Optional[str], app_name: str, arch: Optional[str]
         if _download_resource(model_name, RESOURCE_TYPE_MODEL, app_name, arch):
             if resource_path.exists():
                 return resource_path
-        hailo_logger.error(f"Failed to download model: {model_name}")
+        logger.error(f"Failed to download model: {model_name}")
 
-    hailo_logger.error(f"Model '{model_name}' not found. Available: {', '.join(available_models)}")
+    logger.error(f"Model '{model_name}' not found. Available: {', '.join(available_models)}")
     return None
 
 
@@ -628,7 +628,7 @@ def _download_resource(name: str, resource_type: str, app_name: str, arch: Optio
                            resource_type=resource_type, parallel=False)
         return True
     except Exception as e:
-        hailo_logger.error(f"Failed to download resource {name}: {e}")
+        logger.error(f"Failed to download resource {name}: {e}")
         return False
 
 
@@ -678,7 +678,7 @@ def is_raspberry_pi() -> bool:
 
 def detect_hailo_arch() -> Optional[str]:
     """Detect the connected Hailo device architecture."""
-    hailo_logger.debug("Detecting Hailo architecture...")
+    logger.debug("Detecting Hailo architecture...")
     try:
         res = subprocess.run(shlex.split(HAILO_FW_CONTROL_CMD), capture_output=True, text=True)
         if res.returncode != 0:
@@ -692,7 +692,7 @@ def detect_hailo_arch() -> Optional[str]:
         if HAILO10H_ARCH_CAPS in stdout or HAILO15H_ARCH_CAPS in stdout:
             return HAILO10H_ARCH
     except Exception as e:
-        hailo_logger.error(f"Error detecting Hailo architecture: {e}")
+        logger.error(f"Error detecting Hailo architecture: {e}")
         
-    hailo_logger.warning("Could not determine Hailo architecture.")
+    logger.warning("Could not determine Hailo architecture.")
     return None

@@ -6,9 +6,9 @@ from enum import Enum
 from typing import Any, Optional
 
 from .core import CAMERA_RESOLUTION_MAP
-from .hailo_logger import get_logger
+import logging
 
-hailo_logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class PiCamera2CaptureAdapter:
@@ -115,13 +115,13 @@ def select_cap_processing_mode(
 
     if is_video and video_unpaced:
         if has_target_fps:
-            hailo_logger.warning(
+            logger.warning(
                 "--frame-rate is ignored when --video-unpaced is enabled."
             )
         return CapProcessingMode.VIDEO_UNPACED
 
     if has_target_fps and has_source_fps and frame_rate >= source_fps:
-        hailo_logger.warning(
+        logger.warning(
             f"Requested frame rate ({frame_rate}) is greater than or equal to "
             f"the source FPS ({source_fps}); no frame dropping will be applied."
         )
@@ -158,7 +158,7 @@ def get_source_fps(cap: Any, source_name: str) -> Optional[float]:
     """
     source_fps = cap.get(cv2.CAP_PROP_FPS)
     if source_fps <= 0:
-        hailo_logger.debug(f"{source_name} FPS not reported by source.")
+        logger.debug(f"{source_name} FPS not reported by source.")
         return None
     return source_fps
 
@@ -175,15 +175,15 @@ def open_cv_capture(src: Any, source_type: str) -> Any:
         Opened capture object.
     """
     if source_type == "video" and not os.path.exists(src):
-        hailo_logger.error(f"File not found: {src}")
+        logger.error(f"File not found: {src}")
         sys.exit(1)
 
     cap = cv2.VideoCapture(src)
     if not cap.isOpened():
-        hailo_logger.error(f"Failed to open {source_type} source: {src}")
+        logger.error(f"Failed to open {source_type} source: {src}")
         sys.exit(1)
 
-    hailo_logger.info(f"Using {source_type} input: {src}")
+    logger.info(f"Using {source_type} input: {src}")
     return cap
 
 
@@ -206,12 +206,12 @@ def _apply_resolution_and_validate(
         width, height = CAMERA_RESOLUTION_MAP[resolution]
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        hailo_logger.debug(f"Camera resolution forced to {width}x{height}")
+        logger.debug(f"Camera resolution forced to {width}x{height}")
 
     ok, frame = cap.read()
     if not ok or frame is None:
         cap.release()
-        hailo_logger.error("Camera opened but produced no frames.")
+        logger.error("Camera opened but produced no frames.")
         sys.exit(1)
 
     return cap
@@ -234,7 +234,7 @@ def open_rpi_camera() -> Optional[Any]:
     try:
         from picamera2 import Picamera2
     except Exception as e:
-        hailo_logger.error(f"Picamera2 not available: {e}")
+        logger.error(f"Picamera2 not available: {e}")
         return None
 
     try:
@@ -247,12 +247,12 @@ def open_rpi_camera() -> Optional[Any]:
         picam2.configure(config)
         picam2.start()
 
-        hailo_logger.debug(f"RPi camera started ({width}x{height}) @ {fps} FPS")
+        logger.debug(f"RPi camera started ({width}x{height}) @ {fps} FPS")
 
         return PiCamera2CaptureAdapter(picam2)
 
     except Exception as e:
-        hailo_logger.error(f"Failed to open RPi camera: {e}")
+        logger.error(f"Failed to open RPi camera: {e}")
         try:
             picam2.stop()
         except Exception:

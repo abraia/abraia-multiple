@@ -19,7 +19,7 @@ from .core import (
     VIDEO_SUFFIXES,
     is_raspberry_pi
 )
-from .hailo_logger import get_logger
+import logging
 from .camera_utils import (
     CapProcessingMode,
     is_stream_url,
@@ -31,7 +31,7 @@ from .camera_utils import (
 )
 
 
-hailo_logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class InputType(Enum):
@@ -125,7 +125,7 @@ def init_input_source(input_context: InputContext) -> InputContext:
     # ------------------------------------------------
     elif src == "rpi":
         if not is_raspberry_pi():
-            hailo_logger.error("RPi camera requested, but this is not a Raspberry Pi system.")
+            logger.error("RPi camera requested, but this is not a Raspberry Pi system.")
             sys.exit(1)
 
         input_context.input_type = InputType.RPI_CAMERA
@@ -135,7 +135,7 @@ def init_input_source(input_context: InputContext) -> InputContext:
         if input_context.cap is None:
             sys.exit(1)
 
-        hailo_logger.info("Using Raspberry Pi camera at 800x600, 30 FPS")
+        logger.info("Using Raspberry Pi camera at 800x600, 30 FPS")
 
     # ------------------------------------------------
     # 3) Network stream
@@ -151,7 +151,7 @@ def init_input_source(input_context: InputContext) -> InputContext:
     elif any(src.lower().endswith(suffix) for suffix in VIDEO_SUFFIXES):
 
         if not os.path.exists(src):
-            hailo_logger.error(f"File not found: {src}")
+            logger.error(f"File not found: {src}")
             sys.exit(1)
         input_context.input_type = InputType.VIDEO
         input_context.cap = open_cv_capture(src, "video")
@@ -161,7 +161,7 @@ def init_input_source(input_context: InputContext) -> InputContext:
     # 5) Image directory / image file
     # ------------------------------------------------
     elif not os.path.exists(src):
-        hailo_logger.error(
+        logger.error(
             f"Invalid input '{src}'. Expected one of:\n"
             "  - 'usb'\n"
             "  - 'rpi'\n"
@@ -179,10 +179,10 @@ def init_input_source(input_context: InputContext) -> InputContext:
         try:
             validate_images(input_context.images, input_context.batch_size)
         except ValueError as error:
-            hailo_logger.error(error)
+            logger.error(error)
             sys.exit(1)
 
-        hailo_logger.info(f"Using image input: {src}")
+        logger.info(f"Using image input: {src}")
 
     # Runtime metadata for capture-based inputs
     if input_context.cap is not None:
@@ -195,7 +195,7 @@ def init_input_source(input_context: InputContext) -> InputContext:
             source_fps=input_context.source_fps,
             video_unpaced=input_context.video_unpaced,
         )
-        hailo_logger.info(f"Capture processing mode: {input_context.cap_processing_mode.value}")
+        logger.info(f"Capture processing mode: {input_context.cap_processing_mode.value}")
 
 
     return input_context
@@ -415,11 +415,11 @@ def preprocess_from_capture(
     while not should_stop():
         ret, frame_bgr = cap.read()
         if not ret:
-            hailo_logger.debug("[READ] End of stream")
+            logger.debug("[READ] End of stream")
             break
 
         frame_index += 1
-        hailo_logger.debug(f"[READ] frame={frame_index}")
+        logger.debug(f"[READ] frame={frame_index}")
 
         current_pos_ms = float(cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
 
@@ -439,7 +439,7 @@ def preprocess_from_capture(
                 next_keep_video_ms = current_pos_ms
 
             if current_pos_ms + 1e-3 < next_keep_video_ms:
-                hailo_logger.debug(
+                logger.debug(
                     f"[DROP] frame={frame_index} "
                     f"mode={processing_mode.value} "
                     f"pos_ms={current_pos_ms:.1f} "
@@ -447,7 +447,7 @@ def preprocess_from_capture(
                 )
                 continue
 
-            hailo_logger.debug(
+            logger.debug(
                 f"[KEEP] frame={frame_index} "
                 f"mode={processing_mode.value} "
                 f"pos_ms={current_pos_ms:.1f}"
@@ -466,7 +466,7 @@ def preprocess_from_capture(
 
             if current_wall_time < desired_wall_time:
                 sleep_seconds = desired_wall_time - current_wall_time
-                hailo_logger.debug(
+                logger.debug(
                     f"[PACE] frame={frame_index} "
                     f"sleep={sleep_seconds:.4f}s "
                     f"pos_ms={current_pos_ms:.1f}"
@@ -478,10 +478,10 @@ def preprocess_from_capture(
             current_time = time.monotonic()
 
             if current_time < next_keep_timestamp:
-                hailo_logger.debug(f"[DROP] frame={frame_index} mode={processing_mode.value}")
+                logger.debug(f"[DROP] frame={frame_index} mode={processing_mode.value}")
                 continue
 
-            hailo_logger.debug(f"[KEEP] frame={frame_index} mode={processing_mode.value}")
+            logger.debug(f"[KEEP] frame={frame_index} mode={processing_mode.value}")
             next_keep_timestamp += keep_period
 
         # Keep log for all other modes
@@ -489,7 +489,7 @@ def preprocess_from_capture(
             CapProcessingMode.CAMERA_FRAME_DROP,
             CapProcessingMode.VIDEO_PACED_AND_FRAME_DROP,
         ):
-            hailo_logger.debug(f"[KEEP] frame={frame_index} mode={processing_mode.value}")
+            logger.debug(f"[KEEP] frame={frame_index} mode={processing_mode.value}")
 
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         raw_frames.append(frame_rgb)
@@ -498,7 +498,7 @@ def preprocess_from_capture(
         )
 
         if len(raw_frames) >= batch_size:
-            hailo_logger.debug(f"[QUEUE] push batch size={len(raw_frames)}")
+            logger.debug(f"[QUEUE] push batch size={len(raw_frames)}")
             input_queue.put((raw_frames, processed_frames))
             raw_frames, processed_frames = [], []
 

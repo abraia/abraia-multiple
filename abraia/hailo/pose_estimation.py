@@ -12,7 +12,9 @@ from types import SimpleNamespace
 from pathlib import Path
 from typing import List, Dict, Tuple
 
-from .hailo_logger import get_logger, init_logging
+import logging
+logger = logging.getLogger(__name__)
+
 from .hailo_inference import HailoInfer
 from .core import (
     handle_and_resolve_args,
@@ -22,7 +24,6 @@ from .core import (
 )
 
 APP_NAME = Path(__file__).stem
-logger = get_logger(__name__)
 
 
 DEFAULT_OPTIONS = {
@@ -733,7 +734,7 @@ def run_inference_pipeline(
 
     logger.info(fps_tracker.frame_rate_summary())
 
-    logger.success("Processing completed successfully.")
+    logger.info("Processing completed successfully.")
 
     if visualization_settings.save_stream_output or input_context.has_images:
         logger.info(f"Saved outputs to '{visualization_settings.output_dir}'.")
@@ -752,7 +753,7 @@ def main(**kwargs) -> None:
     options.update(kwargs)
     args = SimpleNamespace(**options)
 
-    init_logging()
+    logging.basicConfig(level=logging.INFO)
     handle_and_resolve_args(args, APP_NAME)
 
     input_context = InputContext(
