@@ -41,7 +41,7 @@ trail_length = 30
 TRACKLET_CLASSES = [0, 67]  # PERSON, SMARTPHONE
 
 DEFAULT_OPTIONS = {
-    "input": None,
+    "input": "rpi",
     "hef_path": None,
     "batch_size": 1,
     "frame_rate": None,
