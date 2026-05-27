@@ -6,18 +6,19 @@ import sys
 import time
 import yaml
 import shlex
-import tempfile
+import requests
 import subprocess
-import urllib.request
+
 from pathlib import Path
 from functools import lru_cache
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from ..utils import download_url
+
 from .hailo_logger import get_logger
 hailo_logger = get_logger(__name__)
-
 
 # Base Defaults
 HAILO8_ARCH = "hailo8"
@@ -303,33 +304,11 @@ def is_none_value(value: Any) -> bool:
 def get_remote_file_size(url: str, timeout: int = 30) -> Optional[int]:
     """Get Content-Length of a remote file via HEAD request."""
     try:
-        req = urllib.request.Request(url, method='HEAD', headers={'User-Agent': DEFAULT_USER_AGENT})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            length = resp.headers.get('Content-Length')
-            return int(length) if length else None
+        r = requests.head(url, headers={'User-Agent': DEFAULT_USER_AGENT}, timeout=timeout, allow_redirects=True)
+        length = r.headers.get('Content-Length')
+        return int(length) if length else None
     except Exception:
         return None
-
-
-class ProgressTracker:
-    """Simple terminal progress bar for downloads."""
-    def __init__(self, show_progress: bool = True):
-        self.show_progress = show_progress
-        self._last_percent = -1
-
-    def update(self, downloaded: int, total_size: int):
-        if not self.show_progress or total_size <= 0:
-            return
-        percent = min(100, (downloaded * 100) // total_size)
-        if percent == self._last_percent:
-            return
-        self._last_percent = percent
-        bar = '=' * (percent // 2.5) + '-' * (40 - int(percent // 2.5))
-        print(f"\r[{bar}] {percent}% ({downloaded/1e6:.2f}/{total_size/1e6:.2f} MB)", end='', flush=True)
-
-    def finish(self):
-        if self.show_progress:
-            print()
 
 
 class ResourceDownloader:
@@ -373,37 +352,18 @@ class ResourceDownloader:
         task.dest_path.parent.mkdir(parents=True, exist_ok=True)
         last_err = None
         for attempt in range(self.download_config.max_retries):
-            temp_path = None
             try:
-                fd, temp_path_str = tempfile.mkstemp(dir=task.dest_path.parent, prefix=f".{task.name}.", suffix=".tmp")
-                os.close(fd)
-                temp_path = Path(temp_path_str)
-                
-                req = urllib.request.Request(task.url, headers={'User-Agent': DEFAULT_USER_AGENT})
-                progress = ProgressTracker(self.download_config.show_progress)
                 hailo_logger.info(f"Downloading: {task.url}")
+                download_url(task.url, str(task.dest_path))
                 
-                with urllib.request.urlopen(req, timeout=self.download_config.timeout) as resp:
-                    total = int(resp.headers.get('Content-Length', 0))
-                    with open(temp_path, 'wb') as f:
-                        downloaded = 0
-                        while chunk := resp.read(8192):
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            progress.update(downloaded, total)
-                progress.finish()
-
-                if remote_size and temp_path.stat().st_size != remote_size:
-                    raise ValueError(f"Size mismatch: got {temp_path.stat().st_size}, expected {remote_size}")
+                if remote_size and task.dest_path.stat().st_size != remote_size:
+                    raise ValueError(f"Size mismatch: got {task.dest_path.stat().st_size}, expected {remote_size}")
                 
-                if task.dest_path.exists():
-                    task.dest_path.unlink()
-                temp_path.rename(task.dest_path)
                 return DownloadResult(task, True, "Success", False, task.dest_path.stat().st_size)
             except Exception as e:
                 last_err = e
-                if temp_path and temp_path.exists():
-                    temp_path.unlink()
+                if task.dest_path.exists():
+                    task.dest_path.unlink()
                 if attempt < self.download_config.max_retries - 1:
                     time.sleep(self.download_config.retry_delay * (2 ** attempt))
 
