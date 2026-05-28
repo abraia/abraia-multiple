@@ -35,8 +35,6 @@ APP_NAME = Path(__file__).stem
 tracklet_history = {}
 # Maximum number of past frames to display
 trail_length = 30 
-# Only draw trail for certain classes (e.g., person=0, phone=67 in COCO)
-TRACKLET_CLASSES = [0, 67]  # PERSON, SMARTPHONE
 
 DEFAULT_OPTIONS = {
     "input": "rpi",
@@ -85,7 +83,7 @@ def inference_result_handler(original_frame, infer_results, labels, score_thresh
     Returns:
         np.ndarray: Frame with detections or tracks drawn.
     """
-    print(infer_results)
+    infer_results = infer_results if isinstance(infer_results, list) else [infer_results]
     detections = extract_detections(original_frame, infer_results, score_threshold, max_boxes)
     return draw_detections(detections, original_frame, labels, tracker=tracker, draw_trail=draw_trail)
 
@@ -115,6 +113,7 @@ def extract_detections(image: np.ndarray, detections: list, score_threshold: flo
     padding_length = int(abs(img_height - img_width) / 2)
 
     all_detections = []
+    print(f"Raw detections: {detections}")
 
     for class_id, detection in enumerate(detections):
         for det in detection:
@@ -203,9 +202,6 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
             top_text = f"{labels[classes[best_idx]]}: {track.score * 100.0:.1f}%"
             draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
             draw_text(img_out, f"ID {track_id}", (xmax - 50, ymax), background_color=color, text_scale=text_scale)
-                               
-            if not classes[best_idx] in TRACKLET_CLASSES:
-                continue
 
             # Get the centroid of the current bounding box
             center_x = int((x1 + x2) / 2)
