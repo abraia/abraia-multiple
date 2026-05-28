@@ -1,4 +1,3 @@
-import cv2
 import queue
 import threading
 import collections
@@ -15,12 +14,10 @@ from .core import (
     MAX_ASYNC_INFER_JOBS,
 )
 import logging
-
 logger = logging.getLogger(__name__)
 
 from .hailo_inference import HailoInfer
 from .toolbox import (
-    InputContext,
     VisualizationSettings,
     init_input_source,
     get_labels,
@@ -34,23 +31,6 @@ from .tracker.byte_tracker import BYTETracker
 
 APP_NAME = Path(__file__).stem
 
-DEFAULT_OPTIONS = {
-    "input": None,
-    "hef_path": "yolov8m.hef",
-    "batch_size": 1,
-    "frame_rate": None,
-    "track": False,
-    "labels": None,
-    "camera_resolution": None,
-    "video_unpaced": False,
-    "output_resolution": None,
-    "output_dir": None,
-    "save_output": False,
-}
-
-APP_NAME = Path(__file__).stem
-logger = logging.getLogger(__name__)
-
 # Dictionary to store a limited history of tracklet coordinates.
 # The keys will be the track IDs.
 tracklet_history = {}
@@ -61,7 +41,7 @@ TRACKLET_CLASSES = [0, 67]  # PERSON, SMARTPHONE
 
 DEFAULT_OPTIONS = {
     "input": "rpi",
-    "hef_path": None,
+    "hef_path": "yolov8m.hef",
     "batch_size": 1,
     "frame_rate": None,
     "track": True,
@@ -94,46 +74,10 @@ def inference_result_handler(original_frame, infer_results, labels, config_data,
     return frame_with_detections
 
 
-def draw_detection(image: np.ndarray, box: list, labels: list, score: float, color: tuple, track=False):
-    """
-    Draw box and label for one detection.
-
-    Args:
-        image (np.ndarray): Image to draw on.
-        box (list): Bounding box coordinates.
-        labels (list): List of labels (1 or 2 elements).
-        score (float): Detection score.
-        color (tuple): Color for the bounding box.
-        track (bool): Whether to include tracking info.
-    """
-    xmin, ymin, xmax, ymax = map(int, box)
-    cv2.rectangle(image, (xmin, ymin), (xmax, ymax), color, 2)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-
-    # Compose texts
-    top_text = f"{labels[0]}: {score:.1f}%" if not track or len(labels) == 2 else f"{score:.1f}%"
-    bottom_text = None
-
-    if track:
-        if len(labels) == 2:
-            bottom_text = labels[1]
-        else:
-            bottom_text = labels[0]
-
-
-    # Set colors
-    text_color = (255, 255, 255)  # White
-    border_color = (0, 0, 0)  # Black
-
-    # Draw top text with black border first
-    cv2.putText(image, top_text, (xmin + 4, ymin + 20), font, 0.5, border_color, 2, cv2.LINE_AA)
-    cv2.putText(image, top_text, (xmin + 4, ymin + 20), font, 0.5, text_color, 1, cv2.LINE_AA)
-
-    # Draw bottom text if exists
-    if bottom_text:
-        pos = (xmax - 50, ymax - 6)
-        cv2.putText(image, bottom_text, pos, font, 0.5, border_color, 2, cv2.LINE_AA)
-        cv2.putText(image, bottom_text, pos, font, 0.5, text_color, 1, cv2.LINE_AA)
+from ..utils.draw import (
+    draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
+    draw_line, draw_point
+)
 
 
 def denormalize_and_rm_pad(box: list, size: int, padding_length: int, input_height: int, input_width: int) -> list:
@@ -226,6 +170,8 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
     Returns:
         np.ndarray: Annotated image.
     """
+    thickness = calculate_optimal_thickness(img_out.shape[:2])
+    text_scale = calculate_optimal_text_scale(img_out.shape[:2])
 
     # Extract detection data from the dictionary
     boxes = detections["detection_boxes"]  # List of [xmin,ymin,xmaxm, ymax] boxes
@@ -256,12 +202,14 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
             xmin, ymin, xmax, ymax = map(int, [x1, y1, x2, y2])
             best_idx = find_best_matching_detection_index(track.tlbr, boxes)
             color = tuple(id_to_color(classes[best_idx]).tolist())  # Color based on class
-            if best_idx is None:
-                draw_detection(img_out, [xmin, ymin, xmax, ymax], f"ID {track_id}",
-                               track.score * 100.0, color, track=True)
-            else:
-                draw_detection(img_out, [xmin, ymin, xmax, ymax], [labels[classes[best_idx]], f"ID {track_id}"],
-                               track.score * 100.0, color, track=True)
+            
+            # Draw bounding box
+            draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
+
+            # Draw label
+            top_text = f"{labels[classes[best_idx]]}: {track.score * 100.0:.1f}%"
+            draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
+            draw_text(img_out, f"ID {track_id}", (xmax - 50, ymax), background_color=color, text_scale=text_scale)
                                
             if not classes[best_idx] in TRACKLET_CLASSES:
                 continue
@@ -283,13 +231,16 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
                     point_b = tracklet_history[track_id][i]
 
                     # Draw a line between the points and draw the points as circles
-                    cv2.line(img_out, point_a, point_b, color, 3) #(255, 0, 0), 2)
-                    cv2.circle(img_out, point_b, radius=20, thickness=1, color=color) #, thickness=-1) # -1 for filled circle
+                    draw_line(img_out, (point_a, point_b), color, thickness=3)
+                    draw_point(img_out, point_b, color, thickness=20)
     else:
         # No tracking — draw raw model detections
         for idx in range(num_detections):
             color = tuple(id_to_color(classes[idx]).tolist())  # Color based on class
-            draw_detection(img_out, boxes[idx], [labels[classes[idx]]], scores[idx] * 100.0, color)
+            xmin, ymin, xmax, ymax = map(int, boxes[idx])
+            draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
+            top_text = f"{labels[classes[idx]]}: {scores[idx] * 100.0:.1f}%"
+            draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
 
     return img_out
 
@@ -343,7 +294,7 @@ def compute_iou(boxA, boxB):
 def run_inference_pipeline(
     net,
     labels,
-    input_context: InputContext,
+    input_context,
     visualization_settings: VisualizationSettings,
     enable_tracking: bool = False,
     draw_trail: bool = False,
@@ -523,15 +474,13 @@ def main(**kwargs) -> None:
     logging.basicConfig(level=logging.INFO)
     handle_and_resolve_args(args, APP_NAME)
 
-    input_context = InputContext(
+    input_context = init_input_source(
         input_src=args.input,
         batch_size=args.batch_size,
         resolution=args.camera_resolution,
         frame_rate=args.frame_rate,
         video_unpaced=args.video_unpaced,
     )
-
-    input_context = init_input_source(input_context)
 
     visualization_settings = VisualizationSettings(
         output_dir=args.output_dir,

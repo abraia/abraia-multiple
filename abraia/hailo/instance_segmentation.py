@@ -3,16 +3,19 @@ import queue
 import threading
 import collections
 import numpy as np
+
 from pathlib import Path
 from functools import partial
 from types import SimpleNamespace
 from scipy.special import expit
 from concurrent.futures import ThreadPoolExecutor
 
+import logging
+logger = logging.getLogger(__name__)
+
 from .tracker.byte_tracker import BYTETracker
 from .hailo_inference import HailoInfer
 from .toolbox import (
-    InputContext,
     VisualizationSettings,
     init_input_source,
     load_json_file,
@@ -28,9 +31,8 @@ from .core import (
     MAX_OUTPUT_QUEUE_SIZE,
     MAX_ASYNC_INFER_JOBS
 )
-import logging
 
-logger = logging.getLogger(__name__)
+APP_NAME = Path(__file__).stem
 
 DEFAULT_OPTIONS = {
     "input": None,
@@ -613,8 +615,8 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None)
     Returns:
         np.ndarray: Annotated image.
     """
-    height, width = img_out.shape[:2]
-    overlay = np.zeros((height, width, 3), dtype=np.uint8)
+    thickness = calculate_optimal_thickness(img_out.shape[:2])
+    text_scale = calculate_optimal_text_scale(img_out.shape[:2])
 
     # Extract detection data from the dictionary
     boxes = detections["detection_boxes"]  # List of [xmin,ymin,xmaxm, ymax] boxes
@@ -651,24 +653,34 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None)
             xmin, ymin, xmax, ymax = map(int, track.tlbr) #bounding box (top-left, bottom-right)
             color = tuple((id_to_color(track_id).tolist()))  #generate consistent color per ID
 
-            draw_box_detection(img_out, [xmin, ymin, xmax, ymax], [labels[classes[best_idx]], f"ID {track_id}"], track.score * 100.0, color, track=True)
+            draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
+            top_text = f"{labels[classes[best_idx]]}: {track.score * 100.0:.1f}%"
+            draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
+            draw_text(img_out, f"ID {track_id}", (xmax - 50, ymax), background_color=color, text_scale=text_scale)
+            
             mask_2d = masks[best_idx]
-            xmin, ymin, xmax, ymax = boxes[best_idx]
-            overlay_region = overlay[ymin:ymax, xmin:xmax]
-            overlay_region[mask_2d==1] = color
+            xmin_box, ymin_box, xmax_box, ymax_box = map(int, boxes[best_idx])
+            mask_255 = (mask_2d * 255).astype(np.uint8)
+            full_mask = np.zeros(img_out.shape[:2], dtype=np.uint8)
+            full_mask[ymin_box:ymax_box, xmin_box:xmax_box] = mask_255
+            img_out = draw_overlay_mask(img_out, full_mask, color=color, opacity=0.7)
 
     else:
         #No tracking — draw raw model detections
         for idx in range(num_detections):
             color = tuple((id_to_color(classes[idx]).tolist()))  #color based on class
-            draw_box_detection(img_out, boxes[idx], [labels[classes[idx]]], scores[idx] * 100.0, color)
+            xmin, ymin, xmax, ymax = map(int, boxes[idx])
+            draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
+            top_text = f"{labels[classes[idx]]}: {scores[idx] * 100.0:.1f}%"
+            draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
 
             mask_2d = masks[idx]
-            xmin, ymin, xmax, ymax = boxes[idx]
-            overlay_region = overlay[ymin:ymax, xmin:xmax]
-            overlay_region[mask_2d==1] = color
+            xmin_box, ymin_box, xmax_box, ymax_box = map(int, boxes[idx])
+            mask_255 = (mask_2d * 255).astype(np.uint8)
+            full_mask = np.zeros(img_out.shape[:2], dtype=np.uint8)
+            full_mask[ymin_box:ymax_box, xmin_box:xmax_box] = mask_255
+            img_out = draw_overlay_mask(img_out, full_mask, color=color, opacity=0.7)
 
-    cv2.addWeighted(overlay, 0.7, img_out, 1.0, 0, dst=img_out)
     return img_out
 
 
@@ -743,45 +755,10 @@ def compute_iou(boxA, boxB):
     return inter / (areaA + areaB - inter + 1e-5)
 
 
-def draw_box_detection(image: np.ndarray, box: list, labels: list, score: float, color: tuple, track=False):
-    """
-    Draw box and label for one detection.
-
-    Args:
-        image (np.ndarray): Image to draw on.
-        box (list): Bounding box coordinates.
-        labels (list): List of labels (1 or 2 elements).
-        score (float): Detection score.
-        color (tuple): Color for the bounding box.
-        track (bool): Whether to include tracking info.
-    """
-    xmin, ymin, xmax, ymax = map(int, box)
-    cv2.rectangle(image, (xmin, ymin), (xmax, ymax), color, 2)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-
-    # Compose texts
-    top_text = f"{labels[0]}: {score:.1f}%" if not track or len(labels) == 2 else f"{score:.1f}%"
-    bottom_text = None
-
-    if track:
-        if len(labels) == 2:
-            bottom_text = labels[1]
-        else:
-            bottom_text = labels[0]
-
-    # Set colors
-    text_color = (255, 255, 255)  # white
-    border_color = (0, 0, 0)      # black
-
-    # Draw top text with black border first
-    cv2.putText(image, top_text, (xmin + 4, ymin + 20), font, 0.5, border_color, 2, cv2.LINE_AA)
-    cv2.putText(image, top_text, (xmin + 4, ymin + 20), font, 0.5, text_color, 1, cv2.LINE_AA)
-
-    # Draw bottom text if exists
-    if bottom_text:
-        pos = (xmax - 50, ymax - 6)
-        cv2.putText(image, bottom_text, pos, font, 0.5, border_color, 2, cv2.LINE_AA)
-        cv2.putText(image, bottom_text, pos, font, 0.5, text_color, 1, cv2.LINE_AA)
+from ..utils.draw import (
+    draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
+    draw_overlay_mask
+)
 
 
 def convert_box_from_normalized(normalized_box: list,
@@ -989,30 +966,26 @@ def draw_single_detection(img_out, box, mask, score, labels, color, config_data,
     pad_h, pad_w = pad
 
     overlay = np.zeros((original_h, original_w, 3), dtype=np.uint8)
-    mask_color_buffer = np.empty((original_h, original_w, 3), dtype=np.uint8)
 
     # === Prepare mask ===
     mask = mask[pad_h:input_h - pad_h, pad_w:input_w - pad_w]
     if mask.shape != (original_h, original_w):
         mask = cv2.resize(mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
-    np.multiply(mask[:, :, np.newaxis], color, out=mask_color_buffer)
-
-    ys, xs = np.where(mask > 0)
-    if len(xs) == 0 or len(ys) == 0:
-        return overlay
-
-    x_min, x_max = xs.min(), xs.max() + 1
-    y_min, y_max = ys.min(), ys.max() + 1
 
     alpha = config_data["visualization_params"]["mask_alpha"]
-    roi_fg = mask_color_buffer[y_min:y_max, x_min:x_max].astype(np.uint8)
-    roi_bg = overlay[y_min:y_max, x_min:x_max].astype(np.uint8)
-
-    blended = cv2.addWeighted(roi_bg, 1 - alpha, roi_fg, alpha, 0)
-    overlay[y_min:y_max, x_min:x_max] = blended
+    mask_255 = (mask * 255).astype(np.uint8)
+    overlay = draw_overlay_mask(overlay, mask_255, color=tuple(color.tolist()), opacity=alpha)
 
     if not skip_boxes:
-        draw_box_detection(img_out, box, labels, score * 100.0, tuple(color.tolist()), track)
+        # Inline box drawing on img_out (main image)
+        thickness = calculate_optimal_thickness(img_out.shape[:2])
+        text_scale = calculate_optimal_text_scale(img_out.shape[:2])
+        xmin, ymin, xmax, ymax = map(int, box)
+        draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], tuple(color.tolist()), thickness)
+        top_text = f"{labels[0]}: {score * 100.0:.1f}%"
+        draw_text(img_out, top_text, (xmin, ymin), background_color=tuple(color.tolist()), text_scale=text_scale)
+        if track:
+            draw_text(img_out, labels[1], (xmax - 50, ymax), background_color=tuple(color.tolist()), text_scale=text_scale)
 
     return overlay
 
@@ -1123,7 +1096,7 @@ def run_inference_pipeline(
     net,
     labels,
     model_type,
-    input_context: InputContext,
+    input_context,
     visualization_settings: VisualizationSettings,
     enable_tracking=False,
 ) -> None:
@@ -1307,15 +1280,13 @@ def main(**kwargs) -> None:
     logging.basicConfig(level=logging.INFO)
     handle_and_resolve_args(args, APP_NAME)
 
-    input_context = InputContext(
+    input_context = init_input_source(
         input_src=args.input,
         batch_size=args.batch_size,
         resolution=args.camera_resolution,
         frame_rate=args.frame_rate,
         video_unpaced=args.video_unpaced,
     )
-
-    input_context = init_input_source(input_context)
 
     visualization_settings = VisualizationSettings(
         output_dir=args.output_dir,

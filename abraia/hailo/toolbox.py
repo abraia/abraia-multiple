@@ -96,7 +96,13 @@ class VisualizationSettings:
 # -------------------------------------------------------------------
 # Main entry: init_input_source
 # -------------------------------------------------------------------
-def init_input_source(input_context: InputContext) -> InputContext:
+def init_input_source(
+    input_src: str,
+    batch_size: int = 1,
+    resolution: Optional[str] = None,
+    frame_rate: Optional[float] = None,
+    video_unpaced: bool = False
+) -> InputContext:
     """
     Initialize the input source according to the user-provided input.
 
@@ -111,6 +117,13 @@ def init_input_source(input_context: InputContext) -> InputContext:
     Returns:
         InputContext: Updated input context with initialized runtime fields.
     """
+    input_context = InputContext(
+        input_src=input_src,
+        batch_size=batch_size,
+        resolution=resolution,
+        frame_rate=frame_rate,
+        video_unpaced=video_unpaced
+    )
     src = input_context.input_src.strip()
 
     # ------------------------------------------------

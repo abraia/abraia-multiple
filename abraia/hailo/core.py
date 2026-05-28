@@ -2,7 +2,6 @@ from __future__ import annotations
 """Core helpers: arch detection, buffer utils, model resolution."""
 
 import os
-import sys
 import yaml
 import shlex
 import requests

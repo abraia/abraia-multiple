@@ -1,8 +1,3 @@
-from __future__ import annotations
-#!/usr/bin/env python3
-import os
-import sys
-import cv2
 import queue
 import threading
 import collections
@@ -16,6 +11,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 from .hailo_inference import HailoInfer
+from .toolbox import (
+    VisualizationSettings,
+    init_input_source,
+    visualize,
+    preprocess,
+    FrameRateTracker,
+)
 from .core import (
     handle_and_resolve_args,
     MAX_INPUT_QUEUE_SIZE,
@@ -24,7 +26,6 @@ from .core import (
 )
 
 APP_NAME = Path(__file__).stem
-
 
 DEFAULT_OPTIONS = {
     "input": None,
@@ -48,6 +49,12 @@ JOINT_PAIRS = [
     [5, 11], [6, 12], [11, 12],
     [11, 13], [12, 14], [13, 15], [14, 16]
 ]
+
+
+from ..utils.draw import (
+    draw_rectangle, draw_text, draw_point, draw_line,
+    calculate_optimal_thickness, calculate_optimal_text_scale
+)
 
 
 class PoseEstPostProcessing:
@@ -302,6 +309,9 @@ class PoseEstPostProcessing:
         assert batch_size == 1
         orig_h, orig_w = image.shape[:2]
 
+        thickness = calculate_optimal_thickness(image.shape[:2])
+        text_scale = calculate_optimal_text_scale(image.shape[:2])
+
         box, score, keypoint, keypoint_score = bboxes[0], scores[0], keypoints[0], joint_scores[0]
 
         for (detection_box, detection_score, detection_keypoints,
@@ -311,8 +321,11 @@ class PoseEstPostProcessing:
             detection_box = self.map_box_to_original_coords(detection_box, orig_w, orig_h, model_width, model_height)
             xmin, ymin, xmax, ymax = [int(x) for x in detection_box]
 
-            cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (255, 0, 0), 1)
-            cv2.putText(image, str(detection_score), (xmin, ymin), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (36, 255, 12), 1)
+            color_box = (255, 0, 0)
+            color_skeleton = (255, 0, 255)
+
+            draw_rectangle(image, [xmin, ymin, xmax - xmin, ymax - ymin], color_box, thickness)
+            draw_text(image, f"{detection_score:.2f}", (xmin, ymin), background_color=color_box, text_scale=text_scale)
 
             joint_visible = detection_keypoints_score > joint_threshold
             detection_keypoints = detection_keypoints.reshape(17, 2)
@@ -323,13 +336,13 @@ class PoseEstPostProcessing:
             for joint, joint_score in zip(detection_keypoints, detection_keypoints_score):
                 if joint_score < joint_threshold:
                     continue
-                cv2.circle(image, (int(joint[0]), int(joint[1])), 1, (255, 0, 255), -1)
+                draw_point(image, (int(joint[0]), int(joint[1])), color_skeleton, thickness=1)
 
             for joint0, joint1 in JOINT_PAIRS:
                 if joint_visible[joint0] and joint_visible[joint1]:
                     pt1 = (int(detection_keypoints[joint0][0]), int(detection_keypoints[joint0][1]))
                     pt2 = (int(detection_keypoints[joint1][0]), int(detection_keypoints[joint1][1]))
-                    cv2.line(image, pt1, pt2, (255, 0, 255), 3)
+                    draw_line(image, (pt1, pt2), color_skeleton, thickness=3)
 
         return image
 
@@ -653,7 +666,7 @@ def infer(hailo_inference, input_queue, output_queue, stop_event):
 def run_inference_pipeline(
     net,
     class_num,
-    input_context: InputContext,
+    input_context,
     visualization_settings: VisualizationSettings,
 ) -> None:
     """
@@ -740,8 +753,6 @@ def run_inference_pipeline(
         logger.info(f"Saved outputs to '{visualization_settings.output_dir}'.")
 
 
-
-
 def main(**kwargs) -> None:
     """
     Main entry point for the pose estimation application.
@@ -756,15 +767,13 @@ def main(**kwargs) -> None:
     logging.basicConfig(level=logging.INFO)
     handle_and_resolve_args(args, APP_NAME)
 
-    input_context = InputContext(
+    input_context = init_input_source(
         input_src=args.input,
         batch_size=args.batch_size,
         resolution=args.camera_resolution,
         frame_rate=args.frame_rate,
         video_unpaced=args.video_unpaced,
     )
-
-    input_context = init_input_source(input_context)
 
     visualization_settings = VisualizationSettings(
         output_dir=args.output_dir,
