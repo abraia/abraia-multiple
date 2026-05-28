@@ -48,6 +48,78 @@ from .kalman_filter import chi2inv95
 import time
 
 
+def compute_iou(boxA, boxB):
+    """
+    Compute Intersection over Union (IoU) between two bounding boxes.
+
+    IoU measures the overlap between two boxes:
+        IoU = (area of intersection) / (area of union)
+    Values range from 0 (no overlap) to 1 (perfect overlap).
+
+    Args:
+        boxA (list or tuple): [x_min, y_min, x_max, y_max]
+        boxB (list or tuple): [x_min, y_min, x_max, y_max]
+
+    Returns:
+        float: IoU value between 0 and 1.
+    """
+    xA, yA = max(boxA[0], boxB[0]), max(boxA[1], boxB[1])
+    xB, yB = min(boxA[2], boxB[2]), min(boxA[3], boxB[3])
+    inter = max(0, xB - xA) * max(0, yB - yA)
+    areaA = max(1e-5, (boxA[2] - boxA[0]) * (boxA[3] - boxA[1]))
+    areaB = max(1e-5, (boxB[2] - boxB[0]) * (boxB[3] - boxB[1]))
+    return inter / (areaA + areaB - inter + 1e-5)
+
+
+def find_best_matching_detection_index(track_box, detection_boxes):
+    """
+    Finds the index of the detection box with the highest IoU relative to the given tracking box.
+
+    Args:
+        track_box (list or tuple): The tracking box in [x_min, y_min, x_max, y_max] format.
+        detection_boxes (list): List of detection boxes in [x_min, y_min, x_max, y_max] format.
+
+    Returns:
+        int or None: Index of the best matching detection, or None if no match is found.
+    """
+    best_iou = 0
+    best_idx = -1
+
+    for i, det_box in enumerate(detection_boxes):
+        iou = compute_iou(track_box, det_box)
+        if iou > best_iou:
+            best_iou = iou
+            best_idx = i
+
+    return best_idx if best_idx != -1 else None
+
+
+def find_best_matching_mask_index(track_box, original_boxes, masks):
+    """
+    Finds the index of the mask whose corresponding box has the highest IoU with the given track box.
+
+    Args:
+        track_box (list or tuple): The tracking box [x_min, y_min, x_max, y_max].
+        original_boxes (list): List of boxes corresponding to the masks.
+        masks (list): List of masks.
+
+    Returns:
+        int or None: Index of the best matching mask, or None if no suitable match is found.
+    """
+    best_iou = 0
+    best_idx = -1
+
+    for i, box in enumerate(original_boxes):
+        iou = compute_iou(track_box, box)
+        if iou > best_iou:
+            best_iou = iou
+            best_idx = i
+
+    if best_idx == -1 or best_idx >= len(masks):
+        return None
+    return best_idx
+
+
 class Matching:
 
     @staticmethod

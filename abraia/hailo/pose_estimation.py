@@ -76,9 +76,7 @@ class PoseEstPostProcessing:
         self.regression_length = regression_length
         self.strides = strides
 
-    def inference_result_handler(
-            self, image, raw_detections: dict, model_height: int, model_width: int, class_num: int = 1
-    ) -> np.ndarray:
+    def inference_result_handler(self, image, raw_detections: dict, model_height: int, model_width: int, class_num: int = 1) -> np.ndarray:
         """
         Post-process the inference results and return the output image with visualizations.
 
@@ -96,9 +94,7 @@ class PoseEstPostProcessing:
         results = self.post_process(raw_detections, model_height, model_width, class_num)
 
         # Visualize and save results
-        output_image = self.visualize_pose_estimation_result(results, image, model_height, model_width)
-
-        return  output_image
+        return self.visualize_pose_estimation_result(results, image, model_height, model_width)
 
     def post_process(self, raw_detections: dict, height: int, width: int, class_num: int) -> dict:
         """

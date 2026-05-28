@@ -21,13 +21,12 @@ from .toolbox import (
     VisualizationSettings,
     init_input_source,
     get_labels,
-    load_json_file,
     preprocess,
     visualize,
-    FrameRateTracker,
-    id_to_color
+    FrameRateTracker
 )
 from .tracker.byte_tracker import BYTETracker
+from .tracker.matching import find_best_matching_detection_index
 
 APP_NAME = Path(__file__).stem
 
@@ -54,78 +53,62 @@ DEFAULT_OPTIONS = {
     "save_output": False,
 }
 
+CONFIG_DATA = {
+    "visualization_params": {
+        "score_thres": 0.25,
+        "max_boxes_to_draw": 500,
+        "tracker": {
+            "track_thresh": 0.1,
+            "track_buffer": 30,
+            "match_thresh": 0.9,
+            "aspect_ratio_thresh": 2.0,
+            "min_box_area": 500,
+            "mot20": False
+        }
+    }
+}
 
-def inference_result_handler(original_frame, infer_results, labels, config_data, tracker=None, draw_trail=False):
+
+def inference_result_handler(original_frame, infer_results, labels, score_threshold, max_boxes, tracker=None, draw_trail=False):
     """
     Processes inference results and draw detections (with optional tracking).
 
     Args:
-        infer_results (list): Raw output from the model.
         original_frame (np.ndarray): Original image frame.
+        infer_results (list): Raw output from the model.
         labels (list): List of class labels.
-        enable_tracking (bool): Whether tracking is enabled.
+        score_threshold (float): Minimum confidence score to consider a detection.
+        max_boxes (int): Maximum number of detections to keep.
         tracker (BYTETracker, optional): ByteTrack tracker instance.
+        draw_trail (bool): Whether to draw tracking trails.
 
     Returns:
         np.ndarray: Frame with detections or tracks drawn.
     """
-    detections = extract_detections(original_frame, infer_results, config_data)  # Should return dict with boxes, classes, scores
-    frame_with_detections = draw_detections(detections, original_frame, labels, tracker=tracker, draw_trail=draw_trail)
-    return frame_with_detections
+    print(infer_results)
+    detections = extract_detections(original_frame, infer_results, score_threshold, max_boxes)
+    return draw_detections(detections, original_frame, labels, tracker=tracker, draw_trail=draw_trail)
 
 
 from ..utils.draw import (
     draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
-    draw_line, draw_point
+    draw_line, draw_point, get_color, hex_to_rgb
 )
 
 
-def denormalize_and_rm_pad(box: list, size: int, padding_length: int, input_height: int, input_width: int) -> list:
-    """
-    Denormalize bounding box coordinates and remove padding.
-
-    Args:
-        box (list): Normalized bounding box coordinates.
-        size (int): Size to scale the coordinates.
-        padding_length (int): Length of padding to remove.
-        input_height (int): Height of the input image.
-        input_width (int): Width of the input image.
-
-    Returns:
-        list: Denormalized bounding box coordinates with padding removed.
-    """
-    # Scale box coordinates
-    box = [int(x * size) for x in box]
-
-    # Apply padding correction
-    for i in range(4):
-        if i % 2 == 0:  # x-coordinates
-            if input_height != size:
-                box[i] -= padding_length
-        else:  # y-coordinates
-            if input_width != size:
-                box[i] -= padding_length
-
-    # Swap to [ymin, xmin, ymax, xmax]
-    return [box[1], box[0], box[3], box[2]]
-
-
-def extract_detections(image: np.ndarray, detections: list, config_data) -> dict:
+def extract_detections(image: np.ndarray, detections: list, score_threshold: float, max_boxes: int) -> dict:
     """
     Extract detections from the input data.
 
     Args:
         image (np.ndarray): Image to draw on.
         detections (list): Raw detections from the model.
-        config_data (Dict): Loaded JSON config containing post-processing metadata.
+        score_threshold (float): Minimum confidence score to consider a detection.
+        max_boxes (int): Maximum number of detections to keep.
 
     Returns:
         dict: Filtered detection results containing 'detection_boxes', 'detection_classes', 'detection_scores', and 'num_detections'.
     """
-
-    visualization_params = config_data["visualization_params"]
-    score_threshold = visualization_params.get("score_thres", 0.5)
-    max_boxes = visualization_params.get("max_boxes_to_draw", 50)
 
     img_height, img_width = image.shape[:2]
     size = max(img_height, img_width)
@@ -137,7 +120,17 @@ def extract_detections(image: np.ndarray, detections: list, config_data) -> dict
         for det in detection:
             bbox, score = det[:4], det[4]
             if score >= score_threshold:
-                denorm_bbox = denormalize_and_rm_pad(bbox, size, padding_length, img_height, img_width)
+                # Denormalize and remove padding
+                box = [int(x * size) for x in bbox]
+                for i in range(4):
+                    if i % 2 == 0:  # x-coordinates
+                        if img_height != size:
+                            box[i] -= padding_length
+                    else:  # y-coordinates
+                        if img_width != size:
+                            box[i] -= padding_length
+                # Swap to [ymin, xmin, ymax, xmax]
+                denorm_bbox = [box[1], box[0], box[3], box[2]]
                 all_detections.append((score, class_id, denorm_bbox))
 
     # Sort all detections by score descending
@@ -201,7 +194,7 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
             x1, y1, x2, y2 = track.tlbr  # Bounding box (top-left, bottom-right)
             xmin, ymin, xmax, ymax = map(int, [x1, y1, x2, y2])
             best_idx = find_best_matching_detection_index(track.tlbr, boxes)
-            color = tuple(id_to_color(classes[best_idx]).tolist())  # Color based on class
+            color = hex_to_rgb(get_color(track_id))  # Color based on class
             
             # Draw bounding box
             draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
@@ -236,59 +229,13 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
     else:
         # No tracking — draw raw model detections
         for idx in range(num_detections):
-            color = tuple(id_to_color(classes[idx]).tolist())  # Color based on class
+            color = hex_to_rgb(get_color(classes[idx]))  # Color based on class
             xmin, ymin, xmax, ymax = map(int, boxes[idx])
             draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
             top_text = f"{labels[classes[idx]]}: {scores[idx] * 100.0:.1f}%"
             draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
 
     return img_out
-
-
-def find_best_matching_detection_index(track_box, detection_boxes):
-    """
-    Finds the index of the detection box with the highest IoU relative to the given tracking box.
-
-    Args:
-        track_box (list or tuple): The tracking box in [x_min, y_min, x_max, y_max] format.
-        detection_boxes (list): List of detection boxes in [x_min, y_min, x_max, y_max] format.
-
-    Returns:
-        int or None: Index of the best matching detection, or None if no match is found.
-    """
-    best_iou = 0
-    best_idx = -1
-
-    for i, det_box in enumerate(detection_boxes):
-        iou = compute_iou(track_box, det_box)
-        if iou > best_iou:
-            best_iou = iou
-            best_idx = i
-
-    return best_idx if best_idx != -1 else None
-
-
-def compute_iou(boxA, boxB):
-    """
-    Compute Intersection over Union (IoU) between two bounding boxes.
-
-    IoU measures the overlap between two boxes:
-        IoU = (area of intersection) / (area of union)
-    Values range from 0 (no overlap) to 1 (perfect overlap).
-
-    Args:
-        boxA (list or tuple): [x_min, y_min, x_max, y_max]
-        boxB (list or tuple): [x_min, y_min, x_max, y_max]
-
-    Returns:
-        float: IoU value between 0 and 1.
-    """
-    xA, yA = max(boxA[0], boxB[0]), max(boxA[1], boxB[1])
-    xB, yB = min(boxA[2], boxB[2]), min(boxA[3], boxB[3])
-    inter = max(0, xB - xA) * max(0, yB - yA)
-    areaA = max(1e-5, (boxA[2] - boxA[0]) * (boxA[3] - boxA[1]))
-    areaB = max(1e-5, (boxB[2] - boxB[0]) * (boxB[3] - boxB[1]))
-    return inter / (areaA + areaB - inter + 1e-5)
 
 
 def run_inference_pipeline(
@@ -303,16 +250,18 @@ def run_inference_pipeline(
     Initialize queues, inference instance, and run the pipeline.
     """
     labels = get_labels(labels)
-    app_dir = Path(__file__).resolve().parent
-    config_path = app_dir / "config.json"
-    config_data = load_json_file(str(config_path))
+    config_data = CONFIG_DATA
 
     stop_event = threading.Event()
     fps_tracker = FrameRateTracker()
     tracker = None
 
+    visualization_params = config_data.get("visualization_params", {})
+    score_threshold = visualization_params.get("score_thres", 0.5)
+    max_boxes = visualization_params.get("max_boxes_to_draw", 50)
+
     if enable_tracking:
-        tracker_config = config_data.get("visualization_params", {}).get("tracker", {})
+        tracker_config = visualization_params.get("tracker", {})
         tracker = BYTETracker(SimpleNamespace(**tracker_config))
 
     input_queue = queue.Queue(MAX_INPUT_QUEUE_SIZE)
@@ -321,7 +270,8 @@ def run_inference_pipeline(
     post_process_callback_fn = partial(
         inference_result_handler,
         labels=labels,
-        config_data=config_data,
+        score_threshold=score_threshold,
+        max_boxes=max_boxes,
         tracker=tracker,
         draw_trail=draw_trail,
     )

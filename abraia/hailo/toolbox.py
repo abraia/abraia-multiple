@@ -314,11 +314,6 @@ def get_labels(labels_path: str) -> list:
         return class_names
 
 
-def id_to_color(idx):
-    np.random.seed(idx)
-    return np.random.randint(0, 255, size=3, dtype=np.uint8)
-
-
 ####################################################################
 # PreProcess of Network Input
 ####################################################################

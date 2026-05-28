@@ -14,16 +14,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 from .tracker.byte_tracker import BYTETracker
+from .tracker.matching import find_best_matching_mask_index
 from .hailo_inference import HailoInfer
 from .toolbox import (
     VisualizationSettings,
     init_input_source,
-    load_json_file,
     get_labels,
     visualize,
     preprocess,
-    FrameRateTracker,
-    id_to_color
+    FrameRateTracker
 )
 from .core import (
     handle_and_resolve_args,
@@ -47,6 +46,95 @@ DEFAULT_OPTIONS = {
     "output_resolution": None,
     "output_dir": None,
     "save_output": False,
+}
+
+CONFIG_DATA = {
+    "v5": {
+        "arch": "yolov5_seg",
+        "anchors": {
+            "strides": [8, 16, 32],
+            "sizes": [
+                [10, 13, 16, 30, 33, 23],
+                [30, 61, 62, 45, 59, 119],
+                [116, 90, 156, 198, 373, 326]
+            ]
+        },
+        "input_shape": [640, 640],
+        "mask_channels": 32,
+        "score_threshold": 0.001,
+        "nms_iou_thresh": 0.6,
+        "classes": 80,
+        "layers": [
+            [1, 160, 160, "mask_channels"],
+            [1, 20, 20, "detection_channels"],
+            [1, 40, 40, "detection_channels"],
+            [1, 80, 80, "detection_channels"]
+        ]
+    },
+    "v8": {
+        "arch": "yolov8_seg",
+        "anchors": {
+            "strides": [8, 16, 32],
+            "regression_length": 15
+        },
+        "input_shape": [640, 640],
+        "mask_channels": 32,
+        "score_threshold": 0.001,
+        "nms_iou_thresh": 0.7,
+        "meta_arch": "yolov8_seg_postprocess",
+        "classes": 80,
+        "layers": [
+            [1, 20, 20, "detection_output_channels"],
+            [1, 20, 20, "classes"],
+            [1, 20, 20, "mask_channels"],
+            [1, 40, 40, "detection_output_channels"],
+            [1, 40, 40, "classes"],
+            [1, 40, 40, "mask_channels"],
+            [1, 80, 80, "detection_output_channels"],
+            [1, 80, 80, "classes"],
+            [1, 80, 80, "mask_channels"],
+            [1, 160, 160, "mask_channels"]
+        ]
+    },
+    "fast": {
+        "arch": "fast_sam",
+        "anchors": {
+            "strides": [8, 16, 32],
+            "regression_length": 15
+        },
+        "input_shape": [640, 640],
+        "mask_channels": 32,
+        "score_threshold": 0.25,
+        "nms_iou_thresh": 0.6,
+        "meta_arch": "yolov8_seg_postprocess",
+        "classes": 1,
+        "layers": [
+            [1, 20, 20, "detection_output_channels"],
+            [1, 20, 20, "classes"],
+            [1, 20, 20, "mask_channels"],
+            [1, 40, 40, "detection_output_channels"],
+            [1, 40, 40, "classes"],
+            [1, 40, 40, "mask_channels"],
+            [1, 80, 80, "detection_output_channels"],
+            [1, 80, 80, "classes"],
+            [1, 80, 80, "mask_channels"],
+            [1, 160, 160, "mask_channels"]
+        ]
+    },
+    "visualization_params": {
+        "score_thres": 0.25,
+        "mask_thresh": 0.4,
+        "mask_alpha": 0.5,
+        "max_boxes_to_draw": 50,
+        "tracker": {
+            "track_thresh": 0.01,
+            "track_buffer": 30,
+            "match_thresh": 0.9,
+            "aspect_ratio_thresh": 2.0,
+            "min_box_area": 500,
+            "mot20": False
+        }
+    }
 }
 
 
@@ -615,6 +703,9 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None)
     Returns:
         np.ndarray: Annotated image.
     """
+    height, width = img_out.shape[:2]
+    overlay = np.zeros((height, width, 3), dtype=np.uint8)
+
     thickness = calculate_optimal_thickness(img_out.shape[:2])
     text_scale = calculate_optimal_text_scale(img_out.shape[:2])
 
@@ -643,15 +734,13 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None)
 
         # Draw tracked bounding boxes with ID labels
         for track in online_targets:
-
-            # === Find best matching mask ===
             best_idx = find_best_matching_mask_index(track.tlbr, boxes, masks)
             if best_idx is None:
                 continue
 
             track_id = track.track_id  #unique tracker ID
             xmin, ymin, xmax, ymax = map(int, track.tlbr) #bounding box (top-left, bottom-right)
-            color = tuple((id_to_color(track_id).tolist()))  #generate consistent color per ID
+            color = hex_to_rgb(get_color(track_id))
 
             draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
             top_text = f"{labels[classes[best_idx]]}: {track.score * 100.0:.1f}%"
@@ -659,55 +748,24 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None)
             draw_text(img_out, f"ID {track_id}", (xmax - 50, ymax), background_color=color, text_scale=text_scale)
             
             mask_2d = masks[best_idx]
-            xmin_box, ymin_box, xmax_box, ymax_box = map(int, boxes[best_idx])
-            mask_255 = (mask_2d * 255).astype(np.uint8)
-            full_mask = np.zeros(img_out.shape[:2], dtype=np.uint8)
-            full_mask[ymin_box:ymax_box, xmin_box:xmax_box] = mask_255
-            img_out = draw_overlay_mask(img_out, full_mask, color=color, opacity=0.7)
-
+            xmin, ymin, xmax, ymax = boxes[best_idx]
+            overlay_region = overlay[ymin:ymax, xmin:xmax]
+            overlay_region[mask_2d==1] = color
     else:
-        #No tracking — draw raw model detections
         for idx in range(num_detections):
-            color = tuple((id_to_color(classes[idx]).tolist()))  #color based on class
+            color = hex_to_rgb(get_color(classes[idx]))
             xmin, ymin, xmax, ymax = map(int, boxes[idx])
             draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
             top_text = f"{labels[classes[idx]]}: {scores[idx] * 100.0:.1f}%"
             draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
 
             mask_2d = masks[idx]
-            xmin_box, ymin_box, xmax_box, ymax_box = map(int, boxes[idx])
-            mask_255 = (mask_2d * 255).astype(np.uint8)
-            full_mask = np.zeros(img_out.shape[:2], dtype=np.uint8)
-            full_mask[ymin_box:ymax_box, xmin_box:xmax_box] = mask_255
-            img_out = draw_overlay_mask(img_out, full_mask, color=color, opacity=0.7)
+            xmin, ymin, xmax, ymax = boxes[idx]
+            overlay_region = overlay[ymin:ymax, xmin:xmax]
+            overlay_region[mask_2d==1] = color
 
+    cv2.addWeighted(overlay, 0.7, img_out, 1.0, 0, dst=img_out)
     return img_out
-
-
-def find_best_matching_mask_index(track_box, original_boxes, masks):
-    """
-    Finds the index of the mask whose corresponding box has the highest IoU with the given track box.
-
-    Args:
-        track_box (list or tuple): The tracking box [x_min, y_min, x_max, y_max].
-        original_boxes (list): List of boxes corresponding to the masks.
-        masks (list): List of masks.
-
-    Returns:
-        int or None: Index of the best matching mask, or None if no suitable match is found.
-    """
-    best_iou = 0
-    best_idx = -1
-
-    for i, box in enumerate(original_boxes):
-        iou = compute_iou(track_box, box)
-        if iou > best_iou:
-            best_iou = iou
-            best_idx = i
-
-    if best_idx == -1 or best_idx >= len(masks):
-        return None
-    return best_idx
 
 
 def mask_to_polygons(mask):
@@ -732,32 +790,9 @@ def mask_to_polygons(mask):
     return polygons, has_holes
 
 
-def compute_iou(boxA, boxB):
-    """
-    Compute Intersection over Union (IoU) between two bounding boxes.
-
-    IoU measures the overlap between two boxes:
-        IoU = (area of intersection) / (area of union)
-    Values range from 0 (no overlap) to 1 (perfect overlap).
-
-    Args:
-        boxA (list or tuple): [x_min, y_min, x_max, y_max]
-        boxB (list or tuple): [x_min, y_min, x_max, y_max]
-
-    Returns:
-        float: IoU value between 0 and 1.
-    """
-    xA, yA = max(boxA[0], boxB[0]), max(boxA[1], boxB[1])
-    xB, yB = min(boxA[2], boxB[2]), min(boxA[3], boxB[3])
-    inter = max(0, xB - xA) * max(0, yB - yA)
-    areaA = max(1e-5, (boxA[2] - boxA[0]) * (boxA[3] - boxA[1]))
-    areaB = max(1e-5, (boxB[2] - boxB[0]) * (boxB[3] - boxB[1]))
-    return inter / (areaA + areaB - inter + 1e-5)
-
-
 from ..utils.draw import (
     draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
-    draw_overlay_mask
+    draw_overlay_mask, get_color, hex_to_rgb
 )
 
 
@@ -974,18 +1009,18 @@ def draw_single_detection(img_out, box, mask, score, labels, color, config_data,
 
     alpha = config_data["visualization_params"]["mask_alpha"]
     mask_255 = (mask * 255).astype(np.uint8)
-    overlay = draw_overlay_mask(overlay, mask_255, color=tuple(color.tolist()), opacity=alpha)
+    overlay = draw_overlay_mask(overlay, mask_255, color=color, opacity=alpha)
 
     if not skip_boxes:
         # Inline box drawing on img_out (main image)
         thickness = calculate_optimal_thickness(img_out.shape[:2])
         text_scale = calculate_optimal_text_scale(img_out.shape[:2])
         xmin, ymin, xmax, ymax = map(int, box)
-        draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], tuple(color.tolist()), thickness)
+        draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
         top_text = f"{labels[0]}: {score * 100.0:.1f}%"
-        draw_text(img_out, top_text, (xmin, ymin), background_color=tuple(color.tolist()), text_scale=text_scale)
+        draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
         if track:
-            draw_text(img_out, labels[1], (xmax - 50, ymax), background_color=tuple(color.tolist()), text_scale=text_scale)
+            draw_text(img_out, labels[1], (xmax - 50, ymax), background_color=color, text_scale=text_scale)
 
     return overlay
 
@@ -1046,7 +1081,7 @@ def draw_detections_no_nms(detections, img, config_data, labels, arch, tracker=N
                 continue
 
             track_id = f"ID {track.track_id}"
-            color = id_to_color(track.track_id)
+            color = hex_to_rgb(get_color(track.track_id))
             args = (img_out,
                 original_boxes[best_idx],
                 masks[best_idx].astype(np.uint8),
@@ -1065,9 +1100,9 @@ def draw_detections_no_nms(detections, img, config_data, labels, arch, tracker=N
         for idx, box in enumerate(original_boxes):
             label = f"{labels[classes[idx]]}"
             if not skip_boxes:
-                color = id_to_color(classes[idx])
+                color = hex_to_rgb(get_color(classes[idx]))
             else:
-                color = np.random.randint(low=0, high=255, size=3, dtype=np.uint8)
+                color = tuple(np.random.randint(low=0, high=255, size=3, dtype=np.uint8).tolist())
 
             args = (img_out,
                 box,
@@ -1103,9 +1138,7 @@ def run_inference_pipeline(
     """
     Initialize queues, HailoAsyncInference instance, and run the inference.
     """
-    app_dir = Path(__file__).resolve().parent
-    config_path = app_dir / "instance_segmentation_config.json"
-    config_data = load_json_file(str(config_path))
+    config_data = CONFIG_DATA
     labels = get_labels(labels)
 
     stop_event = threading.Event()
