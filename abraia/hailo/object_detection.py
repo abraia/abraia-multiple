@@ -36,7 +36,7 @@ APP_NAME = Path(__file__).stem
 
 DEFAULT_OPTIONS = {
     "input": None,
-    "hef_path": None,
+    "hef_path": "yolov8m.hef",
     "batch_size": 1,
     "frame_rate": None,
     "track": False,
