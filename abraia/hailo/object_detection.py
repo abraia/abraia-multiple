@@ -19,14 +19,16 @@ logger = logging.getLogger(__name__)
 from .hailo_inference import HailoInfer
 from .toolbox import (
     VisualizationSettings,
-    init_input_source,
-    get_labels,
-    preprocess,
-    visualize,
-    FrameRateTracker
+    VideoPipeline,
+    get_labels
 )
 from .tracker.byte_tracker import BYTETracker
 from .tracker.matching import find_best_matching_detection_index
+
+from ..utils.draw import (
+    draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
+    draw_line, draw_point, get_color, hex_to_rgb
+)
 
 APP_NAME = Path(__file__).stem
 
@@ -91,12 +93,6 @@ def inference_result_handler(original_frame, infer_results, labels, score_thresh
     return draw_detections(original_frame, detections, draw_trail=draw_trail)
 
 
-from ..utils.draw import (
-    draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
-    draw_line, draw_point, get_color, hex_to_rgb
-)
-
-
 def extract_detections(image: np.ndarray, detections: list, labels: list, score_threshold: float, max_boxes: int) -> list:
     """
     Extract detections from the input data.
@@ -117,7 +113,6 @@ def extract_detections(image: np.ndarray, detections: list, labels: list, score_
     padding_length = int(abs(img_height - img_width) / 2)
 
     all_detections = []
-    print(f"Raw detections: {detections}")
 
     for class_id, detection in enumerate(detections):
         for det in detection:
@@ -226,22 +221,20 @@ def draw_detections(image: np.ndarray, detections: list, draw_trail=False) -> np
     text_scale = calculate_optimal_text_scale(img_out.shape[:2])
 
     for det in detections:
+        x, y, w, h = det['box']
         track_id = det.get('track_id')
         color = hex_to_rgb(get_color(track_id if track_id is not None else det.get('class_id', 0)))
-        x, y, w, h = det['box']
-        
-        draw_rectangle(img_out, [x, y, w, h], color, thickness)
-
-        top_text = f"{det['label']}: {det['score'] * 100.0:.1f}%"
+        top_text = f"{det['label']} {round(det['score'], 2)}"
         if track_id is not None:
-            top_text += f" ID {track_id}"
+            top_text = f"[{track_id}] {top_text}"
+
+        draw_rectangle(img_out, [x, y, w, h], color, thickness)
         draw_text(img_out, top_text, (x, y), background_color=color, text_scale=text_scale)
 
         if draw_trail and 'trail' in det:
             trail = det['trail']
             for i in range(1, len(trail)):
-                point_a = trail[i-1]
-                point_b = trail[i]
+                point_a, point_b = trail[i-1], trail[i]
                 draw_line(img_out, (point_a, point_b), color, thickness=3)
                 draw_point(img_out, point_b, color, thickness=20)
 
@@ -251,7 +244,7 @@ def draw_detections(image: np.ndarray, detections: list, draw_trail=False) -> np
 def run_inference_pipeline(
     net,
     labels,
-    input_context,
+    pipeline: VideoPipeline,
     visualization_settings: VisualizationSettings,
     enable_tracking: bool = False,
     draw_trail: bool = False,
@@ -262,8 +255,6 @@ def run_inference_pipeline(
     labels = get_labels(labels)
     config_data = CONFIG_DATA
 
-    stop_event = threading.Event()
-    fps_tracker = FrameRateTracker()
     tracker = None
 
     visualization_params = config_data.get("visualization_params", {})
@@ -286,51 +277,43 @@ def run_inference_pipeline(
         draw_trail=draw_trail,
     )
 
-    hailo_inference = HailoInfer(net, input_context.batch_size)
+    hailo_inference = HailoInfer(net, pipeline.batch_size)
     height, width, _ = hailo_inference.get_input_shape()
 
     preprocess_thread = threading.Thread(
-        target=preprocess,
+        target=pipeline.preprocess,
         args=(
-            input_context,
             input_queue,
             width,
             height,
-            None,  # Use default preprocess from toolbox
-            stop_event,
         ),
         name="preprocess-thread",
     )
 
     infer_thread = threading.Thread(
         target=infer,
-        args=(hailo_inference, input_queue, output_queue, stop_event),
+        args=(hailo_inference, input_queue, output_queue, pipeline.stop_event),
         name="infer-thread",
     )
 
     preprocess_thread.start()
     infer_thread.start()
 
-    fps_tracker.start()
-
     try:
-        visualize(
-            input_context,
+        pipeline.visualize(
             visualization_settings,
             output_queue,
             post_process_callback_fn,
-            fps_tracker,
-            stop_event,
         )
     finally:
-        stop_event.set()
+        pipeline.stop_event.set()
         preprocess_thread.join()
         infer_thread.join()
 
-    logger.info(fps_tracker.frame_rate_summary())
+    logger.info(pipeline.fps_tracker.frame_rate_summary())
     logger.info("Processing completed successfully.")
 
-    if visualization_settings.save_stream_output or input_context.has_images:
+    if visualization_settings.save_stream_output or pipeline.has_images:
         logger.info(f"Saved outputs to '{visualization_settings.output_dir}'.")
 
 
@@ -434,7 +417,7 @@ def main(**kwargs) -> None:
     logging.basicConfig(level=logging.INFO)
     args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
-    input_context = init_input_source(
+    pipeline = VideoPipeline(
         input_src=args.input,
         batch_size=args.batch_size,
         resolution=args.camera_resolution,
@@ -451,7 +434,7 @@ def main(**kwargs) -> None:
     run_inference_pipeline(
         net=args.hef_path,
         labels=args.labels,
-        input_context=input_context,
+        pipeline=pipeline,
         visualization_settings=visualization_settings,
         enable_tracking=args.track,
         draw_trail=args.draw_trail,

@@ -18,11 +18,8 @@ from .tracker.matching import find_best_matching_mask_index
 from .hailo_inference import HailoInfer
 from .toolbox import (
     VisualizationSettings,
-    init_input_source,
-    get_labels,
-    visualize,
-    preprocess,
-    FrameRateTracker
+    VideoPipeline,
+    get_labels
 )
 from .core import (
     resolve_hef_path,
@@ -1139,7 +1136,7 @@ def run_inference_pipeline(
     net,
     labels,
     model_type,
-    input_context,
+    pipeline: VideoPipeline,
     visualization_settings: VisualizationSettings,
     enable_tracking=False,
 ) -> None:
@@ -1149,11 +1146,7 @@ def run_inference_pipeline(
     config_data = CONFIG_DATA
     labels = get_labels(labels)
 
-    stop_event = threading.Event()
     tracker = None
-    fps_tracker = None
-
-    fps_tracker = FrameRateTracker()
 
     if enable_tracking:
         # Load tracker config from config_data
@@ -1165,7 +1158,7 @@ def run_inference_pipeline(
 
     hailo_inference = HailoInfer(
         net,
-        input_context.batch_size,
+        pipeline.batch_size,
         output_type="FLOAT32")
 
     post_process_callback_fn = partial(
@@ -1180,48 +1173,40 @@ def run_inference_pipeline(
     height, width, _ = hailo_inference.get_input_shape()
 
     preprocess_thread = threading.Thread(
-        target=preprocess,
+        target=pipeline.preprocess,
         args=(
-            input_context,
             input_queue,
             width,
             height,
-            None,       # Use default preprocess from toolbox
-            stop_event,
         ),
         name="preprocess-thread",
     )
 
     infer_thread = threading.Thread(
         target=infer,
-        args=(hailo_inference, input_queue, output_queue, stop_event),
+        args=(hailo_inference, input_queue, output_queue, pipeline.stop_event),
         name="infer-thread",
     )
 
     preprocess_thread.start()
     infer_thread.start()
 
-    fps_tracker.start()
-
     try:
-        visualize(
-            input_context,
+        pipeline.visualize(
             visualization_settings,
             output_queue,
             post_process_callback_fn,
-            fps_tracker,
-            stop_event,
         )
     finally:
-        stop_event.set()
+        pipeline.stop_event.set()
         preprocess_thread.join()
         infer_thread.join()
 
-    logger.info(fps_tracker.frame_rate_summary())
+    logger.info(pipeline.fps_tracker.frame_rate_summary())
 
     logger.info("Processing completed successfully.")
 
-    if visualization_settings.save_stream_output or input_context.has_images:
+    if visualization_settings.save_stream_output or pipeline.has_images:
         logger.info(f"Saved outputs to '{visualization_settings.output_dir}'.")
 
 
@@ -1321,7 +1306,7 @@ def main(**kwargs) -> None:
     logging.basicConfig(level=logging.INFO)
     args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
-    input_context = init_input_source(
+    pipeline = VideoPipeline(
         input_src=args.input,
         batch_size=args.batch_size,
         resolution=args.camera_resolution,
@@ -1339,7 +1324,7 @@ def main(**kwargs) -> None:
         net=args.hef_path,
         labels=args.labels,
         model_type=args.model_type,
-        input_context=input_context,
+        pipeline=pipeline,
         visualization_settings=visualization_settings,
         enable_tracking=args.track,
     )

@@ -2,7 +2,7 @@ import os
 import cv2
 import time
 import psutil
-from .draw import draw_text_multiline, render_resolution
+from .draw import render_resolution, render_status
 
 
 def is_raspberry():
@@ -91,9 +91,7 @@ class Video:
     
     def show(self, frame):
         t1 = time.time()
-        draw_text_multiline(frame, [f"FPS: {round(1 / (t1 - self.t0), 1)}", 
-                                    f"CPU: {psutil.cpu_percent()}%", 
-                                    f"RAM: {round(psutil.virtual_memory().used / (1024**3), 2)} GB"], (10, 40), background_color=(192, 192, 192))
+        render_status(frame, fps=1 / (t1 - self.t0))
         render_resolution(frame)
         self.t0 = t1
         if not self.win_name:
