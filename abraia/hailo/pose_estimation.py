@@ -318,7 +318,7 @@ class PoseEstPostProcessing:
             color_skeleton = (255, 0, 255)
 
             draw_rectangle(image, [xmin, ymin, xmax - xmin, ymax - ymin], color_box, thickness)
-            draw_text(image, f"{detection_score:.2f}", (xmin, ymin), background_color=color_box, text_scale=text_scale)
+            # draw_text(image, f"{detection_score:.2f}", (xmin, ymin), background_color=color_box, text_scale=text_scale)
 
             joint_visible = detection_keypoints_score > joint_threshold
             detection_keypoints = detection_keypoints.reshape(17, 2)
