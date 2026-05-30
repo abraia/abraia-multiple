@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from .core import (
-    handle_and_resolve_args,
+    resolve_hef_path,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
     MAX_ASYNC_INFER_JOBS,
@@ -84,8 +84,11 @@ def inference_result_handler(original_frame, infer_results, labels, score_thresh
         np.ndarray: Frame with detections or tracks drawn.
     """
     infer_results = infer_results if isinstance(infer_results, list) else [infer_results]
-    detections = extract_detections(original_frame, infer_results, score_threshold, max_boxes)
-    return draw_detections(detections, original_frame, labels, tracker=tracker, draw_trail=draw_trail)
+    detections = extract_detections(original_frame, infer_results, labels, score_threshold, max_boxes)
+    if tracker:
+        detections = track_detections(detections, tracker)
+        update_trails(detections)
+    return draw_detections(original_frame, detections, draw_trail=draw_trail)
 
 
 from ..utils.draw import (
@@ -94,18 +97,19 @@ from ..utils.draw import (
 )
 
 
-def extract_detections(image: np.ndarray, detections: list, score_threshold: float, max_boxes: int) -> dict:
+def extract_detections(image: np.ndarray, detections: list, labels: list, score_threshold: float, max_boxes: int) -> list:
     """
     Extract detections from the input data.
 
     Args:
         image (np.ndarray): Image to draw on.
         detections (list): Raw detections from the model.
+        labels (list): List of class labels.
         score_threshold (float): Minimum confidence score to consider a detection.
         max_boxes (int): Maximum number of detections to keep.
 
     Returns:
-        dict: Filtered detection results containing 'detection_boxes', 'detection_classes', 'detection_scores', and 'num_detections'.
+        list: Filtered detection results containing dictionaries with 'label', 'score', and 'box'.
     """
 
     img_height, img_width = image.shape[:2]
@@ -128,108 +132,118 @@ def extract_detections(image: np.ndarray, detections: list, score_threshold: flo
                     else:  # y-coordinates
                         if img_width != size:
                             box[i] -= padding_length
-                # Swap to [ymin, xmin, ymax, xmax]
-                denorm_bbox = [box[1], box[0], box[3], box[2]]
-                all_detections.append((score, class_id, denorm_bbox))
+                # Swap to [xmin, ymin, xmax, ymax]
+                xmin, ymin, xmax, ymax = box[1], box[0], box[3], box[2]
+                all_detections.append({
+                    'label': labels[class_id] if labels else str(class_id),
+                    'score': float(score),
+                    'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                    'class_id': class_id
+                })
 
     # Sort all detections by score descending
-    all_detections.sort(reverse=True, key=lambda x: x[0])
+    all_detections.sort(reverse=True, key=lambda x: x['score'])
 
-    # Take top max_boxes
-    top_detections = all_detections[:max_boxes]
-
-    scores, class_ids, boxes = zip(*top_detections) if top_detections else ([], [], [])
-
-    return {
-        'detection_boxes': list(boxes),
-        'detection_classes': list(class_ids),
-        'detection_scores': list(scores),
-        'num_detections': len(top_detections)
-    }
+    return all_detections[:max_boxes]
 
 
-def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None, draw_trail=False) -> np.ndarray:
+def track_detections(detections: list, tracker: BYTETracker) -> list:
+    """
+    Perform tracking on the detections.
+
+    Args:
+        detections (list): List of detection dictionaries.
+        tracker (BYTETracker): ByteTrack tracker instance.
+
+    Returns:
+        list: List of tracked objects (dictionaries with 'label', 'score', 'box', and 'track_id').
+    """
+    dets_for_tracker = []
+    for det in detections:
+        x, y, w, h = det['box']
+        dets_for_tracker.append([x, y, x + w, y + h, det['score']])
+
+    if not dets_for_tracker:
+        return []
+
+    online_targets = tracker.update(np.array(dets_for_tracker))
+    tracked_detections = []
+
+    for track in online_targets:
+        x1, y1, x2, y2 = track.tlbr
+        xmin, ymin, xmax, ymax = map(int, [x1, y1, x2, y2])
+        
+        # Use the format for boxes when matching
+        det_boxes = [[d['box'][0], d['box'][1], d['box'][0]+d['box'][2], d['box'][1]+d['box'][3]] for d in detections]
+        best_idx = find_best_matching_detection_index(track.tlbr, det_boxes)
+        
+        if best_idx is not None:
+            tracked_detections.append({
+                'label': detections[best_idx]['label'],
+                'score': float(track.score),
+                'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                'track_id': track.track_id
+            })
+    
+    return tracked_detections
+
+
+def update_trails(detections: list) -> None:
+    """
+    Update the tracklet history for the detections.
+
+    Args:
+        detections (list): List of detection dictionaries.
+    """
+    for det in detections:
+        track_id = det.get('track_id')
+        if track_id is not None:
+            x, y, w, h = det['box']
+            center_x = int(x + w / 2)
+            center_y = int(y + h / 2)
+            centroid = (center_x, center_y)
+            
+            if track_id not in tracklet_history:
+                tracklet_history[track_id] = collections.deque(maxlen=trail_length)
+            tracklet_history[track_id].append(centroid)
+            det['trail'] = list(tracklet_history[track_id])
+
+
+def draw_detections(image: np.ndarray, detections: list, draw_trail=False) -> np.ndarray:
     """
     Draw detections or tracking results on the image.
 
     Args:
-        detections (dict): Raw detection outputs.
-        img_out (np.ndarray): Image to draw on.
-        labels (list): List of class labels.
-        enable_tracking (bool): Whether to use tracker output (ByteTrack).
-        tracker (BYTETracker, optional): ByteTrack tracker instance.
+        image (np.ndarray): Image to draw on.
+        detections (list): List of detection dictionaries.
+        draw_trail (bool): Whether to draw tracking trails.
 
     Returns:
         np.ndarray: Annotated image.
     """
+    img_out = image.copy()
     thickness = calculate_optimal_thickness(img_out.shape[:2])
     text_scale = calculate_optimal_text_scale(img_out.shape[:2])
 
-    # Extract detection data from the dictionary
-    boxes = detections["detection_boxes"]  # List of [xmin,ymin,xmaxm, ymax] boxes
-    scores = detections["detection_scores"]  # List of detection confidences
-    num_detections = detections["num_detections"]  # Total number of valid detections
-    classes = detections["detection_classes"]  # List of class indices per detection
+    for det in detections:
+        track_id = det.get('track_id')
+        color = hex_to_rgb(get_color(track_id if track_id is not None else det.get('class_id', 0)))
+        x, y, w, h = det['box']
+        
+        draw_rectangle(img_out, [x, y, w, h], color, thickness)
 
-    if tracker:
-        dets_for_tracker = []
+        top_text = f"{det['label']}: {det['score'] * 100.0:.1f}%"
+        if track_id is not None:
+            top_text += f" ID {track_id}"
+        draw_text(img_out, top_text, (x, y), background_color=color, text_scale=text_scale)
 
-        # Convert detection format to [xmin,ymin,xmaxm ymax,score] for tracker
-        for idx in range(num_detections):
-            box = boxes[idx]  # [x, y, w, h]
-            score = scores[idx]
-            dets_for_tracker.append([*box, score])
-
-        # Skip tracking if no detections passed
-        if not dets_for_tracker:
-            return img_out
-
-        # Run BYTETracker and get active tracks
-        online_targets = tracker.update(np.array(dets_for_tracker))
-
-        # Draw tracked bounding boxes with ID labels
-        for track in online_targets:
-            track_id = track.track_id  # Unique tracker ID
-            x1, y1, x2, y2 = track.tlbr  # Bounding box (top-left, bottom-right)
-            xmin, ymin, xmax, ymax = map(int, [x1, y1, x2, y2])
-            best_idx = find_best_matching_detection_index(track.tlbr, boxes)
-            color = hex_to_rgb(get_color(track_id))  # Color based on class
-            
-            # Draw bounding box
-            draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
-
-            # Draw label
-            top_text = f"{labels[classes[best_idx]]}: {track.score * 100.0:.1f}%"
-            draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
-            draw_text(img_out, f"ID {track_id}", (xmax - 50, ymax), background_color=color, text_scale=text_scale)
-
-            # Get the centroid of the current bounding box
-            center_x = int((x1 + x2) / 2)
-            center_y = int((y1 + y2) / 2)
-            centroid = (center_x, center_y)
-            
-            # Initialize or update the tracklet history
-            if track_id not in tracklet_history:
-                tracklet_history[track_id] = collections.deque(maxlen=trail_length)
-            tracklet_history[track_id].append(centroid)
-
-            if draw_trail:
-                for i in range(1, len(tracklet_history[track_id])):
-                    # Get the center point for the current and previous frames
-                    point_a = tracklet_history[track_id][i-1]
-                    point_b = tracklet_history[track_id][i]
-
-                    # Draw a line between the points and draw the points as circles
-                    draw_line(img_out, (point_a, point_b), color, thickness=3)
-                    draw_point(img_out, point_b, color, thickness=20)
-    else:
-        # No tracking — draw raw model detections
-        for idx in range(num_detections):
-            color = hex_to_rgb(get_color(classes[idx]))  # Color based on class
-            xmin, ymin, xmax, ymax = map(int, boxes[idx])
-            draw_rectangle(img_out, [xmin, ymin, xmax - xmin, ymax - ymin], color, thickness)
-            top_text = f"{labels[classes[idx]]}: {scores[idx] * 100.0:.1f}%"
-            draw_text(img_out, top_text, (xmin, ymin), background_color=color, text_scale=text_scale)
+        if draw_trail and 'trail' in det:
+            trail = det['trail']
+            for i in range(1, len(trail)):
+                point_a = trail[i-1]
+                point_b = trail[i]
+                draw_line(img_out, (point_a, point_b), color, thickness=3)
+                draw_point(img_out, point_b, color, thickness=20)
 
     return img_out
 
@@ -418,7 +432,7 @@ def main(**kwargs) -> None:
     args = SimpleNamespace(**options)
     
     logging.basicConfig(level=logging.INFO)
-    handle_and_resolve_args(args, APP_NAME)
+    args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
     input_context = init_input_source(
         input_src=args.input,

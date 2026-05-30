@@ -19,7 +19,7 @@ from .toolbox import (
     FrameRateTracker,
 )
 from .core import (
-    handle_and_resolve_args,
+    resolve_hef_path,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
     MAX_ASYNC_INFER_JOBS
@@ -761,7 +761,7 @@ def main(**kwargs) -> None:
     args = SimpleNamespace(**options)
 
     logging.basicConfig(level=logging.INFO)
-    handle_and_resolve_args(args, APP_NAME)
+    args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
     input_context = init_input_source(
         input_src=args.input,

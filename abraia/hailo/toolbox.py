@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
 from .core import (
-    DEFAULT_COCO_LABELS_PATH,
+    COCO_LABELS,
     IMAGE_EXTENSIONS,
     VIDEO_SUFFIXES,
     is_raspberry_pi
@@ -299,7 +299,7 @@ def validate_images(images: List[np.ndarray], batch_size: int) -> None:
 
 def get_labels(labels_path: str) -> list:
         """
-        Load labels from a file.
+        Load labels from a file or return default COCO labels.
 
         Args:
             labels_path (str): Path to the labels file.
@@ -308,7 +308,7 @@ def get_labels(labels_path: str) -> list:
             list: List of class names.
         """
         if labels_path is None or not os.path.exists(labels_path):
-            labels_path = DEFAULT_COCO_LABELS_PATH
+            return COCO_LABELS
         with open(labels_path, 'r', encoding="utf-8") as f:
             class_names = f.read().splitlines()
         return class_names

@@ -2,7 +2,6 @@ from __future__ import annotations
 """Core helpers: arch detection, buffer utils, model resolution."""
 
 import os
-import yaml
 import shlex
 import requests
 import subprocess
@@ -50,71 +49,158 @@ CAMERA_RESOLUTION_MAP: Dict[str, Tuple[int, int]] = {
 }
 
 # Base project paths
-DEFAULT_COCO_LABELS_PATH = str(Path(__file__).parent / "coco.txt")
+COCO_LABELS = [
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
+    "hair drier", "toothbrush"
+]
 
-
-def _get_config_path(filename: str) -> str:
-    """Get absolute path to a configuration file within the package."""
-    return str(Path(__file__).parent / filename)
-
-
-DEFAULT_RESOURCES_CONFIG_PATH = _get_config_path("resources_config.yaml")
-
-
-def load_config(path: Path | str) -> dict:
-    """Load configuration from a YAML file."""
-    with open(path, "r") as f:
-        return yaml.safe_load(f) or {}
-
-
-def _extract_model_entries(entries: Any, app_type_filter: Optional[str] = None) -> list[dict]:
-    """Extract model entry dictionaries from config entries."""
-    entries_list = entries if isinstance(entries, list) else [entries]
-    models = []
-
-    for entry in entries_list:
-        if isinstance(entry, dict):
-            name = entry.get("name")
-            if name is not None and not (isinstance(name, str) and name.lower() == "none"):
-                # Parse app_type field - default to both if not specified
-                app_type_raw = entry.get("app_type", ["pipeline", "standalone"])
-                if isinstance(app_type_raw, str):
-                    app_type = (app_type_raw,)
-                else:
-                    app_type = tuple(app_type_raw) if app_type_raw else ("pipeline", "standalone")
-                
-                model = {
-                    "name": name,
-                    "source": entry.get("source", "mz"),
-                    "url": entry.get("url"),
-                    "app_type": app_type,
-                }
-                
-                # Filter by app_type if requested
-                if app_type_filter is None or app_type_filter in model["app_type"]:
-                    models.append(model)
-        elif isinstance(entry, str) and entry.lower() != "none":
-            model = {
-                "name": entry,
-                "source": "mz",
-                "url": None,
-                "app_type": ("pipeline", "standalone"),
-            }
-            # String entries default to both types, so always include unless filtered out
-            if app_type_filter is None or app_type_filter in model["app_type"]:
-                models.append(model)
-
-    return models
-
-
-def get_default_model_name(app_name: str, arch: str, app_type: Optional[str] = None) -> Optional[str]:
-    """Get the first default model name for an app and architecture."""
-    config = load_config(DEFAULT_RESOURCES_CONFIG_PATH)
-    app_config = config.get(app_name, {})
-    arch_models = app_config.get("models", {}).get(arch, {})
-    models = _extract_model_entries(arch_models.get("default"), app_type_filter=app_type)
-    return models[0]["name"] if models else None
-
+RESOURCES_CONFIG = {}
+RESOURCES_CONFIG["object_detection"] = {
+    "models": {
+        "hailo8": {
+            "default": [{"name": "yolov8m", "source": "mz"}],
+            "extra": [
+                {"name": "yolov5m_wo_spp", "source": "mz"},
+                {"name": "yolov8s", "source": "mz"},
+                {"name": "yolov5s", "source": "mz"},
+                {"name": "yolov5m", "source": "mz"},
+                {"name": "yolov6n", "source": "mz"},
+                {"name": "yolov7", "source": "mz"},
+                {"name": "yolov8n", "source": "mz"},
+                {"name": "yolov8l", "source": "mz"},
+                {"name": "yolov8x", "source": "mz"},
+                {"name": "yolov9c", "source": "mz"},
+                {"name": "yolov10n", "source": "mz"},
+                {"name": "yolov10s", "source": "mz"},
+                {"name": "yolov10b", "source": "mz"},
+                {"name": "yolov10x", "source": "mz"},
+                {"name": "yolov11n", "source": "mz"},
+                {"name": "yolov11s", "source": "mz"},
+                {"name": "yolov11m", "source": "mz"},
+                {"name": "yolov11l", "source": "mz"},
+                {"name": "yolov11x", "source": "mz"},
+                {"name": "yolov8s-hailo8-barcode", "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/hefs/h8l_rpi/yolov8s-hailo8l-barcode.hef", "source": "s3"}
+            ]
+        },
+        "hailo8l": {
+            "default": [{"name": "yolov8s", "source": "mz"}],
+            "extra": [
+                {"name": "yolov5s", "source": "mz"},
+                {"name": "yolov5m", "source": "mz"},
+                {"name": "yolov6n", "source": "mz"},
+                {"name": "yolov7", "source": "mz"},
+                {"name": "yolov5m_wo_spp", "source": "mz"},
+                {"name": "yolov8n", "source": "mz"},
+                {"name": "yolov8m", "source": "mz"},
+                {"name": "yolov8l", "source": "mz"},
+                {"name": "yolov8x", "source": "mz"},
+                {"name": "yolov9c", "source": "mz"},
+                {"name": "yolov10n", "source": "mz"},
+                {"name": "yolov10s", "source": "mz"},
+                {"name": "yolov10b", "source": "mz"},
+                {"name": "yolov10x", "source": "mz"},
+                {"name": "yolov11n", "source": "mz"},
+                {"name": "yolov11s", "source": "mz"},
+                {"name": "yolov11m", "source": "mz"},
+                {"name": "yolov11l", "source": "mz"},
+                {"name": "yolov11x", "source": "mz"},
+                {"name": "yolov8s-hailo8l-barcode", "url": "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/hefs/h8l_rpi/yolov8s-hailo8l-barcode.hef", "source": "s3"}
+            ]
+        },
+        "hailo10h": {
+            "default": [{"name": "yolov8m", "source": "mz"}],
+            "extra": [
+                {"name": "yolov5s", "source": "mz"},
+                {"name": "yolov5m", "source": "mz"},
+                {"name": "yolov6n", "source": "mz"},
+                {"name": "yolov7", "source": "mz"},
+                {"name": "yolov7x", "source": "mz"},
+                {"name": "yolov8s", "source": "mz"},
+                {"name": "yolov8n", "source": "mz"},
+                {"name": "yolov8l", "source": "mz"},
+                {"name": "yolov8x", "source": "mz"},
+                {"name": "yolov9c", "source": "mz"},
+                {"name": "yolov10n", "source": "mz"},
+                {"name": "yolov10s", "source": "mz"},
+                {"name": "yolov10b", "source": "mz"},
+                {"name": "yolov10x", "source": "mz"},
+                {"name": "yolov11n", "source": "mz"},
+                {"name": "yolov11s", "source": "mz"},
+                {"name": "yolov11m", "source": "mz"},
+                {"name": "yolov11l", "source": "mz"},
+                {"name": "yolov11x", "source": "mz"}
+            ]
+        }
+    }
+}
+RESOURCES_CONFIG["instance_segmentation"] = {
+    "models": {
+        "hailo8": {
+            "default": [
+                {"name": "yolov5m_seg_with_nms", "source": "s3"}
+            ],
+            "extra": [
+                {"name": "yolov5m_seg", "source": "mz"},
+                {"name": "yolov5l_seg", "source": "mz"},
+                {"name": "yolov5n_seg", "source": "mz"},
+                {"name": "yolov5s_seg", "source": "mz"},
+                {"name": "yolov8m_seg", "source": "mz"},
+                {"name": "yolov8n_seg", "source": "mz"},
+                {"name": "yolov8s_seg", "source": "mz"},
+                {"name": "fast_sam_s", "source": "s3"}
+            ]
+        },
+        "hailo8l": {
+            "default": [{"name": "yolov5n_seg", "source": "mz"}],
+            "extra": [
+                {"name": "yolov5l_seg", "source": "mz"},
+                {"name": "yolov5m_seg", "source": "mz"},
+                {"name": "yolov5s_seg", "source": "mz"},
+                {"name": "yolov8m_seg", "source": "mz"},
+                {"name": "yolov8n_seg", "source": "mz"},
+                {"name": "yolov8s_seg", "source": "mz"}
+            ]
+        },
+        "hailo10h": {
+            "default": [
+                {"name": "yolov5m_seg_with_nms", "source": "s3"}
+            ],
+            "extra": [
+                {"name": "yolov5n_seg_with_nms", "source": "s3"},
+                {"name": "yolov5s_seg_with_nms", "source": "s3"},
+                {"name": "yolov5m_seg", "source": "mz"},
+                {"name": "yolov5l_seg", "source": "mz"},
+                {"name": "yolov5n_seg", "source": "mz"},
+                {"name": "yolov5s_seg", "source": "mz"},
+                {"name": "yolov8m_seg", "source": "mz"},
+                {"name": "yolov8n_seg", "source": "mz"},
+                {"name": "yolov8s_seg", "source": "mz"}
+            ]
+        }
+    }
+}
+RESOURCES_CONFIG["pose_estimation"] = {
+    "models": {
+        "hailo8": {
+            "default": [{"name": "yolov8m_pose", "source": "mz"}],
+            "extra": [{"name": "yolov8s_pose", "source": "mz"}]
+        },
+        "hailo8l": {
+            "default": [{"name": "yolov8s_pose", "source": "mz"}]
+        },
+        "hailo10h": {
+            "default": [{"name": "yolov8m_pose", "source": "mz"}],
+            "extra": [{"name": "yolov8s_pose", "source": "mz"}]
+        }
+    }
+}
 
 DEFAULT_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -131,12 +217,10 @@ def get_remote_file_size(url: str, timeout: int = 30) -> Optional[int]:
 
 def get_model_url(app_name, model_name, hailo_arch):
     """Return a download task tuple for a specific app model, or None if not found."""
-    config = load_config(DEFAULT_RESOURCES_CONFIG_PATH)
-    app_cfg = config.get(app_name, {}).get("models", {}).get(hailo_arch, {})
+    app_cfg = RESOURCES_CONFIG.get(app_name, {}).get("models", {}).get(hailo_arch, {})
     for tier in ["default", "extra"]:
         entries = app_cfg.get(tier, [])
-        entries_list = entries if isinstance(entries, list) else [entries]
-        for e in entries_list:
+        for e in entries:
             name = e.get("name") if isinstance(e, dict) else {}
             if name == model_name:
                 url = e.get("url")
@@ -176,92 +260,67 @@ def execute_download(url, dest_path):
 def get_resource_path(resource_type: str, name: str, arch: str | None = None) -> Path:
     """Map a resource type and name to its local filesystem path."""
     root = Path(RESOURCES_ROOT_PATH_DEFAULT)
-    
+
     if resource_type == RESOURCES_MODELS_DIR_NAME:
         arch = arch or detect_hailo_arch()
         if not arch:
             raise RuntimeError("Could not detect Hailo architecture for model path.")
         model_path = root / RESOURCES_MODELS_DIR_NAME / arch / name
         return model_path if name.endswith(HAILO_FILE_EXTENSION) else model_path.with_suffix(HAILO_FILE_EXTENSION)
-        
+
     return root / resource_type / name
 
 
-def resolve_hef_path(hef_path: Optional[str], app_name: str, arch: Optional[str] = None, 
-                     app_type: Optional[str] = "standalone") -> Optional[Path]:
+def _get_default_model(app_name: str, arch: str) -> Optional[str]:
+    default_entries = RESOURCES_CONFIG.get(app_name, {}).get("models", {}).get(arch, {}).get("default", [])
+    for entry in default_entries:
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if isinstance(name, str) and name.lower() != "none":
+            return name
+    return None
+
+
+def resolve_hef_path(hef_path: Optional[str], app_name: str, arch: Optional[str] = None) -> Optional[Path]:
     """Resolve HEF path, downloading it if necessary."""
     arch = arch or detect_hailo_arch()
     if not arch:
         raise RuntimeError("Could not detect Hailo architecture.")
+    logger.debug(f"App Name: {app_name}, Requested HEF: {hef_path}, Arch: {arch}")
     
     if hef_path is None:
-        default_model = get_default_model_name(app_name, arch, app_type=app_type)
+        default_model = _get_default_model(app_name, arch)
         if not default_model:
             logger.error(f"No default model found for {app_name}/{arch}")
             return None
         hef_path = default_model
         logger.info(f"Using default model: {default_model}")
 
-    # Case 1: Existing local path
     path = Path(hef_path)
     if path.exists():
         return path.resolve()
-    
-    if not hef_path.endswith(HAILO_FILE_EXTENSION):
-        path_with_ext = path.with_suffix(HAILO_FILE_EXTENSION)
-        if path_with_ext.exists():
-            return path_with_ext.resolve()
 
-    # Case 2: Known model in resources
+    if not path.suffix:
+        candidate = path.with_suffix(HAILO_FILE_EXTENSION)
+        if candidate.exists():
+            return candidate.resolve()
+
     model_name = path.stem
     resource_path = get_resource_path(RESOURCES_MODELS_DIR_NAME, model_name, arch)
     if resource_path.exists():
         return resource_path
 
-    # Case 3: Missing model - download if known
     logger.warning(f"\n⚠️  WARNING: Model '{model_name}' not found. Downloading for {app_name}/{arch}...")
     try:
         url, dest = get_model_url(app_name, model_name, arch)
         if url and dest:
             execute_download(url, dest)
-            if resource_path.exists():
-                return resource_path
+            if dest.exists():
+                return dest
     except Exception as e:
         logger.error(f"Failed to download model {model_name}: {e}")
 
     logger.error(f"Model '{model_name}' not found.")
     return None
-
-
-def resolve_output_resolution_arg(res_arg: Optional[list[str]]) -> Optional[Tuple[int, int]]:
-    """Parse --output-resolution argument."""
-    if not res_arg:
-        return None
-
-    if len(res_arg) == 1:
-        key = res_arg[0]
-        if key in CAMERA_RESOLUTION_MAP:
-            return CAMERA_RESOLUTION_MAP[key]
-        raise ValueError(f"Invalid resolution preset: {key}")
-
-    if len(res_arg) == 2 and all(x.isdigit() for x in res_arg):
-        w, h = map(int, res_arg)
-        if w > 0 and h > 0:
-            return (w, h)
-
-    raise ValueError(f"Invalid resolution argument: {res_arg}")
-
-
-def handle_and_resolve_args(args: Any, app_name: str) -> None:
-    """Common CLI argument resolver for standalone apps."""
-    args.hef_path = resolve_hef_path(args.hef_path, app_name)
-
-    if hasattr(args, "output_dir") and args.output_dir is None:
-        args.output_dir = os.path.join(os.getcwd(), "output")
-        os.makedirs(args.output_dir, exist_ok=True)
-
-    if hasattr(args, "output_resolution"):
-        args.output_resolution = resolve_output_resolution_arg(args.output_resolution)
 
 
 # =============================================================================
