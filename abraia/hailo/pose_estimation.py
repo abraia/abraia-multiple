@@ -656,18 +656,12 @@ def infer(hailo_inference, input_queue, output_queue, stop_event):
     output_queue.put(None)
 
 
-def run_inference_pipeline(
-    net,
-    class_num,
-    pipeline: VideoPipeline,
-    visualization_settings: VisualizationSettings,
-) -> None:
+def run_inference_pipeline(net, pipeline: VideoPipeline, visualization_settings: VisualizationSettings) -> None:
     """
     Initialize queues, inference instance, and run the pipeline.
 
     Args:
         net (str): Path to the HEF model file.
-        class_num (int): Number of output classes expected by the model.
         pipeline (VideoPipeline): Pipeline for input and visualization.
         visualization_settings (VisualizationSettings): Settings for visualization.
 
@@ -693,8 +687,7 @@ def run_inference_pipeline(
     post_process_callback_fn = partial(
         pose_post_processing.inference_result_handler,
         model_height=height,
-        model_width=width,
-        class_num = class_num
+        model_width=width
     )
 
     preprocess_thread = threading.Thread(
@@ -765,7 +758,6 @@ def main(**kwargs) -> None:
 
     run_inference_pipeline(
         net=args.hef_path,
-        class_num=args.class_num,
         pipeline=pipeline,
         visualization_settings=visualization_settings,
     )
