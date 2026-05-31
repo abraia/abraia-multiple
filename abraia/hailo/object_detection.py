@@ -7,7 +7,9 @@ from functools import partial
 from types import SimpleNamespace
 from pathlib import Path
 
-from .core import (
+from .toolbox import (
+    VideoPipeline,
+    get_labels,
     resolve_hef_path,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
@@ -17,11 +19,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 from .hailo_inference import HailoInfer
-from .toolbox import (
-    VisualizationSettings,
-    VideoPipeline,
-    get_labels
-)
 from .tracker.byte_tracker import BYTETracker
 from .tracker.matching import find_best_matching_detection_index
 
@@ -39,7 +36,7 @@ tracklet_history = {}
 trail_length = 30 
 
 DEFAULT_OPTIONS = {
-    "input": "rpi",
+    "input": 0,
     "hef_path": "yolov8m.hef",
     "batch_size": 1,
     "frame_rate": None,
@@ -245,7 +242,6 @@ def run_inference_pipeline(
     net,
     labels,
     pipeline: VideoPipeline,
-    visualization_settings: VisualizationSettings,
     enable_tracking: bool = False,
     draw_trail: bool = False,
 ) -> None:
@@ -301,7 +297,6 @@ def run_inference_pipeline(
 
     try:
         pipeline.visualize(
-            visualization_settings,
             output_queue,
             post_process_callback_fn,
         )
@@ -310,11 +305,11 @@ def run_inference_pipeline(
         preprocess_thread.join()
         infer_thread.join()
 
-    logger.info(pipeline.fps_tracker.frame_rate_summary())
+    logger.info(pipeline.frame_rate_summary())
     logger.info("Processing completed successfully.")
 
-    if visualization_settings.save_stream_output or pipeline.has_images:
-        logger.info(f"Saved outputs to '{visualization_settings.output_dir}'.")
+    if pipeline.save_output or pipeline.has_images:
+        logger.info(f"Saved outputs to '{pipeline.output_dir}'.")
 
 
 def infer(hailo_inference, input_queue, output_queue, stop_event):
@@ -423,11 +418,8 @@ def main(**kwargs) -> None:
         resolution=args.camera_resolution,
         frame_rate=args.frame_rate,
         video_unpaced=args.video_unpaced,
-    )
-
-    visualization_settings = VisualizationSettings(
         output_dir=args.output_dir,
-        save_stream_output=args.save_output,
+        save_output=args.save_output,
         output_resolution=args.output_resolution,
     )
 
@@ -435,7 +427,6 @@ def main(**kwargs) -> None:
         net=args.hef_path,
         labels=args.labels,
         pipeline=pipeline,
-        visualization_settings=visualization_settings,
         enable_tracking=args.track,
         draw_trail=args.draw_trail,
     )

@@ -166,9 +166,9 @@ def calculate_optimal_text_scale(img_size):
     return max(min(img_size) * 0.0008, 0.8)
 
 
-def render_results(img, results):
-    thickness = calculate_optimal_thickness(img.shape[:2])
-    text_scale = calculate_optimal_text_scale(img.shape[:2])
+def render_results(img, results, thickness=None, text_scale=None):
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
     for result in results:
         label = result.get('label')
         score = result.get('score')
@@ -191,28 +191,28 @@ def render_results(img, results):
     return img
 
 
-def render_counter(img, line, text='', color=(0, 0, 255)):
-    thickness = calculate_optimal_thickness(img.shape[:2])
-    text_scale = calculate_optimal_text_scale(img.shape[:2])
+def render_counter(img, line, text='', color=(0, 0, 255), thickness=None, text_scale=None):
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
     draw_line(img, line, color=color, thickness=thickness)
     draw_text(img, text, line[0], background_color=color, text_scale=text_scale)
     return img
 
 
-def render_region(img, region, text='', color=(255, 0, 0), opacity=0.2):
+def render_region(img, region, text='', color=(255, 0, 0), opacity=0.2, thickness=None, text_scale=None):
     point = np.min(region, axis=0).astype(np.int32)
-    thickness = calculate_optimal_thickness(img.shape[:2])
-    text_scale = calculate_optimal_text_scale(img.shape[:2])
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
     draw_polygon(img, region, color=color, thickness=thickness)
     draw_filled_polygon(img, region, color=color, opacity=opacity)
     draw_text(img, text, point, background_color=color, text_scale=text_scale)
     return img
 
 
-def render_status(img, fps=None):
+def render_status(img, fps=None, thickness=None, text_scale=None):
     import psutil
-    thickness = calculate_optimal_thickness(img.shape[:2])
-    text_scale = calculate_optimal_text_scale(img.shape[:2])
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
     lines = []
     if fps is not None:
         lines.append(f"FPS: {round(fps, 1)}")
@@ -221,11 +221,11 @@ def render_status(img, fps=None):
     return draw_text_multiline(img, lines, (10, 40), background_color=(192, 192, 192), text_scale=text_scale, padding=thickness*3)
 
 
-def render_resolution(img):
+def render_resolution(img, thickness=None, text_scale=None):
     height, width = img.shape[:2]
     text = f"{width}x{height}"
-    thickness = calculate_optimal_thickness(img.shape[:2])
-    text_scale = calculate_optimal_text_scale(img.shape[:2])
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
     text_font, text_thickness = cv2.FONT_HERSHEY_DUPLEX, 1
     w, h = cv2.getTextSize(text, text_font, text_scale, text_thickness)[0]
     padding = thickness * 3

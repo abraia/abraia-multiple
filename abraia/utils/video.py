@@ -25,7 +25,7 @@ class Video:
             self.picam2 = Picamera2()
             self.picam2.configure(self.picam2.create_video_configuration(
                 main={"format": 'RGB888', "size": resolution},
-                transform=Transform(hflip=True, vflip=True),
+                transform=Transform(hflip=True), # vflip=True),
                 controls={"FrameRate": fps}))
             self.picam2.start()
             self.fps = fps

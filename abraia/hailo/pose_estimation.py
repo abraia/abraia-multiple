@@ -12,10 +12,7 @@ logger = logging.getLogger(__name__)
 
 from .hailo_inference import HailoInfer
 from .toolbox import (
-    VisualizationSettings,
     VideoPipeline,
-)
-from .core import (
     resolve_hef_path,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
@@ -656,14 +653,13 @@ def infer(hailo_inference, input_queue, output_queue, stop_event):
     output_queue.put(None)
 
 
-def run_inference_pipeline(net, pipeline: VideoPipeline, visualization_settings: VisualizationSettings) -> None:
+def run_inference_pipeline(net, pipeline: VideoPipeline) -> None:
     """
     Initialize queues, inference instance, and run the pipeline.
 
     Args:
         net (str): Path to the HEF model file.
         pipeline (VideoPipeline): Pipeline for input and visualization.
-        visualization_settings (VisualizationSettings): Settings for visualization.
 
     Returns:
         None
@@ -711,7 +707,6 @@ def run_inference_pipeline(net, pipeline: VideoPipeline, visualization_settings:
 
     try:
         pipeline.visualize(
-            visualization_settings,
             output_queue,
             post_process_callback_fn,
         )
@@ -720,12 +715,12 @@ def run_inference_pipeline(net, pipeline: VideoPipeline, visualization_settings:
         preprocess_thread.join()
         infer_thread.join()
 
-    logger.info(pipeline.fps_tracker.frame_rate_summary())
+    logger.info(pipeline.frame_rate_summary())
 
     logger.info("Processing completed successfully.")
 
-    if visualization_settings.save_stream_output or pipeline.has_images:
-        logger.info(f"Saved outputs to '{visualization_settings.output_dir}'.")
+    if pipeline.save_output or pipeline.has_images:
+        logger.info(f"Saved outputs to '{pipeline.output_dir}'.")
 
 
 def main(**kwargs) -> None:
@@ -748,18 +743,14 @@ def main(**kwargs) -> None:
         resolution=args.camera_resolution,
         frame_rate=args.frame_rate,
         video_unpaced=args.video_unpaced,
-    )
-
-    visualization_settings = VisualizationSettings(
         output_dir=args.output_dir,
-        save_stream_output=args.save_output,
+        save_output=args.save_output,
         output_resolution=args.output_resolution,
     )
 
     run_inference_pipeline(
         net=args.hef_path,
         pipeline=pipeline,
-        visualization_settings=visualization_settings,
     )
 
 

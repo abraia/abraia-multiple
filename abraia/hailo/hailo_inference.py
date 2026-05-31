@@ -1,9 +1,9 @@
-from __future__ import annotations
-from typing import Tuple, Dict, List
 import os
+import numpy as np
+
+from typing import Tuple, Dict, List
 from typing import Callable, Optional
 from functools import partial
-import numpy as np
 
 from hailo_platform import (HEF, VDevice,FormatType, HailoSchedulingAlgorithm)
 from hailo_platform.pyhailort.pyhailort import FormatOrder
