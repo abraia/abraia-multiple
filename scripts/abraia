@@ -256,7 +256,7 @@ def compile(project, device):
 @click.argument('classes', required=False, default='')
 @click.argument('src', required=False, default=None)
 def run(project, classes, src):
-    """Run a project (demo) or a custom trained model (project name)."""
+    """Run a demo (demo, hailo) or a custom trained model (project name)."""
     if project == 'demo':
         if classes == 'faces':
             from abraia.demo import track_faces
@@ -268,6 +268,16 @@ def run(project, classes, src):
             from abraia.demo import monitor_objects
             project = classes if classes != 'faces' else 'detect'
             monitor_objects(src, project)
+    elif project == 'hailo':
+        if classes == 'detect':
+            from abraia.hailo import object_detection
+            object_detection.main(input=src)
+        elif classes == 'segment':
+            from abraia.hailo import instance_segmentation
+            instance_segmentation.main(input=src)
+        elif classes == 'pose':
+            from abraia.hailo import pose_estimation
+            pose_estimation.main(input=src)
     else:
         src = classes if classes != 'faces' else src or 0
         try:

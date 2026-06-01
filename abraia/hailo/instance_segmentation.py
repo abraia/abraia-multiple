@@ -15,14 +15,15 @@ logger = logging.getLogger(__name__)
 
 from .tracker.byte_tracker import BYTETracker
 from .tracker.matching import find_best_matching_mask_index
-from .hailo_inference import HailoInfer
 from .toolbox import (
-    VideoPipeline,
+    VideoInput,
+    VideoVisualizer,
     get_labels,
     resolve_hef_path,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
-    MAX_ASYNC_INFER_JOBS
+    MAX_ASYNC_INFER_JOBS,
+    HailoInfer,
 )
 
 APP_NAME = Path(__file__).stem
@@ -37,7 +38,6 @@ DEFAULT_OPTIONS = {
     "labels": None,
     "camera_resolution": None,
     "video_unpaced": False,
-    "output_resolution": None,
     "output_dir": None,
     "save_output": False,
 }
@@ -1133,7 +1133,8 @@ def run_inference_pipeline(
     net,
     labels,
     model_type,
-    pipeline: VideoPipeline,
+    input_data: VideoInput,
+    visualizer: VideoVisualizer,
     enable_tracking=False,
 ) -> None:
     """
@@ -1154,7 +1155,7 @@ def run_inference_pipeline(
 
     hailo_inference = HailoInfer(
         net,
-        pipeline.batch_size,
+        input_data.batch_size,
         output_type="FLOAT32")
 
     post_process_callback_fn = partial(
@@ -1169,7 +1170,7 @@ def run_inference_pipeline(
     height, width, _ = hailo_inference.get_input_shape()
 
     preprocess_thread = threading.Thread(
-        target=pipeline.preprocess,
+        target=input_data.preprocess,
         args=(
             input_queue,
             width,
@@ -1180,7 +1181,7 @@ def run_inference_pipeline(
 
     infer_thread = threading.Thread(
         target=infer,
-        args=(hailo_inference, input_queue, output_queue, pipeline.stop_event),
+        args=(hailo_inference, input_queue, output_queue, input_data.stop_event),
         name="infer-thread",
     )
 
@@ -1188,21 +1189,24 @@ def run_inference_pipeline(
     infer_thread.start()
 
     try:
-        pipeline.visualize(
+        visualizer.visualize(
             output_queue,
             post_process_callback_fn,
+            width=input_data.width,
+            height=input_data.height,
+            is_capture=input_data.has_capture
         )
     finally:
-        pipeline.stop_event.set()
+        input_data.stop_event.set()
         preprocess_thread.join()
         infer_thread.join()
 
-    logger.info(pipeline.frame_rate_summary())
+    logger.info(visualizer.frame_rate_summary())
 
     logger.info("Processing completed successfully.")
 
-    if pipeline.save_output or pipeline.has_images:
-        logger.info(f"Saved outputs to '{pipeline.output_dir}'.")
+    if visualizer.save_output or input_data.has_images:
+        logger.info(f"Saved outputs to '{visualizer.output_dir}'.")
 
 
 def infer(hailo_inference, input_queue, output_queue, stop_event):
@@ -1301,22 +1305,29 @@ def main(**kwargs) -> None:
     logging.basicConfig(level=logging.INFO)
     args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
-    pipeline = VideoPipeline(
+    stop_event = threading.Event()
+    input_data = VideoInput(
         input_src=args.input,
         batch_size=args.batch_size,
         resolution=args.camera_resolution,
         frame_rate=args.frame_rate,
         video_unpaced=args.video_unpaced,
+        stop_event=stop_event,
+    )
+    visualizer = VideoVisualizer(
         output_dir=args.output_dir,
         save_output=args.save_output,
-        output_resolution=args.output_resolution,
+        source_fps=input_data.source_fps,
+        frame_rate=args.frame_rate,
+        stop_event=stop_event,
     )
 
     run_inference_pipeline(
         net=args.hef_path,
         labels=args.labels,
         model_type=args.model_type,
-        pipeline=pipeline,
+        input_data=input_data,
+        visualizer=visualizer,
         enable_tracking=args.track,
     )
 

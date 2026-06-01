@@ -1,29 +1,32 @@
 import pytest
 import queue
+import threading
 import numpy as np
-from abraia.hailo.toolbox import VideoPipeline, VideoInput, VideoVisualizer
+from abraia.hailo.toolbox import VideoInput, VideoVisualizer
 
-def test_video_pipeline_init():
-    pipeline = VideoPipeline(
+def test_video_input_init():
+    input_data = VideoInput(
         input_src='images',
-        batch_size=1,
+        batch_size=1
+    )
+    assert input_data.input_src == 'images'
+    assert input_data.batch_size == 1
+    assert input_data.input_type == 'images'
+
+def test_video_visualizer_fps():
+    visualizer = VideoVisualizer(
         output_dir='test_output',
         save_output=True,
         side_by_side=True
     )
-    assert pipeline.input_src == 'images'
-    assert pipeline.batch_size == 1
-    assert pipeline.output_dir == 'test_output'
-    assert pipeline.save_output is True
-    assert pipeline.side_by_side is True
-    assert pipeline.input_type == 'images'
-
-def test_video_pipeline_fps():
-    pipeline = VideoPipeline(input_src='images')
-    pipeline.start()
-    pipeline.increment(5)
-    assert pipeline.count == 5
-    summary = pipeline.frame_rate_summary()
+    assert visualizer.output_dir == 'test_output'
+    assert visualizer.save_output is True
+    assert visualizer.side_by_side is True
+    
+    visualizer.start()
+    visualizer.increment(5)
+    assert visualizer.count == 5
+    summary = visualizer.frame_rate_summary()
     assert "Processed 5 frames" in summary
 
 def test_video_input_visualizer_standalone():

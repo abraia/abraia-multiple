@@ -8,19 +8,20 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from .toolbox import (
-    VideoPipeline,
+    VideoInput,
+    VideoVisualizer,
     get_labels,
     resolve_hef_path,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
     MAX_ASYNC_INFER_JOBS,
+    HailoInfer,
 )
 import logging
 logger = logging.getLogger(__name__)
 
-from .hailo_inference import HailoInfer
-from .tracker.byte_tracker import BYTETracker
 from .tracker.matching import find_best_matching_detection_index
+from ..inference import Tracker
 
 from ..utils.draw import (
     draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
@@ -45,7 +46,6 @@ DEFAULT_OPTIONS = {
     "draw_trail": False,
     "camera_resolution": None,
     "video_unpaced": False,
-    "output_resolution": None,
     "output_dir": None,
     "save_output": False,
 }
@@ -66,6 +66,66 @@ CONFIG_DATA = {
 }
 
 
+class HailoAsyncInference(HailoInfer):
+    def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
+        """
+        Main inference loop that pulls data from the input queue, runs asynchronous
+        inference, and pushes results to the output queue.
+
+        Each item in the input queue is expected to be a tuple:
+            (input_batch, preprocessed_batch)
+            - input_batch: Original frames (used for visualization or tracking)
+            - preprocessed_batch: Model-ready frames (e.g., resized, normalized)
+
+        Args:
+            input_queue (queue.Queue): Provides (input_batch, preprocessed_batch) tuples.
+            output_queue (queue.Queue): Collects (input_frame, result) tuples for visualization.
+            stop_event (threading.Event): Event to signal stopping the inference loop.
+        """
+        pending_jobs = collections.deque()
+
+        while True:
+            next_batch = input_queue.get()
+            if not next_batch:
+                break
+
+            if stop_event.is_set():
+                continue
+
+            input_batch, preprocessed_batch = next_batch
+
+            inference_callback_fn = partial(
+                self._inference_callback,
+                input_batch=input_batch,
+                output_queue=output_queue
+            )
+
+            while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
+                pending_jobs.popleft().wait(10000)
+
+            job = self.run(preprocessed_batch, inference_callback_fn)
+            pending_jobs.append(job)
+
+        self.close()
+        output_queue.put(None)
+
+    def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
+        if completion_info.exception:
+            logger.error(f'Inference error: {completion_info.exception}')
+        else:
+            for i, bindings in enumerate(bindings_list):
+                if len(bindings._output_names) == 1:
+                    result = bindings.output().get_buffer()
+                else:
+                    result = {
+                        name: np.expand_dims(
+                            bindings.output(name).get_buffer(), axis=0
+                        )
+                        for name in bindings._output_names
+                    }
+                output_queue.put((input_batch[i], result))
+
+
 def inference_result_handler(original_frame, infer_results, labels, score_threshold, max_boxes, tracker=None, draw_trail=False):
     """
     Processes inference results and draw detections (with optional tracking).
@@ -76,7 +136,7 @@ def inference_result_handler(original_frame, infer_results, labels, score_thresh
         labels (list): List of class labels.
         score_threshold (float): Minimum confidence score to consider a detection.
         max_boxes (int): Maximum number of detections to keep.
-        tracker (BYTETracker, optional): ByteTrack tracker instance.
+        tracker (Tracker, optional): Tracker instance.
         draw_trail (bool): Whether to draw tracking trails.
 
     Returns:
@@ -85,7 +145,7 @@ def inference_result_handler(original_frame, infer_results, labels, score_thresh
     infer_results = infer_results if isinstance(infer_results, list) else [infer_results]
     detections = extract_detections(original_frame, infer_results, labels, score_threshold, max_boxes)
     if tracker:
-        detections = track_detections(detections, tracker)
+        detections = tracker.update(detections)
         update_trails(detections)
     return draw_detections(original_frame, detections, draw_trail=draw_trail)
 
@@ -137,47 +197,6 @@ def extract_detections(image: np.ndarray, detections: list, labels: list, score_
     all_detections.sort(reverse=True, key=lambda x: x['score'])
 
     return all_detections[:max_boxes]
-
-
-def track_detections(detections: list, tracker: BYTETracker) -> list:
-    """
-    Perform tracking on the detections.
-
-    Args:
-        detections (list): List of detection dictionaries.
-        tracker (BYTETracker): ByteTrack tracker instance.
-
-    Returns:
-        list: List of tracked objects (dictionaries with 'label', 'score', 'box', and 'track_id').
-    """
-    dets_for_tracker = []
-    for det in detections:
-        x, y, w, h = det['box']
-        dets_for_tracker.append([x, y, x + w, y + h, det['score']])
-
-    if not dets_for_tracker:
-        return []
-
-    online_targets = tracker.update(np.array(dets_for_tracker))
-    tracked_detections = []
-
-    for track in online_targets:
-        x1, y1, x2, y2 = track.tlbr
-        xmin, ymin, xmax, ymax = map(int, [x1, y1, x2, y2])
-        
-        # Use the format for boxes when matching
-        det_boxes = [[d['box'][0], d['box'][1], d['box'][0]+d['box'][2], d['box'][1]+d['box'][3]] for d in detections]
-        best_idx = find_best_matching_detection_index(track.tlbr, det_boxes)
-        
-        if best_idx is not None:
-            tracked_detections.append({
-                'label': detections[best_idx]['label'],
-                'score': float(track.score),
-                'box': [xmin, ymin, xmax - xmin, ymax - ymin],
-                'track_id': track.track_id
-            })
-    
-    return tracked_detections
 
 
 def update_trails(detections: list) -> None:
@@ -241,7 +260,8 @@ def draw_detections(image: np.ndarray, detections: list, draw_trail=False) -> np
 def run_inference_pipeline(
     net,
     labels,
-    pipeline: VideoPipeline,
+    input_data: VideoInput,
+    visualizer: VideoVisualizer,
     enable_tracking: bool = False,
     draw_trail: bool = False,
 ) -> None:
@@ -259,7 +279,7 @@ def run_inference_pipeline(
 
     if enable_tracking:
         tracker_config = visualization_params.get("tracker", {})
-        tracker = BYTETracker(SimpleNamespace(**tracker_config))
+        tracker = Tracker(**tracker_config)
 
     input_queue = queue.Queue(MAX_INPUT_QUEUE_SIZE)
     output_queue = queue.Queue(MAX_OUTPUT_QUEUE_SIZE)
@@ -273,11 +293,11 @@ def run_inference_pipeline(
         draw_trail=draw_trail,
     )
 
-    hailo_inference = HailoInfer(net, pipeline.batch_size)
+    hailo_inference = HailoInfer(net, input_data.batch_size)
     height, width, _ = hailo_inference.get_input_shape()
 
     preprocess_thread = threading.Thread(
-        target=pipeline.preprocess,
+        target=input_data.preprocess,
         args=(
             input_queue,
             width,
@@ -288,7 +308,7 @@ def run_inference_pipeline(
 
     infer_thread = threading.Thread(
         target=infer,
-        args=(hailo_inference, input_queue, output_queue, pipeline.stop_event),
+        args=(hailo_inference, input_queue, output_queue, input_data.stop_event),
         name="infer-thread",
     )
 
@@ -296,20 +316,23 @@ def run_inference_pipeline(
     infer_thread.start()
 
     try:
-        pipeline.visualize(
+        visualizer.visualize(
             output_queue,
             post_process_callback_fn,
+            width=input_data.width,
+            height=input_data.height,
+            is_capture=input_data.has_capture
         )
     finally:
-        pipeline.stop_event.set()
+        input_data.stop_event.set()
         preprocess_thread.join()
         infer_thread.join()
 
-    logger.info(pipeline.frame_rate_summary())
+    logger.info(visualizer.frame_rate_summary())
     logger.info("Processing completed successfully.")
 
-    if pipeline.save_output or pipeline.has_images:
-        logger.info(f"Saved outputs to '{pipeline.output_dir}'.")
+    if visualizer.save_output or input_data.has_images:
+        logger.info(f"Saved outputs to '{visualizer.output_dir}'.")
 
 
 def infer(hailo_inference, input_queue, output_queue, stop_event):
@@ -349,7 +372,6 @@ def infer(hailo_inference, input_queue, output_queue, stop_event):
             input_batch=input_batch,
             output_queue=output_queue
         )
-
 
         while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
             pending_jobs.popleft().wait(10000)
@@ -412,21 +434,28 @@ def main(**kwargs) -> None:
     logging.basicConfig(level=logging.INFO)
     args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
-    pipeline = VideoPipeline(
+    stop_event = threading.Event()
+    input_data = VideoInput(
         input_src=args.input,
         batch_size=args.batch_size,
         resolution=args.camera_resolution,
         frame_rate=args.frame_rate,
         video_unpaced=args.video_unpaced,
+        stop_event=stop_event,
+    )
+    visualizer = VideoVisualizer(
         output_dir=args.output_dir,
         save_output=args.save_output,
-        output_resolution=args.output_resolution,
+        source_fps=input_data.source_fps,
+        frame_rate=args.frame_rate,
+        stop_event=stop_event,
     )
 
     run_inference_pipeline(
         net=args.hef_path,
         labels=args.labels,
-        pipeline=pipeline,
+        input_data=input_data,
+        visualizer=visualizer,
         enable_tracking=args.track,
         draw_trail=args.draw_trail,
     )

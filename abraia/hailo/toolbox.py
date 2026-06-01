@@ -4,13 +4,16 @@ import cv2
 import time
 import queue
 import shlex
+import logging
 import requests
 import threading
 import subprocess
+import collections
 import numpy as np
 
 from enum import Enum
 from pathlib import Path
+from functools import partial
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
 from ..utils import download_url
@@ -21,8 +24,14 @@ from ..utils.draw import (
     calculate_optimal_text_scale,
 )
 
-import logging
 logger = logging.getLogger(__name__)
+
+try:
+    from hailo_platform import (HEF, VDevice, FormatType, HailoSchedulingAlgorithm)
+    from hailo_platform.pyhailort.pyhailort import FormatOrder
+    HAILO_AVAILABLE = True
+except ImportError:
+    HAILO_AVAILABLE = False
 
 
 # Base Defaults
@@ -638,88 +647,6 @@ def resize_frame_for_output(frame: np.ndarray, resolution: Optional[Tuple[int, i
     return cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
 
-class Display:
-    def __init__(
-        self,
-        output_dir: str = "output",
-        save_output: bool = False,
-        output_resolution: Optional[Tuple[int, int]] = None,
-        side_by_side: bool = False,
-        source_fps: Optional[float] = None,
-        frame_rate: Optional[float] = None,
-    ):
-        self.output_dir = output_dir
-        self.save_output = save_output
-        self.output_resolution = output_resolution
-        self.side_by_side = side_by_side
-        self.source_fps = source_fps
-        self.frame_rate = frame_rate
-
-        self.video_writer = None
-        self.image_index = 0
-        self.window_name = "Output"
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.video_writer is not None:
-            self.video_writer.release()
-        cv2.destroyAllWindows()
-
-    def _init_writer(self, width: int, height: int):
-        if self.output_resolution is not None:
-            target_width, target_height = self.output_resolution
-        else:
-            target_width, target_height = width, height
-        
-        self.writer_frame_width = target_width * (2 if self.side_by_side else 1)
-        self.writer_frame_height = target_height
-
-        if self.save_output:
-            output_fps = self.frame_rate or (self.source_fps if self.source_fps and self.source_fps > 1 else 30.0)
-            os.makedirs(self.output_dir, exist_ok=True)
-            output_video_path = os.path.join(self.output_dir, "output.avi")
-            self.video_writer = cv2.VideoWriter(
-                output_video_path,
-                cv2.VideoWriter_fourcc(*"XVID"),
-                output_fps,
-                (self.writer_frame_width, self.writer_frame_height)
-            )
-
-    def show(self, frame: np.ndarray, fps: float, width: int, height: int, is_capture: bool = True) -> bool:
-        if not hasattr(self, 'thickness'):
-            self.thickness = calculate_optimal_thickness(frame.shape[:2])
-            self.text_scale = calculate_optimal_text_scale(frame.shape[:2])
-
-        render_status(frame, fps, thickness=self.thickness, text_scale=self.text_scale)
-        render_resolution(frame, thickness=self.thickness, text_scale=self.text_scale)
-
-        output_bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        frame_to_show = resize_frame_for_output(output_bgr_frame, self.output_resolution)
-
-        if is_capture:
-            if self.video_writer is None and self.save_output:
-                self._init_writer(width, height)
-            
-            cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
-            cv2.imshow(self.window_name, frame_to_show)
-            
-            if (cv2.waitKey(1) & 0xFF) == ord("q"):
-                return False
-            
-            if self.video_writer is not None:
-                frame_to_write = cv2.resize(frame_to_show, (self.writer_frame_width, self.writer_frame_height))
-                self.video_writer.write(frame_to_write)
-        else:
-            os.makedirs(self.output_dir, exist_ok=True)
-            output_image_path = os.path.join(self.output_dir, f"output_{self.image_index}.png")
-            cv2.imwrite(output_image_path, frame_to_show)
-            self.image_index += 1
-            
-        return True
-
-
 class VideoInput:
     def __init__(
         self,
@@ -730,7 +657,7 @@ class VideoInput:
         video_unpaced: bool = False,
         stop_event: Optional[threading.Event] = None,
     ):
-        self.input_src = input_src.strip()
+        self.input_src = input_src
         self.batch_size = batch_size
         self.resolution = resolution
         self.frame_rate = frame_rate
@@ -888,6 +815,70 @@ class VideoVisualizer:
         self._count = 0
         self._start_time = None
 
+        self.video_writer = None
+        self.image_index = 0
+        self.window_name = "Output"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.video_writer is not None:
+            self.video_writer.release()
+        cv2.destroyAllWindows()
+
+    def _init_writer(self, width: int, height: int):
+        if self.output_resolution is not None:
+            target_width, target_height = self.output_resolution
+        else:
+            target_width, target_height = width, height
+        
+        self.writer_frame_width = target_width * (2 if self.side_by_side else 1)
+        self.writer_frame_height = target_height
+
+        if self.save_output:
+            output_fps = self.frame_rate or (self.source_fps if self.source_fps and self.source_fps > 1 else 30.0)
+            os.makedirs(self.output_dir, exist_ok=True)
+            output_video_path = os.path.join(self.output_dir, "output.avi")
+            self.video_writer = cv2.VideoWriter(
+                output_video_path,
+                cv2.VideoWriter_fourcc(*"XVID"),
+                output_fps,
+                (self.writer_frame_width, self.writer_frame_height)
+            )
+
+    def show(self, frame: np.ndarray, fps: float, width: int, height: int, is_capture: bool = True) -> bool:
+        if not hasattr(self, 'thickness'):
+            self.thickness = calculate_optimal_thickness(frame.shape[:2])
+            self.text_scale = calculate_optimal_text_scale(frame.shape[:2])
+
+        render_status(frame, fps, thickness=self.thickness, text_scale=self.text_scale)
+        render_resolution(frame, thickness=self.thickness, text_scale=self.text_scale)
+
+        output_bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        frame_to_show = resize_frame_for_output(output_bgr_frame, self.output_resolution)
+
+        if is_capture:
+            if self.video_writer is None and self.save_output:
+                self._init_writer(width, height)
+            
+            cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
+            cv2.imshow(self.window_name, frame_to_show)
+            
+            if (cv2.waitKey(1) & 0xFF) == ord("q"):
+                return False
+            
+            if self.video_writer is not None:
+                frame_to_write = cv2.resize(frame_to_show, (self.writer_frame_width, self.writer_frame_height))
+                self.video_writer.write(frame_to_write)
+        else:
+            os.makedirs(self.output_dir, exist_ok=True)
+            output_image_path = os.path.join(self.output_dir, f"output_{self.image_index}.png")
+            cv2.imwrite(output_image_path, frame_to_show)
+            self.image_index += 1
+            
+        return True
+
     def start(self):
         self._start_time = time.time()
 
@@ -920,17 +911,8 @@ class VideoVisualizer:
         height: Optional[int] = None,
         is_capture: bool = True,
     ) -> None:
-        display = Display(
-            output_dir=self.output_dir,
-            save_output=self.save_output,
-            output_resolution=self.output_resolution,
-            side_by_side=self.side_by_side,
-            source_fps=self.source_fps,
-            frame_rate=self.frame_rate,
-        )
-
         self.start()
-        with display:
+        with self:
             while True:
                 result = output_queue.get()
                 try:
@@ -945,7 +927,7 @@ class VideoVisualizer:
                     frame_with_detections = callback(original_frame, inference_result, *metadata)
                     self.increment()
 
-                    if not display.show(
+                    if not self.show(
                         frame_with_detections,
                         self.fps,
                         width,
@@ -960,117 +942,266 @@ class VideoVisualizer:
         self.stop_event.set()
 
 
-class VideoPipeline:
-    def __init__(
-        self,
-        input_src: str,
-        batch_size: int = 1,
-        resolution: Optional[str] = None,
-        frame_rate: Optional[float] = None,
-        video_unpaced: bool = False,
-        output_dir: str = "output",
-        save_output: bool = False,
-        output_resolution: Optional[Tuple[int, int]] = None,
-        side_by_side: bool = False,
-    ):
-        self.stop_event = threading.Event()
-        self.input = VideoInput(
-            input_src=input_src,
-            batch_size=batch_size,
-            resolution=resolution,
-            frame_rate=frame_rate,
-            video_unpaced=video_unpaced,
-            stop_event=self.stop_event
-        )
-        self.visualizer = VideoVisualizer(
-            output_dir=output_dir,
-            save_output=save_output,
-            output_resolution=output_resolution,
-            side_by_side=side_by_side,
-            source_fps=self.input.source_fps,
-            frame_rate=frame_rate,
-            stop_event=self.stop_event
-        )
+if HAILO_AVAILABLE:
+    class HailoInfer:
+        def __init__(
+            self, hef_path: str, batch_size: int = 1,
+                input_type: Optional[str] = None, output_type: Optional[str] = None,
+                priority: Optional[int] = 0) -> None:
 
-    @property
-    def input_src(self) -> str:
-        return self.input.input_src
+            """
+            Initialize the HailoAsyncInference class to perform asynchronous inference using a Hailo HEF model.
 
-    @property
-    def output_dir(self) -> str:
-        return self.visualizer.output_dir
+            Args:
+                hef_path (str): Path to the HEF model file.
+                batch_size (optional[int]): Number of inputs processed per inference. Defaults to 1.
+                input_type (Optional[str], optional): Input data type format. Common values: 'UINT8', 'UINT16', 'FLOAT32'.
+                output_type (Optional[str], optional): Output data type format. Common values: 'UINT8', 'UINT16', 'FLOAT32'.
+                priority (optional[int]): Scheduler priority value for the model within the shared VDevice context. Defaults to 0.
+            """
+            params = VDevice.create_params()
+            # Set the scheduling algorithm to round-robin to activate the scheduler
+            params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
+            params.group_id = "SHARED"
+            vDevice = VDevice(params)
 
-    @property
-    def save_output(self) -> bool:
-        return self.visualizer.save_output
+            self.target = vDevice
+            hef_path = os.fspath(hef_path)
+            self.hef = HEF(hef_path)
 
-    @property
-    def side_by_side(self) -> bool:
-        return self.visualizer.side_by_side
+            self.infer_model = self.target.create_infer_model(hef_path)
+            self.infer_model.set_batch_size(batch_size)
 
-    @property
-    def input_type(self) -> str:
-        return self.input.input_type
+            self._set_input_type(input_type)
+            self._set_output_type(output_type)
 
-    @property
-    def batch_size(self) -> int:
-        return self.input.batch_size
+            self.config_ctx = self.infer_model.configure()
+            self.configured_model = self.config_ctx.__enter__()
+            self.configured_model.set_scheduler_priority(priority)
+            self.last_infer_job = None
 
-    @property
-    def width(self) -> Optional[int]:
-        return self.input.width
+        def _set_input_type(self, input_type: Optional[str] = None) -> None:
+            """
+            Set the input type for the HEF model. If the model has multiple inputs,
+            it will set the same type of all of them.
 
-    @property
-    def height(self) -> Optional[int]:
-        return self.input.height
+            Args:
+                input_type (Optional[str]): Format type of the input stream.
+            """
 
-    @property
-    def has_capture(self) -> bool:
-        return self.input.has_capture
+            if input_type is not None:
+                self.infer_model.input().set_format_type(getattr(FormatType, input_type))
 
-    @property
-    def has_images(self) -> bool:
-        return self.input.has_images
+        def _set_output_type(self, output_type: Optional[str] = None) -> None:
+            """
+            Set the output type for each model output.
 
-    @property
-    def count(self) -> int:
-        return self.visualizer.count
+            Args:
+                output_type (Optional[str]): Desired output data type. Common values:
+                    'UINT8', 'UINT16', 'FLOAT32'.
+            """
 
-    @property
-    def fps(self) -> float:
-        return self.visualizer.fps
+            self.nms_postprocess_enabled = False
 
-    @property
-    def elapsed(self) -> float:
-        return self.visualizer.elapsed
+            # If the model uses HAILO_NMS_WITH_BYTE_MASK format (e.g.,instance segmentation),
+            if self.infer_model.outputs[0].format.order == FormatOrder.HAILO_NMS_WITH_BYTE_MASK:
+                # Use UINT8 and skip setting output formats
+                self.nms_postprocess_enabled = True
+                self.output_type = self._output_data_type2dict("UINT8")
+                return
 
-    def start(self):
-        self.visualizer.start()
+            # Otherwise, set the format type based on the provided output_type argument
+            self.output_type = self._output_data_type2dict(output_type)
 
-    def increment(self, n: int = 1):
-        self.visualizer.increment(n)
+            # Apply format to each output layer
+            for name, dtype in self.output_type.items():
+                self.infer_model.output(name).set_format_type(getattr(FormatType, dtype))
 
-    def frame_rate_summary(self) -> str:
-        return self.visualizer.frame_rate_summary()
+        def get_vstream_info(self) -> Tuple[list, list]:
+            """
+            Get information about input and output stream layers.
 
-    def preprocess(
-        self,
-        input_queue: queue.Queue,
-        model_input_width: int,
-        model_input_height: int,
-        preprocess_fn: Optional[Callable[[np.ndarray, int, int], np.ndarray]] = None,
-    ) -> None:
-        self.input.preprocess(input_queue, model_input_width, model_input_height, preprocess_fn)
+            Returns:
+                Tuple[list, list]: List of input stream layer information, List of 
+                                   output stream layer information.
+            """
+            return (
+                self.hef.get_input_vstream_infos(), 
+                self.hef.get_output_vstream_infos()
+            )
 
-    def visualize(
-        self,
-        output_queue: queue.Queue,
-        callback: Callable[[Any, Any], None],
-    ) -> None:
-        self.visualizer.visualize(
-            output_queue,
-            callback,
-            width=self.input.width,
-            height=self.input.height,
-            is_capture=self.input.has_capture
-        )
+        def get_hef(self) -> HEF:
+            """
+            Get a HEF instance
+            
+            Returns:
+                HEF: A HEF (Hailo Executable File) containing the model.
+            """
+            return self.hef
+
+        def get_input_shape(self) -> Tuple[int, ...]:
+            """
+            Get the shape of the model's input layer.
+
+            Returns:
+                Tuple[int, ...]: Shape of the model's input layer.
+            """
+            return self.hef.get_input_vstream_infos()[0].shape  # Assumes one input
+
+        def run(self, input_batch: List[np.ndarray], inference_callback_fn) -> object:
+            """
+            Run an asynchronous inference job on a batch of preprocessed inputs.
+
+            This method reuses a preconfigured model (no reconfiguration overhead),
+            prepares input/output bindings, launches async inference, and returns
+            the job handle so that the caller can wait on it if needed.
+
+            Args:
+                input_batch (List[np.ndarray]): A batch of preprocessed model inputs.
+                inference_callback_fn (Callable): Function to be invoked when inference is complete.
+                                                  It receives `bindings_list` and additional context.
+
+            Returns:
+                Async job handle returned by `run_async`, which can be used to wait for completion or check status.
+            """
+            bindings_list = self._create_bindings(self.configured_model, input_batch)
+            self.configured_model.wait_for_async_ready(timeout_ms=10000)
+
+            # Launch async inference and attach the result handler
+            self.last_infer_job = self.configured_model.run_async(
+                bindings_list,
+                partial(inference_callback_fn, bindings_list=bindings_list)
+            )
+            return self.last_infer_job
+
+        def _create_bindings(self, configured_model, input_batch):
+            """
+            Create a list of input-output bindings for a batch of frames.
+
+            Args:
+                configured_model: The configured inference model.
+                input_batch (List[np.ndarray]): List of input frames, preprocessed and ready.
+
+            Returns:
+                List[Bindings]: A list of bindings for each frame's input and output buffers.
+            """
+
+            def _frame_binding(frame: np.ndarray):
+                output_buffers = {
+                    name: np.empty(
+                        self.infer_model.output(name).shape,
+                        dtype=(getattr(np, self.output_type[name].lower()))
+                    )
+                    for name in self.output_type
+                }
+
+                binding = configured_model.create_bindings(output_buffers=output_buffers)
+                binding.input().set_buffer(np.array(frame))
+                return binding
+
+            return [_frame_binding(frame) for frame in input_batch]
+
+        def is_nms_postprocess_enabled(self) -> bool:
+            """
+            Returns True if the HEF model includes an NMS postprocess node.
+            """
+            return self.nms_postprocess_enabled
+
+        def _output_data_type2dict(self, data_type: Optional[str]) -> Dict[str, str]:
+            """
+            Generate a dictionary mapping each output layer name to its corresponding
+            data type. If no data type is provided, use the type defined in the HEF.
+
+            Args:
+                data_type (Optional[str]): The desired data type for all output layers.
+                                           Valid values: 'float32', 'uint8', 'uint16'.
+                                           If None, uses types from the HEF metadata.
+
+            Returns:
+                Dict[str, str]: A dictionary mapping output layer names to data types.
+            """
+            valid_types = {"float32", "uint8", "uint16"}
+            data_type_dict = {}
+
+            for output_info in self.hef.get_output_vstream_infos():
+                name = output_info.name
+                if data_type is None:
+                    # Extract type from HEF metadata
+                    hef_type = str(output_info.format.type).split(".")[-1]
+                    data_type_dict[name] = hef_type
+                else:
+                    if data_type.lower() not in valid_types:
+                        raise ValueError(f"Invalid data_type: {data_type}. Must be one of {valid_types}")
+                    data_type_dict[name] = data_type
+
+            return data_type_dict
+
+        def close(self):
+            # Wait for the final job to complete before exiting
+            if self.last_infer_job is not None:
+                self.last_infer_job.wait(10000)
+
+            if self.config_ctx:
+                self.config_ctx.__exit__(None, None, None)
+
+    class HailoAsyncInference(HailoInfer):
+        def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
+            """
+            Main inference loop that pulls data from the input queue, runs asynchronous
+            inference, and pushes results to the output queue.
+
+            Each item in the input queue is expected to be a tuple:
+                (input_batch, preprocessed_batch)
+                - input_batch: Original frames (used for visualization or tracking)
+                - preprocessed_batch: Model-ready frames (e.g., resized, normalized)
+
+            Args:
+                input_queue (queue.Queue): Provides (input_batch, preprocessed_batch) tuples.
+                output_queue (queue.Queue): Collects (input_frame, result) tuples for visualization.
+                stop_event (threading.Event): Event to signal stopping the inference loop.
+            """
+            pending_jobs = collections.deque()
+
+            while True:
+                next_batch = input_queue.get()
+                if not next_batch:
+                    break
+
+                if stop_event.is_set():
+                    continue
+
+                input_batch, preprocessed_batch = next_batch
+
+                inference_callback_fn = partial(
+                    self._inference_callback,
+                    input_batch=input_batch,
+                    output_queue=output_queue
+                )
+
+                while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
+                    pending_jobs.popleft().wait(10000)
+
+                job = self.run(preprocessed_batch, inference_callback_fn)
+                pending_jobs.append(job)
+
+            self.close()
+            output_queue.put(None)
+
+        def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
+            if completion_info.exception:
+                logger.error(f'Inference error: {completion_info.exception}')
+            else:
+                for i, bindings in enumerate(bindings_list):
+                    if len(bindings._output_names) == 1:
+                        result = bindings.output().get_buffer()
+                    else:
+                        result = {
+                            name: np.expand_dims(
+                                bindings.output(name).get_buffer(), axis=0
+                            )
+                            for name in bindings._output_names
+                        }
+                    output_queue.put((input_batch[i], result))
+else:
+    HailoInfer = None
+    HailoAsyncInference = None
