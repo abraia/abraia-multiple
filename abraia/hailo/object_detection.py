@@ -20,8 +20,8 @@ from .toolbox import (
 import logging
 logger = logging.getLogger(__name__)
 
+from .tracker.byte_tracker import BYTETracker
 from .tracker.matching import find_best_matching_detection_index
-from ..inference import Tracker
 
 from ..utils.draw import (
     draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
@@ -136,7 +136,7 @@ def inference_result_handler(original_frame, infer_results, labels, score_thresh
         labels (list): List of class labels.
         score_threshold (float): Minimum confidence score to consider a detection.
         max_boxes (int): Maximum number of detections to keep.
-        tracker (Tracker, optional): Tracker instance.
+        tracker (BYTETracker, optional): ByteTrack tracker instance.
         draw_trail (bool): Whether to draw tracking trails.
 
     Returns:
@@ -145,7 +145,7 @@ def inference_result_handler(original_frame, infer_results, labels, score_thresh
     infer_results = infer_results if isinstance(infer_results, list) else [infer_results]
     detections = extract_detections(original_frame, infer_results, labels, score_threshold, max_boxes)
     if tracker:
-        detections = tracker.update(detections)
+        detections = track_detections(detections, tracker)
         update_trails(detections)
     return draw_detections(original_frame, detections, draw_trail=draw_trail)
 
@@ -197,6 +197,47 @@ def extract_detections(image: np.ndarray, detections: list, labels: list, score_
     all_detections.sort(reverse=True, key=lambda x: x['score'])
 
     return all_detections[:max_boxes]
+
+
+def track_detections(detections: list, tracker: BYTETracker) -> list:
+    """
+    Perform tracking on the detections.
+
+    Args:
+        detections (list): List of detection dictionaries.
+        tracker (BYTETracker): ByteTrack tracker instance.
+
+    Returns:
+        list: List of tracked objects (dictionaries with 'label', 'score', 'box', and 'track_id').
+    """
+    dets_for_tracker = []
+    for det in detections:
+        x, y, w, h = det['box']
+        dets_for_tracker.append([x, y, x + w, y + h, det['score']])
+
+    if not dets_for_tracker:
+        return []
+
+    online_targets = tracker.update(np.array(dets_for_tracker))
+    tracked_detections = []
+
+    for track in online_targets:
+        x1, y1, x2, y2 = track.tlbr
+        xmin, ymin, xmax, ymax = map(int, [x1, y1, x2, y2])
+        
+        # Use the format for boxes when matching
+        det_boxes = [[d['box'][0], d['box'][1], d['box'][0]+d['box'][2], d['box'][1]+d['box'][3]] for d in detections]
+        best_idx = find_best_matching_detection_index(track.tlbr, det_boxes)
+        
+        if best_idx is not None:
+            tracked_detections.append({
+                'label': detections[best_idx]['label'],
+                'score': float(track.score),
+                'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                'track_id': track.track_id
+            })
+    
+    return tracked_detections
 
 
 def update_trails(detections: list) -> None:
@@ -279,7 +320,7 @@ def run_inference_pipeline(
 
     if enable_tracking:
         tracker_config = visualization_params.get("tracker", {})
-        tracker = Tracker(**tracker_config)
+        tracker = BYTETracker(SimpleNamespace(**tracker_config))
 
     input_queue = queue.Queue(MAX_INPUT_QUEUE_SIZE)
     output_queue = queue.Queue(MAX_OUTPUT_QUEUE_SIZE)

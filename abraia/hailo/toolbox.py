@@ -675,7 +675,7 @@ class VideoInput:
         self._init_input()
 
     def _init_input(self):
-        src = self.input_src
+        src = str(self.input_src)
 
         if src.isdigit():
             if is_raspberry_pi():
