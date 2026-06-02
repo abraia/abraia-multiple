@@ -800,8 +800,9 @@ class VideoVisualizer:
     def visualize(
         self,
         output_queue: queue.Queue,
-        callback: Callable[[Any, Any], None],
+        callback: Callable,
         is_capture: bool = True,
+        **kwargs,
     ) -> None:
         self.start()
         with self:
@@ -815,8 +816,8 @@ class VideoVisualizer:
                         continue
                     if isinstance(inference_result, list) and len(inference_result) == 1:
                         inference_result = inference_result[0]
-                    
-                    frame_with_detections = callback(original_frame, inference_result, *metadata)
+
+                    frame_with_detections = callback(original_frame, inference_result, *metadata, **kwargs)
                     self.increment()
 
                     if not self.show(frame_with_detections, self.fps, is_capture=is_capture):

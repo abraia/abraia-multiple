@@ -40,38 +40,89 @@ DEFAULT_OPTIONS = {
     "input": 0,
     "hef_path": "yolov8m.hef",
     "batch_size": 1,
+    "score_threshold": 0.25,
     "frame_rate": None,
     "track": True,
     "labels": None,
     "draw_trail": False,
     "camera_resolution": None,
-    "video_unpaced": False,
     "output_dir": None,
     "save_output": False,
 }
 
 CONFIG_DATA = {
-    "visualization_params": {
-        "score_thres": 0.25,
-        "max_boxes_to_draw": 500,
-        "tracker": {
-            "track_thresh": 0.1,
-            "track_buffer": 30,
-            "match_thresh": 0.9,
-            "aspect_ratio_thresh": 2.0,
-            "min_box_area": 500,
-            "mot20": False
-        }
+    "tracker": {
+        "track_thresh": 0.1,
+        "track_buffer": 30,
+        "match_thresh": 0.9,
+        "aspect_ratio_thresh": 2.0,
+        "min_box_area": 500,
+        "mot20": False
     }
 }
 
 
 class ModelInference(HailoInfer):
-    def __init__(self, hef_path: str, batch_size: int = 1, labels: list = None, score_threshold: float = 0.25, max_boxes: int = 500):
+    def __init__(self, hef_path: str, batch_size: int = 1, labels: list = None, score_threshold: float = 0.25):
         super().__init__(hef_path, batch_size)
-        self.labels = labels
         self.score_threshold = score_threshold
-        self.max_boxes = max_boxes
+        self.labels = labels
+
+    def extract_detections(self, image: np.ndarray, detections: list) -> list:
+        """
+        Extract detections from the input data.
+
+        Args:
+            image (np.ndarray): Image to draw on.
+            detections (list): Raw detections from the model.
+
+        Returns:
+            list: Filtered detection results containing dictionaries with 'label', 'score', and 'box'.
+        """
+        img_height, img_width = image.shape[:2]
+        size = max(img_height, img_width)
+        padding_length = int(abs(img_height - img_width) / 2)
+
+        all_detections = []
+        for class_id, detection in enumerate(detections):
+            for det in detection:
+                bbox, score = det[:4], det[4]
+                if score >= self.score_threshold:
+                    # Denormalize and remove padding
+                    box = [int(x * size) for x in bbox]
+                    for i in range(4):
+                        if i % 2 == 0:  # x-coordinates
+                            if img_height != size:
+                                box[i] -= padding_length
+                        else:  # y-coordinates
+                            if img_width != size:
+                                box[i] -= padding_length
+                    # Swap to [xmin, ymin, xmax, ymax]
+                    xmin, ymin, xmax, ymax = box[1], box[0], box[3], box[2]
+                    all_detections.append({
+                        'label': self.labels[class_id] if self.labels else str(class_id),
+                        'score': float(score),
+                        'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                        'class_id': class_id
+                    })
+        return all_detections
+
+    def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
+        if completion_info.exception:
+            logger.error(f'Inference error: {completion_info.exception}')
+        else:
+            for i, bindings in enumerate(bindings_list):
+                if len(bindings._output_names) == 1:
+                    result = bindings.output().get_buffer()
+                else:
+                    result = {
+                        name: np.expand_dims(bindings.output(name).get_buffer(), axis=0)
+                        for name in bindings._output_names
+                    }
+                print(result)
+                infer_results = result if isinstance(result, list) else [result]
+                detections = self.extract_detections(input_batch[i], infer_results)
+                output_queue.put((input_batch[i], detections))
 
     def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
         """
@@ -114,90 +165,6 @@ class ModelInference(HailoInfer):
 
         self.close()
         output_queue.put(None)
-
-    def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
-        if completion_info.exception:
-            logger.error(f'Inference error: {completion_info.exception}')
-        else:
-            for i, bindings in enumerate(bindings_list):
-                if len(bindings._output_names) == 1:
-                    result = bindings.output().get_buffer()
-                else:
-                    result = {
-                        name: np.expand_dims(
-                            bindings.output(name).get_buffer(), axis=0
-                        )
-                        for name in bindings._output_names
-                    }
-                
-                infer_results = result if isinstance(result, list) else [result]
-                detections = self.extract_detections(input_batch[i], infer_results)
-                output_queue.put((input_batch[i], detections))
-
-    def extract_detections(self, image: np.ndarray, detections: list) -> list:
-        """
-        Extract detections from the input data.
-
-        Args:
-            image (np.ndarray): Image to draw on.
-            detections (list): Raw detections from the model.
-
-        Returns:
-            list: Filtered detection results containing dictionaries with 'label', 'score', and 'box'.
-        """
-
-        img_height, img_width = image.shape[:2]
-        size = max(img_height, img_width)
-        padding_length = int(abs(img_height - img_width) / 2)
-
-        all_detections = []
-
-        for class_id, detection in enumerate(detections):
-            for det in detection:
-                bbox, score = det[:4], det[4]
-                if score >= self.score_threshold:
-                    # Denormalize and remove padding
-                    box = [int(x * size) for x in bbox]
-                    for i in range(4):
-                        if i % 2 == 0:  # x-coordinates
-                            if img_height != size:
-                                box[i] -= padding_length
-                        else:  # y-coordinates
-                            if img_width != size:
-                                box[i] -= padding_length
-                    # Swap to [xmin, ymin, xmax, ymax]
-                    xmin, ymin, xmax, ymax = box[1], box[0], box[3], box[2]
-                    all_detections.append({
-                        'label': self.labels[class_id] if self.labels else str(class_id),
-                        'score': float(score),
-                        'box': [xmin, ymin, xmax - xmin, ymax - ymin],
-                        'class_id': class_id
-                    })
-
-        # Sort all detections by score descending
-        all_detections.sort(reverse=True, key=lambda x: x['score'])
-
-        return all_detections[:self.max_boxes]
-
-
-def inference_result_handler(original_frame, detections, tracker=None, draw_trail=False):
-    """
-    Processes inference results and draw detections (with optional tracking).
-
-    Args:
-        original_frame (np.ndarray): Original image frame.
-        detections (list): Extracted detections.
-        tracker (BYTETracker, optional): ByteTrack tracker instance.
-        draw_trail (bool): Whether to draw tracking trails.
-
-    Returns:
-        np.ndarray: Frame with detections or tracks drawn.
-    """
-    if tracker:
-        detections = track_detections(detections, tracker)
-        update_trails(detections)
-    return draw_detections(original_frame, detections, draw_trail=draw_trail)
-
 
 
 def track_detections(detections: list, tracker: BYTETracker) -> list:
@@ -299,58 +266,62 @@ def draw_detections(image: np.ndarray, detections: list, draw_trail=False) -> np
     return img_out
 
 
+def inference_result_handler(original_frame, detections, *args, tracker=None, draw_trail=False, **kwargs):
+    """
+    Processes inference results and draw detections (with optional tracking).
+
+    Args:
+        original_frame (np.ndarray): Original image frame.
+        detections (list): Extracted detections.
+        tracker (BYTETracker, optional): ByteTrack tracker instance.
+        draw_trail (bool): Whether to draw tracking trails.
+
+    Returns:
+        np.ndarray: Frame with detections or tracks drawn.
+    """
+    if tracker:
+        detections = track_detections(detections, tracker)
+        update_trails(detections)
+    return draw_detections(original_frame, detections, draw_trail=draw_trail)
+
+
 def run_inference_pipeline(
     model_inference: ModelInference,
     input_data: VideoInput,
     visualizer: VideoVisualizer,
-    enable_tracking: bool = False,
+    tracker: BYTETracker = None,
     draw_trail: bool = False,
 ) -> None:
     """
     Initialize queues, inference instance, and run the pipeline.
     """
-    visualization_params = CONFIG_DATA.get("visualization_params", {})
-
-    tracker = None
-    if enable_tracking:
-        tracker_config = visualization_params.get("tracker", {})
-        tracker = BYTETracker(SimpleNamespace(**tracker_config))
-
     input_queue = queue.Queue(MAX_INPUT_QUEUE_SIZE)
     output_queue = queue.Queue(MAX_OUTPUT_QUEUE_SIZE)
 
-    post_process_callback_fn = partial(
-        inference_result_handler,
-        tracker=tracker,
-        draw_trail=draw_trail,
-    )
-
     height, width, _ = model_inference.get_input_shape()
 
-    preprocess_thread = threading.Thread(
-        target=input_data.preprocess,
-        args=(
-            input_queue,
-            width,
-            height,
-        ),
-        name="preprocess-thread",
-    )
-
-    infer_thread = threading.Thread(
-        target=model_inference.infer,
-        args=(input_queue, output_queue, input_data.stop_event),
-        name="infer-thread",
-    )
-
-    preprocess_thread.start()
-    infer_thread.start()
-
     try:
+        preprocess_thread = threading.Thread(
+            target=input_data.preprocess,
+            args=(input_queue, width, height),
+            name="preprocess-thread",
+        )
+
+        infer_thread = threading.Thread(
+            target=model_inference.infer,
+            args=(input_queue, output_queue, input_data.stop_event),
+            name="infer-thread",
+        )
+
+        preprocess_thread.start()
+        infer_thread.start()
+
         visualizer.visualize(
             output_queue,
-            post_process_callback_fn,
-            is_capture=input_data.has_capture
+            inference_result_handler,
+            is_capture=input_data.has_capture,
+            tracker=tracker,
+            draw_trail=draw_trail,
         )
     finally:
         input_data.stop_event.set()
@@ -359,9 +330,6 @@ def run_inference_pipeline(
 
     logger.info(visualizer.frame_rate_summary())
     logger.info("Processing completed successfully.")
-
-    if visualizer.save_output or input_data.has_images:
-        logger.info(f"Saved outputs to '{visualizer.output_dir}'.")
 
 
 def main(**kwargs) -> None:
@@ -390,8 +358,7 @@ def main(**kwargs) -> None:
         batch_size=args.batch_size,
         resolution=args.camera_resolution,
         frame_rate=args.frame_rate,
-        video_unpaced=args.video_unpaced,
-        stop_event=stop_event,
+        stop_event=stop_event
     )
 
     visualizer = VideoVisualizer(
@@ -399,26 +366,26 @@ def main(**kwargs) -> None:
         save_output=args.save_output,
         source_fps=input_data.source_fps,
         frame_rate=args.frame_rate,
-        stop_event=stop_event,
+        stop_event=stop_event
     )
-
-    visualization_params = CONFIG_DATA.get("visualization_params", {})
-    score_threshold = visualization_params.get("score_thres", 0.5)
-    max_boxes = visualization_params.get("max_boxes_to_draw", 50)
 
     model_inference = ModelInference(
         hef_path,
-        batch_size=input_data.batch_size,
         labels=labels,
-        score_threshold=score_threshold,
-        max_boxes=max_boxes
+        batch_size=input_data.batch_size,
+        score_threshold=args.score_threshold
     )
+
+    tracker = None
+    if args.track:
+        tracker_config = CONFIG_DATA.get("tracker", {})
+        tracker = BYTETracker(SimpleNamespace(**tracker_config))
 
     run_inference_pipeline(
         model_inference=model_inference,
         input_data=input_data,
         visualizer=visualizer,
-        enable_tracking=args.track,
+        tracker=tracker,
         draw_trail=args.draw_trail,
     )
 

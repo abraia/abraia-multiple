@@ -1171,11 +1171,7 @@ def run_inference_pipeline(
 
     preprocess_thread = threading.Thread(
         target=input_data.preprocess,
-        args=(
-            input_queue,
-            width,
-            height,
-        ),
+        args=(input_queue, width, height),
         name="preprocess-thread",
     )
 
@@ -1312,11 +1308,13 @@ def main(**kwargs) -> None:
         video_unpaced=args.video_unpaced,
         stop_event=stop_event,
     )
+
     visualizer = VideoVisualizer(
         output_dir=args.output_dir,
         save_output=args.save_output,
+        width=input_data.width,
+        height=input_data.height,
         source_fps=input_data.source_fps,
-        frame_rate=args.frame_rate,
         stop_event=stop_event,
     )
 

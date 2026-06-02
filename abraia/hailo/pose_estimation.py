@@ -70,7 +70,7 @@ class PoseEstPostProcessing:
         self.regression_length = regression_length
         self.strides = strides
 
-    def inference_result_handler(self, image, raw_detections: dict, model_height: int, model_width: int, class_num: int = 1) -> np.ndarray:
+    def inference_result_handler(self, image, raw_detections: dict, *args, model_height: int, model_width: int, class_num: int = 1, **kwargs) -> np.ndarray:
         """
         Post-process the inference results and return the output image with visualizations.
 
@@ -681,12 +681,6 @@ def run_inference_pipeline(net, input_data: VideoInput, visualizer: VideoVisuali
     hailo_inference = HailoInfer(net, input_data.batch_size, output_type="FLOAT32")
     height, width, _ = hailo_inference.get_input_shape()
 
-    post_process_callback_fn = partial(
-        pose_post_processing.inference_result_handler,
-        model_height=height,
-        model_width=width
-    )
-
     preprocess_thread = threading.Thread(
         target=input_data.preprocess,
         args=(
@@ -709,8 +703,10 @@ def run_inference_pipeline(net, input_data: VideoInput, visualizer: VideoVisuali
     try:
         visualizer.visualize(
             output_queue,
-            post_process_callback_fn,
-            is_capture=input_data.has_capture
+            pose_post_processing.inference_result_handler,
+            is_capture=input_data.has_capture,
+            model_height=height,
+            model_width=width,
         )
     finally:
         input_data.stop_event.set()
