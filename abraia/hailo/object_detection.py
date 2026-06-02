@@ -66,6 +66,66 @@ CONFIG_DATA = {
 }
 
 
+class HailoAsyncInference(HailoInfer):
+    def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
+        """
+        Main inference loop that pulls data from the input queue, runs asynchronous
+        inference, and pushes results to the output queue.
+
+        Each item in the input queue is expected to be a tuple:
+            (input_batch, preprocessed_batch)
+            - input_batch: Original frames (used for visualization or tracking)
+            - preprocessed_batch: Model-ready frames (e.g., resized, normalized)
+
+        Args:
+            input_queue (queue.Queue): Provides (input_batch, preprocessed_batch) tuples.
+            output_queue (queue.Queue): Collects (input_frame, result) tuples for visualization.
+            stop_event (threading.Event): Event to signal stopping the inference loop.
+        """
+        pending_jobs = collections.deque()
+
+        while True:
+            next_batch = input_queue.get()
+            if not next_batch:
+                break
+
+            if stop_event.is_set():
+                continue
+
+            input_batch, preprocessed_batch = next_batch
+
+            inference_callback_fn = partial(
+                self._inference_callback,
+                input_batch=input_batch,
+                output_queue=output_queue
+            )
+
+            while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
+                pending_jobs.popleft().wait(10000)
+
+            job = self.run(preprocessed_batch, inference_callback_fn)
+            pending_jobs.append(job)
+
+        self.close()
+        output_queue.put(None)
+
+    def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
+        if completion_info.exception:
+            logger.error(f'Inference error: {completion_info.exception}')
+        else:
+            for i, bindings in enumerate(bindings_list):
+                if len(bindings._output_names) == 1:
+                    result = bindings.output().get_buffer()
+                else:
+                    result = {
+                        name: np.expand_dims(
+                            bindings.output(name).get_buffer(), axis=0
+                        )
+                        for name in bindings._output_names
+                    }
+                output_queue.put((input_batch[i], result))
+
+
 def inference_result_handler(original_frame, infer_results, labels, score_threshold, max_boxes, tracker=None, draw_trail=False):
     """
     Processes inference results and draw detections (with optional tracking).
@@ -238,7 +298,85 @@ def draw_detections(image: np.ndarray, detections: list, draw_trail=False) -> np
     return img_out
 
 
-def inference(hailo_inference, input_queue, output_queue):
+def run_inference_pipeline(
+    net,
+    labels,
+    input_data: VideoInput,
+    visualizer: VideoVisualizer,
+    enable_tracking: bool = False,
+    draw_trail: bool = False,
+) -> None:
+    """
+    Initialize queues, inference instance, and run the pipeline.
+    """
+    labels = get_labels(labels)
+    config_data = CONFIG_DATA
+
+    tracker = None
+
+    visualization_params = config_data.get("visualization_params", {})
+    score_threshold = visualization_params.get("score_thres", 0.5)
+    max_boxes = visualization_params.get("max_boxes_to_draw", 50)
+
+    if enable_tracking:
+        tracker_config = visualization_params.get("tracker", {})
+        tracker = BYTETracker(SimpleNamespace(**tracker_config))
+
+    input_queue = queue.Queue(MAX_INPUT_QUEUE_SIZE)
+    output_queue = queue.Queue(MAX_OUTPUT_QUEUE_SIZE)
+
+    post_process_callback_fn = partial(
+        inference_result_handler,
+        labels=labels,
+        score_threshold=score_threshold,
+        max_boxes=max_boxes,
+        tracker=tracker,
+        draw_trail=draw_trail,
+    )
+
+    hailo_inference = HailoInfer(net, input_data.batch_size)
+    height, width, _ = hailo_inference.get_input_shape()
+
+    preprocess_thread = threading.Thread(
+        target=input_data.preprocess,
+        args=(
+            input_queue,
+            width,
+            height,
+        ),
+        name="preprocess-thread",
+    )
+
+    infer_thread = threading.Thread(
+        target=infer,
+        args=(hailo_inference, input_queue, output_queue, input_data.stop_event),
+        name="infer-thread",
+    )
+
+    preprocess_thread.start()
+    infer_thread.start()
+
+    try:
+        visualizer.visualize(
+            output_queue,
+            post_process_callback_fn,
+            width=input_data.width,
+            height=input_data.height,
+            is_capture=input_data.has_capture
+        )
+    finally:
+        input_data.stop_event.set()
+        preprocess_thread.join()
+        infer_thread.join()
+
+    logger.info(visualizer.frame_rate_summary())
+    logger.info("Processing completed successfully.")
+
+    if visualizer.save_output or input_data.has_images:
+        logger.info(f"Saved outputs to '{visualizer.output_dir}'.")
+
+
+def infer(hailo_inference, input_queue, output_queue, stop_event):
     """
     Main inference loop that pulls data from the input queue, runs asynchronous
     inference, and pushes results to the output queue.
@@ -263,6 +401,9 @@ def inference(hailo_inference, input_queue, output_queue):
         next_batch = input_queue.get()
         if not next_batch:
             break  # Stop signal received
+
+        if stop_event.is_set():
+            continue  # Skip processing if stop signal is set
 
         input_batch, preprocessed_batch = next_batch
 
@@ -308,77 +449,12 @@ def inference_callback(
                 result = bindings.output().get_buffer()
             else:
                 result = {
-                    name: np.expand_dims(bindings.output(name).get_buffer(), axis=0)
+                    name: np.expand_dims(
+                        bindings.output(name).get_buffer(), axis=0
+                    )
                     for name in bindings._output_names
                 }
             output_queue.put((input_batch[i], result))
-
-
-def run_inference_pipeline(
-    net,
-    labels,
-    input_data: VideoInput,
-    visualizer: VideoVisualizer,
-    enable_tracking: bool = False,
-    draw_trail: bool = False,
-) -> None:
-    """
-    Initialize queues, inference instance, and run the pipeline.
-    """
-    visualization_params = CONFIG_DATA.get("visualization_params", {})
-    score_threshold = visualization_params.get("score_thres", 0.5)
-    max_boxes = visualization_params.get("max_boxes_to_draw", 50)
-
-    tracker = None
-    if enable_tracking:
-        tracker_config = visualization_params.get("tracker", {})
-        tracker = BYTETracker(SimpleNamespace(**tracker_config))
-
-    input_queue = queue.Queue(MAX_INPUT_QUEUE_SIZE)
-    output_queue = queue.Queue(MAX_OUTPUT_QUEUE_SIZE)
-
-    hailo_inference = HailoInfer(net, input_data.batch_size)
-    height, width, _ = hailo_inference.get_input_shape()
-
-    post_process_callback_fn = partial(
-        inference_result_handler,
-        labels=labels,
-        score_threshold=score_threshold,
-        max_boxes=max_boxes,
-        tracker=tracker,
-        draw_trail=draw_trail,
-    )
-
-    try:
-        preprocess_thread = threading.Thread(
-            target=input_data.preprocess,
-            args=(input_queue, width, height),
-            name="preprocess-thread",
-        )
-
-        infer_thread = threading.Thread(
-            target=inference,
-            args=(hailo_inference, input_queue, output_queue),
-            name="infer-thread",
-        )
-
-        visualizer.visualize(
-            output_queue,
-            post_process_callback_fn,
-            is_capture=input_data.has_capture
-        )
-
-        preprocess_thread.start()
-        infer_thread.start()
-    finally:
-        input_data.stop_event.set()
-        preprocess_thread.join()
-        infer_thread.join()
-
-    logger.info(visualizer.frame_rate_summary())
-
-    if visualizer.save_output or input_data.has_images:
-        logger.info(f"Saved outputs to '{visualizer.output_dir}'.")
 
 
 def main(**kwargs) -> None:
@@ -397,13 +473,9 @@ def main(**kwargs) -> None:
     args = SimpleNamespace(**options)
     
     logging.basicConfig(level=logging.INFO)
-
-    hef_path = resolve_hef_path(args.hef_path, APP_NAME)
-
-    labels = get_labels(args.labels)
+    args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
     stop_event = threading.Event()
-
     input_data = VideoInput(
         input_src=args.input,
         batch_size=args.batch_size,
@@ -412,19 +484,17 @@ def main(**kwargs) -> None:
         video_unpaced=args.video_unpaced,
         stop_event=stop_event,
     )
-
     visualizer = VideoVisualizer(
         output_dir=args.output_dir,
         save_output=args.save_output,
-        width=input_data.width,
-        height=input_data.height,
         source_fps=input_data.source_fps,
+        frame_rate=args.frame_rate,
         stop_event=stop_event,
     )
 
     run_inference_pipeline(
-        net=hef_path,
-        labels=labels,
+        net=args.hef_path,
+        labels=args.labels,
         input_data=input_data,
         visualizer=visualizer,
         enable_tracking=args.track,
