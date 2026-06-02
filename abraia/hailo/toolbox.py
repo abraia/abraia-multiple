@@ -11,7 +11,6 @@ import subprocess
 import collections
 import numpy as np
 
-from enum import Enum
 from pathlib import Path
 from functools import partial
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
@@ -426,74 +425,6 @@ class PiCamera2CaptureAdapter:
             except Exception:
                 pass
 
-# TODO: Remove CapProcesingMode
-class CapProcessingMode(str, Enum):
-    """
-    Capture processing modes.
-
-    Defines how frames are read from the source and fed into the pipeline,
-    based on source type and user options (saving output, target FPS, etc.).
-    """
-
-    # Camera modes
-    CAMERA_NORMAL = "camera_normal"           # Process camera frames as they arrive (real-time)
-    CAMERA_FRAME_DROP = "camera_frame_drop"   # Drop camera frames to match the requested target FPS
-
-    # Video modes
-    VIDEO_PACE = "video_pace"                         # Normal video playback pacing (based on original video FPS)
-    VIDEO_UNPACED = "video_unpaced"                   # Run video as fast as processing allows (no pacing)
-    VIDEO_PACED_AND_FRAME_DROP = "video_paced_and_frame_drop" # Paced playback but skip frames to match a lower requested FPS
-
-
-def select_cap_processing_mode(
-    input_type: str,
-    frame_rate: Optional[float],
-    source_fps: Optional[float],
-    video_unpaced: bool = False,
-) -> Optional[CapProcessingMode]:
-    """
-    Select the capture processing mode based on input type and user settings.
-    """
-    is_camera = input_type in ("usb_camera", "rpi_camera", "stream")
-    is_video = input_type == "video"
-    has_target_fps = frame_rate is not None and frame_rate > 0
-    has_source_fps = source_fps is not None and source_fps > 0
-
-    if not (is_camera or is_video):
-        return None
-
-    if is_video and video_unpaced:
-        if has_target_fps:
-            logger.warning(
-                "--frame-rate is ignored when --video-unpaced is enabled."
-            )
-        return CapProcessingMode.VIDEO_UNPACED
-
-    if has_target_fps and has_source_fps and frame_rate >= source_fps:
-        logger.warning(
-            f"Requested frame rate ({frame_rate}) is greater than or equal to "
-            f"the source FPS ({source_fps}); no frame dropping will be applied."
-        )
-        return (
-            CapProcessingMode.CAMERA_NORMAL
-            if is_camera
-            else CapProcessingMode.VIDEO_PACE
-        )
-
-    if is_camera:
-        return (
-            CapProcessingMode.CAMERA_FRAME_DROP
-            if has_target_fps
-            else CapProcessingMode.CAMERA_NORMAL
-        )
-
-    return (
-        CapProcessingMode.VIDEO_PACED_AND_FRAME_DROP
-        if has_target_fps
-        else CapProcessingMode.VIDEO_PACE
-    )
-
-
 def get_source_fps(cap: Any, source_name: str) -> Optional[float]:
     """
     Read FPS from an opened capture source.
@@ -522,33 +453,15 @@ def open_cv_capture(src: Any, source_type: str) -> Any:
     return cap
 
 
-def _apply_resolution_and_validate(
-    cap: Any,
-    resolution: Optional[str],
-) -> Any:
-    """
-    Apply requested resolution and validate that the capture source
-    produces frames.
-    """
+def open_usb_camera(input_src: str, resolution: Optional[str]):
+    camera_index = int(str(input_src))
+    cap = open_cv_capture(camera_index, "USB camera index")
     if resolution in CAMERA_RESOLUTION_MAP:
         width, height = CAMERA_RESOLUTION_MAP[resolution]
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         logger.debug(f"Camera resolution forced to {width}x{height}")
-
-    ok, frame = cap.read()
-    if not ok or frame is None:
-        cap.release()
-        logger.error("Camera opened but produced no frames.")
-        sys.exit(1)
-
     return cap
-
-
-def open_usb_camera(input_src: str, resolution: Optional[str]):
-    camera_index = int(str(input_src))
-    cap = open_cv_capture(camera_index, "USB camera index")
-    return _apply_resolution_and_validate(cap, resolution)
 
 
 def open_rpi_camera() -> Optional[Any]:
@@ -635,18 +548,6 @@ def default_preprocess(image: np.ndarray, model_w: int, model_h: int) -> np.ndar
     return padded_image
 
 
-def resize_frame_for_output(frame: np.ndarray, resolution: Optional[Tuple[int, int]]) -> np.ndarray:
-    if resolution is None:
-        return frame
-    _, target_h = resolution
-    h, w = frame.shape[:2]
-    if h == 0 or w == 0:
-        return frame
-    scale = target_h / float(h)
-    new_w, new_h = int(round(w * scale)), target_h
-    return cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
-
 class VideoInput:
     def __init__(
         self,
@@ -668,7 +569,6 @@ class VideoInput:
         self.cap = None
         self.images = None
         self.source_fps = None
-        self.cap_processing_mode = None
         self.width = None
         self.height = None
 
@@ -706,12 +606,6 @@ class VideoInput:
         if self.cap is not None:
             self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
             self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-            self.cap_processing_mode = select_cap_processing_mode(
-                input_type=self.input_type,
-                frame_rate=self.frame_rate,
-                source_fps=self.source_fps,
-                video_unpaced=self.video_unpaced,
-            )
 
     @property
     def has_capture(self) -> bool:
@@ -727,18 +621,27 @@ class VideoInput:
                 yield image
             return
 
-        processing_mode = self.cap_processing_mode
-        target_fps = self.frame_rate
+        is_camera = self.input_type in ("usb_camera", "rpi_camera", "stream")
+        is_video = self.input_type == "video"
+        has_target_fps = self.frame_rate is not None and self.frame_rate > 0
+        has_source_fps = self.source_fps is not None and self.source_fps > 0
 
-        if processing_mode in (CapProcessingMode.CAMERA_FRAME_DROP, CapProcessingMode.VIDEO_PACED_AND_FRAME_DROP):
-            if not target_fps or target_fps <= 0:
-                raise ValueError(f"{processing_mode.value} requires a positive target_fps")
+        if is_video and self.video_unpaced and has_target_fps:
+            logger.warning("--frame-rate is ignored when --video-unpaced is enabled.")
+
+        should_drop = has_target_fps and (not has_source_fps or self.frame_rate < self.source_fps)
+        if has_target_fps and has_source_fps and self.frame_rate >= self.source_fps:
+            logger.warning(
+                f"Requested frame rate ({self.frame_rate}) is greater than or equal to "
+                f"the source FPS ({self.source_fps}); no frame dropping will be applied."
+            )
+        should_pace = is_video and not self.video_unpaced
 
         next_keep_timestamp = time.monotonic()
-        keep_period = (1.0 / float(target_fps) if processing_mode == CapProcessingMode.CAMERA_FRAME_DROP else None)
+        keep_period = (1.0 / float(self.frame_rate) if is_camera and should_drop else None)
         video_start_ms, wall_start_time = None, None
         next_keep_video_ms = None
-        video_keep_period_ms = (1000.0 / float(target_fps) if processing_mode == CapProcessingMode.VIDEO_PACED_AND_FRAME_DROP else None)
+        video_keep_period_ms = (1000.0 / float(self.frame_rate) if is_video and should_drop and not self.video_unpaced else None)
 
         while not self.stop_event.is_set():
             ret, frame_bgr = self.cap.read()
@@ -746,25 +649,24 @@ class VideoInput:
                 break
             
             current_pos_ms = float(self.cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
-            if processing_mode in (CapProcessingMode.VIDEO_PACE, CapProcessingMode.VIDEO_PACED_AND_FRAME_DROP):
+            if should_pace:
                 if video_start_ms is None:
                     video_start_ms, wall_start_time = current_pos_ms, time.monotonic()
-            
-            if processing_mode == CapProcessingMode.VIDEO_PACED_AND_FRAME_DROP:
-                if next_keep_video_ms is None:
-                    next_keep_video_ms = current_pos_ms
-                if current_pos_ms + 1e-3 < next_keep_video_ms:
-                    continue
-                while current_pos_ms + 1e-3 >= next_keep_video_ms:
-                    next_keep_video_ms += video_keep_period_ms
-            
-            if processing_mode in (CapProcessingMode.VIDEO_PACE, CapProcessingMode.VIDEO_PACED_AND_FRAME_DROP):
+                
+                if video_keep_period_ms:
+                    if next_keep_video_ms is None:
+                        next_keep_video_ms = current_pos_ms
+                    if current_pos_ms + 1e-3 < next_keep_video_ms:
+                        continue
+                    while current_pos_ms + 1e-3 >= next_keep_video_ms:
+                        next_keep_video_ms += video_keep_period_ms
+                
                 desired_wall_time = wall_start_time + (current_pos_ms - video_start_ms) / 1000.0
                 current_wall_time = time.monotonic()
                 if current_wall_time < desired_wall_time:
                     time.sleep(desired_wall_time - current_wall_time)
             
-            if processing_mode == CapProcessingMode.CAMERA_FRAME_DROP:
+            if keep_period:
                 current_time = time.monotonic()
                 if current_time < next_keep_timestamp:
                     continue
@@ -799,16 +701,12 @@ class VideoVisualizer:
         self,
         output_dir: str = "output",
         save_output: bool = False,
-        output_resolution: Optional[Tuple[int, int]] = None,
-        side_by_side: bool = False,
         source_fps: Optional[float] = None,
         frame_rate: Optional[float] = None,
         stop_event: Optional[threading.Event] = None,
     ):
         self.output_dir = output_dir
         self.save_output = save_output
-        self.output_resolution = output_resolution
-        self.side_by_side = side_by_side
         self.source_fps = source_fps
         self.frame_rate = frame_rate
         self.stop_event = stop_event or threading.Event()
@@ -829,13 +727,8 @@ class VideoVisualizer:
         cv2.destroyAllWindows()
 
     def _init_writer(self, width: int, height: int):
-        if self.output_resolution is not None:
-            target_width, target_height = self.output_resolution
-        else:
-            target_width, target_height = width, height
-        
-        self.writer_frame_width = target_width * (2 if self.side_by_side else 1)
-        self.writer_frame_height = target_height
+        self.writer_frame_width = width
+        self.writer_frame_height = height
 
         if self.save_output:
             output_fps = self.frame_rate or (self.source_fps if self.source_fps and self.source_fps > 1 else 30.0)
@@ -848,7 +741,7 @@ class VideoVisualizer:
                 (self.writer_frame_width, self.writer_frame_height)
             )
 
-    def show(self, frame: np.ndarray, fps: float, width: int, height: int, is_capture: bool = True) -> bool:
+    def show(self, frame: np.ndarray, fps: float, is_capture: bool = True) -> bool:
         if not hasattr(self, 'thickness'):
             self.thickness = calculate_optimal_thickness(frame.shape[:2])
             self.text_scale = calculate_optimal_text_scale(frame.shape[:2])
@@ -857,26 +750,26 @@ class VideoVisualizer:
         render_resolution(frame, thickness=self.thickness, text_scale=self.text_scale)
 
         output_bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        frame_to_show = resize_frame_for_output(output_bgr_frame, self.output_resolution)
+        frame_to_show = output_bgr_frame
 
-        if is_capture:
-            if self.video_writer is None and self.save_output:
-                self._init_writer(width, height)
-            
-            cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
-            cv2.imshow(self.window_name, frame_to_show)
-            
-            if (cv2.waitKey(1) & 0xFF) == ord("q"):
-                return False
-            
-            if self.video_writer is not None:
-                frame_to_write = cv2.resize(frame_to_show, (self.writer_frame_width, self.writer_frame_height))
-                self.video_writer.write(frame_to_write)
-        else:
-            os.makedirs(self.output_dir, exist_ok=True)
-            output_image_path = os.path.join(self.output_dir, f"output_{self.image_index}.png")
-            cv2.imwrite(output_image_path, frame_to_show)
-            self.image_index += 1
+        cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
+        cv2.imshow(self.window_name, frame_to_show)
+        
+        if (cv2.waitKey(1) & 0xFF) == ord("q"):
+            return False
+
+        if self.save_output:
+            if is_capture:
+                if self.video_writer is None:
+                    height, width = frame.shape[:2]
+                    self._init_writer(width, height)
+                if self.video_writer is not None:
+                    self.video_writer.write(frame_to_show)
+            else:
+                os.makedirs(self.output_dir, exist_ok=True)
+                output_image_path = os.path.join(self.output_dir, f"output_{self.image_index}.png")
+                cv2.imwrite(output_image_path, frame_to_show)
+                self.image_index += 1
             
         return True
 
@@ -908,8 +801,6 @@ class VideoVisualizer:
         self,
         output_queue: queue.Queue,
         callback: Callable[[Any, Any], None],
-        width: Optional[int] = None,
-        height: Optional[int] = None,
         is_capture: bool = True,
     ) -> None:
         self.start()
@@ -928,13 +819,7 @@ class VideoVisualizer:
                     frame_with_detections = callback(original_frame, inference_result, *metadata)
                     self.increment()
 
-                    if not self.show(
-                        frame_with_detections,
-                        self.fps,
-                        width,
-                        height,
-                        is_capture=is_capture
-                    ):
+                    if not self.show(frame_with_detections, self.fps, is_capture=is_capture):
                         self.stop_event.set()
 
                 finally:

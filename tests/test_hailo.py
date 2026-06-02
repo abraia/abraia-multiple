@@ -16,12 +16,10 @@ def test_video_input_init():
 def test_video_visualizer_fps():
     visualizer = VideoVisualizer(
         output_dir='test_output',
-        save_output=True,
-        side_by_side=True
+        save_output=True
     )
     assert visualizer.output_dir == 'test_output'
     assert visualizer.save_output is True
-    assert visualizer.side_by_side is True
     
     visualizer.start()
     visualizer.increment(5)
@@ -56,3 +54,23 @@ def test_video_input_visualizer_standalone():
     video_visualizer.visualize(output_queue, mock_callback, is_capture=False)
     
     assert video_visualizer.count == 1
+
+def test_video_visualizer_save_output(tmp_path):
+    output_dir = str(tmp_path / "output")
+    visualizer = VideoVisualizer(output_dir=output_dir, save_output=True)
+    
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    visualizer.show(frame, fps=30.0, is_capture=False)
+    
+    import os
+    assert os.path.exists(os.path.join(output_dir, "output_0.png"))
+
+def test_video_visualizer_no_save_output(tmp_path):
+    output_dir = str(tmp_path / "output")
+    visualizer = VideoVisualizer(output_dir=output_dir, save_output=False)
+    
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    visualizer.show(frame, fps=30.0, is_capture=False)
+    
+    import os
+    assert not os.path.exists(output_dir) or not os.listdir(output_dir)

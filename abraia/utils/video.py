@@ -21,12 +21,15 @@ class Video:
         self.picam2 = None
         if src == 0 and is_raspberry():
             from picamera2 import Picamera2
-            from libcamera import Transform
             self.picam2 = Picamera2()
             self.picam2.configure(self.picam2.create_video_configuration(
                 main={"format": 'RGB888', "size": resolution},
-                transform=Transform(hflip=True), # vflip=True),
                 controls={"FrameRate": fps}))
+            # from libcamera import Transform
+            # self.picam2.configure(self.picam2.create_video_configuration(
+            #     main={"format": 'RGB888', "size": resolution},
+            #     transform=Transform(hflip=True,  vflip=True),
+            #     controls={"FrameRate": fps}))
             self.picam2.start()
             self.fps = fps
             self.width, self.height = resolution

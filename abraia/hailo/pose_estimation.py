@@ -710,8 +710,6 @@ def run_inference_pipeline(net, input_data: VideoInput, visualizer: VideoVisuali
         visualizer.visualize(
             output_queue,
             post_process_callback_fn,
-            width=input_data.width,
-            height=input_data.height,
             is_capture=input_data.has_capture
         )
     finally:
