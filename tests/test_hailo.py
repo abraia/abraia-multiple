@@ -16,12 +16,10 @@ def test_video_input_init():
 def test_video_visualizer_fps():
     visualizer = VideoVisualizer(
         output_dir='test_output',
-        save_output=True,
-        side_by_side=True
+        save_output=True
     )
     assert visualizer.output_dir == 'test_output'
     assert visualizer.save_output is True
-    assert visualizer.side_by_side is True
     
     visualizer.start()
     visualizer.increment(5)

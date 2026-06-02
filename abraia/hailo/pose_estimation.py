@@ -689,11 +689,7 @@ def run_inference_pipeline(net, input_data: VideoInput, visualizer: VideoVisuali
 
     preprocess_thread = threading.Thread(
         target=input_data.preprocess,
-        args=(
-            input_queue,
-            width,
-            height,
-        ),
+        args=(input_queue, width, height),
         name="preprocess-thread",
     )
 
@@ -710,8 +706,6 @@ def run_inference_pipeline(net, input_data: VideoInput, visualizer: VideoVisuali
         visualizer.visualize(
             output_queue,
             post_process_callback_fn,
-            width=input_data.width,
-            height=input_data.height,
             is_capture=input_data.has_capture
         )
     finally:
@@ -739,9 +733,10 @@ def main(**kwargs) -> None:
     args = SimpleNamespace(**options)
 
     logging.basicConfig(level=logging.INFO)
-    args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
+    hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
     stop_event = threading.Event()
+    
     input_data = VideoInput(
         input_src=args.input,
         batch_size=args.batch_size,
@@ -750,16 +745,18 @@ def main(**kwargs) -> None:
         video_unpaced=args.video_unpaced,
         stop_event=stop_event,
     )
+
     visualizer = VideoVisualizer(
         output_dir=args.output_dir,
         save_output=args.save_output,
+        width=input_data.width,
+        height=input_data.height,
         source_fps=input_data.source_fps,
-        frame_rate=args.frame_rate,
         stop_event=stop_event,
     )
 
     run_inference_pipeline(
-        net=args.hef_path,
+        net=hef_path,
         input_data=input_data,
         visualizer=visualizer,
     )

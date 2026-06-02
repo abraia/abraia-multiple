@@ -8,7 +8,6 @@ import logging
 import requests
 import threading
 import subprocess
-import collections
 import numpy as np
 
 from enum import Enum
@@ -88,16 +87,9 @@ RESOURCES_CONFIG["object_detection"] = {
                 {"name": "yolov8s", "source": "mz"},
                 {"name": "yolov5s", "source": "mz"},
                 {"name": "yolov5m", "source": "mz"},
-                {"name": "yolov6n", "source": "mz"},
-                {"name": "yolov7", "source": "mz"},
                 {"name": "yolov8n", "source": "mz"},
                 {"name": "yolov8l", "source": "mz"},
                 {"name": "yolov8x", "source": "mz"},
-                {"name": "yolov9c", "source": "mz"},
-                {"name": "yolov10n", "source": "mz"},
-                {"name": "yolov10s", "source": "mz"},
-                {"name": "yolov10b", "source": "mz"},
-                {"name": "yolov10x", "source": "mz"},
                 {"name": "yolov11n", "source": "mz"},
                 {"name": "yolov11s", "source": "mz"},
                 {"name": "yolov11m", "source": "mz"},
@@ -110,47 +102,16 @@ RESOURCES_CONFIG["object_detection"] = {
             "extra": [
                 {"name": "yolov5s", "source": "mz"},
                 {"name": "yolov5m", "source": "mz"},
-                {"name": "yolov6n", "source": "mz"},
-                {"name": "yolov7", "source": "mz"},
                 {"name": "yolov5m_wo_spp", "source": "mz"},
                 {"name": "yolov8n", "source": "mz"},
                 {"name": "yolov8m", "source": "mz"},
                 {"name": "yolov8l", "source": "mz"},
                 {"name": "yolov8x", "source": "mz"},
-                {"name": "yolov9c", "source": "mz"},
-                {"name": "yolov10n", "source": "mz"},
-                {"name": "yolov10s", "source": "mz"},
-                {"name": "yolov10b", "source": "mz"},
-                {"name": "yolov10x", "source": "mz"},
                 {"name": "yolov11n", "source": "mz"},
                 {"name": "yolov11s", "source": "mz"},
                 {"name": "yolov11m", "source": "mz"},
                 {"name": "yolov11l", "source": "mz"},
                 {"name": "yolov11x", "source": "mz"},
-            ]
-        },
-        "hailo10h": {
-            "default": [{"name": "yolov8m", "source": "mz"}],
-            "extra": [
-                {"name": "yolov5s", "source": "mz"},
-                {"name": "yolov5m", "source": "mz"},
-                {"name": "yolov6n", "source": "mz"},
-                {"name": "yolov7", "source": "mz"},
-                {"name": "yolov7x", "source": "mz"},
-                {"name": "yolov8s", "source": "mz"},
-                {"name": "yolov8n", "source": "mz"},
-                {"name": "yolov8l", "source": "mz"},
-                {"name": "yolov8x", "source": "mz"},
-                {"name": "yolov9c", "source": "mz"},
-                {"name": "yolov10n", "source": "mz"},
-                {"name": "yolov10s", "source": "mz"},
-                {"name": "yolov10b", "source": "mz"},
-                {"name": "yolov10x", "source": "mz"},
-                {"name": "yolov11n", "source": "mz"},
-                {"name": "yolov11s", "source": "mz"},
-                {"name": "yolov11m", "source": "mz"},
-                {"name": "yolov11l", "source": "mz"},
-                {"name": "yolov11x", "source": "mz"}
             ]
         }
     }
@@ -168,8 +129,7 @@ RESOURCES_CONFIG["instance_segmentation"] = {
                 {"name": "yolov5s_seg", "source": "mz"},
                 {"name": "yolov8m_seg", "source": "mz"},
                 {"name": "yolov8n_seg", "source": "mz"},
-                {"name": "yolov8s_seg", "source": "mz"},
-                {"name": "fast_sam_s", "source": "s3"}
+                {"name": "yolov8s_seg", "source": "mz"}
             ]
         },
         "hailo8l": {
@@ -177,22 +137,6 @@ RESOURCES_CONFIG["instance_segmentation"] = {
             "extra": [
                 {"name": "yolov5l_seg", "source": "mz"},
                 {"name": "yolov5m_seg", "source": "mz"},
-                {"name": "yolov5s_seg", "source": "mz"},
-                {"name": "yolov8m_seg", "source": "mz"},
-                {"name": "yolov8n_seg", "source": "mz"},
-                {"name": "yolov8s_seg", "source": "mz"}
-            ]
-        },
-        "hailo10h": {
-            "default": [
-                {"name": "yolov5m_seg_with_nms", "source": "s3"}
-            ],
-            "extra": [
-                {"name": "yolov5n_seg_with_nms", "source": "s3"},
-                {"name": "yolov5s_seg_with_nms", "source": "s3"},
-                {"name": "yolov5m_seg", "source": "mz"},
-                {"name": "yolov5l_seg", "source": "mz"},
-                {"name": "yolov5n_seg", "source": "mz"},
                 {"name": "yolov5s_seg", "source": "mz"},
                 {"name": "yolov8m_seg", "source": "mz"},
                 {"name": "yolov8n_seg", "source": "mz"},
@@ -209,10 +153,6 @@ RESOURCES_CONFIG["pose_estimation"] = {
         },
         "hailo8l": {
             "default": [{"name": "yolov8s_pose", "source": "mz"}]
-        },
-        "hailo10h": {
-            "default": [{"name": "yolov8m_pose", "source": "mz"}],
-            "extra": [{"name": "yolov8s_pose", "source": "mz"}]
         }
     }
 }
@@ -635,26 +575,9 @@ def default_preprocess(image: np.ndarray, model_w: int, model_h: int) -> np.ndar
     return padded_image
 
 
-def resize_frame_for_output(frame: np.ndarray, resolution: Optional[Tuple[int, int]]) -> np.ndarray:
-    if resolution is None:
-        return frame
-    _, target_h = resolution
-    h, w = frame.shape[:2]
-    if h == 0 or w == 0:
-        return frame
-    scale = target_h / float(h)
-    new_w, new_h = int(round(w * scale)), target_h
-    return cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
-
 class VideoInput:
-    def __init__(
-        self,
-        input_src: str,
-        batch_size: int = 1,
-        resolution: Optional[str] = None,
-        frame_rate: Optional[float] = None,
-        video_unpaced: bool = False,
+    def __init__(self, input_src: str, batch_size: int = 1, resolution: Optional[str] = None,
+        frame_rate: Optional[float] = None, video_unpaced: bool = False, 
         stop_event: Optional[threading.Event] = None,
     ):
         self.input_src = input_src
@@ -773,11 +696,7 @@ class VideoInput:
             
             yield cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
-    def preprocess(
-        self,
-        input_queue: queue.Queue,
-        model_input_width: int,
-        model_input_height: int,
+    def preprocess(self, input_queue: queue.Queue, model_input_width: int, model_input_height: int,
         preprocess_fn: Optional[Callable[[np.ndarray, int, int], np.ndarray]] = None,
     ) -> None:
         preprocess_fn = preprocess_fn or default_preprocess
@@ -798,24 +717,24 @@ class VideoVisualizer:
         self,
         output_dir: str = "output",
         save_output: bool = False,
-        output_resolution: Optional[Tuple[int, int]] = None,
-        side_by_side: bool = False,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
         source_fps: Optional[float] = None,
-        frame_rate: Optional[float] = None,
         stop_event: Optional[threading.Event] = None,
     ):
         self.output_dir = output_dir
         self.save_output = save_output
-        self.output_resolution = output_resolution
-        self.side_by_side = side_by_side
+
+        self.width = width
+        self.height = height
         self.source_fps = source_fps
-        self.frame_rate = frame_rate
+
         self.stop_event = stop_event or threading.Event()
 
         self._count = 0
         self._start_time = None
 
-        self.video_writer = None
+        self.video_writer = self._init_writer(width, height) if save_output else None
         self.image_index = 0
         self.window_name = "Output"
 
@@ -828,24 +747,14 @@ class VideoVisualizer:
         cv2.destroyAllWindows()
 
     def _init_writer(self, width: int, height: int):
-        if self.output_resolution is not None:
-            target_width, target_height = self.output_resolution
-        else:
-            target_width, target_height = width, height
-        
-        self.writer_frame_width = target_width * (2 if self.side_by_side else 1)
-        self.writer_frame_height = target_height
-
+        self.width = width
+        self.height = height
         if self.save_output:
-            output_fps = self.frame_rate or (self.source_fps if self.source_fps and self.source_fps > 1 else 30.0)
+            output_fps = self.source_fps if self.source_fps and self.source_fps > 1 else 30.0
             os.makedirs(self.output_dir, exist_ok=True)
             output_video_path = os.path.join(self.output_dir, "output.avi")
-            self.video_writer = cv2.VideoWriter(
-                output_video_path,
-                cv2.VideoWriter_fourcc(*"XVID"),
-                output_fps,
-                (self.writer_frame_width, self.writer_frame_height)
-            )
+            self.video_writer = cv2.VideoWriter(output_video_path,
+                cv2.VideoWriter_fourcc(*"XVID"), output_fps, (width, height))
 
     def show(self, frame: np.ndarray, fps: float, width: int, height: int, is_capture: bool = True) -> bool:
         if not hasattr(self, 'thickness'):
@@ -856,25 +765,24 @@ class VideoVisualizer:
         render_resolution(frame, thickness=self.thickness, text_scale=self.text_scale)
 
         output_bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        frame_to_show = resize_frame_for_output(output_bgr_frame, self.output_resolution)
 
         if is_capture:
             if self.video_writer is None and self.save_output:
                 self._init_writer(width, height)
             
             cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
-            cv2.imshow(self.window_name, frame_to_show)
+            cv2.imshow(self.window_name, output_bgr_frame)
             
             if (cv2.waitKey(1) & 0xFF) == ord("q"):
                 return False
             
             if self.video_writer is not None:
-                frame_to_write = cv2.resize(frame_to_show, (self.writer_frame_width, self.writer_frame_height))
+                frame_to_write = cv2.resize(output_bgr_frame, (self.width, self.height))
                 self.video_writer.write(frame_to_write)
         else:
             os.makedirs(self.output_dir, exist_ok=True)
             output_image_path = os.path.join(self.output_dir, f"output_{self.image_index}.png")
-            cv2.imwrite(output_image_path, frame_to_show)
+            cv2.imwrite(output_image_path, output_bgr_frame)
             self.image_index += 1
             
         return True
@@ -903,14 +811,7 @@ class VideoVisualizer:
     def frame_rate_summary(self) -> str:
         return f"Processed {self.count} frames at {self.fps:.2f} FPS, Total time: {self.elapsed:.2f} seconds"
 
-    def visualize(
-        self,
-        output_queue: queue.Queue,
-        callback: Callable[[Any, Any], None],
-        width: Optional[int] = None,
-        height: Optional[int] = None,
-        is_capture: bool = True,
-    ) -> None:
+    def visualize(self, output_queue: queue.Queue, callback: Callable[[Any, Any], None], is_capture: bool = True) -> None:
         self.start()
         with self:
             while True:
@@ -927,13 +828,7 @@ class VideoVisualizer:
                     frame_with_detections = callback(original_frame, inference_result, *metadata)
                     self.increment()
 
-                    if not self.show(
-                        frame_with_detections,
-                        self.fps,
-                        width,
-                        height,
-                        is_capture=is_capture
-                    ):
+                    if not self.show(frame_with_detections, self.fps, self.width, self.height, is_capture=is_capture):
                         self.stop_event.set()
 
                 finally:
@@ -1144,64 +1039,5 @@ if HAILO_AVAILABLE:
             if self.config_ctx:
                 self.config_ctx.__exit__(None, None, None)
 
-    class HailoAsyncInference(HailoInfer):
-        def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
-            """
-            Main inference loop that pulls data from the input queue, runs asynchronous
-            inference, and pushes results to the output queue.
-
-            Each item in the input queue is expected to be a tuple:
-                (input_batch, preprocessed_batch)
-                - input_batch: Original frames (used for visualization or tracking)
-                - preprocessed_batch: Model-ready frames (e.g., resized, normalized)
-
-            Args:
-                input_queue (queue.Queue): Provides (input_batch, preprocessed_batch) tuples.
-                output_queue (queue.Queue): Collects (input_frame, result) tuples for visualization.
-                stop_event (threading.Event): Event to signal stopping the inference loop.
-            """
-            pending_jobs = collections.deque()
-
-            while True:
-                next_batch = input_queue.get()
-                if not next_batch:
-                    break
-
-                if stop_event.is_set():
-                    continue
-
-                input_batch, preprocessed_batch = next_batch
-
-                inference_callback_fn = partial(
-                    self._inference_callback,
-                    input_batch=input_batch,
-                    output_queue=output_queue
-                )
-
-                while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
-                    pending_jobs.popleft().wait(10000)
-
-                job = self.run(preprocessed_batch, inference_callback_fn)
-                pending_jobs.append(job)
-
-            self.close()
-            output_queue.put(None)
-
-        def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
-            if completion_info.exception:
-                logger.error(f'Inference error: {completion_info.exception}')
-            else:
-                for i, bindings in enumerate(bindings_list):
-                    if len(bindings._output_names) == 1:
-                        result = bindings.output().get_buffer()
-                    else:
-                        result = {
-                            name: np.expand_dims(
-                                bindings.output(name).get_buffer(), axis=0
-                            )
-                            for name in bindings._output_names
-                        }
-                    output_queue.put((input_batch[i], result))
 else:
     HailoInfer = None
-    HailoAsyncInference = None
