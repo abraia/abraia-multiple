@@ -426,7 +426,7 @@ class PiCamera2CaptureAdapter:
             except Exception:
                 pass
 
-
+# TODO: Remove CapProcesingMode
 class CapProcessingMode(str, Enum):
     """
     Capture processing modes.
@@ -727,7 +727,6 @@ class VideoInput:
                 yield image
             return
 
-        cap = self.cap
         processing_mode = self.cap_processing_mode
         target_fps = self.frame_rate
 
@@ -742,11 +741,11 @@ class VideoInput:
         video_keep_period_ms = (1000.0 / float(target_fps) if processing_mode == CapProcessingMode.VIDEO_PACED_AND_FRAME_DROP else None)
 
         while not self.stop_event.is_set():
-            ret, frame_bgr = cap.read()
+            ret, frame_bgr = self.cap.read()
             if not ret:
                 break
             
-            current_pos_ms = float(cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
+            current_pos_ms = float(self.cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
             if processing_mode in (CapProcessingMode.VIDEO_PACE, CapProcessingMode.VIDEO_PACED_AND_FRAME_DROP):
                 if video_start_ms is None:
                     video_start_ms, wall_start_time = current_pos_ms, time.monotonic()
@@ -772,6 +771,8 @@ class VideoInput:
                 next_keep_timestamp += keep_period
             
             yield cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        
+        self.cap.release()
 
     def preprocess(
         self,
