@@ -119,7 +119,7 @@ class ModelInference(HailoInfer):
                         name: np.expand_dims(bindings.output(name).get_buffer(), axis=0)
                         for name in bindings._output_names
                     }
-                print(result)
+                
                 infer_results = result if isinstance(result, list) else [result]
                 detections = self.extract_detections(input_batch[i], infer_results)
                 output_queue.put((input_batch[i], detections))

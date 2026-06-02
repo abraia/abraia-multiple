@@ -1300,6 +1300,7 @@ def main(**kwargs) -> None:
     args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
     stop_event = threading.Event()
+    
     input_data = VideoInput(
         input_src=args.input,
         batch_size=args.batch_size,
@@ -1312,8 +1313,6 @@ def main(**kwargs) -> None:
     visualizer = VideoVisualizer(
         output_dir=args.output_dir,
         save_output=args.save_output,
-        width=input_data.width,
-        height=input_data.height,
         source_fps=input_data.source_fps,
         stop_event=stop_event,
     )

@@ -736,6 +736,7 @@ def main(**kwargs) -> None:
     args.hef_path = resolve_hef_path(args.hef_path, APP_NAME)
 
     stop_event = threading.Event()
+    
     input_data = VideoInput(
         input_src=args.input,
         batch_size=args.batch_size,
@@ -744,6 +745,7 @@ def main(**kwargs) -> None:
         video_unpaced=args.video_unpaced,
         stop_event=stop_event,
     )
+
     visualizer = VideoVisualizer(
         output_dir=args.output_dir,
         save_output=args.save_output,
