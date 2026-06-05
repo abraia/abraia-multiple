@@ -45,8 +45,6 @@ CONFIG_DATA = {
         "track_buffer": 30,
         "match_thresh": 0.9,
         "aspect_ratio_thresh": 2.0,
-        "min_box_area": 500,
-        "mot20": False
     }
 }
 

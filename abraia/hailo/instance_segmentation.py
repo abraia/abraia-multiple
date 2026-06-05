@@ -11,10 +11,10 @@ from scipy.special import expit
 from concurrent.futures import ThreadPoolExecutor
 
 import logging
+
 logger = logging.getLogger(__name__)
 
-from .tracker.byte_tracker import BYTETracker
-from .tracker.matching import find_best_matching_mask_index
+from ..inference.tracker import Tracker
 from .toolbox import (
     VideoInput,
     VideoVisualizer,
@@ -106,8 +106,6 @@ CONFIG_DATA = {
             "track_buffer": 30,
             "match_thresh": 0.9,
             "aspect_ratio_thresh": 2.0,
-            "min_box_area": 500,
-            "mot20": False
         }
     }
 }
@@ -489,13 +487,13 @@ def inference_result_handler(frame, detections, config_data, model_type, labels,
     """
     This function performs post-processing on the raw model output to extract
     detection results (bounding boxes, masks, classes, scores), applies tracking
-    using BYTETracker, and renders the visualized results (boxes, masks, IDs)
+    using Tracker, and renders the visualized results (boxes, masks, IDs)
     on top of the original input frame.
 
     Args:
         frame: The original input image or video frame (as a NumPy array).
         detections: The extracted detections or raw output tensors from the model inference.
-        tracker: An instance of BYTETracker used for object tracking across frames.
+        tracker: An instance of Tracker used for object tracking across frames.
         config_data: A dictionary containing model-specific configuration parameters.
         model_type: A string identifier for the model architecture (e.g., "v5", "v8", "fast").
 
@@ -559,47 +557,18 @@ def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image
     return resized_mask
 
 
-def track_detections(detections: list, tracker: BYTETracker) -> list:
+def track_detections(detections: list, tracker: Tracker) -> list:
     """
     Perform tracking on the detections.
 
     Args:
         detections (list): List of detection dictionaries.
-        tracker (BYTETracker): ByteTrack tracker instance.
+        tracker (Tracker): Tracker instance.
 
     Returns:
         list: List of tracked objects (dictionaries with 'label', 'score', 'box', 'mask', and 'track_id').
     """
-    dets_for_tracker = []
-    for det in detections:
-        x, y, w, h = det['box']
-        dets_for_tracker.append([x, y, x + w, y + h, det['score']])
-
-    if not dets_for_tracker:
-        return []
-
-    online_targets = tracker.update(np.array(dets_for_tracker))
-    tracked_detections = []
-
-    for track in online_targets:
-        x1, y1, x2, y2 = track.tlbr
-        xmin, ymin, xmax, ymax = map(int, [x1, y1, x2, y2])
-        
-        # Use the format for boxes when matching
-        det_boxes = [[d['box'][0], d['box'][1], d['box'][0]+d['box'][2], d['box'][1]+d['box'][3]] for d in detections]
-        masks = [d['mask'] for d in detections]
-        best_idx = find_best_matching_mask_index(track.tlbr, det_boxes, masks)
-        
-        if best_idx is not None:
-            tracked_detections.append({
-                'label': detections[best_idx]['label'],
-                'score': float(track.score),
-                'box': [xmin, ymin, xmax - xmin, ymax - ymin],
-                'mask': detections[best_idx]['mask'],
-                'track_id': track.track_id
-            })
-    
-    return tracked_detections
+    return [d for d in tracker.update(detections) if 'track_id' in d]
 
 
 def mask_to_polygons(mask):
@@ -901,20 +870,27 @@ def draw_detections_no_nms(detections, img, config_data, labels, arch, tracker=N
     executor = ThreadPoolExecutor(max_workers=8)
 
     if tracker:
-        dets_for_tracker = np.concatenate([original_boxes, scores[:, None]], axis=1)
-        online_targets = tracker.update(np.array(dets_for_tracker))
-        for track in online_targets:
-            best_idx = find_best_matching_mask_index(track.tlbr, original_boxes, masks)
-            if best_idx is None:
-                continue
-
-            track_id = f"ID {track.track_id}"
-            color = hex_to_rgb(get_color(track.track_id))
+        detections = []
+        for i in range(len(original_boxes)):
+            x1, y1, x2, y2 = original_boxes[i]
+            detections.append({
+                'box': [x1, y1, x2 - x1, y2 - y1],
+                'score': float(scores[i]),
+                'mask': masks[i],
+                'class_id': int(classes[i])
+            })
+        
+        tracked_detections = [d for d in tracker.update(detections) if 'track_id' in d]
+        
+        for det in tracked_detections:
+            track_id = f"ID {det['track_id']}"
+            color = hex_to_rgb(get_color(det['track_id']))
+            x, y, w, h = det['box']
             args = (img_out,
-                original_boxes[best_idx],
-                masks[best_idx].astype(np.uint8),
-                track.score,
-                [labels[classes[best_idx]], track_id],
+                [x, y, x + w, y + h],
+                det['mask'].astype(np.uint8),
+                det['score'],
+                [labels[det['class_id']], track_id],
                 color,
                 config_data,
                 original_size,
@@ -1036,34 +1012,20 @@ class ModelInference(HailoInfer):
 
 
 def run_inference_pipeline(
-    net,
-    labels,
-    model_type,
+    model_inference: ModelInference,
     input_data: VideoInput,
     visualizer: VideoVisualizer,
-    enable_tracking=False,
+    model_type: str,
+    tracker: Tracker = None,
 ) -> None:
     """
     Initialize queues, HailoAsyncInference instance, and run the inference.
     """
-    config_data = CONFIG_DATA
-    labels = get_labels(labels)
-
-    tracker = None
-
-    if enable_tracking:
-        # Load tracker config from config_data
-        tracker_config = config_data.get("visualization_params", {}).get("tracker", {})
-        tracker = BYTETracker(SimpleNamespace(**tracker_config))
+    config_data = model_inference.config_data
+    labels = model_inference.labels
 
     input_queue = queue.Queue(MAX_INPUT_QUEUE_SIZE)
     output_queue = queue.Queue(MAX_OUTPUT_QUEUE_SIZE)
-
-    model_inference = ModelInference(
-        net,
-        input_data.batch_size,
-        labels=labels,
-        config_data=config_data)
 
     post_process_callback_fn = partial(
         inference_result_handler,
@@ -1142,13 +1104,33 @@ def main(**kwargs) -> None:
         stop_event=stop_event,
     )
 
+    labels = get_labels(args.labels)
+    config_data = CONFIG_DATA
+    
+    model_inference = ModelInference(
+        args.hef_path,
+        input_data.batch_size,
+        labels=labels,
+        config_data=config_data
+    )
+
+    tracker = None
+    if args.track:
+        # Load tracker config from config_data
+        tracker_config = config_data.get("visualization_params", {}).get("tracker", {})
+        tracker = Tracker(
+            track_thresh=tracker_config.get("track_thresh", 0.25),
+            track_buffer=tracker_config.get("track_buffer", 30),
+            match_thresh=tracker_config.get("match_thresh", 0.8),
+            frame_rate=input_data.source_fps or 30.0
+        )
+
     run_inference_pipeline(
-        net=args.hef_path,
-        labels=args.labels,
-        model_type=args.model_type,
+        model_inference=model_inference,
         input_data=input_data,
         visualizer=visualizer,
-        enable_tracking=args.track,
+        model_type=args.model_type,
+        tracker=tracker,
     )
 
 
