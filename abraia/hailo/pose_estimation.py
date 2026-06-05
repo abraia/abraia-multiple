@@ -20,6 +20,8 @@ from .toolbox import (
     HailoInfer,
 )
 
+from ..inference.ops import sigmoid, softmax
+
 APP_NAME = Path(__file__).stem
 
 DEFAULT_OPTIONS = {
@@ -29,7 +31,6 @@ DEFAULT_OPTIONS = {
     "frame_rate": None,
     "track": True,
     "labels": None,
-    "draw_trail": False,
     "camera_resolution": None,
     "video_unpaced": False,
     "output_dir": None,
@@ -69,26 +70,6 @@ class PoseEstPostProcessing:
         self.nms_iou_thresh = nms_iou_thresh
         self.regression_length = regression_length
         self.strides = strides
-
-    def inference_result_handler(self, image, raw_detections: dict, *args, model_height: int, model_width: int, class_num: int = 1, **kwargs) -> np.ndarray:
-        """
-        Post-process the inference results and return the output image with visualizations.
-
-        Args:
-            image (np.ndarray): The input image frame.
-            raw_detections (dict): Raw inference results from the model.
-            model_height (int): The height of the model input.
-            model_width (int): The width of the model input.
-            class_num (int, optional): Number of output classes. Defaults to 1.
-
-        Returns:
-            np.ndarray: The image with visualized inference results.
-        """
-        # Post-process results
-        results = self.post_process(raw_detections, model_height, model_width, class_num)
-
-        # Visualize and save results
-        return self.visualize_pose_estimation_result(results, image, model_height, model_width)
 
     def post_process(self, raw_detections: dict, height: int, width: int, class_num: int) -> dict:
         """
@@ -177,7 +158,7 @@ class PoseEstPostProcessing:
             output['bboxes'][b, :nms_res[b]['num_detections']] = nms_res[b]['bboxes']
             output['keypoints'][b, :nms_res[b]['num_detections']] = nms_res[b]['keypoints'][..., :2]
             output['joint_scores'][b, :nms_res[b]['num_detections'],
-            ..., 0] = self._sigmoid(nms_res[b]['keypoints'][..., 2])
+            ..., 0] = sigmoid(nms_res[b]['keypoints'][..., 2])
             output['scores'][b, :nms_res[b]['num_detections'], ..., 0] = nms_res[b]['scores']
 
         return output
@@ -336,30 +317,6 @@ class PoseEstPostProcessing:
 
         return image
 
-    def _sigmoid(self, x: np.ndarray) -> np.ndarray:
-        """
-        Apply sigmoid function.
-
-        Args:
-            x (np.ndarray): Input array.
-
-        Returns:
-            np.ndarray: Sigmoid transformed array.
-        """
-        return 1 / (1 + np.exp(-x))
-
-    def _softmax(self, x: np.ndarray) -> np.ndarray:
-        """
-        Apply softmax function.
-
-        Args:
-            x (np.ndarray): Input array.
-
-        Returns:
-            np.ndarray: Softmax transformed array.
-        """
-        return np.exp(x) / np.expand_dims(np.sum(np.exp(x), axis=-1), axis=-1)
-
     def max_value(self, a: float, b: float) -> float:
         """
         Return the maximum of two values.
@@ -461,7 +418,7 @@ class PoseEstPostProcessing:
                                          box_distribute.shape[1] * box_distribute.shape[2],
                                          4,
                                          reg_max + 1))
-            box_distance = self._softmax(box_distribute) * np.reshape(reg_range, (1, 1, 1, -1))
+            box_distance = softmax(box_distribute) * np.reshape(reg_range, (1, 1, 1, -1))
             box_distance = np.sum(box_distance, axis=-1) * stride
 
             box_distance = np.concatenate([box_distance[:, :, :2] * (-1), box_distance[:, :, 2:]],
@@ -570,87 +527,56 @@ class PoseEstPostProcessing:
         return output
 
 
-def inference_callback(
-        completion_info,
-        bindings_list: list,
-        input_batch: list,
-        output_queue: queue.Queue
-) -> None:
-    """
-    infernce callback to handle inference results and push them to a queue.
-
-    Args:
-        completion_info: Hailo inference completion info.
-        bindings_list (list): Output bindings for each inference.
-        input_batch (list): Original input frames.
-        output_queue (queue.Queue): Queue to push output results to.
-    """
-    if completion_info.exception:
-        logger.error(f'Inference error: {completion_info.exception}')
-    else:
-        for i, bindings in enumerate(bindings_list):
-            if len(bindings._output_names) == 1:
-                result = bindings.output().get_buffer()
-            else:
-                result = {
-                    name: np.expand_dims(
-                        bindings.output(name).get_buffer(), axis=0
-                    )
-                    for name in bindings._output_names
-                }
-            output_queue.put((input_batch[i], result))
-
-
-
-def infer(hailo_inference, input_queue, output_queue, stop_event):
-    """
-    Main inference loop that pulls data from the input queue, runs asynchronous
-    inference, and pushes results to the output queue.
-
-    Each item in the input queue is expected to be a tuple:
-        (input_batch, preprocessed_batch)
-        - input_batch: Original frames (used for visualization or tracking)
-        - preprocessed_batch: Model-ready frames (e.g., resized, normalized)
-
-    Args:
-        hailo_inference (HailoInfer): The inference engine to run model predictions.
-        input_queue (queue.Queue): Provides (input_batch, preprocessed_batch) tuples.
-        output_queue (queue.Queue): Collects (input_frame, result) tuples for visualization.
-
-    Returns:
-        None
-    """
-    # Limit number of concurrent async inferences
-    pending_jobs = collections.deque()
-
-    while True:
-        next_batch = input_queue.get()
-        if not next_batch:
-            break  # Stop signal received
-
-        if stop_event.is_set():
-            continue  # Skip processing if stop signal is set
-
-        input_batch, preprocessed_batch = next_batch
-
-        # Prepare the callback for handling the inference result
-        inference_callback_fn = partial(
-            inference_callback,
-            input_batch=input_batch,
-            output_queue=output_queue
+class ModelInference(HailoInfer):
+    def __init__(self, hef_path: str, batch_size: int = 1, score_threshold: float = 0.001, nms_iou_thresh: float = 0.7, regression_length: int = 15, strides: list = [8, 16, 32]):
+        super().__init__(hef_path, batch_size)
+        self.post_processing = PoseEstPostProcessing(
+            max_detections=300,
+            score_threshold=score_threshold,
+            nms_iou_thresh=nms_iou_thresh,
+            regression_length=regression_length,
+            strides=strides
         )
 
+    def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
+        if completion_info.exception:
+            logger.error(f'Inference error: {completion_info.exception}')
+        else:
+            for i, bindings in enumerate(bindings_list):
+                if len(bindings._output_names) == 1:
+                    result = bindings.output().get_buffer()
+                else:
+                    result = {
+                        name: np.expand_dims(bindings.output(name).get_buffer(), axis=0)
+                        for name in bindings._output_names
+                    }
+                
+                height, width, _ = self.get_input_shape()
+                predictions_dict = self.post_processing.post_process(result, height, width, class_num=1)
+                output_queue.put((input_batch[i], predictions_dict))
 
-        while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
-            pending_jobs.popleft().wait(10000)
+    def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
+        pending_jobs = collections.deque()
 
-        # Run async inference
-        job = hailo_inference.run(preprocessed_batch, inference_callback_fn)
-        pending_jobs.append(job)
+        while True:
+            next_batch = input_queue.get()
+            if not next_batch:
+                break
 
-    # Release resources and context
-    hailo_inference.close()
-    output_queue.put(None)
+            if stop_event.is_set():
+                continue
+
+            input_batch, preprocessed_batch = next_batch
+            inference_callback_fn = partial(self._inference_callback, input_batch=input_batch, output_queue=output_queue)
+
+            while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
+                pending_jobs.popleft().wait(10000)
+
+            job = self.run(preprocessed_batch, inference_callback_fn)
+            pending_jobs.append(job)
+
+        self.close()
+        output_queue.put(None)
 
 
 def run_inference_pipeline(net, input_data: VideoInput, visualizer: VideoVisualizer) -> None:
@@ -669,17 +595,8 @@ def run_inference_pipeline(net, input_data: VideoInput, visualizer: VideoVisuali
     input_queue = queue.Queue(MAX_INPUT_QUEUE_SIZE)
     output_queue = queue.Queue(MAX_OUTPUT_QUEUE_SIZE)
 
-
-    pose_post_processing = PoseEstPostProcessing(
-        max_detections=300,
-        score_threshold=0.001,
-        nms_iou_thresh=0.7,
-        regression_length=15,
-        strides=[8, 16, 32]
-    )
-
-    hailo_inference = HailoInfer(net, input_data.batch_size, output_type="FLOAT32")
-    height, width, _ = hailo_inference.get_input_shape()
+    model_inference = ModelInference(net, input_data.batch_size)
+    height, width, _ = model_inference.get_input_shape()
 
     preprocess_thread = threading.Thread(
         target=input_data.preprocess,
@@ -692,8 +609,8 @@ def run_inference_pipeline(net, input_data: VideoInput, visualizer: VideoVisuali
     )
 
     infer_thread = threading.Thread(
-        target=infer,
-        args=(hailo_inference, input_queue, output_queue, input_data.stop_event),
+        target=model_inference.infer,
+        args=(input_queue, output_queue, input_data.stop_event),
         name="infer-thread",
     )
 
@@ -703,7 +620,7 @@ def run_inference_pipeline(net, input_data: VideoInput, visualizer: VideoVisuali
     try:
         visualizer.visualize(
             output_queue,
-            pose_post_processing.inference_result_handler,
+            model_inference.post_processing.visualize_pose_estimation_result,
             is_capture=input_data.has_capture,
             model_height=height,
             model_width=width,

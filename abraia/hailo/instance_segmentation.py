@@ -26,6 +26,12 @@ from .toolbox import (
     HailoInfer,
 )
 
+from ..inference.ops import nms, sigmoid, softmax
+from ..utils.draw import (
+    draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
+    draw_overlay_mask, get_color, hex_to_rgb, render_results
+)
+
 APP_NAME = Path(__file__).stem
 
 DEFAULT_OPTIONS = {
@@ -90,31 +96,6 @@ CONFIG_DATA = {
             [1, 160, 160, "mask_channels"]
         ]
     },
-    "fast": {
-        "arch": "fast_sam",
-        "anchors": {
-            "strides": [8, 16, 32],
-            "regression_length": 15
-        },
-        "input_shape": [640, 640],
-        "mask_channels": 32,
-        "score_threshold": 0.25,
-        "nms_iou_thresh": 0.6,
-        "meta_arch": "yolov8_seg_postprocess",
-        "classes": 1,
-        "layers": [
-            [1, 20, 20, "detection_output_channels"],
-            [1, 20, 20, "classes"],
-            [1, 20, 20, "mask_channels"],
-            [1, 40, 40, "detection_output_channels"],
-            [1, 40, 40, "classes"],
-            [1, 40, 40, "mask_channels"],
-            [1, 80, 80, "detection_output_channels"],
-            [1, 80, 80, "classes"],
-            [1, 80, 80, "mask_channels"],
-            [1, 160, 160, "mask_channels"]
-        ]
-    },
     "visualization_params": {
         "score_thres": 0.25,
         "mask_thresh": 0.4,
@@ -130,62 +111,6 @@ CONFIG_DATA = {
         }
     }
 }
-
-
-def nms(dets, thresh):
-    """
-    Pure Python NMS implementation using NumPy.
-    dets: (N, 5) - [x1, y1, x2, y2, score]
-    thresh: IoU threshold
-    """
-    if dets.shape[0] == 0:
-        return np.array([], dtype=np.int64)
-
-    x1 = dets[:, 0]
-    y1 = dets[:, 1]
-    x2 = dets[:, 2]
-    y2 = dets[:, 3]
-    scores = dets[:, 4]
-
-    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-    order = scores.argsort()[::-1]
-
-    ndets = dets.shape[0]
-    suppressed = np.zeros((ndets), dtype=np.int64)
-
-    for _i in range(ndets):
-        i = order[_i]
-        if suppressed[i] == 1:
-            continue
-        ix1 = x1[i]
-        iy1 = y1[i]
-        ix2 = x2[i]
-        iy2 = y2[i]
-        iarea = areas[i]
-        for _j in range(_i + 1, ndets):
-            j = order[_j]
-            if suppressed[j] == 1:
-                continue
-            xx1 = max(ix1, x1[j])
-            yy1 = max(iy1, y1[j])
-            xx2 = min(ix2, x2[j])
-            yy2 = min(iy2, y2[j])
-            w = max(0.0, xx2 - xx1 + 1)
-            h = max(0.0, yy2 - yy1 + 1)
-            inter = w * h
-            ovr = inter / (iarea + areas[j] - inter)
-            if ovr >= thresh:
-                suppressed[j] = 1
-
-    return np.where(suppressed == 0)[0]
-
-
-def _sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-
-
-def _softmax(x):
-    return np.exp(x) / np.expand_dims(np.sum(np.exp(x), axis=-1), axis=-1)
 
 
 def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, max_det=300, nm=32, multi_label=True):
@@ -306,7 +231,7 @@ def process_mask(protos, masks_in, bboxes, shape, upsample=True, downsample=Fals
 
     mh, mw, c = protos.shape
     ih, iw = shape
-    masks = _sigmoid(masks_in @ protos.reshape((-1, c)).transpose((1, 0))).reshape((-1, mh, mw))
+    masks = sigmoid(masks_in @ protos.reshape((-1, c)).transpose((1, 0))).reshape((-1, mh, mw))
 
     downsampled_bboxes = bboxes.copy()
     if downsample:
@@ -343,10 +268,10 @@ def _yolov5_decoding(branch_idx, output, stride_list, anchor_list, num_classes):
     xy, wh, conf, mask = np.array_split(output, [2, 4, 4 + num_classes + 1], axis=4)
 
     # decoding
-    xy = (_sigmoid(xy) * 2 + grid) * stride
-    wh = (_sigmoid(wh) * 2) ** 2 * anchor_grid
+    xy = (sigmoid(xy) * 2 + grid) * stride
+    wh = (sigmoid(wh) * 2) ** 2 * anchor_grid
 
-    out = np.concatenate((xy, wh, _sigmoid(conf), mask), 4)
+    out = np.concatenate((xy, wh, sigmoid(conf), mask), 4)
     out = out.reshape((BS, num_anchors * H * W, -1)).astype(np.float32)
 
     return out
@@ -473,7 +398,7 @@ def _yolov8_decoding(raw_boxes, strides, image_dims, reg_max):
         box_distribute = np.reshape(
             box_distribute, (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1)
         )
-        box_distance = _softmax(box_distribute)
+        box_distance = softmax(box_distribute)
         box_distance = box_distance * np.reshape(reg_range, (1, 1, 1, -1))
         box_distance = np.sum(box_distance, axis=-1)
         box_distance = box_distance * stride
@@ -560,7 +485,7 @@ def yolov8_seg_postprocess(endnodes, device_pre_post_layers=None, **kwargs):
     return outputs
 
 
-def inference_result_handler(frame, infer_results, config_data, model_type, labels, tracker=None, nms_postprocess_enabled=False):
+def inference_result_handler(frame, detections, config_data, model_type, labels, tracker=None, nms_postprocess_enabled=False):
     """
     This function performs post-processing on the raw model output to extract
     detection results (bounding boxes, masks, classes, scores), applies tracking
@@ -569,7 +494,7 @@ def inference_result_handler(frame, infer_results, config_data, model_type, labe
 
     Args:
         frame: The original input image or video frame (as a NumPy array).
-        infer_results: The raw output tensors from the model inference.
+        detections: The extracted detections or raw output tensors from the model inference.
         tracker: An instance of BYTETracker used for object tracking across frames.
         config_data: A dictionary containing model-specific configuration parameters.
         model_type: A string identifier for the model architecture (e.g., "v5", "v8", "fast").
@@ -578,15 +503,15 @@ def inference_result_handler(frame, infer_results, config_data, model_type, labe
         np.ndarray: The frame with visualized detection, segmentation, and tracking overlays.
     """
     if nms_postprocess_enabled:
-        if not infer_results:
+        if not detections:
             return frame
 
-        detections = extract_detections(frame, infer_results, labels, config_data)
         if tracker:
             detections = track_detections(detections, tracker)
-        return draw_detections(frame, detections)
+        return render_results(frame, detections)
 
     else:
+        infer_results = detections
         decoded_detections = decode_and_postprocess(infer_results, config_data, model_type)
         return draw_detections_no_nms(decoded_detections, np.expand_dims(np.array(frame), axis=0), config_data, labels, model_type, tracker=tracker)
 
@@ -634,59 +559,6 @@ def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image
     return resized_mask
 
 
-def extract_detections(image: np.ndarray, detections: list, labels: list, config_data) -> list:
-    """
-    Extract detections from the input data.
-
-    Args:
-        image (np.ndarray): Image to draw on.
-        detections (list): Raw detections from the model.
-        labels (list): List of class labels.
-        config_data (Dict): Loaded JSON config containing post-processing metadata.
-
-    Returns:
-        list: Filtered detection results containing dictionaries with 'label', 'score', 'box', and 'mask'.
-    """
-
-    if not detections:
-        return []
-
-    if not isinstance(detections, list):
-        detections = [detections]
-
-    visualization_params = config_data["visualization_params"]
-    score_threshold = visualization_params.get("score_thres", 0.2)
-    max_boxes = visualization_params.get("max_boxes_to_draw", 50)
-
-    # Values used for scaling coords and removing padding
-    img_height, img_width = image.shape[:2]
-    size = max(img_height, img_width)
-    padding_length = int(abs(img_height - img_width) / 2)
-
-    selected_detections = []
-    counter = 0
-
-    for det in detections:
-        if det.score < score_threshold or counter >= max_boxes:
-            break
-
-        box_on_input_image, box_on_padded_image = convert_box_from_normalized([det.x_min, det.y_min, det.x_max, det.y_max], size, padding_length, img_height, img_width)
-        mask = resize_mask_to_unpadded_box(det.mask, box_on_input_image, box_on_padded_image)
-
-        if mask is not None:
-            xmin, ymin, xmax, ymax = box_on_input_image
-            selected_detections.append({
-                'label': labels[det.class_id] if labels else str(det.class_id),
-                'score': float(det.score),
-                'box': [xmin, ymin, xmax - xmin, ymax - ymin],
-                'mask': mask,
-                'class_id': det.class_id
-            })
-            counter += 1
-
-    return selected_detections
-
-
 def track_detections(detections: list, tracker: BYTETracker) -> list:
     """
     Perform tracking on the detections.
@@ -730,46 +602,6 @@ def track_detections(detections: list, tracker: BYTETracker) -> list:
     return tracked_detections
 
 
-def draw_detections(image: np.ndarray, detections: list) -> np.ndarray:
-    """
-    Draw detections or tracking results on the image.
-
-    Args:
-        image (np.ndarray): Image to draw on.
-        detections (list): List of detection dictionaries.
-
-    Returns:
-        np.ndarray: Annotated image.
-    """
-    img_out = image.copy()
-    height, width = img_out.shape[:2]
-    overlay = np.zeros((height, width, 3), dtype=np.uint8)
-
-    thickness = calculate_optimal_thickness(img_out.shape[:2])
-    text_scale = calculate_optimal_text_scale(img_out.shape[:2])
-
-    for det in detections:
-        track_id = det.get('track_id')
-        color = hex_to_rgb(get_color(track_id if track_id is not None else det.get('class_id', 0)))
-        x, y, w, h = det['box']
-        
-        # Draw bounding box
-        draw_rectangle(img_out, [x, y, w, h], color, thickness)
-
-        # Draw label
-        top_text = f"{det['label']}: {det['score'] * 100.0:.1f}%"
-        if track_id is not None:
-            top_text += f" ID {track_id}"
-        draw_text(img_out, top_text, (x, y), background_color=color, text_scale=text_scale)
-
-        mask_2d = det['mask']
-        overlay_region = overlay[y:y+h, x:x+w]
-        overlay_region[mask_2d==1] = color
-
-    cv2.addWeighted(overlay, 0.7, img_out, 1.0, 0, dst=img_out)
-    return img_out
-
-
 def mask_to_polygons(mask):
     """
     Convert a binary mask to a list of flattened polygons.
@@ -790,12 +622,6 @@ def mask_to_polygons(mask):
     contours = res[-2]
     polygons = [c.flatten() + 0.5 for c in contours if len(c) >= 6]
     return polygons, has_holes
-
-
-from ..utils.draw import (
-    draw_rectangle, draw_text, calculate_optimal_thickness, calculate_optimal_text_scale,
-    draw_overlay_mask, get_color, hex_to_rgb
-)
 
 
 def convert_box_from_normalized(normalized_box: list,
@@ -1129,6 +955,86 @@ def draw_detections_no_nms(detections, img, config_data, labels, arch, tracker=N
     return img_out
 
 
+class ModelInference(HailoInfer):
+    def __init__(self, hef_path: str, batch_size: int = 1, labels: list = None, config_data: dict = None):
+        super().__init__(hef_path, batch_size)
+        self.labels = labels
+        self.config_data = config_data
+
+    def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
+        if completion_info.exception:
+            logger.error(f'Inference error: {completion_info.exception}')
+        else:
+            for i, bindings in enumerate(bindings_list):
+                if len(bindings._output_names) == 1:
+                    result = bindings.output().get_buffer()
+                else:
+                    result = {
+                        name: np.expand_dims(bindings.output(name).get_buffer(), axis=0)
+                        for name in bindings._output_names
+                    }
+                
+                if self.is_nms_postprocess_enabled():
+                    image = input_batch[i]
+                    infer_results = result if isinstance(result, list) else [result]
+                    
+                    visualization_params = self.config_data["visualization_params"]
+                    score_threshold = visualization_params.get("score_thres", 0.2)
+                    max_boxes = visualization_params.get("max_boxes_to_draw", 50)
+
+                    # Values used for scaling coords and removing padding
+                    img_height, img_width = image.shape[:2]
+                    size = max(img_height, img_width)
+                    padding_length = int(abs(img_height - img_width) / 2)
+
+                    detections = []
+                    counter = 0
+
+                    for det in infer_results:
+                        if det.score < score_threshold or counter >= max_boxes:
+                            break
+
+                        box_on_input_image, box_on_padded_image = convert_box_from_normalized([det.x_min, det.y_min, det.x_max, det.y_max], size, padding_length, img_height, img_width)
+                        mask = resize_mask_to_unpadded_box(det.mask, box_on_input_image, box_on_padded_image)
+
+                        if mask is not None:
+                            xmin, ymin, xmax, ymax = box_on_input_image
+                            detections.append({
+                                'label': self.labels[det.class_id] if self.labels else str(det.class_id),
+                                'score': float(det.score),
+                                'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                                'mask': mask,
+                                'class_id': det.class_id
+                            })
+                            counter += 1
+                    output_queue.put((input_batch[i], detections))
+                else:
+                    output_queue.put((input_batch[i], result))
+
+    def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
+        pending_jobs = collections.deque()
+
+        while True:
+            next_batch = input_queue.get()
+            if not next_batch:
+                break
+
+            if stop_event.is_set():
+                continue
+
+            input_batch, preprocessed_batch = next_batch
+            inference_callback_fn = partial(self._inference_callback, input_batch=input_batch, output_queue=output_queue)
+
+            while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
+                pending_jobs.popleft().wait(10000)
+
+            job = self.run(preprocessed_batch, inference_callback_fn)
+            pending_jobs.append(job)
+
+        self.close()
+        output_queue.put(None)
+
+
 def run_inference_pipeline(
     net,
     labels,
@@ -1153,10 +1059,11 @@ def run_inference_pipeline(
     input_queue = queue.Queue(MAX_INPUT_QUEUE_SIZE)
     output_queue = queue.Queue(MAX_OUTPUT_QUEUE_SIZE)
 
-    hailo_inference = HailoInfer(
+    model_inference = ModelInference(
         net,
         input_data.batch_size,
-        output_type="FLOAT32")
+        labels=labels,
+        config_data=config_data)
 
     post_process_callback_fn = partial(
         inference_result_handler,
@@ -1164,10 +1071,10 @@ def run_inference_pipeline(
         config_data=config_data,
         model_type=model_type,
         labels=labels,
-        nms_postprocess_enabled=hailo_inference.is_nms_postprocess_enabled()
+        nms_postprocess_enabled=model_inference.is_nms_postprocess_enabled()
     )
 
-    height, width, _ = hailo_inference.get_input_shape()
+    height, width, _ = model_inference.get_input_shape()
 
     preprocess_thread = threading.Thread(
         target=input_data.preprocess,
@@ -1176,8 +1083,8 @@ def run_inference_pipeline(
     )
 
     infer_thread = threading.Thread(
-        target=infer,
-        args=(hailo_inference, input_queue, output_queue, input_data.stop_event),
+        target=model_inference.infer,
+        args=(input_queue, output_queue, input_data.stop_event),
         name="infer-thread",
     )
 
@@ -1201,88 +1108,6 @@ def run_inference_pipeline(
 
     if visualizer.save_output or input_data.has_images:
         logger.info(f"Saved outputs to '{visualizer.output_dir}'.")
-
-
-def infer(hailo_inference, input_queue, output_queue, stop_event):
-    """
-    Main inference loop that pulls data from the input queue, runs asynchronous
-    inference, and pushes results to the output queue.
-
-    Each item in the input queue is expected to be a tuple:
-        (input_batch, preprocessed_batch)
-        - input_batch: Original frames (used for visualization or tracking)
-        - preprocessed_batch: Model-ready frames (e.g., resized, normalized)
-
-    Args:
-        hailo_inference (HailoInfer): The inference engine to run model predictions.
-        input_queue (queue.Queue): Provides (input_batch, preprocessed_batch) tuples.
-        output_queue (queue.Queue): Collects (input_frame, result) tuples for visualization.
-
-    Returns:
-        None
-    """
-    # Limit number of concurrent async inferences
-    pending_jobs = collections.deque()
-
-    while True:
-        next_batch = input_queue.get()
-        if not next_batch:
-            break  # Stop signal received
-
-        if stop_event.is_set():
-            continue  # Skip processing if stop signal is set
-
-        input_batch, preprocessed_batch = next_batch
-
-        # Prepare the callback for handling the inference result
-        inference_callback_fn = partial(
-            inference_callback,
-            input_batch=input_batch,
-            output_queue=output_queue
-        )
-
-
-        while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
-            pending_jobs.popleft().wait(10000)
-
-        # Run async inference
-        job = hailo_inference.run(preprocessed_batch, inference_callback_fn)
-        pending_jobs.append(job)
-
-    # Release resources and context
-    hailo_inference.close()
-    output_queue.put(None)
-
-
-def inference_callback(
-        completion_info,
-        bindings_list: list,
-        input_batch: list,
-        output_queue: queue.Queue
-) -> None:
-    """
-    infernce callback to handle inference results and push them to a queue.
-
-    Args:
-        completion_info: Hailo inference completion info.
-        bindings_list (list): Output bindings for each inference.
-        input_batch (list): Original input frames.
-        output_queue (queue.Queue): Queue to push output results to.
-    """
-    if completion_info.exception:
-        logger.error(f'Inference error: {completion_info.exception}')
-    else:
-        for i, bindings in enumerate(bindings_list):
-            if len(bindings._output_names) == 1:
-                result = bindings.output().get_buffer()
-            else:
-                result = {
-                    name: np.expand_dims(
-                        bindings.output(name).get_buffer(), axis=0
-                    )
-                    for name in bindings._output_names
-                }
-            output_queue.put((input_batch[i], result))
 
 
 def main(**kwargs) -> None:

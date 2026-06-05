@@ -1,5 +1,23 @@
 import lap
+import collections
 import numpy as np
+
+
+class TrackletHistory:
+    def __init__(self, length=30):
+        self.history = {}
+        self.length = length
+
+    def update(self, detections):
+        for det in detections:
+            track_id = det.get('track_id')
+            if track_id is not None:
+                x, y, w, h = det['box']
+                centroid = (int(x + w / 2), int(y + h / 2))
+                if track_id not in self.history:
+                    self.history[track_id] = collections.deque(maxlen=self.length)
+                self.history[track_id].append(centroid)
+                det['trail'] = list(self.history[track_id])
 
 
 class KalmanFilter(object):

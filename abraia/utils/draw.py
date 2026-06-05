@@ -169,25 +169,47 @@ def calculate_optimal_text_scale(img_size):
 def render_results(img, results, thickness=None, text_scale=None):
     thickness = thickness or calculate_optimal_thickness(img.shape[:2])
     text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
+    overlay = np.zeros_like(img) if any('mask' in r for r in results) else None
     for result in results:
         label = result.get('label')
         score = result.get('score')
         track_id = result.get('track_id')
-        color = hex_to_rgb(result.get('color', get_color(0)))
-        if track_id is not None:
-            color = hex_to_rgb(get_color(track_id))
+        class_id = result.get('class_id', 0)
+        color = result.get('color')
+        if color:
+            color = hex_to_rgb(color)
+        else:
+            color = hex_to_rgb(get_color(track_id if track_id is not None else class_id))
         if result.get('polygon'):
             draw_polygon(img, result['polygon'], color, thickness)
         elif result.get('box'):
+            box = result.get('box')
             for point in result.get('keypoints', []):
                 draw_point(img, point, color, thickness)
-            draw_rectangle(img, result['box'], color, thickness)
+            draw_rectangle(img, box, color, thickness)
+            if 'mask' in result and overlay is not None:
+                x, y, w, h = map(int, box)
+                mask = result['mask']
+                mh, mw = mask.shape[:2]
+                y1, y2 = max(0, y), min(img.shape[0], y + mh)
+                x1, x2 = max(0, x), min(img.shape[1], x + mw)
+                if y2 > y1 and x2 > x1:
+                    m_y1, m_y2 = y1 - y, y2 - y
+                    m_x1, m_x2 = x1 - x, x2 - x
+                    overlay[y1:y2, x1:x2][mask[m_y1:m_y2, m_x1:m_x2] == 1] = color
         if label:
-            text = f"{label} {round(score, 2)}" if score else label
+            text = f"{label} {round(score, 2)}" if score is not None else label
             if track_id is not None:
                 text = f"[{track_id}] {text}"
             point = result.get('box', [0, 0, 0, 0])[:2]
-            draw_text(img, text, point, background_color=color, text_scale=text_scale, padding=thickness*3)
+            draw_text(img, text, (int(point[0]), int(point[1])), background_color=color, text_scale=text_scale, padding=thickness*3)
+        if 'trail' in result:
+            trail = result['trail']
+            for i in range(1, len(trail)):
+                draw_line(img, (trail[i-1], trail[i]), color, thickness=thickness)
+                draw_point(img, trail[i], color, thickness=thickness*2)
+    if overlay is not None:
+        cv2.addWeighted(overlay, 0.5, img, 1.0, 0, dst=img)
     return img
 
 

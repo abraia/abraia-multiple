@@ -64,6 +64,7 @@ CAMERA_RESOLUTION_MAP: Dict[str, Tuple[int, int]] = {
     "fhd": (1920, 1080),
 }
 
+
 # Base project paths
 COCO_LABELS = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
