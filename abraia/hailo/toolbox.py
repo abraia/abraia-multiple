@@ -13,6 +13,7 @@ import numpy as np
 
 from pathlib import Path
 from functools import partial
+from scipy.special import expit
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
 from ..utils import download_url
@@ -89,8 +90,6 @@ RESOURCES_CONFIG["detect"] = {
                 {"name": "yolov8s", "source": "mz"},
                 {"name": "yolov8l", "source": "mz"},
                 {"name": "yolov8x", "source": "mz"},
-                {"name": "yolov5s", "source": "mz"},
-                {"name": "yolov5m", "source": "mz"},
                 {"name": "yolov10n", "source": "mz"},
                 {"name": "yolov10s", "source": "mz"},
                 {"name": "yolov10b", "source": "mz"},
@@ -105,8 +104,6 @@ RESOURCES_CONFIG["detect"] = {
         "hailo8l": {
             "default": [{"name": "yolov8s", "source": "mz"}],
             "extra": [
-                {"name": "yolov5s", "source": "mz"},
-                {"name": "yolov5m", "source": "mz"},
                 {"name": "yolov8n", "source": "mz"},
                 {"name": "yolov8m", "source": "mz"},
                 {"name": "yolov8l", "source": "mz"},
@@ -162,6 +159,56 @@ RESOURCES_CONFIG["pose"] = {
         "hailo8l": {
             "default": [{"name": "yolov8s_pose", "source": "mz"}]
         }
+    }
+}
+
+SEGMENT_CONFIG = {
+    "v5": {
+        "arch": "yolov5_seg",
+        "anchors": {
+            "strides": [8, 16, 32],
+            "sizes": [
+                [10, 13, 16, 30, 33, 23],
+                [30, 61, 62, 45, 59, 119],
+                [116, 90, 156, 198, 373, 326]
+            ]
+        },
+        "input_shape": [640, 640],
+        "mask_channels": 32,
+        "score_threshold": 0.001,
+        "nms_iou_thresh": 0.6,
+        "classes": 80,
+        "layers": [
+            [1, 160, 160, "mask_channels"],
+            [1, 20, 20, "detection_channels"],
+            [1, 40, 40, "detection_channels"],
+            [1, 80, 80, "detection_channels"]
+        ]
+    },
+    "v8": {
+        "arch": "yolov8_seg",
+        "anchors": {
+            "strides": [8, 16, 32],
+            "regression_length": 15
+        },
+        "input_shape": [640, 640],
+        "mask_channels": 32,
+        "score_threshold": 0.001,
+        "nms_iou_thresh": 0.7,
+        "meta_arch": "yolov8_seg_postprocess",
+        "classes": 80,
+        "layers": [
+            [1, 20, 20, "detection_output_channels"],
+            [1, 20, 20, "classes"],
+            [1, 20, 20, "mask_channels"],
+            [1, 40, 40, "detection_output_channels"],
+            [1, 40, 40, "classes"],
+            [1, 40, 40, "mask_channels"],
+            [1, 80, 80, "detection_output_channels"],
+            [1, 80, 80, "classes"],
+            [1, 80, 80, "mask_channels"],
+            [1, 160, 160, "mask_channels"]
+        ]
     }
 }
 
@@ -1463,12 +1510,13 @@ if HAILO_AVAILABLE:
 
 
     class ModelInference(HailoInfer):
-        def __init__(self, hef_path: str, task: str = 'detect', batch_size: int = 1, labels: str = None, score_threshold: float = 0.25, config_data: dict = None, model_type: str = 'v8'):
+        def __init__(self, hef_path: str, task: str = 'detect', batch_size: int = 1, labels: str = None, score_threshold: float = 0.25, mask_threshold: float = 0.45, config_data: dict = None, model_type: str = 'v8'):
             hef_path = resolve_hef_path(hef_path, task)
             super().__init__(hef_path, batch_size)
             self.task = task
             self.labels = get_labels(labels)
             self.score_threshold = score_threshold
+            self.mask_threshold = mask_threshold
             self.config_data = config_data
             self.model_type = model_type
 
@@ -1480,70 +1528,16 @@ if HAILO_AVAILABLE:
                 for name in bindings._output_names
             }
 
-        def decode_and_postprocess(self, raw_detections, image):
-            img_height, img_width = image.shape[:2]
-            result = segment_decode_and_postprocess(raw_detections, self.config_data, self.model_type)[0]
-            
-            # --- Compute scale and padding used in letterbox ---
-            model_h, model_w, _ = self.get_input_shape()
-            scale_ratio = min(model_w / img_width, model_h / img_height)
-            pad_w = (model_w - int(round(img_width * scale_ratio))) // 2
-            pad_h = (model_h - int(round(img_height * scale_ratio))) // 2
-
-            boxes = result['detection_boxes']
-            masks = result['mask']
-            scores = result['detection_scores']
-            classes = result['detection_classes']
-            
-            visualization_params = self.config_data.get("visualization_params", {})
-            score_threshold = visualization_params.get("score_thres", self.score_threshold)
-            mask_threshold = visualization_params.get("mask_thresh", 0.45)
-            max_boxes = visualization_params.get("max_boxes_to_draw", 50)
-
-            detections = []
-            for i in range(min(len(boxes), max_boxes)):
-                if scores[i] < score_threshold:
-                    continue
-                
-                # Decode boxes back to original image space
-                cx, cy, w, h = boxes[i]
-                xmin = (cx * model_w - w * model_w / 2 - pad_w) / scale_ratio
-                ymin = (cy * model_h - h * model_h / 2 - pad_h) / scale_ratio
-                xmax = (cx * model_w + w * model_w / 2 - pad_w) / scale_ratio
-                ymax = (cy * model_h + h * model_h / 2 - pad_h) / scale_ratio
-                
-                xmin = max(0, min(img_width - 1, xmin))
-                ymin = max(0, min(img_height - 1, ymin))
-                xmax = max(0, min(img_width - 1, xmax))
-                ymax = max(0, min(img_height - 1, ymax))
-
-                detections.append({
-                    'label': self.labels[classes[i]] if self.labels else str(classes[i]),
-                    'score': float(scores[i]),
-                    'box': [xmin, ymin, xmax - xmin, ymax - ymin],
-                    'mask': (masks[i] > mask_threshold).astype(np.uint8),
-                    'class_id': int(classes[i])
-                })
-            return detections
-
         def _process_nms_results(self, result, image):
             infer_results = result if isinstance(result, list) else [result]
             img_height, img_width = image.shape[:2]
             size = max(img_height, img_width)
             padding_length = int(abs(img_height - img_width) / 2)
 
-            score_threshold = self.score_threshold
-            max_boxes = 50
-            if self.config_data and "visualization_params" in self.config_data:
-                visualization_params = self.config_data["visualization_params"]
-                score_threshold = visualization_params.get("score_thres", self.score_threshold)
-                max_boxes = visualization_params.get("max_boxes_to_draw", 50)
-
             detections = []
             counter = 0
-
             for det in infer_results:
-                if det.score < score_threshold or counter >= max_boxes:
+                if det.score < self.score_threshold:
                     break
 
                 box_on_input_image, box_on_padded_image = convert_box_from_normalized(
@@ -1595,36 +1589,72 @@ if HAILO_AVAILABLE:
                             'class_id': class_id
                         })
             return detections
-
-        def _process_pose_results(self, result, image):
+        
+        def decode_and_postprocess(self, raw_detections, image):
+            img_height, img_width = image.shape[:2]
+            result = segment_decode_and_postprocess(raw_detections, self.config_data, self.model_type)[0]
+            
+            # --- Compute scale and padding used in letterbox ---
             model_h, model_w, _ = self.get_input_shape()
-            orig_h, orig_w = image.shape[:2]
-            return pose_post_process(result, model_h, model_w, orig_h, orig_w, score_threshold=self.score_threshold, labels=self.labels)
+            scale_ratio = min(model_w / img_width, model_h / img_height)
+            pad_w = (model_w - int(round(img_width * scale_ratio))) // 2
+            pad_h = (model_h - int(round(img_height * scale_ratio))) // 2
+
+            boxes = result['detection_boxes']
+            masks = result['mask']
+            scores = result['detection_scores']
+            classes = result['detection_classes']
+
+            detections = []
+            for i in range(len(boxes)):
+                if scores[i] < self.score_threshold:
+                    continue
+                
+                # Decode boxes back to original image space
+                cx, cy, w, h = boxes[i]
+                xmin = (cx * model_w - w * model_w / 2 - pad_w) / scale_ratio
+                ymin = (cy * model_h - h * model_h / 2 - pad_h) / scale_ratio
+                xmax = (cx * model_w + w * model_w / 2 - pad_w) / scale_ratio
+                ymax = (cy * model_h + h * model_h / 2 - pad_h) / scale_ratio
+                
+                xmin = max(0, min(img_width - 1, xmin))
+                ymin = max(0, min(img_height - 1, ymin))
+                xmax = max(0, min(img_width - 1, xmax))
+                ymax = max(0, min(img_height - 1, ymax))
+
+                detections.append({
+                    'label': self.labels[classes[i]] if self.labels else str(classes[i]),
+                    'score': float(scores[i]),
+                    'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                    'mask': (masks[i] > self.mask_threshold).astype(np.uint8),
+                    'class_id': int(classes[i])
+                })
+            return detections
+
+        def _process_pose_results(self, result, input_batch):
+            model_h, model_w, _ = self.get_input_shape()
+            return pose_post_process(result, model_h, model_w, input_batch, self.score_threshold, labels=self.labels)
 
         def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
             if completion_info.exception:
                 logger.error(f'Inference error: {completion_info.exception}')
             else:
-                if self.task == 'pose':
-                    # pose_post_process returns the whole batch results
-                    all_results = self._get_results(bindings_list[0]) # Bindings are for the whole batch
-                    processed_batch = self._process_pose_results(all_results, input_batch[0])
-                    for i, processed_result in enumerate(processed_batch):
-                        output_queue.put((input_batch[i], processed_result))
-                else:
-                    for i, bindings in enumerate(bindings_list):
-                        result = self._get_results(bindings)
-                        
-                        if self.is_nms_postprocess_enabled():
-                            processed_result = self._process_nms_results(result, input_batch[i])
-                        elif self.task == 'detect':
-                            processed_result = self._process_detect_results(result, input_batch[i])
-                        elif self.task == 'segment':
-                            processed_result = self.decode_and_postprocess(result, input_batch[i])
-                        else:
-                            processed_result = result
-                        
-                        output_queue.put((input_batch[i], processed_result))
+                for i, bindings in enumerate(bindings_list):
+                    result = self._get_results(bindings)
+                    
+                    if self.is_nms_postprocess_enabled():
+                        processed_result = self._process_nms_results(result, input_batch[i])
+                    elif self.task == 'detect':
+                        print('_process_detect_results')
+                        processed_result = self._process_detect_results(result, input_batch[i])
+                    elif self.task == 'segment':
+                        processed_result = self.decode_and_postprocess(result, input_batch[i])
+                    elif self.task == 'pose':
+                        processed_result = self._process_pose_results(result, input_batch[i])
+                    else:
+                        processed_result = result
+                    
+                    output_queue.put((input_batch[i], processed_result))
 
         def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
             pending_jobs = collections.deque()

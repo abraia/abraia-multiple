@@ -273,11 +273,11 @@ def run(project, classes, src):
             from abraia.hailo import object_detection
             object_detection.main(input=src)
         elif classes == 'segment':
-            from abraia.hailo import instance_segmentation
-            instance_segmentation.main(input=src)
+            from abraia.hailo import segmentation
+            segmentation.main(input=src, task='segment')
         elif classes == 'pose':
-            from abraia.hailo import pose_estimation
-            pose_estimation.main(input=src)
+            from abraia.hailo import segmentation
+            segmentation.main(input=src, task='pose')
     else:
         src = classes if classes != 'faces' else src or 0
         try:
