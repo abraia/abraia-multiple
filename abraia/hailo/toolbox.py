@@ -16,6 +16,7 @@ from functools import partial
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
 from ..utils import download_url
+from ..inference.ops import sigmoid, softmax
 from ..utils.draw import (
     render_resolution,
     render_status,
@@ -79,21 +80,17 @@ COCO_LABELS = [
 ]
 
 RESOURCES_CONFIG = {}
-RESOURCES_CONFIG["object_detection"] = {
+RESOURCES_CONFIG["detect"] = {
     "models": {
         "hailo8": {
             "default": [{"name": "yolov8m", "source": "mz"}],
             "extra": [
-                {"name": "yolov5m_wo_spp", "source": "mz"},
-                {"name": "yolov8s", "source": "mz"},
-                {"name": "yolov5s", "source": "mz"},
-                {"name": "yolov5m", "source": "mz"},
-                {"name": "yolov6n", "source": "mz"},
-                {"name": "yolov7", "source": "mz"},
                 {"name": "yolov8n", "source": "mz"},
+                {"name": "yolov8s", "source": "mz"},
                 {"name": "yolov8l", "source": "mz"},
                 {"name": "yolov8x", "source": "mz"},
-                {"name": "yolov9c", "source": "mz"},
+                {"name": "yolov5s", "source": "mz"},
+                {"name": "yolov5m", "source": "mz"},
                 {"name": "yolov10n", "source": "mz"},
                 {"name": "yolov10s", "source": "mz"},
                 {"name": "yolov10b", "source": "mz"},
@@ -110,14 +107,10 @@ RESOURCES_CONFIG["object_detection"] = {
             "extra": [
                 {"name": "yolov5s", "source": "mz"},
                 {"name": "yolov5m", "source": "mz"},
-                {"name": "yolov6n", "source": "mz"},
-                {"name": "yolov7", "source": "mz"},
-                {"name": "yolov5m_wo_spp", "source": "mz"},
                 {"name": "yolov8n", "source": "mz"},
                 {"name": "yolov8m", "source": "mz"},
                 {"name": "yolov8l", "source": "mz"},
                 {"name": "yolov8x", "source": "mz"},
-                {"name": "yolov9c", "source": "mz"},
                 {"name": "yolov10n", "source": "mz"},
                 {"name": "yolov10s", "source": "mz"},
                 {"name": "yolov10b", "source": "mz"},
@@ -128,34 +121,10 @@ RESOURCES_CONFIG["object_detection"] = {
                 {"name": "yolov11l", "source": "mz"},
                 {"name": "yolov11x", "source": "mz"},
             ]
-        },
-        "hailo10h": {
-            "default": [{"name": "yolov8m", "source": "mz"}],
-            "extra": [
-                {"name": "yolov5s", "source": "mz"},
-                {"name": "yolov5m", "source": "mz"},
-                {"name": "yolov6n", "source": "mz"},
-                {"name": "yolov7", "source": "mz"},
-                {"name": "yolov7x", "source": "mz"},
-                {"name": "yolov8s", "source": "mz"},
-                {"name": "yolov8n", "source": "mz"},
-                {"name": "yolov8l", "source": "mz"},
-                {"name": "yolov8x", "source": "mz"},
-                {"name": "yolov9c", "source": "mz"},
-                {"name": "yolov10n", "source": "mz"},
-                {"name": "yolov10s", "source": "mz"},
-                {"name": "yolov10b", "source": "mz"},
-                {"name": "yolov10x", "source": "mz"},
-                {"name": "yolov11n", "source": "mz"},
-                {"name": "yolov11s", "source": "mz"},
-                {"name": "yolov11m", "source": "mz"},
-                {"name": "yolov11l", "source": "mz"},
-                {"name": "yolov11x", "source": "mz"}
-            ]
         }
     }
 }
-RESOURCES_CONFIG["instance_segmentation"] = {
+RESOURCES_CONFIG["segment"] = {
     "models": {
         "hailo8": {
             "default": [
@@ -166,10 +135,9 @@ RESOURCES_CONFIG["instance_segmentation"] = {
                 {"name": "yolov5l_seg", "source": "mz"},
                 {"name": "yolov5n_seg", "source": "mz"},
                 {"name": "yolov5s_seg", "source": "mz"},
-                {"name": "yolov8m_seg", "source": "mz"},
                 {"name": "yolov8n_seg", "source": "mz"},
-                {"name": "yolov8s_seg", "source": "mz"},
-                {"name": "fast_sam_s", "source": "s3"}
+                {"name": "yolov8m_seg", "source": "mz"},
+                {"name": "yolov8s_seg", "source": "mz"}
             ]
         },
         "hailo8l": {
@@ -182,26 +150,10 @@ RESOURCES_CONFIG["instance_segmentation"] = {
                 {"name": "yolov8n_seg", "source": "mz"},
                 {"name": "yolov8s_seg", "source": "mz"}
             ]
-        },
-        "hailo10h": {
-            "default": [
-                {"name": "yolov5m_seg_with_nms", "source": "s3"}
-            ],
-            "extra": [
-                {"name": "yolov5n_seg_with_nms", "source": "s3"},
-                {"name": "yolov5s_seg_with_nms", "source": "s3"},
-                {"name": "yolov5m_seg", "source": "mz"},
-                {"name": "yolov5l_seg", "source": "mz"},
-                {"name": "yolov5n_seg", "source": "mz"},
-                {"name": "yolov5s_seg", "source": "mz"},
-                {"name": "yolov8m_seg", "source": "mz"},
-                {"name": "yolov8n_seg", "source": "mz"},
-                {"name": "yolov8s_seg", "source": "mz"}
-            ]
         }
     }
 }
-RESOURCES_CONFIG["pose_estimation"] = {
+RESOURCES_CONFIG["pose"] = {
     "models": {
         "hailo8": {
             "default": [{"name": "yolov8m_pose", "source": "mz"}],
@@ -209,10 +161,6 @@ RESOURCES_CONFIG["pose_estimation"] = {
         },
         "hailo8l": {
             "default": [{"name": "yolov8s_pose", "source": "mz"}]
-        },
-        "hailo10h": {
-            "default": [{"name": "yolov8m_pose", "source": "mz"}],
-            "extra": [{"name": "yolov8s_pose", "source": "mz"}]
         }
     }
 }
@@ -230,9 +178,9 @@ def get_remote_file_size(url: str, timeout: int = 30) -> Optional[int]:
         return None
 
 
-def get_model_url(app_name, model_name, hailo_arch):
+def get_model_url(task, model_name, hailo_arch):
     """Return a download task tuple for a specific app model, or None if not found."""
-    app_cfg = RESOURCES_CONFIG.get(app_name, {}).get("models", {}).get(hailo_arch, {})
+    app_cfg = RESOURCES_CONFIG.get(task, {}).get("models", {}).get(hailo_arch, {})
     for tier in ["default", "extra"]:
         entries = app_cfg.get(tier, [])
         for e in entries:
@@ -250,7 +198,7 @@ def get_model_url(app_name, model_name, hailo_arch):
                     dest_name = name if name.endswith(HAILO_FILE_EXTENSION) else name + HAILO_FILE_EXTENSION
                     dest = Path(RESOURCES_ROOT_PATH_DEFAULT) / RESOURCES_MODELS_DIR_NAME / hailo_arch / dest_name
                     return url, dest
-    logger.warning(f"Model '{model_name}' not found for app '{app_name}'")
+    logger.warning(f"Model '{model_name}' not found for app '{task}'")
     return None, None
 
 
@@ -275,19 +223,17 @@ def execute_download(url, dest_path):
 def get_resource_path(resource_type: str, name: str, arch: Optional[str] = None) -> Path:
     """Map a resource type and name to its local filesystem path."""
     root = Path(RESOURCES_ROOT_PATH_DEFAULT)
-
     if resource_type == RESOURCES_MODELS_DIR_NAME:
         arch = arch or detect_hailo_arch()
         if not arch:
             raise RuntimeError("Could not detect Hailo architecture for model path.")
         model_path = root / RESOURCES_MODELS_DIR_NAME / arch / name
         return model_path if name.endswith(HAILO_FILE_EXTENSION) else model_path.with_suffix(HAILO_FILE_EXTENSION)
-
     return root / resource_type / name
 
 
-def get_default_model(app_name: str, arch: str) -> Optional[str]:
-    default_entries = RESOURCES_CONFIG.get(app_name, {}).get("models", {}).get(arch, {}).get("default", [])
+def get_default_model(task: str, arch: str) -> Optional[str]:
+    default_entries = RESOURCES_CONFIG.get(task, {}).get("models", {}).get(arch, {}).get("default", [])
     for entry in default_entries:
         name = entry.get("name") if isinstance(entry, dict) else entry
         if isinstance(name, str) and name.lower() != "none":
@@ -295,17 +241,17 @@ def get_default_model(app_name: str, arch: str) -> Optional[str]:
     return None
 
 
-def resolve_hef_path(hef_path: Optional[str], app_name: str, arch: Optional[str] = None) -> Optional[Path]:
+def resolve_hef_path(hef_path: Optional[str], task: str, arch: Optional[str] = None) -> Optional[Path]:
     """Resolve HEF path, downloading it if necessary."""
     arch = arch or detect_hailo_arch()
     if not arch:
         raise RuntimeError("Could not detect Hailo architecture.")
-    logger.debug(f"App Name: {app_name}, Requested HEF: {hef_path}, Arch: {arch}")
+    logger.debug(f"Requested HEF: {hef_path}, Task: {task}, Arch: {arch}")
     
     if hef_path is None:
-        default_model = get_default_model(app_name, arch)
+        default_model = get_default_model(task, arch)
         if not default_model:
-            logger.error(f"No default model found for {app_name}/{arch}")
+            logger.error(f"No default model found for {task}/{arch}")
             return None
         hef_path = default_model
         logger.info(f"Using default model: {default_model}")
@@ -324,9 +270,9 @@ def resolve_hef_path(hef_path: Optional[str], app_name: str, arch: Optional[str]
     if resource_path.exists():
         return resource_path
 
-    logger.warning(f"\n⚠️  WARNING: Model '{model_name}' not found. Downloading for {app_name}/{arch}...")
+    logger.warning(f"\n⚠️  WARNING: Model '{model_name}' not found. Downloading for {task}/{arch}...")
     try:
-        url, dest = get_model_url(app_name, model_name, arch)
+        url, dest = get_model_url(task, model_name, arch)
         if url and dest:
             execute_download(url, dest)
             if dest.exists():
@@ -354,7 +300,6 @@ def detect_hailo_arch() -> Optional[str]:
         res = subprocess.run(shlex.split(HAILO_FW_CONTROL_CMD), capture_output=True, text=True)
         if res.returncode != 0:
             return None
-        
         stdout = res.stdout.upper()
         if HAILO8L_ARCH_CAPS in stdout:
             return HAILO8L_ARCH
@@ -364,8 +309,6 @@ def detect_hailo_arch() -> Optional[str]:
             return HAILO10H_ARCH
     except Exception as e:
         logger.error(f"Error detecting Hailo architecture: {e}")
-        
-    logger.warning("Could not determine Hailo architecture.")
     return None
 
 
@@ -538,6 +481,125 @@ def get_labels(labels_path: str) -> list:
     return class_names
 
 
+def find_shape_closest_to_target(mask_size, target_height, target_width):
+    """
+    Find the (height, width) pair whose product equals ``mask_size`` and whose
+    Manhattan distance to (target_height, target_width) is minimal.
+
+    Manhattan distance used:
+        |h − target_height| + |w − target_width|
+
+    Args:
+        mask_size (int): Total number of pixels in the flattened mask.
+        target_height (int): Desired height.
+        target_width (int): Desired width.
+
+    Returns:
+        tuple[int, int] | None: Best-matching (height, width), or None if none found.
+    """
+    best_shape = None
+    min_diff = float("inf")
+
+    for h in range(1, mask_size + 1):
+        if mask_size % h:
+            continue
+        w = mask_size // h
+        diff = abs(h - target_height) + abs(w - target_width)
+        if diff < min_diff:
+            min_diff = diff
+            best_shape = (h, w)
+
+    return best_shape
+
+
+def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image):
+    """
+    Resize the mask from the padded box to match the unpadded box size.
+
+    Args:
+        mask_1d (np.ndarray): 1D binary mask.
+        padded_box (list): [ymin, xmin, ymax, xmax] in 640x640 padded image.
+        unpadded_box (list): [ymin, xmin, ymax, xmax] after unpadding.
+
+    Returns:
+        np.ndarray: Resized 2D mask for the unpadded box size.
+    """
+    try:
+        # Step 1: Get the shape of the padded box
+        x1_p, y1_p, x2_p, y2_p = box_on_padded_image
+        h_p = y2_p - y1_p
+        w_p = x2_p - x1_p
+
+        # Step 2: Reshape the mask to original (padded) box shape
+        try:
+            mask_2d = mask_1d.reshape((h_p, w_p))
+        except ValueError:
+            closest_shape = find_shape_closest_to_target(mask_1d.size, h_p, w_p)
+            if not closest_shape:
+                return None
+
+            h, w = closest_shape
+            mask_2d = mask_1d.reshape((h, w))
+
+        # Step 3: Get new shape after unpadding
+        x1_u, y1_u, x2_u, y2_u = box_on_input_image
+        h_u = y2_u - y1_u
+        w_u = x2_u - x1_u
+
+        # Step 4: Resize the mask to the unpadded box shape
+        resized_mask = cv2.resize(mask_2d.astype(np.uint8), (w_u, h_u), interpolation=cv2.INTER_NEAREST)
+
+    except Exception:
+        return None
+
+    return resized_mask
+
+
+def convert_box_from_normalized(normalized_box: list,
+                                 padded_image_size: int,
+                                 padding: int,
+                                 input_image_height: int,
+                                 input_image_width: int) -> tuple:
+    """
+    Converts a normalized bounding box to:
+    1. Coordinates in the original input image (after removing padding)
+    2. Coordinates in the model's padded output image (e.g. 640x640)
+
+    Args:
+        normalized_box (list): Normalized [x_min, y_min, x_max, y_max] in range [0, 1].
+        padded_image_size (int): Size of the square padded image (typically 640).
+        padding (int): Amount of padding applied to center the image.
+        input_image_height (int): Height of the original input image.
+        input_image_width (int): Width of the original input image.
+
+    Returns:
+        tuple:
+            box_on_input_image (list): Box mapped to original image resolution.
+            box_on_padded_image (list): Box mapped to padded model output image.
+    """
+
+    box_on_padded_image = []
+    box_on_input_image = []
+
+    for i, norm_val in enumerate(normalized_box):
+        # 1. Scale to padded image space (e.g. 640)
+        padded_coord = round(norm_val * padded_image_size)
+        padded_coord = min(max(padded_coord, 0), padded_image_size)
+        box_on_padded_image.append(round(norm_val * 640))
+
+        # 2. Remove padding to get input image space
+        if i % 2 == 0:  # x coordinate
+            input_coord = padded_coord - padding if padded_image_size != input_image_width else padded_coord
+            input_coord = min(max(input_coord, 0), input_image_width)
+        else:  # y coordinate
+            input_coord = padded_coord - padding if padded_image_size != input_image_height else padded_coord
+            input_coord = min(max(input_coord, 0), input_image_height)
+
+        box_on_input_image.append(input_coord)
+
+    return box_on_input_image, box_on_padded_image
+
+
 def default_preprocess(image: np.ndarray, model_w: int, model_h: int) -> np.ndarray:
     img_h, img_w, _ = image.shape[:3]
     scale = min(model_w / img_w, model_h / img_h)
@@ -700,13 +762,11 @@ class VideoInput:
 class VideoVisualizer:
     def __init__(
         self,
-        output_dir: str = "output",
-        save_output: bool = False,
+        save_output: Optional[str] = None,
         source_fps: Optional[float] = None,
         frame_rate: Optional[float] = None,
         stop_event: Optional[threading.Event] = None,
     ):
-        self.output_dir = output_dir
         self.save_output = save_output
         self.source_fps = source_fps
         self.frame_rate = frame_rate
@@ -733,10 +793,11 @@ class VideoVisualizer:
 
         if self.save_output:
             output_fps = self.frame_rate or (self.source_fps if self.source_fps and self.source_fps > 1 else 30.0)
-            os.makedirs(self.output_dir, exist_ok=True)
-            output_video_path = os.path.join(self.output_dir, "output.avi")
+            output_path = Path(self.save_output)
+            if output_path.parent:
+                os.makedirs(output_path.parent, exist_ok=True)
             self.video_writer = cv2.VideoWriter(
-                output_video_path,
+                self.save_output,
                 cv2.VideoWriter_fourcc(*"XVID"),
                 output_fps,
                 (self.writer_frame_width, self.writer_frame_height)
@@ -767,8 +828,10 @@ class VideoVisualizer:
                 if self.video_writer is not None:
                     self.video_writer.write(frame_to_show)
             else:
-                os.makedirs(self.output_dir, exist_ok=True)
-                output_image_path = os.path.join(self.output_dir, f"output_{self.image_index}.png")
+                output_path = Path(self.save_output)
+                if output_path.parent:
+                    os.makedirs(output_path.parent, exist_ok=True)
+                output_image_path = os.path.join(output_path.parent, f"{output_path.stem}_{self.image_index}{output_path.suffix}")
                 cv2.imwrite(output_image_path, frame_to_show)
                 self.image_index += 1
             
@@ -1032,22 +1095,538 @@ if HAILO_AVAILABLE:
             if self.config_ctx:
                 self.config_ctx.__exit__(None, None, None)
 
-    class HailoAsyncInference(HailoInfer):
+
+    def segment_xywh2xyxy(x):
+        y = np.copy(x)
+        y[:, 0] = x[:, 0] - x[:, 2] / 2
+        y[:, 1] = x[:, 1] - x[:, 3] / 2
+        y[:, 2] = x[:, 0] + x[:, 2] / 2
+        y[:, 3] = x[:, 1] + x[:, 3] / 2
+        return y
+
+
+    def segment_non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, max_det=300, nm=32, multi_label=True):
+        assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
+        assert 0 <= iou_thres <= 1, f"Invalid IoU threshold {iou_thres}, valid values are between 0.0 and 1.0"
+
+        nc = prediction.shape[2] - nm - 5  # number of classes
+        xc = prediction[..., 4] > conf_thres  # candidates
+
+        max_wh = 7680  # (pixels) maximum box width and height
+        mi = 5 + nc  # mask start index
+        output = []
+        for xi, x in enumerate(prediction):  # image index, image inference
+            x = x[xc[xi]]  # confidence
+            if not x.shape[0]:
+                output.append({
+                    "detection_boxes": np.zeros((0, 4)),
+                    "mask": np.zeros((0, 32)),
+                    "detection_classes": np.zeros((0, 80)),
+                    "detection_scores": np.zeros((0, 80)),
+                })
+                continue
+
+            x[:, 5:] *= x[:, 4:5]
+            boxes = segment_xywh2xyxy(x[:, :4])
+            mask = x[:, mi:]
+
+            multi_label &= nc > 1
+            if not multi_label:
+                conf = np.expand_dims(x[:, 5:mi].max(1), 1)
+                j = np.expand_dims(x[:, 5:mi].argmax(1), 1).astype(np.float32)
+                keep = np.squeeze(conf, 1) > conf_thres
+                x = np.concatenate((boxes, conf, j, mask), 1)[keep]
+            else:
+                i, j = (x[:, 5:mi] > conf_thres).nonzero()
+                x = np.concatenate((boxes[i], x[i, 5 + j, None], j[:, None].astype(np.float32), mask[i]), 1)
+
+            x = x[x[:, 4].argsort()[::-1]]
+            cls_shift = x[:, 5:6] * max_wh
+            boxes = x[:, :4] + cls_shift
+            conf = x[:, 4:5]
+            from ..inference.ops import nms as ops_nms
+            keep = ops_nms(np.hstack([boxes.astype(np.float32), conf.astype(np.float32)]), iou_thres)
+
+            if keep.shape[0] > max_det:
+                keep = keep[:max_det]
+
+            out = x[keep]
+            output.append({
+                "detection_boxes": out[:, :4],
+                "mask": out[:, 6:],
+                "detection_classes": out[:, 5],
+                "detection_scores": out[:, 4]
+            })
+
+        return output
+
+
+    def segment_process_mask_optimized(protos, masks_in, bboxes, shape, upsample=True, downsample=False):
+        mh, mw, c = protos.shape
+        ih, iw = shape
+        protos_flat = protos.reshape(-1, c).T
+        masks = masks_in @ protos_flat
+        masks = expit(masks).reshape(-1, mh, mw)
+
+        bboxes = bboxes.copy()
+        if downsample:
+            bboxes[:, [0, 2]] *= mw / iw
+            bboxes[:, [1, 3]] *= mh / ih
+            masks = segment_crop_mask_roi_vectorized(masks, bboxes)
+
+        if upsample:
+            resized = np.empty((masks.shape[0], ih, iw), dtype=np.float32)
+            for i in range(masks.shape[0]):
+                resized[i] = cv2.resize(masks[i], (iw, ih), interpolation=cv2.INTER_LINEAR)
+            masks = resized
+
+        if not downsample:
+            masks = segment_crop_mask_roi_vectorized(masks, bboxes)
+
+        return masks
+
+
+    def segment_crop_mask_roi_vectorized(masks, boxes):
+        N, H, W = masks.shape
+        output = np.zeros_like(masks)
+        boxes = np.round(boxes).astype(int)
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, W - 1)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, H - 1)
+        for i in range(N):
+            x1, y1, x2, y2 = boxes[i]
+            output[i, y1:y2, x1:x2] = masks[i, y1:y2, x1:x2]
+        return output
+
+
+    def segment_make_grid(anchors, stride, bs=8, nx=20, ny=20):
+        na = len(anchors) // 2
+        y, x = np.arange(ny), np.arange(nx)
+        yv, xv = np.meshgrid(y, x, indexing="ij")
+        grid = np.stack((xv, yv), 2)
+        grid = np.stack([grid for _ in range(na)], 0) - 0.5
+        grid = np.stack([grid for _ in range(bs)], 0)
+        anchor_grid = np.reshape(anchors * stride, (na, -1))
+        anchor_grid = np.stack([anchor_grid for _ in range(ny)], axis=1)
+        anchor_grid = np.stack([anchor_grid for _ in range(nx)], axis=2)
+        anchor_grid = np.stack([anchor_grid for _ in range(bs)], 0)
+        return grid, anchor_grid
+
+
+    def segment_yolov5_decoding(branch_idx, output, stride_list, anchor_list, num_classes):
+        BS, H, W = output.shape[0:3]
+        stride = stride_list[branch_idx]
+        anchors = anchor_list[branch_idx] / stride
+        num_anchors = len(anchors) // 2
+        grid, anchor_grid = segment_make_grid(anchors, stride, BS, W, H)
+        output = output.transpose((0, 3, 1, 2)).reshape((BS, num_anchors, -1, H, W)).transpose((0, 1, 3, 4, 2))
+        xy, wh, conf, mask = np.array_split(output, [2, 4, 4 + num_classes + 1], axis=4)
+        xy = (sigmoid(xy) * 2 + grid) * stride
+        wh = (sigmoid(wh) * 2) ** 2 * anchor_grid
+        out = np.concatenate((xy, wh, sigmoid(conf), mask), 4)
+        return out.reshape((BS, num_anchors * H * W, -1)).astype(np.float32)
+
+
+    def segment_yolov8_decoding(raw_boxes, strides, image_dims, reg_max):
+        boxes = None
+        for box_distribute, stride in zip(raw_boxes, strides):
+            shape = [int(x / stride) for x in image_dims]
+            grid_x, grid_y = np.meshgrid(np.arange(shape[1]) + 0.5, np.arange(shape[0]) + 0.5)
+            ct_row, ct_col = grid_y.flatten() * stride, grid_x.flatten() * stride
+            center = np.stack((ct_col, ct_row, ct_col, ct_row), axis=1)
+            reg_range = np.arange(reg_max + 1)
+            box_distribute = np.reshape(box_distribute, (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1))
+            box_distance = np.sum(softmax(box_distribute) * np.reshape(reg_range, (1, 1, 1, -1)), axis=-1) * stride
+            box_distance = np.concatenate([box_distance[:, :, :2] * (-1), box_distance[:, :, 2:]], axis=-1)
+            decode_box = np.expand_dims(center, axis=0) + box_distance
+            xmin, ymin, xmax, ymax = decode_box[:, :, 0], decode_box[:, :, 1], decode_box[:, :, 2], decode_box[:, :, 3]
+            xywh_box = np.transpose([(xmin + xmax) / 2, (ymin + ymax) / 2, xmax - xmin, ymax - ymin], [1, 2, 0])
+            boxes = xywh_box if boxes is None else np.concatenate([boxes, xywh_box], axis=1)
+        return boxes
+
+
+    def segment_yolov5_postprocess(endnodes, **kwargs):
+        img_dims = tuple(kwargs["input_shape"])
+        protos = endnodes[0]
+        anchor_list = np.array(kwargs["anchors"]["sizes"][::-1])
+        stride_list = kwargs["anchors"]["strides"][::-1]
+        num_classes = kwargs["classes"]
+        outputs = []
+        for branch_idx, output in enumerate(endnodes[1:]):
+            outputs.append(segment_yolov5_decoding(branch_idx, output, stride_list, anchor_list, num_classes))
+        outputs = np.concatenate(outputs, 1)
+        outputs = segment_non_max_suppression(outputs, kwargs["score_threshold"], kwargs["nms_iou_thresh"], nm=protos.shape[-1])
+        for batch_idx, output in enumerate(outputs):
+            output["mask"] = segment_process_mask_optimized(protos[batch_idx].astype(np.float32, copy=False), output["mask"].astype(np.float32, copy=False), output["detection_boxes"], img_dims, upsample=True)
+            output["detection_boxes"][:, [0, 2]] /= img_dims[1]
+            output["detection_boxes"][:, [1, 3]] /= img_dims[0]
+        return outputs
+
+
+    def segment_yolov8_postprocess(endnodes, **kwargs):
+        num_classes, strides, image_dims, reg_max = kwargs["classes"], kwargs["anchors"]["strides"][::-1], tuple(kwargs["input_shape"]), kwargs["anchors"]["regression_length"]
+        raw_boxes = endnodes[:7:3]
+        scores = np.concatenate([np.reshape(s, (-1, s.shape[1] * s.shape[2], num_classes)) for s in endnodes[1:8:3]], axis=1)
+        decoded_boxes = segment_yolov8_decoding(raw_boxes, strides, image_dims, reg_max)
+        proto_data = endnodes[9]
+        batch_size, _, _, n_masks = proto_data.shape
+        scores_obj = np.concatenate([np.ones((scores.shape[0], scores.shape[1], 1)), scores], axis=-1)
+        coeffs = np.concatenate([np.reshape(c, (-1, c.shape[1] * c.shape[2], n_masks)) for c in endnodes[2:9:3]], axis=1)
+        predictions = np.concatenate([decoded_boxes, scores_obj, coeffs], axis=2)
+        nms_res = segment_non_max_suppression(predictions, conf_thres=kwargs["score_threshold"], iou_thres=kwargs["nms_iou_thresh"], multi_label=True)
+        outputs = []
+        for b in range(batch_size):
+            masks = segment_process_mask_optimized(proto_data[b].astype(np.float32, copy=False), nms_res[b]["mask"].astype(np.float32, copy=False), nms_res[b]["detection_boxes"], image_dims)
+            outputs.append({
+                "detection_boxes": np.array(nms_res[b]["detection_boxes"]) / np.tile(image_dims, 2),
+                "mask": masks,
+                "detection_scores": np.array(nms_res[b]["detection_scores"]),
+                "detection_classes": np.array(nms_res[b]["detection_classes"]).astype(int)
+            })
+        return outputs
+
+
+    def segment_decode_and_postprocess(raw_detections, config_data, arch_key):
+        arch_cfg = config_data[arch_key]
+        layers, mask_channels = arch_cfg["layers"], arch_cfg["mask_channels"]
+        raw_detections_keys = list(raw_detections.keys())
+        layer_from_shape = {raw_detections[key].shape: key for key in raw_detections_keys}
+        def resolve_shape(layer):
+            b, h, w, c_tag = layer
+            if isinstance(c_tag, str):
+                if c_tag == "mask_channels": c = mask_channels
+                elif c_tag == "detection_channels": c = (arch_cfg['classes'] + 4 + 1 + mask_channels) * len(arch_cfg['anchors']['strides'])
+                elif c_tag == "detection_output_channels": c = (arch_cfg["classes"] + 4 + 1 + mask_channels) * len(arch_cfg['anchors']['strides']) if arch_key == 'v5' else (arch_cfg['anchors']['regression_length'] + 1) * 4
+                elif c_tag == "classes": c = arch_cfg["classes"]
+                else: raise ValueError(f"Unsupported channel tag: {c_tag}")
+            else: c = c_tag
+            return (b, h, w, c)
+        endnodes = [raw_detections[layer_from_shape[resolve_shape(layer)]] for layer in layers]
+        if arch_key == "v5": return segment_yolov5_postprocess(endnodes, **arch_cfg)
+        elif arch_key in ["v8", "fast"]: return segment_yolov8_postprocess(endnodes, **arch_cfg)
+        else: raise ValueError(f"Unsupported architecture key: {arch_key}")
+
+
+    def pose_nms(dets: np.ndarray, thresh: float) -> np.ndarray:
+        x1, y1, x2, y2 = dets[:, 0], dets[:, 1], dets[:, 2], dets[:, 3]
+        scores = dets[:, 4]
+        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+        order = np.argsort(scores)[::-1]
+
+        suppressed = np.zeros(dets.shape[0], dtype=int)
+        for i in range(len(order)):
+            idx_i = order[i]
+            if suppressed[idx_i] == 1:
+                continue
+            for j in range(i + 1, len(order)):
+                idx_j = order[j]
+                if suppressed[idx_j] == 1:
+                    continue
+
+                xx1 = max(x1[idx_i], x1[idx_j])
+                yy1 = max(y1[idx_i], y1[idx_j])
+                xx2 = min(x2[idx_i], x2[idx_j])
+                yy2 = min(y2[idx_i], y2[idx_j])
+                w = max(0.0, xx2 - xx1 + 1)
+                h = max(0.0, yy2 - yy1 + 1)
+                inter = w * h
+                ovr = inter / (areas[idx_i] + areas[idx_j] - inter)
+
+                if ovr >= thresh:
+                    suppressed[idx_j] = 1
+
+        return np.where(suppressed == 0)[0]
+
+
+    def decode_pose_results(raw_boxes: np.ndarray, raw_kpts: np.ndarray, strides: List[int], image_dims: Tuple[int, int], reg_max: int) -> Tuple[np.ndarray, np.ndarray]:
+        boxes = None
+        decoded_kpts = None
+
+        for box_distribute, kpts, stride in zip(raw_boxes, raw_kpts, strides):
+            shape = [int(x / stride) for x in image_dims]
+            grid_x, grid_y = np.meshgrid(np.arange(shape[1]) + 0.5, np.arange(shape[0]) + 0.5)
+            ct_row, ct_col = grid_y.flatten() * stride, grid_x.flatten() * stride
+            center = np.stack((ct_col, ct_row, ct_col, ct_row), axis=1)
+
+            box_distance = softmax(np.reshape(box_distribute, (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1)))
+            box_distance = np.sum(box_distance * np.reshape(np.arange(reg_max + 1), (1, 1, 1, -1)), axis=-1) * stride
+
+            decode_box = np.expand_dims(center, axis=0) + np.concatenate([box_distance[:, :, :2] * (-1), box_distance[:, :, 2:]], axis=-1)
+            xmin, ymin, xmax, ymax = decode_box[:, :, 0], decode_box[:, :, 1], decode_box[:, :, 2], decode_box[:, :, 3]
+            xywh_box = np.transpose([(xmin + xmax) / 2, (ymin + ymax) / 2, xmax - xmin, ymax - ymin], [1, 2, 0])
+            boxes = xywh_box if boxes is None else np.concatenate([boxes, xywh_box], axis=1)
+
+            kpts = stride * (kpts * 2 - 0.5) + np.expand_dims(center[..., :2], axis=1)
+            decoded_kpts = kpts if decoded_kpts is None else np.concatenate([decoded_kpts, kpts], axis=1)
+
+        return boxes, decoded_kpts
+
+
+    def map_box_to_original_coords(box: list, orig_w: int, orig_h: int, model_w: int, model_h: int) -> list:
+        """
+        Maps a bounding box from preprocessed image space back to original image space.
+        """
+        scale = min(model_w / orig_w, model_h / orig_h)
+        new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+        x_offset = (model_w - new_w) // 2
+        y_offset = (model_h - new_h) // 2
+
+        xmin, ymin, xmax, ymax = box
+        xmin -= x_offset
+        xmax -= x_offset
+        ymin -= y_offset
+        ymax -= y_offset
+
+        xmin = max(0, min(orig_w - 1, int(xmin / scale)))
+        xmax = max(0, min(orig_w - 1, int(xmax / scale)))
+        ymin = max(0, min(orig_h - 1, int(ymin / scale)))
+        ymax = max(0, min(orig_h - 1, int(ymax / scale)))
+
+        return [xmin, ymin, xmax, ymax]
+
+
+    def map_keypoints_to_original_coords(keypoints: np.ndarray, orig_w: int, orig_h: int, model_w: int, model_h: int) -> np.ndarray:
+        """
+        Map keypoints from preprocessed image space back to original image space.
+        """
+        scale = min(model_w / orig_w, model_h / orig_h)
+        new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+        x_offset = (model_w - new_w) // 2
+        y_offset = (model_h - new_h) // 2
+
+        keypoints[:, 0] = np.clip((keypoints[:, 0] - x_offset) / scale, 0, orig_w - 1)
+        keypoints[:, 1] = np.clip((keypoints[:, 1] - y_offset) / scale, 0, orig_h - 1)
+
+        return keypoints
+
+
+    def pose_post_process(raw_detections: dict, model_h: int, model_w: int, input_batch: List[np.ndarray], score_threshold: float, nms_iou_thresh: float = 0.7, max_detections: int = 300, regression_length: int = 15, strides: List[int] = [8, 16, 32], labels: List[str] = None) -> List[List[dict]]:
+        """
+        Process raw detections into a structured format for pose estimation.
+        Returns a list of lists of detection dictionaries (batch_size, num_detections) mapped to original image coordinates.
+        """
+        raw_detections_keys = list(raw_detections.keys())
+        layer_from_shape = {raw_detections[key].shape: key for key in raw_detections_keys}
+        detection_output_channels = (regression_length + 1) * 4
+        
+        endnodes = [
+            raw_detections[layer_from_shape[1, 20, 20, detection_output_channels]],
+            raw_detections[layer_from_shape[1, 20, 20, 1]],
+            raw_detections[layer_from_shape[1, 20, 20, 51]],
+            raw_detections[layer_from_shape[1, 40, 40, detection_output_channels]],
+            raw_detections[layer_from_shape[1, 40, 40, 1]],
+            raw_detections[layer_from_shape[1, 40, 40, 51]],
+            raw_detections[layer_from_shape[1, 80, 80, detection_output_channels]],
+            raw_detections[layer_from_shape[1, 80, 80, 1]],
+            raw_detections[layer_from_shape[1, 80, 80, 51]]
+        ]
+
+        batch_size = endnodes[0].shape[0]
+        strides = strides[::-1]
+        raw_boxes = endnodes[:7:3]
+        scores = np.concatenate([np.reshape(s, (-1, s.shape[1] * s.shape[2], 1)) for s in endnodes[1:8:3]], axis=1)
+        kpts = [np.reshape(c, (-1, c.shape[1] * c.shape[2], 17, 3)) for c in endnodes[2:9:3]]
+
+        decoded_boxes, decoded_kpts = decode_pose_results(raw_boxes, kpts, strides, (model_h, model_w), regression_length)
+        predictions = np.concatenate([decoded_boxes, scores, np.reshape(decoded_kpts, (batch_size, -1, 51))], axis=2)
+
+        batch_detections = []
+        for b in range(batch_size):
+            image_detections = []
+            orig_h, orig_w = input_batch[b].shape[:2]
+            x = predictions[b][predictions[b, :, 4] > score_threshold]
+            if x.shape[0] > 0:
+                boxes = np.copy(x[:, :4])
+                boxes[:, 0], boxes[:, 1] = x[:, 0] - x[:, 2] / 2, x[:, 1] - x[:, 3] / 2
+                boxes[:, 2], boxes[:, 3] = x[:, 0] + x[:, 2] / 2, x[:, 1] + x[:, 3] / 2
+                
+                indices = pose_nms(np.concatenate((boxes, x[:, 4:5]), axis=1), nms_iou_thresh)[:max_detections]
+                
+                for idx in indices:
+                    det_box = boxes[idx]
+                    det_score = x[idx, 4]
+                    kpts_res = x[idx, 5:].reshape(17, 3)
+                    
+                    xmin, ymin, xmax, ymax = map_box_to_original_coords(det_box, orig_w, orig_h, model_w, model_h)
+                    mapped_kpts = map_keypoints_to_original_coords(kpts_res[..., :2], orig_w, orig_h, model_w, model_h)
+                    
+                    image_detections.append({
+                        'label': labels[0] if labels else 'person',
+                        'score': float(det_score),
+                        'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                        'keypoints': mapped_kpts,
+                        'joint_scores': sigmoid(kpts_res[..., 2]),
+                        'class_id': 0
+                    })
+            batch_detections.append(image_detections)
+
+        return batch_detections
+
+
+    class ModelInference(HailoInfer):
+        def __init__(self, hef_path: str, task: str = 'detect', batch_size: int = 1, labels: str = None, score_threshold: float = 0.25, config_data: dict = None, model_type: str = 'v8'):
+            hef_path = resolve_hef_path(hef_path, task)
+            super().__init__(hef_path, batch_size)
+            self.task = task
+            self.labels = get_labels(labels)
+            self.score_threshold = score_threshold
+            self.config_data = config_data
+            self.model_type = model_type
+
+        def _get_results(self, bindings):
+            if len(bindings._output_names) == 1:
+                return bindings.output().get_buffer()
+            return {
+                name: np.expand_dims(bindings.output(name).get_buffer(), axis=0)
+                for name in bindings._output_names
+            }
+
+        def decode_and_postprocess(self, raw_detections, image):
+            img_height, img_width = image.shape[:2]
+            result = segment_decode_and_postprocess(raw_detections, self.config_data, self.model_type)[0]
+            
+            # --- Compute scale and padding used in letterbox ---
+            model_h, model_w, _ = self.get_input_shape()
+            scale_ratio = min(model_w / img_width, model_h / img_height)
+            pad_w = (model_w - int(round(img_width * scale_ratio))) // 2
+            pad_h = (model_h - int(round(img_height * scale_ratio))) // 2
+
+            boxes = result['detection_boxes']
+            masks = result['mask']
+            scores = result['detection_scores']
+            classes = result['detection_classes']
+            
+            visualization_params = self.config_data.get("visualization_params", {})
+            score_threshold = visualization_params.get("score_thres", self.score_threshold)
+            mask_threshold = visualization_params.get("mask_thresh", 0.45)
+            max_boxes = visualization_params.get("max_boxes_to_draw", 50)
+
+            detections = []
+            for i in range(min(len(boxes), max_boxes)):
+                if scores[i] < score_threshold:
+                    continue
+                
+                # Decode boxes back to original image space
+                cx, cy, w, h = boxes[i]
+                xmin = (cx * model_w - w * model_w / 2 - pad_w) / scale_ratio
+                ymin = (cy * model_h - h * model_h / 2 - pad_h) / scale_ratio
+                xmax = (cx * model_w + w * model_w / 2 - pad_w) / scale_ratio
+                ymax = (cy * model_h + h * model_h / 2 - pad_h) / scale_ratio
+                
+                xmin = max(0, min(img_width - 1, xmin))
+                ymin = max(0, min(img_height - 1, ymin))
+                xmax = max(0, min(img_width - 1, xmax))
+                ymax = max(0, min(img_height - 1, ymax))
+
+                detections.append({
+                    'label': self.labels[classes[i]] if self.labels else str(classes[i]),
+                    'score': float(scores[i]),
+                    'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                    'mask': (masks[i] > mask_threshold).astype(np.uint8),
+                    'class_id': int(classes[i])
+                })
+            return detections
+
+        def _process_nms_results(self, result, image):
+            infer_results = result if isinstance(result, list) else [result]
+            img_height, img_width = image.shape[:2]
+            size = max(img_height, img_width)
+            padding_length = int(abs(img_height - img_width) / 2)
+
+            score_threshold = self.score_threshold
+            max_boxes = 50
+            if self.config_data and "visualization_params" in self.config_data:
+                visualization_params = self.config_data["visualization_params"]
+                score_threshold = visualization_params.get("score_thres", self.score_threshold)
+                max_boxes = visualization_params.get("max_boxes_to_draw", 50)
+
+            detections = []
+            counter = 0
+
+            for det in infer_results:
+                if det.score < score_threshold or counter >= max_boxes:
+                    break
+
+                box_on_input_image, box_on_padded_image = convert_box_from_normalized(
+                    [det.x_min, det.y_min, det.x_max, det.y_max], size, padding_length, img_height, img_width)
+                
+                xmin, ymin, xmax, ymax = box_on_input_image
+                detection = {
+                    'label': self.labels[det.class_id] if self.labels else str(det.class_id),
+                    'score': float(det.score),
+                    'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                    'class_id': det.class_id
+                }
+
+                if self.task == 'segment':
+                    mask = resize_mask_to_unpadded_box(det.mask, box_on_input_image, box_on_padded_image)
+                    if mask is not None:
+                        detection['mask'] = mask
+                
+                detections.append(detection)
+                counter += 1
+            return detections
+
+        def _process_detect_results(self, result, image):
+            infer_results = result if isinstance(result, list) else [result]
+            img_height, img_width = image.shape[:2]
+            size = max(img_height, img_width)
+            padding_length = int(abs(img_height - img_width) / 2)
+
+            detections = []
+            for class_id, detection in enumerate(infer_results):
+                for det in detection:
+                    bbox, score = det[:4], det[4]
+                    if score >= self.score_threshold:
+                        # Denormalize and remove padding
+                        box = [int(x * size) for x in bbox]
+                        for j in range(4):
+                            if j % 2 == 0:  # x-coordinates
+                                if img_height != size:
+                                    box[j] -= padding_length
+                            else:  # y-coordinates
+                                if img_width != size:
+                                    box[j] -= padding_length
+                        # Swap to [xmin, ymin, xmax, ymax]
+                        xmin, ymin, xmax, ymax = box[1], box[0], box[3], box[2]
+                        detections.append({
+                            'label': self.labels[class_id] if self.labels else str(class_id),
+                            'score': float(score),
+                            'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                            'class_id': class_id
+                        })
+            return detections
+
+        def _process_pose_results(self, result, image):
+            model_h, model_w, _ = self.get_input_shape()
+            orig_h, orig_w = image.shape[:2]
+            return pose_post_process(result, model_h, model_w, orig_h, orig_w, score_threshold=self.score_threshold, labels=self.labels)
+
+        def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
+            if completion_info.exception:
+                logger.error(f'Inference error: {completion_info.exception}')
+            else:
+                if self.task == 'pose':
+                    # pose_post_process returns the whole batch results
+                    all_results = self._get_results(bindings_list[0]) # Bindings are for the whole batch
+                    processed_batch = self._process_pose_results(all_results, input_batch[0])
+                    for i, processed_result in enumerate(processed_batch):
+                        output_queue.put((input_batch[i], processed_result))
+                else:
+                    for i, bindings in enumerate(bindings_list):
+                        result = self._get_results(bindings)
+                        
+                        if self.is_nms_postprocess_enabled():
+                            processed_result = self._process_nms_results(result, input_batch[i])
+                        elif self.task == 'detect':
+                            processed_result = self._process_detect_results(result, input_batch[i])
+                        elif self.task == 'segment':
+                            processed_result = self.decode_and_postprocess(result, input_batch[i])
+                        else:
+                            processed_result = result
+                        
+                        output_queue.put((input_batch[i], processed_result))
+
         def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
-            """
-            Main inference loop that pulls data from the input queue, runs asynchronous
-            inference, and pushes results to the output queue.
-
-            Each item in the input queue is expected to be a tuple:
-                (input_batch, preprocessed_batch)
-                - input_batch: Original frames (used for visualization or tracking)
-                - preprocessed_batch: Model-ready frames (e.g., resized, normalized)
-
-            Args:
-                input_queue (queue.Queue): Provides (input_batch, preprocessed_batch) tuples.
-                output_queue (queue.Queue): Collects (input_frame, result) tuples for visualization.
-                stop_event (threading.Event): Event to signal stopping the inference loop.
-            """
             pending_jobs = collections.deque()
 
             while True:
@@ -1075,21 +1654,7 @@ if HAILO_AVAILABLE:
             self.close()
             output_queue.put(None)
 
-        def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
-            if completion_info.exception:
-                logger.error(f'Inference error: {completion_info.exception}')
-            else:
-                for i, bindings in enumerate(bindings_list):
-                    if len(bindings._output_names) == 1:
-                        result = bindings.output().get_buffer()
-                    else:
-                        result = {
-                            name: np.expand_dims(
-                                bindings.output(name).get_buffer(), axis=0
-                            )
-                            for name in bindings._output_names
-                        }
-                    output_queue.put((input_batch[i], result))
 else:
     HailoInfer = None
-    HailoAsyncInference = None
+    ModelInference = None
+    

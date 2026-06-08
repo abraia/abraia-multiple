@@ -158,12 +158,84 @@ def draw_overlay(img, overlay, rect = None, opacity = 1):
     return img
 
 
+def draw_mask(overlay, mask, box, color):
+    x, y, w, h = map(int, box)
+    mh, mw = mask.shape[:2]
+    y1, y2 = max(0, y), min(overlay.shape[0], y + mh)
+    x1, x2 = max(0, x), min(overlay.shape[1], x + mw)
+    if y2 > y1 and x2 > x1:
+        m_y1, m_y2 = y1 - y, y2 - y
+        m_x1, m_x2 = x1 - x, x2 - x
+        overlay[y1:y2, x1:x2][mask[m_y1:m_y2, m_x1:m_x2] == 1] = color
+
+
 def calculate_optimal_thickness(img_size):
     return 2 if min(img_size) < 1080 else 4
 
 
 def calculate_optimal_text_scale(img_size):
     return max(min(img_size) * 0.0008, 0.8)
+
+
+# Joint pairs used for drawing pose estimations
+JOINT_PAIRS = [
+    [0, 1], [1, 3], [0, 2], [2, 4],
+    [5, 6], [5, 7], [7, 9], [6, 8], [8, 10],
+    [5, 11], [6, 12], [11, 12],
+    [11, 13], [12, 14], [13, 15], [14, 16]
+]
+
+
+def render_box(img, box, color, thickness=None):
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    draw_rectangle(img, box, color, thickness)
+
+
+def render_mask(overlay, mask, box, color):
+    x, y, w, h = map(int, box)
+    mh, mw = mask.shape[:2]
+    y1, y2 = max(0, y), min(overlay.shape[0], y + mh)
+    x1, x2 = max(0, x), min(overlay.shape[1], x + mw)
+    if y2 > y1 and x2 > x1:
+        m_y1, m_y2 = y1 - y, y2 - y
+        m_x1, m_x2 = x1 - x, x2 - x
+        overlay[y1:y2, x1:x2][mask[m_y1:m_y2, m_x1:m_x2] == 1] = color
+
+
+def render_polygon(img, polygon, color, thickness=None):
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    draw_polygon(img, polygon, color, thickness)
+
+
+def render_label(img, label, point, color, score=None, track_id=None, text_scale=None, thickness=None):
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
+    text = f"{label} {round(score, 2)}" if score is not None else label
+    if track_id is not None:
+        text = f"[{track_id}] {text}"
+    draw_text(img, text, (int(point[0]), int(point[1])), background_color=color, text_scale=text_scale, padding=thickness * 3)
+
+
+def render_trail(img, trail, color, thickness=None):
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    for i in range(1, len(trail)):
+        draw_line(img, (trail[i - 1], trail[i]), color, thickness=thickness)
+        draw_point(img, trail[i], color, thickness=thickness * 2)
+
+
+def render_keypoints(img, keypoints, color, thickness=None):
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    for point in keypoints:
+        draw_point(img, point, color, thickness)
+
+
+def render_skeleton(img, keypoints, joint_scores, color, thickness=None, joint_threshold=0.5):
+    thickness = thickness or calculate_optimal_thickness(img.shape[:2])
+    for joint0, joint1 in JOINT_PAIRS:
+        if joint_scores[joint0] >= joint_threshold and joint_scores[joint1] >= joint_threshold:
+            pt1 = (int(keypoints[joint0][0]), int(keypoints[joint0][1]))
+            pt2 = (int(keypoints[joint1][0]), int(keypoints[joint1][1]))
+            draw_line(img, (pt1, pt2), color, thickness=thickness)
 
 
 def render_results(img, results, thickness=None, text_scale=None):
@@ -175,41 +247,27 @@ def render_results(img, results, thickness=None, text_scale=None):
         score = result.get('score')
         track_id = result.get('track_id')
         class_id = result.get('class_id', 0)
-        color = result.get('color')
-        if color:
-            color = hex_to_rgb(color)
-        else:
-            color = hex_to_rgb(get_color(track_id if track_id is not None else class_id))
+        color = hex_to_rgb(result.get('color', get_color(track_id if track_id is not None else class_id)))
         if result.get('polygon'):
-            draw_polygon(img, result['polygon'], color, thickness)
+            render_polygon(img, result['polygon'], color, thickness)
         elif result.get('box'):
             box = result.get('box')
-            for point in result.get('keypoints', []):
-                draw_point(img, point, color, thickness)
-            draw_rectangle(img, box, color, thickness)
+            render_keypoints(img, result.get('keypoints', []), color, thickness)
+            if 'joint_scores' in result:
+                render_skeleton(img, result['keypoints'], result['joint_scores'], (255, 0, 255), thickness)
+            render_box(img, box, color, thickness)
             if 'mask' in result and overlay is not None:
-                x, y, w, h = map(int, box)
-                mask = result['mask']
-                mh, mw = mask.shape[:2]
-                y1, y2 = max(0, y), min(img.shape[0], y + mh)
-                x1, x2 = max(0, x), min(img.shape[1], x + mw)
-                if y2 > y1 and x2 > x1:
-                    m_y1, m_y2 = y1 - y, y2 - y
-                    m_x1, m_x2 = x1 - x, x2 - x
-                    overlay[y1:y2, x1:x2][mask[m_y1:m_y2, m_x1:m_x2] == 1] = color
+                render_mask(overlay, result['mask'], box, color)
         if label:
-            text = f"{label} {round(score, 2)}" if score is not None else label
-            if track_id is not None:
-                text = f"[{track_id}] {text}"
             point = result.get('box', [0, 0, 0, 0])[:2]
-            draw_text(img, text, (int(point[0]), int(point[1])), background_color=color, text_scale=text_scale, padding=thickness*3)
+            render_label(img, label, point, color, score, track_id, text_scale, thickness)
         if 'trail' in result:
-            trail = result['trail']
-            for i in range(1, len(trail)):
-                draw_line(img, (trail[i-1], trail[i]), color, thickness=thickness)
-                draw_point(img, trail[i], color, thickness=thickness*2)
+            render_trail(img, result['trail'], color, thickness)
     if overlay is not None:
-        cv2.addWeighted(overlay, 0.5, img, 1.0, 0, dst=img)
+        alpha = 0.5
+        img_over = cv2.addWeighted(img, 1 - alpha, overlay, alpha, 0)
+        mask = cv2.cvtColor(overlay, cv2.COLOR_RGB2GRAY) > 0
+        img[mask] = img_over[mask]
     return img
 
 

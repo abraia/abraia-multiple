@@ -12,11 +12,9 @@ def test_video_input_init():
 
 def test_video_visualizer_fps():
     visualizer = VideoVisualizer(
-        output_dir='test_output',
-        save_output=True
+        save_output='test_output/output.png'
     )
-    assert visualizer.output_dir == 'test_output'
-    assert visualizer.save_output is True
+    assert visualizer.save_output == 'test_output/output.png'
     
     visualizer.start()
     visualizer.increment(5)
@@ -25,21 +23,20 @@ def test_video_visualizer_fps():
     assert "Processed 5 frames" in summary
 
 def test_video_visualizer_save_output(tmp_path):
-    output_dir = str(tmp_path / "output")
-    visualizer = VideoVisualizer(output_dir=output_dir, save_output=True)
+    save_output = str(tmp_path / "output.png")
+    visualizer = VideoVisualizer(save_output=save_output)
     
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
     visualizer.show(frame, fps=30.0, is_capture=False)
     
     import os
-    assert os.path.exists(os.path.join(output_dir, "output_0.png"))
+    assert os.path.exists(str(tmp_path / "output_0.png"))
 
 def test_video_visualizer_no_save_output(tmp_path):
-    output_dir = str(tmp_path / "output")
-    visualizer = VideoVisualizer(output_dir=output_dir, save_output=False)
+    visualizer = VideoVisualizer(save_output=None)
     
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
     visualizer.show(frame, fps=30.0, is_capture=False)
     
     import os
-    assert not os.path.exists(output_dir) or not os.listdir(output_dir)
+    assert not os.path.exists(str(tmp_path / "output_0.png"))

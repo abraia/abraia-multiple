@@ -23,12 +23,12 @@ GOOGLE_PICTURE_ID = '''&biw=1536&bih=674&tbm=isch&sxsrf=ACYBGNSXXpS6YmAKUiLKKBs6
 BING_BASE_URL = 'https://www.bing.com/images/async?q='
 
 
-def convert_to_jpg(src, output_dir, max_size=1920):
+def convert_to_jpg(src, save_output, max_size=1920):
     import imagehash
     im = Image.open(src).convert('RGB')
     im.thumbnail([max_size, max_size], Image.LANCZOS)
     phash = str(imagehash.phash(im))
-    im.save(os.path.join(output_dir, phash + '.jpg'))
+    im.save(os.path.join(save_output, phash + '.jpg'))
 
 
 def download_page(url):
@@ -37,12 +37,12 @@ def download_page(url):
     return resp.text
 
 
-def save_image_file(link, output_dir, timeout=10, max_size=1920):
+def save_image_file(link, save_output, timeout=10, max_size=1920):
     resp = requests.get(link, headers=HEADERS, allow_redirects=True, timeout=timeout)
     kind = filetype.guess(resp.content)
     if kind and kind.mime.startswith('image'):
         d = io.BytesIO(resp.content)
-        convert_to_jpg(d, output_dir, max_size)
+        convert_to_jpg(d, save_output, max_size)
     else:
         raise ValueError(f'Invalid image, not saving')
 
@@ -85,10 +85,10 @@ def search_google(query):
         yield link
 
 
-def download(query, limit=100, output_dir='dataset', verbose=True):
+def download(query, limit=100, save_output='dataset', verbose=True):
     seen = set()
     download_count = 0
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(save_output, exist_ok=True)
     links = [search_google(query), search_bing(query)]
     ends = [False] * len(links)
     for id in itertools.cycle(range(len(links))):
@@ -98,7 +98,7 @@ def download(query, limit=100, output_dir='dataset', verbose=True):
                 seen.add(link)
                 if download_count < limit:
                     try:
-                        save_image_file(link, output_dir)
+                        save_image_file(link, save_output)
                         download_count += 1
                         if verbose:
                             print(f"[%] Downloaded Image #{download_count} from {link}")
@@ -112,10 +112,10 @@ def download(query, limit=100, output_dir='dataset', verbose=True):
                 break
 
 
-def search_images(query, limit=100, output_dir='dataset', verbose=True):
+def search_images(query, limit=100, save_output='dataset', verbose=True):
     """Search and download images from Google and Bing."""
-    download(query, limit=limit, output_dir=output_dir,  verbose=verbose)
-    return list_dir(output_dir)
+    download(query, limit=limit, save_output=save_output,  verbose=verbose)
+    return list_dir(save_output)
 
 
 def download_file(path, folder):

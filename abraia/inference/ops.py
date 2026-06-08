@@ -78,6 +78,28 @@ def mask_to_polygon(mask, origin=[0, 0], approx=0.001):
 #     return polygon.tolist()
 
 
+# def mask_to_polygons(mask):
+#     """
+#     Convert a binary mask to a list of flattened polygons.
+
+#     Args:
+#         mask (np.ndarray): 2D binary mask.
+
+#     Returns:
+#         list: List of polygons (as flattened arrays).
+#         bool: True if the mask has holes.
+#     """
+#     mask = np.ascontiguousarray(mask)
+#     res = cv2.findContours(mask.astype("uint8"), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+#     hierarchy = res[-1]
+#     if hierarchy is None:
+#         return [], False
+#     has_holes = (hierarchy.reshape(-1, 4)[:, 3] >= 0).sum() > 0
+#     contours = res[-2]
+#     polygons = [c.flatten() + 0.5 for c in contours if len(c) >= 6]
+#     return polygons, has_holes
+
+
 def approximate_polygon(polygon, approx=0.02):
     contour = np.array([polygon]).astype(np.int32)
     contour = approx_contour(contour, approx)

@@ -25,7 +25,7 @@ def preprocess(img, size = 224):
 def postprocess(outputs, classes):
     probs = softmax(outputs[0].flatten())
     idx = np.argmax(probs)
-    return [{'label': classes[idx], 'score': probs[idx], 'color': get_color(idx)}]
+    return [{'label': classes[idx], 'score': probs[idx], 'class_id': int(idx)}]
 
 
 def scale_size(size, new_size):
@@ -85,7 +85,7 @@ def process_output(outputs, size, shape, classes, conf_threshold=0.25, iou_thres
             continue
         x1, y1 = round((xc - w/2) * scale), round((yc - h/2) * scale)
         x2, y2 = round((xc + w/2) * scale), round((yc + h/2) * scale)
-        obj = {'label': label, 'score': float(probs[idx]), 'box': [x1, y1, x2 - x1, y2 - y1], 'color': get_color(idx)}
+        obj = {'label': label, 'score': float(probs[idx]), 'box': [x1, y1, x2 - x1, y2 - y1], 'class_id': int(idx)}
         if len(outputs) == 2:
             obj['mask'] = row[4+len(classes):]
         objects.append(obj)
