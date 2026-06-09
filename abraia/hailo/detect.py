@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_OPTIONS = {
     "input": 0,
-    "hef_path": "yolov8m.hef",
+    "hef_path": None,
     "batch_size": 1,
     "score_threshold": 0.25,
     "model_type": "v5",

@@ -13,7 +13,6 @@ import numpy as np
 
 from pathlib import Path
 from functools import partial
-from scipy.special import expit
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
 from ..utils import download_url
@@ -90,10 +89,6 @@ RESOURCES_CONFIG["detect"] = {
                 {"name": "yolov8s", "source": "mz"},
                 {"name": "yolov8l", "source": "mz"},
                 {"name": "yolov8x", "source": "mz"},
-                {"name": "yolov10n", "source": "mz"},
-                {"name": "yolov10s", "source": "mz"},
-                {"name": "yolov10b", "source": "mz"},
-                {"name": "yolov10x", "source": "mz"},
                 {"name": "yolov11n", "source": "mz"},
                 {"name": "yolov11s", "source": "mz"},
                 {"name": "yolov11m", "source": "mz"},
@@ -108,10 +103,6 @@ RESOURCES_CONFIG["detect"] = {
                 {"name": "yolov8m", "source": "mz"},
                 {"name": "yolov8l", "source": "mz"},
                 {"name": "yolov8x", "source": "mz"},
-                {"name": "yolov10n", "source": "mz"},
-                {"name": "yolov10s", "source": "mz"},
-                {"name": "yolov10b", "source": "mz"},
-                {"name": "yolov10x", "source": "mz"},
                 {"name": "yolov11n", "source": "mz"},
                 {"name": "yolov11s", "source": "mz"},
                 {"name": "yolov11m", "source": "mz"},
@@ -1203,6 +1194,7 @@ if HAILO_AVAILABLE:
 
 
     def segment_process_mask_optimized(protos, masks_in, bboxes, shape, upsample=True, downsample=False):
+        from scipy.special import expit
         mh, mw, c = protos.shape
         ih, iw = shape
         protos_flat = protos.reshape(-1, c).T
