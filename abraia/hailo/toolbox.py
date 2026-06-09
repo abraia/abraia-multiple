@@ -1355,6 +1355,7 @@ if HAILO_AVAILABLE:
             if self.model_type == "v5": result = segment_yolov5_postprocess(endnodes, **arch_cfg)[0]
             elif self.model_type == "v8": result = segment_yolov8_postprocess(endnodes, **arch_cfg)[0]
             else: raise ValueError(f"Unsupported architecture key: {self.model_type}")
+            print(result)
             boxes, masks, scores, classes = result['detection_boxes'], result['mask'], result['detection_scores'], result['detection_classes']
             detections = []
             for i in range(len(boxes)):
@@ -1365,6 +1366,7 @@ if HAILO_AVAILABLE:
                     'label': self.labels[classes[i]] if self.labels else str(classes[i]), 'score': float(scores[i]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
                     'mask': (masks[i] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
                 })
+            print(detections)
             return detections
 
         def _process_pose_results(self, result, image):
