@@ -269,15 +269,9 @@ def run(project, classes, src):
             project = classes if classes != 'faces' else 'detect'
             monitor_objects(src, project)
     elif project == 'hailo':
-        if classes == 'detect':
-            from abraia.hailo import object_detection
-            object_detection.main(input=src)
-        elif classes == 'segment':
-            from abraia.hailo import segmentation
-            segmentation.main(input=src, task='segment')
-        elif classes == 'pose':
-            from abraia.hailo import segmentation
-            segmentation.main(input=src, task='pose')
+        from abraia.hailo import detect
+        if classes in ['detect', 'segment', 'pose']:
+            detect.main(input=src, task=classes)
     else:
         src = classes if classes != 'faces' else src or 0
         try:

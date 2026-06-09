@@ -1,9 +1,6 @@
 import queue
 import threading
-
 import logging
-logger = logging.getLogger(__name__)
-
 from types import SimpleNamespace
 
 from .toolbox import (
@@ -11,37 +8,40 @@ from .toolbox import (
     VideoVisualizer,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
-    ModelInference,
+    ModelInference
 )
 
 from ..inference.tracker import TrackletHistory, Tracker
 from ..utils.draw import render_results
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_OPTIONS = {
     "input": 0,
     "hef_path": "yolov8m.hef",
     "batch_size": 1,
     "score_threshold": 0.25,
-    "frame_rate": None,
+    "model_type": "v5",
     "track": True,
     "labels": None,
     "draw_trail": False,
+    "frame_rate": None,
     "camera_resolution": None,
+    "video_unpaced": False,
     "save_output": None,
+    "task": "detect"
 }
 
 CONFIG_DATA = {
     "tracker": {
         "track_thresh": 0.1,
         "track_buffer": 30,
-        "match_thresh": 0.9,
-        "aspect_ratio_thresh": 2.0,
+        "match_thresh": 0.9
     }
 }
 
 
-def inference_result_handler(original_frame, detections, *args, tracker=None, tracklet_history=None, **kwargs):
+def inference_result_handler(original_frame, detections, tracker=None, tracklet_history=None):
     """
     Processes inference results and draw detections (with optional tracking).
 
@@ -83,14 +83,14 @@ def run_inference_pipeline(
             name="preprocess-thread",
         )
 
-        infer_thread = threading.Thread(
+        inference_thread = threading.Thread(
             target=model_inference.infer,
             args=(input_queue, output_queue, input_data.stop_event),
-            name="infer-thread",
+            name="inference-thread",
         )
 
         preprocess_thread.start()
-        infer_thread.start()
+        inference_thread.start()
 
         visualizer.visualize(
             output_queue,
@@ -102,10 +102,12 @@ def run_inference_pipeline(
     finally:
         input_data.stop_event.set()
         preprocess_thread.join()
-        infer_thread.join()
+        inference_thread.join()
 
     logger.info(visualizer.frame_rate_summary())
     logger.info("Processing completed successfully.")
+    if visualizer.save_output:
+        logger.info(f"Saved outputs to '{visualizer.save_output}'.")
 
 
 def main(**kwargs) -> None:
@@ -131,6 +133,7 @@ def main(**kwargs) -> None:
         batch_size=args.batch_size,
         resolution=args.camera_resolution,
         frame_rate=args.frame_rate,
+        video_unpaced=args.video_unpaced,
         stop_event=stop_event
     )
 
@@ -142,10 +145,12 @@ def main(**kwargs) -> None:
     )
 
     model_inference = ModelInference(
-        args.hef_path, task='detect', 
-        labels=args.labels, 
+        args.hef_path,
+        task=args.task,
+        labels=args.labels,
         batch_size=input_data.batch_size,
-        score_threshold=args.score_threshold
+        score_threshold=args.score_threshold,
+        model_type=args.model_type
     )
 
     tracker = None
@@ -156,7 +161,7 @@ def main(**kwargs) -> None:
             track_thresh=tracker_config.get('track_thresh', 0.1),
             track_buffer=tracker_config.get('track_buffer', 30),
             match_thresh=tracker_config.get('match_thresh', 0.9),
-            frame_rate=args.frame_rate or 30
+            frame_rate=input_data.source_fps or 30.0
         )
         if args.draw_trail:
             tracklet_history = TrackletHistory()

@@ -908,13 +908,7 @@ class VideoVisualizer:
     def frame_rate_summary(self) -> str:
         return f"Processed {self.count} frames at {self.fps:.2f} FPS, Total time: {self.elapsed:.2f} seconds"
 
-    def visualize(
-        self,
-        output_queue: queue.Queue,
-        callback: Callable,
-        is_capture: bool = True,
-        **kwargs,
-    ) -> None:
+    def visualize(self, output_queue: queue.Queue, callback: Callable, is_capture: bool = True, **kwargs) -> None:
         self.start()
         with self:
             while True:
@@ -922,13 +916,13 @@ class VideoVisualizer:
                 try:
                     if result is None:
                         break
-                    original_frame, inference_result, *metadata = result
+                    original_frame, inference_result = result
                     if self.stop_event.is_set():
                         continue
-                    if isinstance(inference_result, list) and len(inference_result) == 1:
-                        inference_result = inference_result[0]
+                    # if isinstance(inference_result, list) and len(inference_result) == 1:
+                    #     inference_result = inference_result[0]
 
-                    frame_with_detections = callback(original_frame, inference_result, *metadata, **kwargs)
+                    frame_with_detections = callback(original_frame, inference_result, **kwargs)
                     self.increment()
 
                     if not self.show(frame_with_detections, self.fps, is_capture=is_capture):
@@ -1332,8 +1326,8 @@ if HAILO_AVAILABLE:
         return outputs
 
 
-    def segment_decode_and_postprocess(raw_detections, config_data, arch_key):
-        arch_cfg = config_data[arch_key]
+    def segment_decode_and_postprocess(raw_detections, arch_key):
+        arch_cfg = SEGMENT_CONFIG[arch_key]
         layers, mask_channels = arch_cfg["layers"], arch_cfg["mask_channels"]
         raw_detections_keys = list(raw_detections.keys())
         layer_from_shape = {raw_detections[key].shape: key for key in raw_detections_keys}
@@ -1510,14 +1504,13 @@ if HAILO_AVAILABLE:
 
 
     class ModelInference(HailoInfer):
-        def __init__(self, hef_path: str, task: str = 'detect', batch_size: int = 1, labels: str = None, score_threshold: float = 0.25, mask_threshold: float = 0.45, config_data: dict = None, model_type: str = 'v8'):
+        def __init__(self, hef_path: str, task: str = 'detect', batch_size: int = 1, labels: str = None, score_threshold: float = 0.25, mask_threshold: float = 0.45, model_type: str = 'v8'):
             hef_path = resolve_hef_path(hef_path, task)
             super().__init__(hef_path, batch_size)
             self.task = task
             self.labels = get_labels(labels)
             self.score_threshold = score_threshold
             self.mask_threshold = mask_threshold
-            self.config_data = config_data
             self.model_type = model_type
 
         def _get_results(self, bindings):
@@ -1592,7 +1585,7 @@ if HAILO_AVAILABLE:
         
         def decode_and_postprocess(self, raw_detections, image):
             img_height, img_width = image.shape[:2]
-            result = segment_decode_and_postprocess(raw_detections, self.config_data, self.model_type)[0]
+            result = segment_decode_and_postprocess(raw_detections, self.model_type)[0]
             
             # --- Compute scale and padding used in letterbox ---
             model_h, model_w, _ = self.get_input_shape()
@@ -1645,7 +1638,6 @@ if HAILO_AVAILABLE:
                     if self.is_nms_postprocess_enabled():
                         processed_result = self._process_nms_results(result, input_batch[i])
                     elif self.task == 'detect':
-                        print('_process_detect_results')
                         processed_result = self._process_detect_results(result, input_batch[i])
                     elif self.task == 'segment':
                         processed_result = self.decode_and_postprocess(result, input_batch[i])
@@ -1668,12 +1660,7 @@ if HAILO_AVAILABLE:
                     continue
 
                 input_batch, preprocessed_batch = next_batch
-
-                inference_callback_fn = partial(
-                    self._inference_callback,
-                    input_batch=input_batch,
-                    output_queue=output_queue
-                )
+                inference_callback_fn = partial(self._inference_callback, input_batch=input_batch, output_queue=output_queue)
 
                 while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
                     pending_jobs.popleft().wait(10000)
