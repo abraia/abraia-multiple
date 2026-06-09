@@ -1089,11 +1089,12 @@ if HAILO_AVAILABLE:
 
 
     def segment_process_mask_optimized(protos, masks_in, bboxes, shape, upsample=True, downsample=False):
+        from scipy.special import expit
         mh, mw, c = protos.shape
         ih, iw = shape
         protos_flat = protos.reshape(-1, c).T
         masks = masks_in @ protos_flat
-        masks = sigmoid(masks).reshape(-1, mh, mw)
+        masks = expit(masks).reshape(-1, mh, mw)
 
         bboxes = bboxes.copy()
         if downsample:
