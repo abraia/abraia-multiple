@@ -1089,12 +1089,11 @@ if HAILO_AVAILABLE:
 
 
     def segment_process_mask_optimized(protos, masks_in, bboxes, shape, upsample=True, downsample=False):
-        from scipy.special import expit
         mh, mw, c = protos.shape
         ih, iw = shape
         protos_flat = protos.reshape(-1, c).T
         masks = masks_in @ protos_flat
-        masks = expit(masks).reshape(-1, mh, mw)
+        masks = sigmoid(masks).reshape(-1, mh, mw)
 
         bboxes = bboxes.copy()
         if downsample:
@@ -1316,18 +1315,50 @@ if HAILO_AVAILABLE:
                 return bindings.output().get_buffer()
             return {name: np.expand_dims(bindings.output(name).get_buffer(), axis=0) for name in bindings._output_names}
 
+        # def _process_nms_results(self, result, image):
+        #     infer_results = result if isinstance(result, list) else [result]
+        #     oh, ow = image.shape[:2]
+        #     mh, mw, _ = self.get_input_shape()
+        #     detections = []
+        #     for det in infer_results:
+        #         print(det)
+        #         if det.score < self.score_threshold: break
+        #         xmin, ymin, xmax, ymax = map_box_to_orig([det.x_min * mw, det.y_min * mh, det.x_max * mw, det.y_max * mh], (oh, ow), (mh, mw))
+        #         detection = {'label': self.labels[det.class_id] if self.labels else str(det.class_id), 'score': float(det.score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': det.class_id}
+        #         if self.task == 'segment':
+        #             mask = resize_mask_to_unpadded_box(det.mask, [xmin, ymin, xmax, ymax], [det.x_min * mw, det.y_min * mh, det.x_max * mw, det.y_max * mh])
+        #             if mask is not None: detection['mask'] = mask
+        #         detections.append(detection)
+        #     print(detections)
+        #     return detections
+
         def _process_nms_results(self, result, image):
             infer_results = result if isinstance(result, list) else [result]
-            oh, ow = image.shape[:2]
-            mh, mw, _ = self.get_input_shape()
+            img_height, img_width = image.shape[:2]
+            size = max(img_height, img_width)
+            padding_length = int(abs(img_height - img_width) / 2)
+
             detections = []
             for det in infer_results:
-                if det.score < self.score_threshold: break
-                xmin, ymin, xmax, ymax = map_box_to_orig([det.x_min * mw, det.y_min * mh, det.x_max * mw, det.y_max * mh], (oh, ow), (mh, mw))
-                detection = {'label': self.labels[det.class_id] if self.labels else str(det.class_id), 'score': float(det.score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': det.class_id}
+                if det.score < self.score_threshold:
+                    break
+
+                box_on_input_image, box_on_padded_image = convert_box_from_normalized(
+                    [det.x_min, det.y_min, det.x_max, det.y_max], size, padding_length, img_height, img_width)
+                
+                xmin, ymin, xmax, ymax = box_on_input_image
+                detection = {
+                    'label': self.labels[det.class_id] if self.labels else str(det.class_id),
+                    'score': float(det.score),
+                    'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                    'class_id': det.class_id
+                }
+
                 if self.task == 'segment':
-                    mask = resize_mask_to_unpadded_box(det.mask, [xmin, ymin, xmax, ymax], [det.x_min * mw, det.y_min * mh, det.x_max * mw, det.y_max * mh])
-                    if mask is not None: detection['mask'] = mask
+                    mask = resize_mask_to_unpadded_box(det.mask, box_on_input_image, box_on_padded_image)
+                    if mask is not None:
+                        detection['mask'] = mask
+                
                 detections.append(detection)
             return detections
 
@@ -1355,7 +1386,6 @@ if HAILO_AVAILABLE:
             if self.model_type == "v5": result = segment_yolov5_postprocess(endnodes, **arch_cfg)[0]
             elif self.model_type == "v8": result = segment_yolov8_postprocess(endnodes, **arch_cfg)[0]
             else: raise ValueError(f"Unsupported architecture key: {self.model_type}")
-            print(result)
             boxes, masks, scores, classes = result['detection_boxes'], result['mask'], result['detection_scores'], result['detection_classes']
             detections = []
             for i in range(len(boxes)):
@@ -1366,7 +1396,6 @@ if HAILO_AVAILABLE:
                     'label': self.labels[classes[i]] if self.labels else str(classes[i]), 'score': float(scores[i]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
                     'mask': (masks[i] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
                 })
-            print(detections)
             return detections
 
         def _process_pose_results(self, result, image):
