@@ -1321,7 +1321,6 @@ if HAILO_AVAILABLE:
         #     mh, mw, _ = self.get_input_shape()
         #     detections = []
         #     for det in infer_results:
-        #         print(det)
         #         if det.score < self.score_threshold: break
         #         xmin, ymin, xmax, ymax = map_box_to_orig([det.x_min * mw, det.y_min * mh, det.x_max * mw, det.y_max * mh], (oh, ow), (mh, mw))
         #         detection = {'label': self.labels[det.class_id] if self.labels else str(det.class_id), 'score': float(det.score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': det.class_id}
@@ -1329,7 +1328,6 @@ if HAILO_AVAILABLE:
         #             mask = resize_mask_to_unpadded_box(det.mask, [xmin, ymin, xmax, ymax], [det.x_min * mw, det.y_min * mh, det.x_max * mw, det.y_max * mh])
         #             if mask is not None: detection['mask'] = mask
         #         detections.append(detection)
-        #     print(detections)
         #     return detections
 
         def _process_nms_results(self, result, image):
@@ -1337,28 +1335,18 @@ if HAILO_AVAILABLE:
             img_height, img_width = image.shape[:2]
             size = max(img_height, img_width)
             padding_length = int(abs(img_height - img_width) / 2)
-
             detections = []
             for det in infer_results:
-                if det.score < self.score_threshold:
-                    break
-
+                if det.score < self.score_threshold: break
                 box_on_input_image, box_on_padded_image = convert_box_from_normalized(
                     [det.x_min, det.y_min, det.x_max, det.y_max], size, padding_length, img_height, img_width)
-                
                 xmin, ymin, xmax, ymax = box_on_input_image
-                detection = {
-                    'label': self.labels[det.class_id] if self.labels else str(det.class_id),
-                    'score': float(det.score),
-                    'box': [xmin, ymin, xmax - xmin, ymax - ymin],
-                    'class_id': det.class_id
-                }
-
+                detection = {'label': self.labels[det.class_id] if self.labels else str(det.class_id),
+                    'score': float(det.score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': det.class_id}
                 if self.task == 'segment':
                     mask = resize_mask_to_unpadded_box(det.mask, box_on_input_image, box_on_padded_image)
                     if mask is not None:
                         detection['mask'] = mask
-                
                 detections.append(detection)
             return detections
 

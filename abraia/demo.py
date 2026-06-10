@@ -15,6 +15,7 @@ from abraia.utils import Video, download_url, load_image, show_image
 
 DEMOS = {
     'apple': {
+        'model': 'multiple/models/yolov8n-seg.onnx',
         'src': '5479199-hd_1920_1080_25fps.mp4',
         'labels': ['apple']
     },

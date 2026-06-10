@@ -237,12 +237,11 @@ def softmax(x, axis=-1):
 
 
 def count_objects(results):
-    counts, colors = {}, {}
+    counts = {}
     for result in results:
-        label, color = result['label'], result['color']
+        label= result['label']
         counts[label] = counts.get(label, 0) + 1
-        colors[label] = color
-    objects = [{'label': label, 'count': counts[label], 'color': colors[label]} for label in counts.keys()]
+    objects = [{'label': label, 'count': counts[label]} for label in counts.keys()]
     return objects
 
 
