@@ -6,7 +6,7 @@ import numpy as np
 import onnxruntime as ort
 
 from .ops import non_maximum_suppression, normalize, mask_to_polygon, softmax
-from ..utils import download_file, load_json, get_color, get_providers
+from ..utils import download_file, load_json, get_providers
 from .sam import SAM
 
 

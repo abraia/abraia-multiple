@@ -77,6 +77,16 @@ def make_dirs(dest):
         os.makedirs(dirname, exist_ok=True)
 
 
+def get_remote_file_size(url: str, timeout: int = 30):
+    """Get the size of a remote file via HEAD request."""
+    try:
+        r = requests.head(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
+        length = r.headers.get('Content-Length')
+        return int(length) if length else None
+    except Exception:
+        return None
+
+
 def temporal_src(path):
     dest = os.path.join(tempdir, path)
     make_dirs(dest)

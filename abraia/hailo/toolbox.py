@@ -15,7 +15,7 @@ from pathlib import Path
 from functools import partial
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
-from ..utils import download_url
+from ..utils import download_url, get_remote_file_size
 from ..inference.ops import sigmoid, softmax
 from ..utils.draw import (
     render_resolution,
@@ -175,16 +175,6 @@ SEGMENT_CONFIG = {
     }
 }
 
-DEFAULT_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-
-def get_remote_file_size(url: str, timeout: int = 30) -> Optional[int]:
-    """Get Content-Length of a remote file via HEAD request."""
-    try:
-        r = requests.head(url, headers={'User-Agent': DEFAULT_USER_AGENT}, timeout=timeout, allow_redirects=True)
-        length = r.headers.get('Content-Length')
-        return int(length) if length else None
-    except Exception:
-        return None
 
 def get_model_url(task, model_name, hailo_arch):
     """Return a download task tuple for a specific app model, or None if not found."""
@@ -1301,11 +1291,11 @@ if HAILO_AVAILABLE:
         return (b, h, w, c)
 
     class ModelInference(HailoInfer):
-        def __init__(self, hef_path: str, task: str = 'detect', batch_size: int = 1, labels: str = None, score_threshold: float = 0.25, mask_threshold: float = 0.45, model_type: str = 'v8'):
+        def __init__(self, hef_path: str, task: str, labels: list, batch_size: int = 1, score_threshold: float = 0.25, mask_threshold: float = 0.45, model_type: str = 'v8'):
             hef_path = resolve_hef_path(hef_path, task)
             super().__init__(hef_path, batch_size)
             self.task = task
-            self.labels = get_labels(labels)
+            self.labels = labels
             self.score_threshold = score_threshold
             self.mask_threshold = mask_threshold
             self.model_type = model_type

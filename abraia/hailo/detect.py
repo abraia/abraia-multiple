@@ -1,14 +1,18 @@
+import os
 import queue
 import threading
 import logging
 from types import SimpleNamespace
+
+from abraia.utils import download_file, load_json
 
 from .toolbox import (
     VideoInput,
     VideoVisualizer,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
-    ModelInference
+    ModelInference,
+    get_labels
 )
 
 from ..inference.tracker import TrackletHistory, Tracker
@@ -19,17 +23,17 @@ logger = logging.getLogger(__name__)
 DEFAULT_OPTIONS = {
     "input": 0,
     "hef_path": None,
+    "task": "detect",
+    "labels": None,
     "batch_size": 1,
     "score_threshold": 0.25,
     "model_type": "v5",
     "track": True,
-    "labels": None,
     "draw_trail": False,
     "frame_rate": None,
     "camera_resolution": None,
     "video_unpaced": False,
-    "save_output": None,
-    "task": "detect"
+    "save_output": None
 }
 
 CONFIG_DATA = {
@@ -126,6 +130,18 @@ def main(**kwargs) -> None:
     args = SimpleNamespace(**options)
     logging.basicConfig(level=logging.INFO)
 
+    try: 
+        model_uri = args.hef_path
+        config_uri = f"{os.path.splitext(model_uri)[0]}.json"
+        config = load_json(download_file(config_uri))
+        hef_path = download_file(model_uri)
+        labels = config['labels']
+        task = config['task']
+    except:
+        hef_path = args.hef_path
+        task = args.task
+        labels = get_labels(args.labels)
+
     stop_event = threading.Event()
 
     input_data = VideoInput(
@@ -145,9 +161,7 @@ def main(**kwargs) -> None:
     )
 
     model_inference = ModelInference(
-        args.hef_path,
-        task=args.task,
-        labels=args.labels,
+        hef_path, task, labels,
         batch_size=input_data.batch_size,
         score_threshold=args.score_threshold,
         model_type=args.model_type

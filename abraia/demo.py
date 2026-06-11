@@ -56,6 +56,23 @@ DEMOS = {
 }
 
 
+HAILO_DEMOS = {
+    'tomato': {
+        'hef_path': 'multiple/tomato/yolov8n.hef',
+        'src': '10179855-hd_1920_1080_30fps.mp4'
+    },
+    'segment': {
+        'hef_path': 'yolov5m_seg_with_nms',
+        'task': 'segment',
+        'src': '5479199-hd_1920_1080_25fps.mp4'
+    },
+    'pose': {
+        'hef_path': 'yolov8m_pose',
+        'task': 'pose',
+    }
+}
+
+
 def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
     """Monitor, count, or just detect objects in a video stream."""
     print(f"Available demos: {', '.join(DEMOS.keys())}")
@@ -94,6 +111,19 @@ def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
 
     if line_counter:
         print(f"Final In: {in_count}, Final Out: {out_count}")
+
+
+def monitor_objects_hailo(src=None, demo='detect'):
+    """Monitor, count, or just detect objects in a video stream using Hailo."""
+    from abraia.hailo import detect
+    print(f"Available Hailo demos: {', '.join(HAILO_DEMOS.keys())}")
+    selected = HAILO_DEMOS.get(demo) or {}
+    src = src or selected.get('src', 0)
+    if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
+        download_url(f"https://api.abraia.me/files/multiple/videos/{src}", src)
+    options = selected.copy()
+    options['input'] = src
+    detect.main(**options)
 
 
 def track_faces(src=None, resolution=(1280, 720)):

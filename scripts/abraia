@@ -266,12 +266,10 @@ def run(project, classes, src):
             detect_plates(src)
         else:
             from abraia.demo import monitor_objects
-            project = classes if classes != 'faces' else 'detect'
-            monitor_objects(src, project)
+            monitor_objects(src, classes)
     elif project == 'hailo':
-        from abraia.hailo import detect
-        if classes in ['detect', 'segment', 'pose']:
-            detect.main(input=src, task=classes)
+        from abraia.demo import monitor_objects_hailo
+        monitor_objects_hailo(src, classes)
     else:
         src = classes if classes != 'faces' else src or 0
         try:
