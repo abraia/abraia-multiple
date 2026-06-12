@@ -10,7 +10,6 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
-from . import make_dirs
 from .draw import (
     render_resolution,
     render_status,
@@ -19,6 +18,13 @@ from .draw import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def make_dirs(dest):
+    """Create directory if it doesn't exist."""
+    dirname = os.path.dirname(dest)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
 
 
 VIDEO_SUFFIXES = (".mp4", ".avi", ".mov", ".mkv")
