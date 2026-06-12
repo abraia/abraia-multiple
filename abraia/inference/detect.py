@@ -53,7 +53,7 @@ def get_mask(row, box, size):
     mask_x1, mask_y1 = round(x / size[0] * shape), round(y / size[1] * shape)
     mask_x2, mask_y2 = round((x + w) / size[0] * shape), round((y + h) / size[1] * shape)
     mask = mask[mask_y1:mask_y2, mask_x1:mask_x2]
-    mask = cv2.resize(mask, (round(w), round(h)), cv2.INTER_AREA)
+    mask = cv2.resize(mask, (round(w), round(h)), cv2.INTER_NEAREST)
     return mask
 
 

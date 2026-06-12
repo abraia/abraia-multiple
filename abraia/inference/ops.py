@@ -337,23 +337,17 @@ def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image
     Returns:
         np.ndarray: Resized 2D mask for the unpadded box size.
     """
-    # Step 1: Get the shape of the padded box
     x1_p, y1_p, x2_p, y2_p = box_on_padded_image
-    h_p = y2_p - y1_p
-    w_p = x2_p - x1_p
-    # Step 2: Reshape the mask to original (padded) box shape
-    try:
-        mask_2d = mask_1d.reshape((h_p, w_p))
-    except ValueError:
-        closest_shape = find_shape_closest_to_target(mask_1d.size, h_p, w_p)
-        if not closest_shape:
-            return None
-        h, w = closest_shape
-        mask_2d = mask_1d.reshape((h, w))
-    # Step 3: Get new shape after unpadding
+    w_p, h_p = x2_p - x1_p, y2_p - y1_p
+    mask_2d = mask_1d.reshape((h_p, w_p))
+    # try:
+    #     mask_2d = mask_1d.reshape((h_p, w_p))
+    # except ValueError:
+    #     closest_shape = find_shape_closest_to_target(mask_1d.size, h_p, w_p)
+    #     if not closest_shape:
+    #         return None
+    #     h, w = closest_shape
+    #     mask_2d = mask_1d.reshape((h, w))
     x1_u, y1_u, x2_u, y2_u = box_on_input_image
-    h_u = y2_u - y1_u
-    w_u = x2_u - x1_u
-    # Step 4: Resize the mask to the unpadded box shape
-    resized_mask = cv2.resize(mask_2d.astype(np.uint8), (w_u, h_u), interpolation=cv2.INTER_NEAREST)
+    resized_mask = cv2.resize(mask_2d.astype(np.uint8), (x2_u - x1_u, y2_u - y1_u), interpolation=cv2.INTER_NEAREST)
     return resized_mask
