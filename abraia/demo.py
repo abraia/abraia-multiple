@@ -14,10 +14,18 @@ from abraia.utils import Video, download_url, load_image, show_image
 
 
 DEMOS = {
+    'tomato': {
+        'model': 'multiple/tomato/yolov8n_v6.onnx',
+        'src': '10179855-hd_1920_1080_30fps.mp4',
+        'labels': ['tomato'],
+        'counter': [(1440, 0), (1440, 1080)],
+        'dest': 'tomato_onnx.mp4'
+    },
     'apple': {
         'model': 'multiple/models/yolov8n-seg.onnx',
         'src': '5479199-hd_1920_1080_25fps.mp4',
-        'labels': ['apple']
+        'labels': ['apple'],
+        'dest': 'apple_onnx.mp4'
     },
     'strawberry': {
         'model': 'multiple/strawberry/yolov8n.onnx',
@@ -28,12 +36,6 @@ DEMOS = {
         'model': 'multiple/grapes/yolov8n.onnx',
         'src': '5658544-hd_1366_720_24fps.mp4',
         'labels': ['grapes']
-    },
-    'tomato': {
-        'model': 'multiple/tomato/yolov8n_v6.onnx',
-        'src': '10179855-hd_1920_1080_30fps.mp4',
-        'labels': ['tomato'],
-        'counter': [(1440, 0), (1440, 1080)]
     },
     'people': {
         'src': '853889-hd_1920_1080_25fps.mp4',
@@ -60,13 +62,18 @@ HAILO_DEMOS = {
     'tomato': {
         'hef_path': 'multiple/tomato/yolov8n.hef',
         'src': '10179855-hd_1920_1080_30fps.mp4',
-        'save_output': 'tomato_hailo.mp4'
+        'dest': 'tomato_hef.mp4'
+    },
+    'apple': {
+        'hef_path': 'yolov5m_seg_with_nms',
+        'task': 'segment',
+        'src': '5479199-hd_1920_1080_25fps.mp4',
+        'dest': 'apple_hef.mp4'
     },
     'segment': {
         'hef_path': 'yolov5m_seg_with_nms',
         'task': 'segment',
-        'src': '5479199-hd_1920_1080_25fps.mp4',
-        'save_output': 'apple_hailo.mp4'
+        'src': '5479199-hd_1920_1080_25fps.mp4'
     },
     'pose': {
         'hef_path': 'yolov8m_pose',
@@ -83,7 +90,7 @@ def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
     if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
         download_url(f"https://api.abraia.me/files/multiple/videos/{src}", src)
 
-    video = Video(src, resolution=resolution)
+    video = Video(src, resolution=resolution, dest=selected.get('dest'))
     tracker = Tracker(frame_rate=video.frame_rate)
     model = Model(selected.get('model', 'multiple/models/yolov8n.onnx'))
     
@@ -109,6 +116,8 @@ def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
             results = in_objects
         out = render_results(out, results)
         print(f"#{k} {round((time.time() - t0) * 1000, 1)}ms {count_objects(results)}")
+        if video.out:
+            video.write(out)
         video.show(out)
 
     if line_counter:

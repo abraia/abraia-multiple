@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
+from . import make_dirs
 from .draw import (
     render_resolution,
     render_status,
@@ -18,6 +19,7 @@ from .draw import (
 )
 
 logger = logging.getLogger(__name__)
+
 
 VIDEO_SUFFIXES = (".mp4", ".avi", ".mov", ".mkv")
 IMAGE_EXTENSIONS: Tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp")
@@ -36,9 +38,7 @@ def is_raspberry_pi() -> bool:
 
 
 class PiCamera2CaptureAdapter:
-    """
-    Adapter that makes Picamera2 behave like cv2.VideoCapture.
-    """
+    """Adapter that makes Picamera2 behave like cv2.VideoCapture."""
 
     def __init__(self, picam2):
         self.picam2 = picam2
@@ -80,7 +80,6 @@ class PiCamera2CaptureAdapter:
     def release(self):
         # stop new reads ASAP
         self._opened = False
-
         # wait if a read() is currently inside capture_array()
         with self._io_lock:
             try:
@@ -93,17 +92,19 @@ class PiCamera2CaptureAdapter:
                 pass
 
 
-def open_cv_capture(src: Any, source_type: str) -> Any:
+def open_cv_capture(src: Any, source_type: str, resolution=(1280, 720), fps=30) -> Any:
     """Open an OpenCV-based capture source."""
     if source_type == "video" and not os.path.exists(src):
         logger.error(f"File not found: {src}")
         sys.exit(1)
-
-    cap = cv2.VideoCapture(src)
+    cap = cv2.VideoCapture(int(src) if source_type == "usb_camera" else src)
+    if source_type == "usb_camera":
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+        cap.set(cv2.CAP_PROP_FPS, fps)
     if not cap.isOpened():
         logger.error(f"Failed to open {source_type} source: {src}")
         sys.exit(1)
-
     logger.info(f"Using {source_type} input: {src}")
     return cap
 
@@ -115,15 +116,12 @@ def open_rpi_camera(resolution=(1280, 720), fps=30) -> Optional[Any]:
     except Exception as e:
         logger.error(f"Picamera2 not available: {e}")
         return None
-
     try:
         picam2 = Picamera2()
         config = picam2.create_video_configuration(main={"size": resolution, "format": "RGB888"}, controls={"FrameRate": fps})
         picam2.configure(config)
         picam2.start()
-
         return PiCamera2CaptureAdapter(picam2)
-
     except Exception as e:
         logger.error(f"Failed to open RPi camera: {e}")
         try:
@@ -143,6 +141,16 @@ def is_stream_url(src: str) -> bool:
     return (src_lower.startswith("rtsp://") or src_lower.startswith("http://") or src_lower.startswith("https://"))
 
 
+def is_video(src: str) -> bool:
+    """Return True if the input is a video file."""
+    return os.path.isfile(src) and src.lower().endswith(VIDEO_SUFFIXES)
+
+
+def is_image(src: str) -> bool:
+    """Return True if the input is an image file."""
+    return os.path.isfile(src) and src.lower().endswith(IMAGE_EXTENSIONS)
+
+
 def load_images_opencv(images_path: str) -> List[np.ndarray]:
     path = Path(images_path)
     def read_rgb(p: Path):
@@ -159,6 +167,17 @@ def load_images_opencv(images_path: str) -> List[np.ndarray]:
     return []
 
 
+def get_input_type(src: Any) -> str:
+    """Determine the type of input source."""
+    src_str = str(src)
+    if src_str.isdigit():
+        return "rpi_camera" if is_raspberry_pi() else "usb_camera"
+    if is_stream_url(src_str):
+        return "stream"
+    if os.path.exists(src_str):
+        return "video" if is_video(src_str) else "images"
+
+
 class VideoInput:
     def __init__(
         self,
@@ -169,51 +188,38 @@ class VideoInput:
         video_unpaced: bool = False,
         stop_event: Optional[threading.Event] = None,
     ):
-        self.input_src = input_src
         self.batch_size = batch_size
         self.resolution = resolution
         self.frame_rate = frame_rate
         self.video_unpaced = video_unpaced
         self.stop_event = stop_event or threading.Event()
 
-        self.input_type = "unknown"
         self.cap = None
         self.images = None
-        self.source_fps = None
-        self.width = None
-        self.height = None
 
-        self._init_input()
-
-    def _init_input(self):
-        src = str(self.input_src)
-        if src.isdigit():
-            self.input_type = "rpi_camera" if is_raspberry_pi() else "usb_camera"
-        elif is_stream_url(src):
-            self.input_type = "stream"
-        elif os.path.exists(src):
-            self.input_type = "video" if any(src.lower().endswith(suffix) for suffix in VIDEO_SUFFIXES) else "images"
-        else:
-            logger.error(f"Invalid input '{src}'.")
+        self.input_type = get_input_type(input_src)
+        if not self.input_type:
+            logger.error(f"Invalid input '{input_src}'.")
             sys.exit(1)
 
+        self.width = None
+        self.height = None
+        self.source_fps = None
         if self.input_type == "images":
-            self.images = load_images_opencv(src)
+            self.images = load_images_opencv(input_src)
         else:
+            width, height = 1280, 720
+            if self.resolution in CAMERA_RESOLUTION_MAP:
+                width, height = CAMERA_RESOLUTION_MAP[self.resolution]
             if self.input_type == "rpi_camera":
-                self.cap = open_rpi_camera()
+                self.cap = open_rpi_camera(resolution=(width, height))
                 self.source_fps = 30
             else:
-                self.cap = open_cv_capture(int(src) if self.input_type == "usb_camera" else src, self.input_type)
-                if self.input_type == "usb_camera" and self.resolution in CAMERA_RESOLUTION_MAP:
-                    width, height = CAMERA_RESOLUTION_MAP[self.resolution]
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                self.cap = open_cv_capture(input_src, self.input_type, resolution=(width, height))
+            if self.cap is not None:
                 self.source_fps = self.cap.get(cv2.CAP_PROP_FPS)
-
-        if self.cap is not None:
-            self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-            self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
 
     @property
     def has_capture(self) -> bool:
@@ -280,11 +286,9 @@ class VideoInput:
 
 
 class VideoDisplay:
-    def __init__(self, save_output: Optional[str] = None, source_fps: Optional[float] = None, 
-                 frame_rate: Optional[float] = None, stop_event: Optional[threading.Event] = None):
-        self.save_output = save_output
+    def __init__(self, dest: Optional[str] = None, source_fps: Optional[float] = None, stop_event: Optional[threading.Event] = None):
+        self.dest = dest
         self.source_fps = source_fps
-        self.frame_rate = frame_rate
         self.stop_event = stop_event or threading.Event()
 
         self._count = 0
@@ -302,22 +306,6 @@ class VideoDisplay:
             self.video_writer.release()
         cv2.destroyAllWindows()
 
-    def _init_writer(self, width: int, height: int):
-        self.writer_frame_width = width
-        self.writer_frame_height = height
-
-        if self.save_output:
-            output_fps = self.frame_rate or (self.source_fps if self.source_fps and self.source_fps > 1 else 30.0)
-            output_path = Path(self.save_output)
-            if output_path.parent:
-                os.makedirs(output_path.parent, exist_ok=True)
-            self.video_writer = cv2.VideoWriter(
-                self.save_output,
-                cv2.VideoWriter_fourcc(*"XVID"),
-                output_fps,
-                (self.writer_frame_width, self.writer_frame_height)
-            )
-
     def show(self, frame: np.ndarray, fps: float, is_capture: bool = True) -> bool:
         if not hasattr(self, 'thickness'):
             self.thickness = calculate_optimal_thickness(frame.shape[:2])
@@ -327,23 +315,25 @@ class VideoDisplay:
         render_resolution(frame, thickness=self.thickness, text_scale=self.text_scale)
 
         output_bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        cv2.imshow(self.window_name, output_bgr_frame)
-        
-        if (cv2.waitKey(1) & 0xFF) == ord("q"):
-            return False
-
-        if self.save_output:
+        if self.dest:
             if is_capture:
                 if self.video_writer is None:
-                    self._init_writer(frame.shape[1], frame.shape[0])
+                    make_dirs(self.dest)
+                    height, width = frame.shape[:2]
+                    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+                    self.video_writer = cv2.VideoWriter(self.dest, fourcc, self.source_fps, (width, height))
                 if self.video_writer:
                     self.video_writer.write(output_bgr_frame)
             else:
-                path = Path(self.save_output)
+                path = Path(self.dest)
                 out_path = path.parent / f"{path.stem}_{self.image_index}{path.suffix}"
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 cv2.imwrite(str(out_path), output_bgr_frame)
                 self.image_index += 1
+        else:
+            cv2.imshow(self.window_name, output_bgr_frame)
+            if (cv2.waitKey(1) & 0xFF) == ord("q"):
+                return False
         return True
 
     def start(self):
@@ -420,9 +410,7 @@ class Video:
             self.duration = round(self.frames / self.fps, 3) if self.fps > 0 else 0
         self.frame_rate = self.fps
         if dest:
-            dirname = os.path.dirname(dest)
-            if dirname:
-                os.makedirs(dirname, exist_ok=True)
+            make_dirs(dest)
             fourcc = cv2.VideoWriter_fourcc(*'avc1')
             self.out = cv2.VideoWriter(dest, fourcc, self.fps, (self.width, self.height))
         self.t0 = time.time()
@@ -469,13 +457,17 @@ class Video:
         render_status(frame, fps=1 / (t1 - self.t0) if t1 > self.t0 else 0)
         render_resolution(frame)
         self.t0 = t1
-        if not self.win_name:
-            self.win_name = 'Video'
-            cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)
-        cv2.imshow(self.win_name, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-        ch = 0xFF & cv2.waitKey(int(self.fps) if self.fps > 0 else 1)
-        if (ch == 27 or ch == ord('q')) or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1:
-            self.quit = True
+        out = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        if self.out:
+            self.out.write(out)
+        else:
+            if not self.win_name:
+                self.win_name = 'Video'
+                cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)
+            cv2.imshow(self.win_name, out)
+            ch = cv2.waitKey(1) & 0xFF
+            if (ch == 27 or ch == ord('q')) or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1:
+                self.quit = True
 
 
 if __name__ == "__main__":

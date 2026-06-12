@@ -33,7 +33,7 @@ DEFAULT_OPTIONS = {
     "frame_rate": None,
     "camera_resolution": None,
     "video_unpaced": False,
-    "save_output": None
+    "dest": None
 }
 
 CONFIG_DATA = {
@@ -110,8 +110,8 @@ def run_inference_pipeline(
 
     logger.info(visualizer.frame_rate_summary())
     logger.info("Processing completed successfully.")
-    if visualizer.save_output:
-        logger.info(f"Saved outputs to '{visualizer.save_output}'.")
+    if visualizer.dest:
+        logger.info(f"Saved outputs to '{visualizer.dest}'.")
 
 
 def main(**kwargs) -> None:
@@ -154,9 +154,8 @@ def main(**kwargs) -> None:
     )
 
     visualizer = VideoDisplay(
-        save_output=args.save_output,
+        dest=args.dest,
         source_fps=input_data.source_fps,
-        frame_rate=args.frame_rate,
         stop_event=stop_event
     )
 
