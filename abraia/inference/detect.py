@@ -5,7 +5,7 @@ import json
 import numpy as np
 import onnxruntime as ort
 
-from .ops import non_maximum_suppression, normalize, mask_to_polygon, softmax
+from .ops import non_maximum_suppression, normalize, mask_to_polygon, softmax, sigmoid
 from ..utils import download_file, load_json, get_providers
 from .sam import SAM
 
@@ -45,21 +45,15 @@ def prepare_input(img, shape):
     return img / 255
 
 
-def sigmoid_mask(z):
-    mask = 1 / (1 + np.exp(-z))
-    return (255 * mask).astype('uint8')
-
-
 def get_mask(row, box, size):
     """Extracts the segmentation mask for an object (box) in a row."""
     shape = round(math.sqrt(row.shape[0]))
-    mask = row.reshape(shape, shape)
-    mask = sigmoid_mask(mask)
+    mask = (sigmoid(row.reshape(shape, shape)) > 0.5).astype(np.uint8)
     x, y, w, h = box
     mask_x1, mask_y1 = round(x / size[0] * shape), round(y / size[1] * shape)
     mask_x2, mask_y2 = round((x + w) / size[0] * shape), round((y + h) / size[1] * shape)
     mask = mask[mask_y1:mask_y2, mask_x1:mask_x2]
-    mask = cv2.resize(mask, (round(w), round(h)), cv2.INTER_LINEAR)
+    mask = cv2.resize(mask, (round(w), round(h)), cv2.INTER_AREA)
     return mask
 
 
@@ -96,10 +90,8 @@ def process_output(outputs, size, shape, classes, conf_threshold=0.25, iou_thres
             mask = result['mask'] @ output1
             size = (round(model_width * scale), round(model_height * scale))
             mask = get_mask(mask, result['box'], size)
-            mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)[1]
-            result['polygon'] = mask_to_polygon(mask, (x, y), approx)
-            result.pop('mask', None)
-            # result['mask'] = mask
+            # result['polygon'] = mask_to_polygon(mask, (x, y), approx)
+            result['mask'] = mask
     return results
 
 

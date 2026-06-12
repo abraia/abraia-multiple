@@ -238,6 +238,13 @@ def render_skeleton(img, keypoints, joint_scores, color, thickness=None, joint_t
             draw_line(img, (pt1, pt2), color, thickness=thickness)
 
 
+def draw_masks_overlay(img, overlay, alpha=0.5):
+    img_over = cv2.addWeighted(img, 1 - alpha, overlay, alpha, 0)
+    mask = cv2.cvtColor(overlay, cv2.COLOR_RGB2GRAY) > 0
+    img[mask] = img_over[mask]
+    return img
+
+
 def render_results(img, results, thickness=None, text_scale=None):
     thickness = thickness or calculate_optimal_thickness(img.shape[:2])
     text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
@@ -257,18 +264,17 @@ def render_results(img, results, thickness=None, text_scale=None):
                 render_skeleton(img, result['keypoints'], result['joint_scores'], (255, 0, 255), thickness)
             render_box(img, box, color, thickness)
             if 'mask' in result and overlay is not None:
-                render_mask(overlay, result['mask'], box, color)
+                # result['mask'] is already cropped to the bounding box
+                render_mask(overlay, result['mask'], result['box'], color)
         if label:
             point = result.get('box', [0, 0, 0, 0])[:2]
             render_label(img, label, point, color, score, track_id, text_scale, thickness)
         if 'trail' in result:
             render_trail(img, result['trail'], color, thickness)
     if overlay is not None:
-        alpha = 0.5
-        img_over = cv2.addWeighted(img, 1 - alpha, overlay, alpha, 0)
-        mask = cv2.cvtColor(overlay, cv2.COLOR_RGB2GRAY) > 0
-        img[mask] = img_over[mask]
+        img = draw_masks_overlay(img, overlay, alpha=0.5)
     return img
+
 
 
 def render_counter(img, line, text='', color=(0, 0, 255), thickness=None, text_scale=None):

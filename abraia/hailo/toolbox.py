@@ -938,7 +938,7 @@ if HAILO_AVAILABLE:
                 xmin, ymin, xmax, ymax = map_box_to_orig([(cx - w / 2) * mw, (cy - h / 2) * mh, (cx + w / 2) * mw, (cy + h / 2) * mh], (oh, ow), (mh, mw))
                 detections.append({
                     'label': self.labels[classes[i]] if self.labels else str(classes[i]), 'score': float(scores[i]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
-                    'mask': (masks[i] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
+                    'mask': (masks[i, ymin:ymax, xmin:xmax] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
                 })
             return detections
 
