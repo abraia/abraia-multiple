@@ -417,7 +417,8 @@ class Video:
         self.frame_rate = self.fps
         if dest:
             make_dirs(dest)
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')
+            # fourcc = cv2.VideoWriter_fourcc(*'avc1')
+            fourcc = cv2.VideoWriter_fourcc(*"XVID")
             self.out = cv2.VideoWriter(dest, fourcc, self.fps, (self.width, self.height))
         self.t0 = time.time()
 
