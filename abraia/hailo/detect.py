@@ -7,13 +7,13 @@ from types import SimpleNamespace
 from abraia.utils import download_file, load_json
 
 from .toolbox import (
-    VideoInput,
-    VideoVisualizer,
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
     ModelInference,
-    get_labels
+    get_labels,
+    default_preprocess
 )
+from ..utils.video import VideoInput, VideoDisplay
 
 from ..inference.tracker import TrackletHistory, Tracker
 from ..utils.draw import render_results
@@ -68,7 +68,7 @@ def inference_result_handler(original_frame, detections, tracker=None, tracklet_
 def run_inference_pipeline(
     model_inference: ModelInference,
     input_data: VideoInput,
-    visualizer: VideoVisualizer,
+    visualizer: VideoDisplay,
     tracker: Tracker = None,
     tracklet_history: TrackletHistory = None,
 ) -> None:
@@ -83,7 +83,7 @@ def run_inference_pipeline(
     try:
         preprocess_thread = threading.Thread(
             target=input_data.preprocess,
-            args=(input_queue, width, height),
+            args=(input_queue, lambda frame: default_preprocess(frame, width, height)),
             name="preprocess-thread",
         )
 
@@ -153,7 +153,7 @@ def main(**kwargs) -> None:
         stop_event=stop_event
     )
 
-    visualizer = VideoVisualizer(
+    visualizer = VideoDisplay(
         save_output=args.save_output,
         source_fps=input_data.source_fps,
         frame_rate=args.frame_rate,

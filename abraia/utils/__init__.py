@@ -16,7 +16,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 from concurrent.futures import ProcessPoolExecutor
 
-from .video import Video, is_raspberry
+from .video import Video
 from .sketcher import Sketcher
 from .draw import get_color, render_results
 

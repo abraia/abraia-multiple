@@ -59,12 +59,14 @@ DEMOS = {
 HAILO_DEMOS = {
     'tomato': {
         'hef_path': 'multiple/tomato/yolov8n.hef',
-        'src': '10179855-hd_1920_1080_30fps.mp4'
+        'src': '10179855-hd_1920_1080_30fps.mp4',
+        'save_output': 'tomato_hailo.mp4'
     },
     'segment': {
         'hef_path': 'yolov5m_seg_with_nms',
         'task': 'segment',
-        'src': '5479199-hd_1920_1080_25fps.mp4'
+        'src': '5479199-hd_1920_1080_25fps.mp4',
+        'save_output': 'apple_hailo.mp4'
     },
     'pose': {
         'hef_path': 'yolov8m_pose',
