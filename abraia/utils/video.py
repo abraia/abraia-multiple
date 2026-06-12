@@ -336,10 +336,9 @@ class VideoDisplay:
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 cv2.imwrite(str(out_path), output_bgr_frame)
                 self.image_index += 1
-        else:
-            cv2.imshow(self.window_name, output_bgr_frame)
-            if (cv2.waitKey(1) & 0xFF) == ord("q"):
-                return False
+        cv2.imshow(self.window_name, output_bgr_frame)
+        if (cv2.waitKey(1) & 0xFF) == ord("q"):
+            return False
         return True
 
     def start(self):
@@ -456,6 +455,7 @@ class Video:
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     def write(self, frame):
+        #TODO: Remove on next releases
         if self.out:
             self.out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
     
@@ -467,14 +467,13 @@ class Video:
         out = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         if self.out:
             self.out.write(out)
-        else:
-            if not self.win_name:
-                self.win_name = 'Video'
-                cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)
-            cv2.imshow(self.win_name, out)
-            ch = cv2.waitKey(1) & 0xFF
-            if (ch == 27 or ch == ord('q')) or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1:
-                self.quit = True
+        if not self.win_name:
+            self.win_name = 'Video'
+            cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)
+        cv2.imshow(self.win_name, out)
+        ch = cv2.waitKey(1) & 0xFF
+        if (ch == 27 or ch == ord('q')) or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1:
+            self.quit = True
 
 
 if __name__ == "__main__":
