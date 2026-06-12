@@ -116,8 +116,6 @@ def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
             results = in_objects
         out = render_results(out, results)
         print(f"#{k} {round((time.time() - t0) * 1000, 1)}ms {count_objects(results)}")
-        if video.out:
-            video.write(out)
         video.show(out)
 
     if line_counter:
