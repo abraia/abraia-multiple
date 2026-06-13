@@ -1,7 +1,5 @@
 import os
-import sys
 import cv2
-import time
 import queue
 import shlex
 import logging
@@ -15,7 +13,7 @@ from functools import partial
 from typing import Dict, List, Optional, Tuple
 
 from ..utils import download_url, get_remote_file_size
-from ..inference.ops import sigmoid, softmax
+from ..inference.ops import sigmoid, softmax, resize_mask_to_unpadded_box
 
 logger = logging.getLogger(__name__)
 
@@ -257,78 +255,78 @@ def get_labels(labels_path: str) -> list:
     return class_names
 
 
-def find_shape_closest_to_target(mask_size, target_height, target_width):
-    """
-    Find the (height, width) pair whose product equals ``mask_size`` and whose
-    Manhattan distance to (target_height, target_width) is minimal.
+# def find_shape_closest_to_target(mask_size, target_height, target_width):
+#     """
+#     Find the (height, width) pair whose product equals ``mask_size`` and whose
+#     Manhattan distance to (target_height, target_width) is minimal.
 
-    Manhattan distance used:
-        |h − target_height| + |w − target_width|
+#     Manhattan distance used:
+#         |h − target_height| + |w − target_width|
 
-    Args:
-        mask_size (int): Total number of pixels in the flattened mask.
-        target_height (int): Desired height.
-        target_width (int): Desired width.
+#     Args:
+#         mask_size (int): Total number of pixels in the flattened mask.
+#         target_height (int): Desired height.
+#         target_width (int): Desired width.
 
-    Returns:
-        tuple[int, int] | None: Best-matching (height, width), or None if none found.
-    """
-    best_shape = None
-    min_diff = float("inf")
+#     Returns:
+#         tuple[int, int] | None: Best-matching (height, width), or None if none found.
+#     """
+#     best_shape = None
+#     min_diff = float("inf")
 
-    for h in range(1, mask_size + 1):
-        if mask_size % h:
-            continue
-        w = mask_size // h
-        diff = abs(h - target_height) + abs(w - target_width)
-        if diff < min_diff:
-            min_diff = diff
-            best_shape = (h, w)
+#     for h in range(1, mask_size + 1):
+#         if mask_size % h:
+#             continue
+#         w = mask_size // h
+#         diff = abs(h - target_height) + abs(w - target_width)
+#         if diff < min_diff:
+#             min_diff = diff
+#             best_shape = (h, w)
 
-    return best_shape
+#     return best_shape
 
 
-def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image):
-    """
-    Resize the mask from the padded box to match the unpadded box size.
+# def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image):
+#     """
+#     Resize the mask from the padded box to match the unpadded box size.
 
-    Args:
-        mask_1d (np.ndarray): 1D binary mask.
-        padded_box (list): [ymin, xmin, ymax, xmax] in 640x640 padded image.
-        unpadded_box (list): [ymin, xmin, ymax, xmax] after unpadding.
+#     Args:
+#         mask_1d (np.ndarray): 1D binary mask.
+#         padded_box (list): [ymin, xmin, ymax, xmax] in 640x640 padded image.
+#         unpadded_box (list): [ymin, xmin, ymax, xmax] after unpadding.
 
-    Returns:
-        np.ndarray: Resized 2D mask for the unpadded box size.
-    """
-    try:
-        # Step 1: Get the shape of the padded box
-        x1_p, y1_p, x2_p, y2_p = box_on_padded_image
-        h_p = y2_p - y1_p
-        w_p = x2_p - x1_p
+#     Returns:
+#         np.ndarray: Resized 2D mask for the unpadded box size.
+#     """
+#     try:
+#         # Step 1: Get the shape of the padded box
+#         x1_p, y1_p, x2_p, y2_p = box_on_padded_image
+#         h_p = y2_p - y1_p
+#         w_p = x2_p - x1_p
 
-        # Step 2: Reshape the mask to original (padded) box shape
-        try:
-            mask_2d = mask_1d.reshape((h_p, w_p))
-        except ValueError:
-            closest_shape = find_shape_closest_to_target(mask_1d.size, h_p, w_p)
-            if not closest_shape:
-                return None
+#         # Step 2: Reshape the mask to original (padded) box shape
+#         try:
+#             mask_2d = mask_1d.reshape((h_p, w_p))
+#         except ValueError:
+#             closest_shape = find_shape_closest_to_target(mask_1d.size, h_p, w_p)
+#             if not closest_shape:
+#                 return None
 
-            h, w = closest_shape
-            mask_2d = mask_1d.reshape((h, w))
+#             h, w = closest_shape
+#             mask_2d = mask_1d.reshape((h, w))
 
-        # Step 3: Get new shape after unpadding
-        x1_u, y1_u, x2_u, y2_u = box_on_input_image
-        h_u = y2_u - y1_u
-        w_u = x2_u - x1_u
+#         # Step 3: Get new shape after unpadding
+#         x1_u, y1_u, x2_u, y2_u = box_on_input_image
+#         h_u = y2_u - y1_u
+#         w_u = x2_u - x1_u
 
-        # Step 4: Resize the mask to the unpadded box shape
-        resized_mask = cv2.resize(mask_2d.astype(np.uint8), (w_u, h_u), interpolation=cv2.INTER_NEAREST)
+#         # Step 4: Resize the mask to the unpadded box shape
+#         resized_mask = cv2.resize(mask_2d.astype(np.uint8), (w_u, h_u), interpolation=cv2.INTER_NEAREST)
 
-    except Exception:
-        return None
+#     except Exception:
+#         return None
 
-    return resized_mask
+#     return resized_mask
 
 
 def convert_box_from_normalized(normalized_box: list,
