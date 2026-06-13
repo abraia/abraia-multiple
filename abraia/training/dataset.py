@@ -8,8 +8,6 @@ import itertools
 
 from tqdm import tqdm
 from PIL import Image
-from io import BytesIO
-from transformers import pipeline
 
 from ..client import Abraia
 from ..utils import HEADERS, load_image, load_url, list_dir, url_path
@@ -132,6 +130,7 @@ def detect_dino(img, classes, threshold=0.3, pipe=None):
     classes = [label.lower().strip() for label in classes]
     labels = [f"{label}." if not label.endswith('.') else label for label in classes]
     if pipe is None:
+        from transformers import pipeline
         pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
     results = pipe(Image.fromarray(img), candidate_labels=labels, threshold=threshold)
 
@@ -215,6 +214,7 @@ class Dataset:
         return self
     
     def annotate(self, label, segment=False, callback=None):
+        from transformers import pipeline
         annotated_filenames = {a['filename'] for a in self.annotations}
         images = [img for img in self.images if img['name'] not in annotated_filenames]
         pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
