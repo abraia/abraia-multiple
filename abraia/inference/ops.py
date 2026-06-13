@@ -294,35 +294,33 @@ def normalize_vector(vector):
     return vector / np.linalg.norm(vector)
 
 
-# def find_shape_closest_to_target(mask_size, target_height, target_width):
-#     """
-#     Find the (height, width) pair whose product equals ``mask_size`` and whose
-#     Manhattan distance to (target_height, target_width) is minimal.
+def find_shape_closest_to_target(mask_size, target_height, target_width):
+    """
+    Find the (height, width) pair whose product equals ``mask_size`` and whose
+    Manhattan distance to (target_height, target_width) is minimal.
 
-#     Manhattan distance used:
-#         |h − target_height| + |w − target_width|
+    Manhattan distance used:
+        |h − target_height| + |w − target_width|
 
-#     Args:
-#         mask_size (int): Total number of pixels in the flattened mask.
-#         target_height (int): Desired height.
-#         target_width (int): Desired width.
+    Args:
+        mask_size (int): Total number of pixels in the flattened mask.
+        target_height (int): Desired height.
+        target_width (int): Desired width.
 
-#     Returns:
-#         tuple[int, int] | None: Best-matching (height, width), or None if none found.
-#     """
-#     best_shape = None
-#     min_diff = float("inf")
-
-#     for h in range(1, mask_size + 1):
-#         if mask_size % h:
-#             continue
-#         w = mask_size // h
-#         diff = abs(h - target_height) + abs(w - target_width)
-#         if diff < min_diff:
-#             min_diff = diff
-#             best_shape = (h, w)
-
-#     return best_shape
+    Returns:
+        tuple[int, int] | None: Best-matching (height, width), or None if none found.
+    """
+    best_shape = None
+    min_diff = float("inf")
+    for h in range(1, mask_size + 1):
+        if mask_size % h:
+            continue
+        w = mask_size // h
+        diff = abs(h - target_height) + abs(w - target_width)
+        if diff < min_diff:
+            min_diff = diff
+            best_shape = (h, w)
+    return best_shape
 
 
 def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image):
@@ -339,15 +337,14 @@ def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image
     """
     x1_p, y1_p, x2_p, y2_p = box_on_padded_image
     w_p, h_p = x2_p - x1_p, y2_p - y1_p
-    mask_2d = mask_1d.reshape((h_p, w_p))
-    # try:
-    #     mask_2d = mask_1d.reshape((h_p, w_p))
-    # except ValueError:
-    #     closest_shape = find_shape_closest_to_target(mask_1d.size, h_p, w_p)
-    #     if not closest_shape:
-    #         return None
-    #     h, w = closest_shape
-    #     mask_2d = mask_1d.reshape((h, w))
+    try:
+        mask_2d = mask_1d.reshape((h_p, w_p))
+    except ValueError:
+        closest_shape = find_shape_closest_to_target(mask_1d.size, h_p, w_p)
+        if not closest_shape:
+            return None
+        h, w = closest_shape
+        mask_2d = mask_1d.reshape((h, w))
     x1_u, y1_u, x2_u, y2_u = box_on_input_image
     resized_mask = cv2.resize(mask_2d.astype(np.uint8), (x2_u - x1_u, y2_u - y1_u), interpolation=cv2.INTER_NEAREST)
     return resized_mask
