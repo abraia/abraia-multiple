@@ -18,7 +18,7 @@ DEMOS = {
         'model': 'multiple/tomato/yolov8n_v6.onnx',
         'src': '10179855-hd_1280_720_30fps.mp4',
         'labels': ['tomato'],
-        'counter': [(1440, 0), (1440, 1080)],
+        'counter': [(960, 0), (960, 720)],
         'dest': 'tomato_onnx.mp4'
     },
     'apple': {

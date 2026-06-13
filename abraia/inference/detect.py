@@ -47,14 +47,14 @@ def prepare_input(img, shape):
 
 def get_mask(row, box, size):
     """Extracts the segmentation mask for an object (box) in a row."""
-    shape = round(math.sqrt(row.shape[0]))
-    mask = (sigmoid(row.reshape(shape, shape)) > 0.5).astype(np.uint8)
     x, y, w, h = box
+    shape = round(math.sqrt(row.shape[0]))
+    mask = sigmoid(row.reshape(shape, shape))
     mask_x1, mask_y1 = round(x / size[0] * shape), round(y / size[1] * shape)
     mask_x2, mask_y2 = round((x + w) / size[0] * shape), round((y + h) / size[1] * shape)
     mask = mask[mask_y1:mask_y2, mask_x1:mask_x2]
     mask = cv2.resize(mask, (round(w), round(h)), cv2.INTER_NEAREST)
-    return mask
+    return (mask > 0.5).astype(np.uint8)
 
 
 def process_output(outputs, size, shape, classes, conf_threshold=0.25, iou_threshold=0.7, approx=0.001, labels=None):
