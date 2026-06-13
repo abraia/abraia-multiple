@@ -4,10 +4,11 @@ import os
 import io
 import shutil
 import contextlib
-#os.environ['YOLO_VERBOSE'] = 'False'
+import numpy as np
+
+# os.environ['YOLO_VERBOSE'] = 'False'
 
 from ultralytics import YOLO
-
 
 abraia = Abraia()
 
@@ -38,13 +39,10 @@ class Model:
     def train(self, project, epochs=100, batch=32, callback=None):
         if callback:
             def on_train_epoch_end(trainer):
-                epoch = trainer.epoch
-                num_epochs = trainer.epochs
-                # trainer.label_loss_items contains training losses
-                loss = float(sum(trainer.loss_items)) / len(trainer.loss_items) if trainer.loss_items else 0
-                # For detection, we might want to report mAP if it's available (usually after val in epoch)
+                loss_items = trainer.loss_items.cpu().detach().numpy()
+                loss = float(np.sum(loss_items)) / len(loss_items)
                 acc = trainer.metrics.get('metrics/mAP50(B)', 0) if hasattr(trainer, 'metrics') else 0
-                callback({'epoch': epoch, 'epochs': num_epochs, 'loss': loss, 'acc': float(acc)})
+                callback({'epoch': trainer.epoch, 'epochs': trainer.epochs, 'loss': loss, 'acc': float(acc)})
             self.model.add_callback('on_train_epoch_end', on_train_epoch_end)
         data = f"{project}" if self.task == 'classify' else f"{project}/data.yaml"
         results = self.model.train(data=data, batch=batch, epochs=epochs, imgsz=self.imgsz)

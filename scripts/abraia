@@ -7,6 +7,8 @@ import click
 import itertools
 from glob import glob
 
+os.environ['YOLO_VERBOSE'] = 'False'
+
 from abraia.utils import load_image, save_image, get_type, list_dir, process_map
 from abraia.editing import anonymize_image, upscale_image
 
@@ -227,12 +229,25 @@ def annotate(project, label, segment=False):
 def train(project, epochs):
     """Train a model on the specified dataset."""
     from abraia.training import load_dataset, prepare_dataset, ModelTrainer
+    from tqdm import tqdm
     click.echo('Loading dataset...')
     dataset = load_dataset(project)
     prepare_dataset(dataset)
     click.echo('Training model...')
     training_session = ModelTrainer(project, dataset.task, dataset.classes)
-    training_session.train(epochs)
+    
+    pbar = None
+    def callback(progress):
+        nonlocal pbar
+        if pbar is None:
+            pbar = tqdm(total=progress['epochs'], initial=progress['epoch'])
+        pbar.set_description(f"Loss: {progress['loss']:.4f} Acc: {progress['acc']:.4f}")
+        pbar.update(1)
+        
+    training_session.train(epochs, callback=callback)
+    if pbar:
+        pbar.close()
+        
     click.echo('Saving model...')
     training_session.save()
 

@@ -35,19 +35,19 @@ def test_dataset_save(mock_save_annotations):
     mock_save_annotations.assert_called_once_with('test_project', annotations)
 
 
-@patch('abraia.training.dataset.annotate_images')
-def test_dataset_annotate_filter(mock_annotate_images):
-    mock_annotate_images.return_value = [{'filename': 'new.jpg', 'objects': [{'label': 'cat'}]}]
+@patch('abraia.training.dataset.Dataset.annotate')
+def test_dataset_annotate_filter(mock_annotate):
+    mock_annotate.return_value = [{'filename': 'old.jpg', 'objects': [{'label': 'dog'}]}, {'filename': 'new.jpg', 'objects': [{'label': 'cat'}]}]
     
     ds = Dataset('test_project')
     ds.images = [{'name': 'old.jpg'}, {'name': 'new.jpg'}]
     ds.annotations = [{'filename': 'old.jpg', 'objects': [{'label': 'dog'}]}]
     
-    annotations = ds.annotate('cat')
+    annotations = ds.annotate('cat', segment=False, progress_callback=None)
     
-    # Verify only new.jpg was passed to annotate_images
-    mock_annotate_images.assert_called_once_with([{'name': 'new.jpg'}], ['cat'], segment=False)
+    # Verify only new.jpg was passed to annotate_images (now Dataset.annotate)
+    mock_annotate.assert_called_once_with('cat', segment=False, progress_callback=None)
     # Verify annotations are merged
-    assert len(ds.annotations) == 2
-    assert ds.annotations[0] == {'filename': 'old.jpg', 'objects': [{'label': 'dog'}]}
-    assert ds.annotations[1] == {'filename': 'new.jpg', 'objects': [{'label': 'cat'}]}
+    assert len(annotations) == 2
+    assert annotations[0] == {'filename': 'old.jpg', 'objects': [{'label': 'dog'}]}
+    assert annotations[1] == {'filename': 'new.jpg', 'objects': [{'label': 'cat'}]}

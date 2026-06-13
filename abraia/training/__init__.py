@@ -87,9 +87,9 @@ class ModelTrainer:
             from . import detect
             self.model = detect.Model(task, imgsz=imgsz)
 
-    def train(self, epochs: int = None, batch: int = 32) -> None:
+    def train(self, epochs: int = None, batch: int = 32, callback=None) -> None:
         epochs = epochs or (30 if self.task == 'classify' else 300)
-        self.model.train(self.project, epochs=epochs, batch=batch)
+        self.model.train(self.project, epochs=epochs, batch=batch, callback=callback)
 
     def test(self, split: str = 'val') -> Dict[str, Any]:
         return self.model.test(split=split)

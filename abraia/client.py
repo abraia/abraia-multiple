@@ -135,9 +135,9 @@ class Abraia:
             raise APIError(resp.text, resp.status_code)
         save_data(dest, resp.content)
 
-    def load_file(self, path):
+    def load_file(self, path, cache=False):
         dest = temporal_src(path)
-        self.download_file(path, dest, cache=True)
+        self.download_file(path, dest, cache=cache)
         try:
             with open(dest, 'r') as f:
                 return f.read()

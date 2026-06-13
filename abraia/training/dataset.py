@@ -9,6 +9,7 @@ import itertools
 from tqdm import tqdm
 from PIL import Image
 from io import BytesIO
+from transformers import pipeline
 
 from ..client import Abraia
 from ..utils import HEADERS, load_image, load_url, list_dir, url_path
@@ -125,37 +126,13 @@ def download_file(path, folder):
     return dest
 
 
-def detect_ollama(img, label, model='gemma4:e2b'):
-    import ollama
-    
-    im = Image.fromarray(img)
-    with BytesIO() as buffer:
-        im.save(buffer, format='JPEG')
-        image_bytes = buffer.getvalue()
-
-    prompt = f"Detect {label} and provide the bounding box coordinates [ymin, xmin, ymax, xmax]."
-    response = ollama.generate(model=model, prompt=prompt, images=[image_bytes])
-
-    # Gemma4 returns coordinates in 0-1000 scale: [ymin, xmin, ymax, xmax]
-    matches = re.findall(r'\[\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\]', response['response'])
-    
-    height, width = img.shape[:2]
-    objects = []
-    for match in matches:
-        ymin, xmin, ymax, xmax = map(float, match)
-        # Assuming 0-1000 normalized coordinates from moondream
-        xmin, ymin, xmax, ymax = round(xmin * width / 1000), round(ymin * height / 1000), round(xmax * width / 1000), round(ymax * height / 1000)
-        objects.append({'label': label, 'score': 1.0, 'box': [xmin, ymin, xmax - xmin, ymax - ymin]})
-    return objects
-
-
-def detect_dino(img, classes, threshold=0.3):
+def detect_dino(img, classes, threshold=0.3, pipe=None):
     """Detect objects in an image using Grounding Dino."""
-    from transformers import pipeline
 
     classes = [label.lower().strip() for label in classes]
     labels = [f"{label}." if not label.endswith('.') else label for label in classes]
-    pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
+    if pipe is None:
+        pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
     results = pipe(Image.fromarray(img), candidate_labels=labels, threshold=threshold)
 
     objects = []
@@ -166,24 +143,6 @@ def detect_dino(img, classes, threshold=0.3):
             xmin, ymin, xmax, ymax = result['box'].values()
             objects.append({"label": label, "score": score, "box": [xmin, ymin, xmax - xmin, ymax - ymin]})
     return objects
-
-
-def annotate_images(images, classes, segment=False):
-    """Annotate a dataset using Grounding Dino."""
-    annotations = []
-    for row in tqdm(images):
-        url, filename = row['url'], row['name']
-        img = load_image(load_url(url))
-        objects = detect_dino(img, classes)
-        if objects:
-            if segment:
-                try:
-                    objects = segment_objects(img, objects)
-                except:
-                    continue
-            annotation = {'url': url, 'filename': filename, 'objects': objects}
-            annotations.append(annotation)
-    return annotations
 
 
 def list_datasets():
@@ -255,11 +214,24 @@ class Dataset:
             self.images = list_images(self.project)
         return self
     
-    def annotate(self, label, segment=False):
+    def annotate(self, label, segment=False, callback=None):
         annotated_filenames = {a['filename'] for a in self.annotations}
         images = [img for img in self.images if img['name'] not in annotated_filenames]
-        new_annotations = annotate_images(images, [label], segment=segment)
-        self.annotations.extend(new_annotations)
+        pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
+        for i, row in enumerate(tqdm(images)):
+            url, filename = row['url'], row['name']
+            img = load_image(load_url(url))
+            objects = detect_dino(img, [label], pipe=pipe)
+            if callback:
+                callback({'current': i + 1, 'total': len(images)})
+            if objects:
+                if segment:
+                    try:
+                        objects = segment_objects(img, objects)
+                    except:
+                        continue
+                annotation = {'url': url, 'filename': filename, 'objects': objects}
+                self.annotations.append(annotation)
         return self.annotations
 
     def save(self, annotations=None):
