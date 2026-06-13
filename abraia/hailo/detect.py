@@ -135,7 +135,7 @@ def main(**kwargs) -> None:
         config_uri = f"{os.path.splitext(model_uri)[0]}.json"
         config = load_json(download_file(config_uri))
         hef_path = download_file(model_uri)
-        labels = config['labels']
+        labels = config['classes']
         task = config['task']
     except:
         hef_path = args.hef_path
