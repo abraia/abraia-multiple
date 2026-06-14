@@ -60,14 +60,16 @@ def save_image(src, img):
 
 def principal_components(img, n_components=3, spectrum=False):
     """Calculate principal components of the image"""
-    from sklearn.decomposition import PCA
     h, w, d = img.shape
     X = img.reshape((h * w), d)
-    pca = PCA(n_components=n_components, whiten=True)
-    bands = np.squeeze(pca.fit_transform(X).reshape(h, w, n_components))
+    X_mean = np.mean(X, axis=0)
+    X_centered = X - X_mean
+    U, S, Vt = np.linalg.svd(X_centered, full_matrices=False)
+    # Transformed data with whitening
+    bands = (U[:, :n_components] * np.sqrt(X.shape[0] - 1)).reshape(h, w, n_components)
     if spectrum:
-        return bands, pca.components_
-    return bands
+        return np.squeeze(bands), Vt[:n_components, :]
+    return np.squeeze(bands)
 
 
 def normalize(img):
@@ -108,7 +110,7 @@ def resize(img, size):
 
 def resample(img, n_samples=32):
     """Resample the number of spectral bands (n_samples)"""
-    from sklearn.utils import resample
+    from ..training.ops import resample
     h, w, d = img.shape
     X = img.reshape((h * w), d)
     r = resample(np.transpose(X), n_samples=n_samples)

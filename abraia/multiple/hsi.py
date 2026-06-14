@@ -5,9 +5,7 @@ import matplotlib.pyplot as plt
 
 from PIL import Image
 
-from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from ..training.ops import train_test_split
 
 from tensorflow import keras
 from keras.utils import np_utils
@@ -17,6 +15,36 @@ from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 from . import Multiple, random, principal_components, rgb, ndvi, resample
 
 multiple = Multiple()
+
+
+def accuracy_score(y_true, y_pred):
+    return np.mean(y_true == y_pred)
+
+
+def confusion_matrix(y_true, y_pred):
+    labels = np.unique(np.concatenate((y_true, y_pred)))
+    n_labels = len(labels)
+    cm = np.zeros((n_labels, n_labels), dtype=int)
+    label_to_idx = {label: i for i, label in enumerate(labels)}
+    for t, p in zip(y_true, y_pred):
+        cm[label_to_idx[t], label_to_idx[p]] += 1
+    return cm
+
+
+def classification_report(y_true, y_pred, target_names=None):
+    cm = confusion_matrix(y_true, y_pred)
+    precision = np.diag(cm) / np.sum(cm, axis=0)
+    recall = np.diag(cm) / np.sum(cm, axis=1)
+    f1 = 2 * (precision * recall) / (precision + recall)
+    support = np.sum(cm, axis=1)
+    
+    report = "              precision    recall  f1-score   support\n\n"
+    for i, (p, r, f, s) in enumerate(zip(precision, recall, f1, support)):
+        name = target_names[i] if target_names and i < len(target_names) else str(i)
+        report += f"{name:>12}       {p:.2f}      {r:.2f}      {f:.2f}      {s:>7}\n"
+    
+    report += f"\n    accuracy                           {accuracy_score(y_true, y_pred):.2f}      {np.sum(support):>7}\n"
+    return report
 
 
 def load_dataset(dataset, shuffle=False):
@@ -220,31 +248,25 @@ def plot_train_history(history):
 class HyperspectralModel:
     def __init__(self, name, *args):
         self.name = name
-        if self.name == 'svm':
-            self.model = SVC(C=150, kernel='rbf')
-        elif self.name == 'hsn':
+        if self.name == 'hsn':
             self.input_shape, self.n_classes = args
             self.model = create_hsn_model(self.input_shape, self.n_classes) # Hybrid Spectral Net
+        else:
+            raise ValueError(f"Model {name} not supported")
 
     def train(self, X, y, train_ratio=0.7, epochs=50):
-        if self.name == 'svm':
-            X_train, X_test, y_train, y_test = train_test_split(X.reshape(-1, X.shape[-1]), y, train_size=train_ratio, stratify=y)
-            self.model.fit(X_train, y_train)
-            return y_test, self.model.predict(X_test)
-        elif self.name == 'hsn':
+        if self.name == 'hsn':
             X = principal_components(X, n_components=self.input_shape[2])
             X_train, X_test, y_train, y_test = generate_training_data(X, y, self.input_shape[0], train_ratio)
             self.history = self.model.fit(x=X_train, y=np_utils.to_categorical(y_train), batch_size=256, epochs=epochs)
             return y_test, np.argmax(self.model.predict(X_test), axis=1)
 
     def predict(self, X):
-        if self.name == 'svm':
-            return self.model.predict(X.reshape(-1, X.shape[2])).reshape(X.shape[0], X.shape[1])
-        elif self.name == 'hsn':
+        if self.name == 'hsn':
             X = principal_components(X, n_components=self.input_shape[2])
             return predict_hsn_model(self.model, X, self.input_shape[0])
     
-    def plot_history():
+    def plot_history(self):
         if self.history:
             plot_train_history(self.history)
     
@@ -256,5 +278,5 @@ class HyperspectralModel:
 
 
 def create_model(name, *args):
-    """Create a new model: svm or hsn"""
+    """Create a new model: hsn"""
     return HyperspectralModel(name, *args)

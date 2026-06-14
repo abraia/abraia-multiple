@@ -11,6 +11,7 @@ from PIL import Image
 
 from ..client import Abraia
 from ..utils import HEADERS, load_image, load_url, list_dir, url_path
+from .ops import train_test_split
 from ..inference.detect import segment_objects
 
 
@@ -240,7 +241,6 @@ class Dataset:
         save_annotations(self.project, self.annotations)
 
     def split(self):
-        from sklearn.model_selection import train_test_split
         # TODO: Split dataset by classes to avoid class imbalance
         backgrounds = [annotation for annotation in self.annotations if not annotation.get('objects')]
         annotations = [annotation for annotation in self.annotations if annotation.get('objects')]

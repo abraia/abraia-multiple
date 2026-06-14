@@ -18,14 +18,13 @@ DEMOS = {
         'model': 'multiple/tomato/yolov8n_v6.onnx',
         'src': '10179855-hd_1280_720_30fps.mp4',
         'labels': ['tomato'],
-        'counter': [(960, 0), (960, 720)],
-        'dest': 'tomato_onnx.mp4'
+        'counter': [(960, 0), (960, 720)]
     },
     'apple': {
         'model': 'multiple/models/yolov8n-seg.onnx',
         'src': '5479199-hd_1280_720_25fps.mp4',
         'labels': ['apple'],
-        'dest': 'apple_onnx.mp4'
+        'counter': [(960, 0), (960, 720)]
     },
     'strawberry': {
         'model': 'multiple/strawberry/yolov8n.onnx',
@@ -61,14 +60,12 @@ DEMOS = {
 HAILO_DEMOS = {
     'tomato': {
         'hef_path': 'multiple/tomato/yolov8n.hef',
-        'src': '10179855-hd_1280_720_30fps.mp4',
-        'dest': 'tomato_hef.mp4'
+        'src': '10179855-hd_1280_720_30fps.mp4'
     },
     'apple': {
         'hef_path': 'yolov5m_seg_with_nms',
         'task': 'segment',
-        'src': '5479199-hd_1280_720_25fps.mp4',
-        'dest': 'apple_hef.mp4'
+        'src': '5479199-hd_1280_720_25fps.mp4'
     },
     'segment': {
         'hef_path': 'yolov5m_seg_with_nms',
