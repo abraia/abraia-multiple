@@ -200,10 +200,9 @@ def create(project, query, anonymize=False, upscale=0):
     """Create or update a dataset."""
     from abraia.training import search_images, load_dataset
     dataset = load_dataset(project)
-    save_output = f"{project}/"
     files = []
     if query:
-        files = search_images(query, limit=100, save_output=save_output, verbose=True)
+        files = search_images(query, limit=100, save_output=f"{project}/", verbose=True)
     if os.path.exists(project):
         files = process_dataset(project, anonymize=anonymize, upscale_threshold=upscale)
     process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading images")

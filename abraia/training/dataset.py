@@ -85,7 +85,7 @@ def search_google(query):
         yield link
 
 
-def download(query, limit=100, save_output='dataset', verbose=True):
+def download(query, limit=100, save_output='dataset', verbose=True, callback=None):
     seen = set()
     download_count = 0
     os.makedirs(save_output, exist_ok=True)
@@ -102,6 +102,8 @@ def download(query, limit=100, save_output='dataset', verbose=True):
                         download_count += 1
                         if verbose:
                             print(f"[%] Downloaded Image #{download_count} from {link}")
+                        if callback:
+                            callback({'current': download_count, 'total': limit})
                     except Exception as e:
                         print(f"[!] Error getting {link}: {e}")
                 else:
@@ -112,9 +114,9 @@ def download(query, limit=100, save_output='dataset', verbose=True):
                 break
 
 
-def search_images(query, limit=100, save_output='dataset', verbose=True):
+def search_images(query, limit=100, save_output='dataset', verbose=True, callback=None):
     """Search and download images from Google and Bing."""
-    download(query, limit=limit, save_output=save_output,  verbose=verbose)
+    download(query, limit=limit, save_output=save_output, verbose=verbose, callback=callback)
     return list_dir(save_output)
 
 
