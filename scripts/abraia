@@ -7,8 +7,6 @@ import click
 import itertools
 from glob import glob
 
-os.environ['YOLO_VERBOSE'] = 'False'
-
 from abraia.utils import load_image, save_image, get_type, list_dir, process_map
 from abraia.editing import anonymize_image, upscale_image
 
@@ -202,7 +200,7 @@ def create(project, query, anonymize=False, upscale=0):
     dataset = load_dataset(project)
     files = []
     if query:
-        files = search_images(query, limit=100, save_output=f"{project}/")
+        search_images(query, limit=100, save_output=f"{project}/")
     if os.path.exists(project):
         files = process_dataset(project, anonymize=anonymize, upscale_threshold=upscale)
     process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading images")
@@ -218,8 +216,8 @@ def annotate(project, label, segment=False):
     from abraia.training import load_dataset
     if label:
         dataset = load_dataset(project)
-        annotations = dataset.annotate(label, segment=segment)
-        dataset.save(annotations)
+        dataset.annotate(label, segment=segment)
+        dataset.save()
 
 
 @cli.command()
@@ -228,25 +226,12 @@ def annotate(project, label, segment=False):
 def train(project, epochs):
     """Train a model on the specified dataset."""
     from abraia.training import load_dataset, prepare_dataset, ModelTrainer
-    from tqdm import tqdm
     click.echo('Loading dataset...')
     dataset = load_dataset(project)
     prepare_dataset(dataset)
     click.echo('Training model...')
     training_session = ModelTrainer(project, dataset.task, dataset.classes)
-    
-    pbar = None
-    def callback(progress):
-        nonlocal pbar
-        if pbar is None:
-            pbar = tqdm(total=progress['epochs'], initial=progress['epoch'])
-        pbar.set_description(f"Loss: {progress['loss']:.4f} Acc: {progress['acc']:.4f}")
-        pbar.update(1)
-        
-    training_session.train(epochs, callback=callback)
-    if pbar:
-        pbar.close()
-        
+    training_session.train(epochs)
     click.echo('Saving model...')
     training_session.save()
 

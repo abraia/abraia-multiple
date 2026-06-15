@@ -2,10 +2,10 @@ from abraia.training.dataset import Dataset
 from unittest.mock import patch
 
 
+@patch('abraia.training.dataset.Dataset._load_annotations')
+@patch('abraia.training.dataset.Dataset._list_images')
 @patch('abraia.training.dataset.list_datasets')
-@patch('abraia.training.dataset.load_annotations')
-@patch('abraia.training.dataset.list_images')
-def test_dataset_load(mock_list_images, mock_load_annotations, mock_list_datasets):
+def test_dataset_load(mock_list_datasets, mock_list_images, mock_load_annotations):
     mock_list_datasets.return_value = ['test_project']
     mock_load_annotations.return_value = [{'filename': 'test.jpg', 'objects': [{'label': 'cat'}]}]
     mock_list_images.return_value = [{'name': 'test.jpg'}]
@@ -24,15 +24,14 @@ def test_dataset_load(mock_list_images, mock_load_annotations, mock_list_dataset
     mock_list_images.assert_called_once_with('test_project')
 
 
-@patch('abraia.training.dataset.save_annotations')
-def test_dataset_save(mock_save_annotations):
+@patch('abraia.training.dataset.abraia.save_json')
+def test_dataset_save(mock_save_json):
     ds = Dataset('test_project')
-    annotations = [{'filename': 'test.jpg', 'objects': []}]
+    ds.annotations = [{'filename': 'test.jpg', 'objects': []}]
     
-    ds.save(annotations)
+    ds.save()
     
-    assert ds.annotations == annotations
-    mock_save_annotations.assert_called_once_with('test_project', annotations)
+    mock_save_json.assert_called_once_with('test_project/annotations.json', ds.annotations)
 
 
 @patch('abraia.training.dataset.Dataset.annotate')

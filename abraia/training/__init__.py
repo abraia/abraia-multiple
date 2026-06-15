@@ -4,6 +4,7 @@ import itertools
 
 from PIL import Image
 from typing import Dict, Any
+from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 
 from ..utils import save_text
@@ -80,6 +81,7 @@ class ModelTrainer:
         self.project = project
         self.task = task
         self.classes = classes
+        self.pbar = None
         imgsz = imgsz or (224 if task == 'classify' else 640)
         if task == 'classify':
             from . import classify
@@ -88,9 +90,18 @@ class ModelTrainer:
             from . import detect
             self.model = detect.Model(task, imgsz=imgsz)
 
+    def _progress_callback(self, progress):
+        if self.pbar is None:
+            self.pbar = tqdm(total=progress['epochs'], initial=progress['epoch'])
+        self.pbar.set_description(f"Loss: {progress['loss']:.4f} Acc: {progress['acc']:.4f}")
+        self.pbar.update(1)
+
     def train(self, epochs: int = None, batch: int = 32, callback=None) -> None:
         epochs = epochs or (30 if self.task == 'classify' else 300)
+        callback = callback or self._progress_callback
         self.model.train(self.project, epochs=epochs, batch=batch, callback=callback)
+        if self.pbar:
+            self.pbar.close()
 
     def test(self, split: str = 'val') -> Dict[str, Any]:
         return self.model.test(split=split)

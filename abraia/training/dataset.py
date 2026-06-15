@@ -1,6 +1,7 @@
 import os
 import re
 import io
+import json
 import urllib
 import requests
 import filetype
@@ -9,10 +10,12 @@ import itertools
 from tqdm import tqdm
 from PIL import Image
 
+from abraia.inference.ops import mask_to_polygon
+
 from ..client import Abraia
 from ..utils import HEADERS, load_image, load_url, list_dir, url_path
 from .ops import train_test_split
-from ..inference.detect import segment_objects
+from ..inference.sam import SAM
 
 
 abraia = Abraia()
@@ -28,7 +31,9 @@ def convert_to_jpg(src, save_output, max_size=1920):
     im = Image.open(src).convert('RGB')
     im.thumbnail([max_size, max_size], Image.LANCZOS)
     phash = str(imagehash.phash(im))
-    im.save(os.path.join(save_output, phash + '.jpg'))
+    filename = phash + '.jpg'
+    im.save(os.path.join(save_output, filename))
+    return filename
 
 
 def download_page(url):
@@ -37,12 +42,19 @@ def download_page(url):
     return resp.text
 
 
-def save_image_file(link, save_output, timeout=10, max_size=1920):
+def save_image_file(link, upload_folder, existing_filenames=None, timeout=10, max_size=1920):
     resp = requests.get(link, headers=HEADERS, allow_redirects=True, timeout=timeout)
     kind = filetype.guess(resp.content)
     if kind and kind.mime.startswith('image'):
         d = io.BytesIO(resp.content)
-        convert_to_jpg(d, save_output, max_size)
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            filename = convert_to_jpg(d, temp_dir, max_size)
+            if existing_filenames is None or filename not in existing_filenames:
+                local_path = os.path.join(temp_dir, filename)
+                abraia.upload_file(local_path, upload_folder)
+                return True, filename
+            return False, filename
     else:
         raise ValueError(f'Invalid image, not saving')
 
@@ -89,9 +101,17 @@ def search_images(query, limit=100, save_output='dataset', callback=None):
     """Search and download images from Google and Bing."""
     seen = set()
     download_count = 0
-    os.makedirs(save_output, exist_ok=True)
+    try:
+        files = abraia.list_files(f"{save_output}")[0]
+        existing_filenames = {f['name'] for f in files}
+    except:
+        existing_filenames = set()
+
     links = [search_google(query), search_bing(query)]
     ends = [False] * len(links)
+    
+    pbar = tqdm(total=limit, desc="Downloading images") if callback is None else None
+    
     for id in itertools.cycle(range(len(links))):
         try:
             link = next(links[id])
@@ -99,21 +119,27 @@ def search_images(query, limit=100, save_output='dataset', callback=None):
                 seen.add(link)
                 if download_count < limit:
                     try:
-                        save_image_file(link, save_output)
-                        download_count += 1
-                        if callback:
-                            callback({'current': download_count, 'total': limit, 'link': link})
-                        else:
-                            print(f"[%] Downloaded Image #{download_count} from {link}")
+                        uploaded, filename = save_image_file(link, save_output, existing_filenames=existing_filenames)
+                        if uploaded:
+                            download_count += 1
+                            if callback:
+                                callback({'current': download_count, 'total': limit, 'filename': filename})
+                            elif pbar:
+                                pbar.set_description(f"Downloaded {filename}")
+                                pbar.update(1)
                     except Exception:
-                        print(f"[!] Error Image #{download_count} from {link}")
+                        pass
                 else:
                     break
         except StopIteration:
             ends[id] = True
             if set(ends) == {True}:
                 break
-    return list_dir(save_output)
+    
+    if pbar:
+        pbar.close()
+        
+    return abraia.list_files(f"{save_output}/")[0]
 
 
 def download_file(path, folder):
@@ -121,24 +147,6 @@ def download_file(path, folder):
     if not os.path.exists(dest):
         abraia.download_file(path, dest)
     return dest
-
-
-def detect_dino(img, classes, threshold=0.3, pipe=None):
-    """Detect objects in an image using Grounding Dino."""
-    classes = [label.lower().strip() for label in classes]
-    labels = [f"{label}." if not label.endswith('.') else label for label in classes]
-    if pipe is None:
-        from transformers import pipeline
-        pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
-    results = pipe(Image.fromarray(img), candidate_labels=labels, threshold=threshold)
-    objects = []
-    for result in results:
-        score = result["score"]
-        if score > threshold:
-            label = result["label"].rpartition('.')[0]
-            xmin, ymin, xmax, ymax = result['box'].values()
-            objects.append({"label": label, "score": score, "box": [xmin, ymin, xmax - xmin, ymax - ymin]})
-    return objects
 
 
 def list_datasets():
@@ -151,47 +159,43 @@ def list_models(project):
     return [f['name'] for f in files if f['name'].endswith('.onnx')]
 
 
-def load_annotations(project):
-    annotations = abraia.load_json(f"{project}/annotations.json")
-    for annotation in annotations:
-        annotation['path'] = f"{project}/{annotation['filename']}"
-        annotation['url'] = url_path(f"{abraia.userid}/{annotation['path']}")
-    return annotations
+class Annotator:
+    def __init__(self, model="IDEA-Research/grounding-dino-tiny", segment=False):
+        from transformers import pipeline
+        self.pipe = pipeline(task="zero-shot-object-detection", model=model)
+        self.segment_enabled = segment
+        if self.segment_enabled:
+            self.sam = SAM()
 
+    def detect(self, img, classes, threshold=0.3):
+        classes = [label.lower().strip() for label in classes]
+        labels = [f"{label}." if not label.endswith('.') else label for label in classes]
+        results = self.pipe(Image.fromarray(img), candidate_labels=labels, threshold=threshold)
+        objects = []
+        for result in results:
+            score = result["score"]
+            if score > threshold:
+                label = result["label"].rpartition('.')[0]
+                xmin, ymin, xmax, ymax = result['box'].values()
+                objects.append({"label": label, "score": score, "box": [xmin, ymin, xmax - xmin, ymax - ymin]})
+        return objects
 
-def load_labels(annotations):
-    labels = []
-    for annotation in annotations:
-        for object in annotation.get('objects', []):
-            label = object.get('label')
-            if label and label not in labels:
-                labels.append(label)
-    return list(set(labels))
+    def segment(self, img, objects):
+        self.sam.encode(img)
+        for result in objects:
+            x, y, w, h = result['box']
+            mask = self.sam.predict(img, prompt=json.dumps([{"type": "rectangle", "data": [x, y, x+w, y+h]}]))
+            result['polygon'] = mask_to_polygon(mask[y:y+h, x:x+w], (x, y))
+        return objects
 
-
-def load_task(annotations):
-    classify, detect, segment = False, False, False
-    for annotation in annotations:
-        for object in annotation.get('objects', []):
-            if 'polygon' in object:
-                segment = True
-            elif 'box' in object:
-                detect = True
-            elif 'label' in object:
-                classify = True
-    return 'segment' if segment else 'detect' if detect else 'classify' if classify else ''
-
-
-def list_images(project):
-    files = abraia.list_files(f"{project}/")[0]
-    files = [f for f in files if f['type'] in ['image/jpeg', 'image/png']]
-    for data in files:
-        data['url'] = url_path(f"{abraia.userid}/{data['path']}")
-    return files
-
-
-def save_annotations(project, annotations):
-    abraia.save_json(f"{project}/annotations.json", annotations)
+    def annotate(self, img, label, threshold=0.3):
+        objects = self.detect(img, [label], threshold=threshold)
+        if objects and self.segment_enabled:
+            try:
+                objects = self.segment(img, objects)
+            except:
+                return None
+        return objects
 
 
 class Dataset:
@@ -204,37 +208,64 @@ class Dataset:
 
     def load(self):
         if self.project in list_datasets():
-            self.annotations = load_annotations(self.project)
-            self.classes = load_labels(self.annotations)
-            self.task = load_task(self.annotations)
-            self.images = list_images(self.project)
+            self.annotations = self._load_annotations(self.project)
+            self.classes, self.task = self._process_annotations(self.annotations)
+            self.images = self._list_images(self.project)
         return self
     
+    def _load_annotations(self, project):
+        annotations = abraia.load_json(f"{project}/annotations.json")
+        for annotation in annotations:
+            annotation['path'] = f"{project}/{annotation['filename']}"
+            annotation['url'] = url_path(f"{abraia.userid}/{annotation['path']}")
+        return annotations
+
+    def _process_annotations(self, annotations):
+        labels = set()
+        classify, detect, segment = False, False, False
+        for annotation in annotations:
+            for obj in annotation.get('objects', []):
+                label = obj.get('label')
+                if label:
+                    labels.add(label)
+                    classify = True
+                if 'polygon' in obj:
+                    segment = True
+                elif 'box' in obj:
+                    detect = True
+        return list(labels), 'segment' if segment else 'detect' if detect else 'classify' if classify else ''
+
+    def _list_images(self, project):
+        files = abraia.list_files(f"{project}/")[0]
+        files = [f for f in files if f['type'] in ['image/jpeg', 'image/png']]
+        for data in files:
+            data['url'] = url_path(f"{abraia.userid}/{data['path']}")
+        return files
+
     def annotate(self, label, segment=False, callback=None):
-        from transformers import pipeline
         annotated_filenames = {a['filename'] for a in self.annotations}
         images = [img for img in self.images if img['name'] not in annotated_filenames]
-        pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
-        for i, row in enumerate(tqdm(images)):
+        annotator = Annotator(segment=segment)
+        
+        pbar = tqdm(images) if callback is None else None
+        iterable = pbar if pbar else images
+        for i, row in enumerate(iterable):
+            if pbar:
+                pbar.set_description(f"Annotating {row['name']}")
             url, filename = row['url'], row['name']
             img = load_image(load_url(url))
-            objects = detect_dino(img, [label], pipe=pipe)
+            objects = annotator.annotate(img, label)
+            annotation = {'url': url, 'filename': filename, 'objects': objects}
+            self.annotations.append(annotation)
+            self.save()
             if callback:
-                callback({'current': i + 1, 'total': len(images)})
-            if objects:
-                if segment:
-                    try:
-                        objects = segment_objects(img, objects)
-                    except:
-                        continue
-                annotation = {'url': url, 'filename': filename, 'objects': objects}
-                self.annotations.append(annotation)
+                callback({'current': i + 1, 'total': len(images), 'filename': filename})
+        if pbar:
+            pbar.close()
         return self.annotations
 
-    def save(self, annotations=None):
-        if annotations is not None:
-            self.annotations = annotations
-        save_annotations(self.project, self.annotations)
+    def save(self):
+        abraia.save_json(f"{self.project}/annotations.json", self.annotations)
 
     def split(self):
         # TODO: Split dataset by classes to avoid class imbalance

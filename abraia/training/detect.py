@@ -6,7 +6,7 @@ import shutil
 import contextlib
 import numpy as np
 
-# os.environ['YOLO_VERBOSE'] = 'False'
+os.environ['YOLO_VERBOSE'] = 'False'
 
 from ultralytics import YOLO
 
