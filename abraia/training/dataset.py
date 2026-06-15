@@ -85,7 +85,8 @@ def search_google(query):
         yield link
 
 
-def download(query, limit=100, save_output='dataset', verbose=True, callback=None):
+def search_images(query, limit=100, save_output='dataset', callback=None):
+    """Search and download images from Google and Bing."""
     seen = set()
     download_count = 0
     os.makedirs(save_output, exist_ok=True)
@@ -100,23 +101,18 @@ def download(query, limit=100, save_output='dataset', verbose=True, callback=Non
                     try:
                         save_image_file(link, save_output)
                         download_count += 1
-                        if verbose:
-                            print(f"[%] Downloaded Image #{download_count} from {link}")
                         if callback:
-                            callback({'current': download_count, 'total': limit})
-                    except Exception as e:
-                        print(f"[!] Error getting {link}: {e}")
+                            callback({'current': download_count, 'total': limit, 'link': link})
+                        else:
+                            print(f"[%] Downloaded Image #{download_count} from {link}")
+                    except Exception:
+                        print(f"[!] Error Image #{download_count} from {link}")
                 else:
                     break
         except StopIteration:
             ends[id] = True
             if set(ends) == {True}:
                 break
-
-
-def search_images(query, limit=100, save_output='dataset', verbose=True, callback=None):
-    """Search and download images from Google and Bing."""
-    download(query, limit=limit, save_output=save_output, verbose=verbose, callback=callback)
     return list_dir(save_output)
 
 
@@ -129,14 +125,12 @@ def download_file(path, folder):
 
 def detect_dino(img, classes, threshold=0.3, pipe=None):
     """Detect objects in an image using Grounding Dino."""
-
     classes = [label.lower().strip() for label in classes]
     labels = [f"{label}." if not label.endswith('.') else label for label in classes]
     if pipe is None:
         from transformers import pipeline
         pipe = pipeline(task="zero-shot-object-detection", model="IDEA-Research/grounding-dino-tiny")
     results = pipe(Image.fromarray(img), candidate_labels=labels, threshold=threshold)
-
     objects = []
     for result in results:
         score = result["score"]

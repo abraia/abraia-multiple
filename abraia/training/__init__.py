@@ -10,6 +10,7 @@ from ..utils import save_text
 from .dataset import list_datasets, load_dataset, search_images, list_models, download_file
 
 
+#TODO: Remove on next release
 def load_tasks(task):
     if task:
         tasks = ['classify', 'detect', 'segment']
