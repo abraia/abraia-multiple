@@ -97,12 +97,12 @@ def search_google(query):
         yield link
 
 
-def search_images(query, limit=100, save_output='dataset', callback=None):
+def search_images(query, save_output, limit=100, callback=None):
     """Search and download images from Google and Bing."""
     seen = set()
     download_count = 0
     try:
-        files = abraia.list_files(f"{save_output}")[0]
+        files = abraia.list_files(save_output)[0]
         existing_filenames = {f['name'] for f in files}
     except:
         existing_filenames = set()
@@ -139,7 +139,7 @@ def search_images(query, limit=100, save_output='dataset', callback=None):
     if pbar:
         pbar.close()
         
-    return abraia.list_files(f"{save_output}/")[0]
+    return abraia.list_files(save_output)[0]
 
 
 def download_file(path, folder):

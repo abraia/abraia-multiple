@@ -200,7 +200,7 @@ def create(project, query, anonymize=False, upscale=0):
     dataset = load_dataset(project)
     files = []
     if query:
-        search_images(query, limit=100, save_output=f"{project}/")
+        search_images(query, f"{project}/", limit=100)
     if os.path.exists(project):
         files = process_dataset(project, anonymize=anonymize, upscale_threshold=upscale)
     process_map(upload_file, files, itertools.repeat(project + '/'), desc="Uploading images")

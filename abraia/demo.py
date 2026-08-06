@@ -4,6 +4,7 @@ import time
 from tqdm import tqdm
 from glob import glob
 
+from abraia import Abraia
 from abraia.inference import Model, Tracker, FaceRecognizer, FaceAttribute, PlateRecognizer
 from abraia.inference.faces import find_pose
 from abraia.inference.clip import Clip

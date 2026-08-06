@@ -13,7 +13,8 @@ from functools import partial
 from typing import Dict, List, Optional, Tuple
 
 from ..utils import download_url, get_remote_file_size
-from ..inference.ops import sigmoid, softmax
+from ..inference.ops import sigmoid, softmax, nms
+            
 
 logger = logging.getLogger(__name__)
 
@@ -616,8 +617,7 @@ if HAILO_AVAILABLE:
             cls_shift = x[:, 5:6] * max_wh
             boxes = x[:, :4] + cls_shift
             conf = x[:, 4:5]
-            from ..inference.ops import nms as ops_nms
-            keep = ops_nms(np.hstack([boxes.astype(np.float32), conf.astype(np.float32)]), iou_thres)
+            keep = nms(np.hstack([boxes.astype(np.float32), conf.astype(np.float32)]), iou_thres)
 
             if keep.shape[0] > max_det:
                 keep = keep[:max_det]
@@ -756,38 +756,6 @@ if HAILO_AVAILABLE:
             })
         return outputs
 
-
-    def pose_nms(dets: np.ndarray, thresh: float) -> np.ndarray:
-        x1, y1, x2, y2 = dets[:, 0], dets[:, 1], dets[:, 2], dets[:, 3]
-        scores = dets[:, 4]
-        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-        order = np.argsort(scores)[::-1]
-
-        suppressed = np.zeros(dets.shape[0], dtype=int)
-        for i in range(len(order)):
-            idx_i = order[i]
-            if suppressed[idx_i] == 1:
-                continue
-            for j in range(i + 1, len(order)):
-                idx_j = order[j]
-                if suppressed[idx_j] == 1:
-                    continue
-
-                xx1 = max(x1[idx_i], x1[idx_j])
-                yy1 = max(y1[idx_i], y1[idx_j])
-                xx2 = min(x2[idx_i], x2[idx_j])
-                yy2 = min(y2[idx_i], y2[idx_j])
-                w = max(0.0, xx2 - xx1 + 1)
-                h = max(0.0, yy2 - yy1 + 1)
-                inter = w * h
-                ovr = inter / (areas[idx_i] + areas[idx_j] - inter)
-
-                if ovr >= thresh:
-                    suppressed[idx_j] = 1
-
-        return np.where(suppressed == 0)[0]
-
-
     def decode_pose_results(raw_boxes: np.ndarray, raw_kpts: np.ndarray, strides: List[int], image_dims: Tuple[int, int], reg_max: int) -> Tuple[np.ndarray, np.ndarray]:
         boxes = None
         decoded_kpts = None
@@ -810,7 +778,6 @@ if HAILO_AVAILABLE:
             decoded_kpts = kpts if decoded_kpts is None else np.concatenate([decoded_kpts, kpts], axis=1)
 
         return boxes, decoded_kpts
-
 
     def map_box_to_orig(box: list, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> list:
         oh, ow = orig_dim
@@ -844,6 +811,7 @@ if HAILO_AVAILABLE:
             else: raise ValueError(f"Unsupported channel tag: {c_tag}")
         else: c = c_tag
         return (b, h, w, c)
+
 
     class ModelInference(HailoInfer):
         def __init__(self, hef_path: str, task: str, labels: list, batch_size: int = 1, score_threshold: float = 0.25, mask_threshold: float = 0.45, model_type: str = 'v8'):
@@ -889,8 +857,8 @@ if HAILO_AVAILABLE:
                 for det in detection:
                     bbox, score = det[:4], det[4]
                     if score >= self.score_threshold:
-                        # Denormalize and map to original coords
-                        xmin, ymin, xmax, ymax = map_box_to_orig([bbox[1] * mw, bbox[0] * mh, bbox[3] * mw, bbox[2] * mh], (oh, ow), (mh, mw))
+                        cx, cy, w, h = bbox
+                        xmin, ymin, xmax, ymax = map_box_to_orig([(cx - w / 2) * mw, (cy - h / 2) * mh, (cx + w / 2) * mw, (cy + h / 2) * mh], (oh, ow), (mh, mw))
                         detections.append({'label': self.labels[class_id] if self.labels else str(class_id), 'score': float(score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': class_id})
             return detections
         
@@ -907,16 +875,16 @@ if HAILO_AVAILABLE:
             boxes, masks, scores, classes = result['detection_boxes'], result['mask'], result['detection_scores'], result['detection_classes']
             detections = []
             for i in range(len(boxes)):
-                if scores[i] < self.score_threshold: continue
-                cx, cy, w, h = boxes[i]
-                xmin, ymin, xmax, ymax = map_box_to_orig([(cx - w / 2) * mw, (cy - h / 2) * mh, (cx + w / 2) * mw, (cy + h / 2) * mh], (oh, ow), (mh, mw))
-                detections.append({
-                    'label': self.labels[classes[i]] if self.labels else str(classes[i]), 'score': float(scores[i]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
-                    'mask': (masks[i, ymin:ymax, xmin:xmax] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
-                })
+                if scores[i] > self.score_threshold:
+                    cx, cy, w, h = boxes[i]
+                    xmin, ymin, xmax, ymax = map_box_to_orig([(cx - w / 2) * mw, (cy - h / 2) * mh, (cx + w / 2) * mw, (cy + h / 2) * mh], (oh, ow), (mh, mw))
+                    detections.append({
+                        'label': self.labels[classes[i]] if self.labels else str(classes[i]), 'score': float(scores[i]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                        'mask': (masks[i, ymin:ymax, xmin:xmax] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
+                    })
             return detections
 
-        def _process_pose_results(self, result, image):
+        def _process_pose_results(self, result, image, iou_thres=0.7, max_det=300):
             oh, ow = image.shape[:2]
             mh, mw, _ = self.get_input_shape()
             raw_detections = result
@@ -938,7 +906,7 @@ if HAILO_AVAILABLE:
                 boxes = np.copy(x[:, :4])
                 boxes[:, 0], boxes[:, 1] = x[:, 0] - x[:, 2] / 2, x[:, 1] - x[:, 3] / 2
                 boxes[:, 2], boxes[:, 3] = x[:, 0] + x[:, 2] / 2, x[:, 1] + x[:, 3] / 2
-                indices = pose_nms(np.concatenate((boxes, x[:, 4:5]), axis=1), 0.7)[:300]
+                indices = nms(np.concatenate((boxes, x[:, 4:5]), axis=1), iou_thres)[:max_det]
                 for idx in indices:
                     xmin, ymin, xmax, ymax = map_box_to_orig(boxes[idx], (oh, ow), (mh, mw))
                     mapped_kpts = map_keypoints_to_orig(x[idx, 5:].reshape(17, 3)[..., :2], (oh, ow), (mh, mw))

@@ -111,6 +111,15 @@ def normalize(img, mean, std):
     return img.astype(np.float32)
 
 
+def iou(box1, box2):
+    """Calculates the intersection-over-union of two boxes."""
+    tl1, wh1, br1 = [box1[0], box1[1]], [box1[2], box1[3]], [box1[0] + box1[2], box1[1] + box1[3]]
+    tl2, wh2, br2 = [box2[0], box2[1]], [box2[2], box2[3]], [box2[0] + box2[2], box2[1] + box2[3]]
+    intersection_area = np.prod(np.maximum(np.minimum(br1, br2) - np.maximum(tl1, tl2), 0))
+    union_area = np.prod(wh1) + np.prod(wh2) - intersection_area;
+    return intersection_area / union_area
+
+
 def py_cpu_nms(dets, thresh):
     """Pure Python NMS baseline.
 
@@ -144,8 +153,19 @@ def py_cpu_nms(dets, thresh):
 
         inds = np.where(ovr <= thresh)[0]
         order = order[inds + 1]
-
     return keep
+
+
+def non_maximum_suppression(objects, iou_threshold):
+    dets = []
+    for obj in objects:
+        s = obj['score']
+        x, y, w, h = obj['box']
+        dets.append([x, y, x + w, y + h, s])
+    if dets:
+        idxs = py_cpu_nms(np.array(dets), iou_threshold)
+        return [objects[idx] for idx in idxs]
+    return []
 
 
 def nms(dets, thresh):
@@ -194,36 +214,6 @@ def nms(dets, thresh):
                 suppressed[j] = 1
 
     return np.where(suppressed == 0)[0]
-
-
-# def iou(box1, box2):
-#     """Calculates the intersection-over-union of two boxes."""
-#     tl1, wh1, br1 = [box1[0], box1[1]], [box1[2], box1[3]], [box1[0] + box1[2], box1[1] + box1[3]]
-#     tl2, wh2, br2 = [box2[0], box2[1]], [box2[2], box2[3]], [box2[0] + box2[2], box2[1] + box2[3]]
-#     intersection_area = np.prod(np.maximum(np.minimum(br1, br2) - np.maximum(tl1, tl2), 0))
-#     union_area = np.prod(wh1) + np.prod(wh2) - intersection_area;
-#     return intersection_area / union_area
-
-
-# def non_maximum_suppression(objects, iou_threshold):
-#     results = []
-#     objects.sort(key=lambda obj: obj['score'], reverse=True)
-#     while len(objects) > 0:
-#         results.append(objects[0])
-#         objects = [obj for obj in objects if iou(obj['box'], objects[0]['box']) < iou_threshold]
-    # return results
-
-
-def non_maximum_suppression(objects, iou_threshold):
-    dets = []
-    for obj in objects:
-        s = obj['score']
-        x, y, w, h = obj['box']
-        dets.append([x, y, x + w, y + h, s])
-    if dets:
-        idxs = py_cpu_nms(np.array(dets), iou_threshold)
-        return [objects[idx] for idx in idxs]
-    return []
 
 
 def sigmoid(x):

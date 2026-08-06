@@ -5,29 +5,7 @@ import onnxruntime as ort
 from ..utils import download_file
 from .detect import Model
 from .ocr import TextSystem
-
-
-def iou(box1, box2):
-    tl1, wh1, br1 = [box1[0], box1[1]], [box1[2], box1[3]], [box1[0] + box1[2], box1[1] + box1[3]]
-    tl2, wh2, br2 = [box2[0], box2[1]], [box2[2], box2[3]], [box2[0] + box2[2], box2[1] + box2[3]]
-    intersection_area = np.prod(np.maximum(np.minimum(br1, br2) - np.maximum(tl1, tl2), 0))
-    union_area = np.prod(wh1) + np.prod(wh2) - intersection_area;
-    return intersection_area / union_area
-
-
-# TODO: Replace with non_maximum_suppression from ops
-def nms(objects, iou_threshold = 0.5):
-    results = []
-    objects.sort(key=lambda obj: obj['score'], reverse=True)
-    for object in objects:
-        non_overlap = True
-        for result in results:
-            if iou(object['box'], result['box']) >= iou_threshold:
-                non_overlap = False
-                break
-        if non_overlap:
-            results.append(object)
-    return results
+from .ops import non_maximum_suppression
 
 
 class LicensePlateDetector():
@@ -70,7 +48,7 @@ class LicensePlateDetector():
             pt1, pt2 = pts.min(axis=0), pts.max(axis=0)
             box = [round(pt1[0]), round(pt1[1]), round(pt2[0] - pt1[0]), round(pt2[1] - pt1[1])]
             objects.append({'box': box, 'score': float(prob), 'points': pts.astype(np.int32)})
-        results = nms(objects, self.iou_threshold)
+        results = non_maximum_suppression(objects, self.iou_threshold)
         return results
 
 

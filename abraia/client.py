@@ -8,7 +8,7 @@ from fnmatch import fnmatch
 from datetime import datetime
 
 from . import config
-from .utils import API_URL, md5sum, get_type, temporal_src, save_data
+from .utils import API_URL, md5sum, get_type, temporal_src, save_data, load_image, save_image
 
 
 def file_path(source, userid):
@@ -157,9 +157,10 @@ class Abraia:
 
     def load_image(self, path):
         dest = temporal_src(path)
-        return Image.open(self.download_file(path, dest, cache=True))
+        self.download_file(path, dest, cache=True)
+        return load_image(dest)
 
     def save_image(self, path, im):
         src = temporal_src(path)
-        im.save(src)
+        save_image(im, src)
         return self.upload_file(src, path)

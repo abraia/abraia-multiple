@@ -1,4 +1,5 @@
 import os
+import numpy as np
 
 from io import BytesIO
 from abraia import Abraia
@@ -82,11 +83,11 @@ def test_save_file():
 
 
 def test_load_image():
-    im = abraia.load_image('lion.jpg')
-    assert isinstance(im, Image.Image)
+    img = abraia.load_image('lion.jpg')
+    assert isinstance(img, np.ndarray)
 
 
 def test_save_image():
-    im = abraia.load_image('lion.jpg')
-    path = abraia.save_image('lion.png', im)
+    img = abraia.load_image('lion.jpg')
+    path = abraia.save_image('lion.png', img)
     assert path == 'lion.png'
