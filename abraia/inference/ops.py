@@ -78,28 +78,6 @@ def mask_to_polygon(mask, origin=[0, 0], approx=0.001):
 #     return polygon.tolist()
 
 
-# def mask_to_polygons(mask):
-#     """
-#     Convert a binary mask to a list of flattened polygons.
-
-#     Args:
-#         mask (np.ndarray): 2D binary mask.
-
-#     Returns:
-#         list: List of polygons (as flattened arrays).
-#         bool: True if the mask has holes.
-#     """
-#     mask = np.ascontiguousarray(mask)
-#     res = cv2.findContours(mask.astype("uint8"), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
-#     hierarchy = res[-1]
-#     if hierarchy is None:
-#         return [], False
-#     has_holes = (hierarchy.reshape(-1, 4)[:, 3] >= 0).sum() > 0
-#     contours = res[-2]
-#     polygons = [c.flatten() + 0.5 for c in contours if len(c) >= 6]
-#     return polygons, has_holes
-
-
 def approximate_polygon(polygon, approx=0.02):
     contour = np.array([polygon]).astype(np.int32)
     contour = approx_contour(contour, approx)
@@ -120,16 +98,15 @@ def iou(box1, box2):
     return intersection_area / union_area
 
 
-def py_cpu_nms(dets, thresh):
-    """Pure Python NMS baseline.
-
-    # --------------------------------------------------------
-    # Fast R-CNN
-    # Copyright (c) 2015 Microsoft
-    # Licensed under The MIT License [see LICENSE for details]
-    # Written by Ross Girshick
-    # --------------------------------------------------------
+def nms(dets, thresh):
     """
+    Vectorized NMS implementation using NumPy.
+    dets: (N, 5) - [x1, y1, x2, y2, score]
+    thresh: IoU threshold
+    """
+    if dets.shape[0] == 0:
+        return np.array([], dtype=np.int64)
+
     x1, y1 = dets[:, 0], dets[:, 1]
     x2, y2 = dets[:, 2], dets[:, 3]
     scores = dets[:, 4]
@@ -153,7 +130,7 @@ def py_cpu_nms(dets, thresh):
 
         inds = np.where(ovr <= thresh)[0]
         order = order[inds + 1]
-    return keep
+    return np.array(keep, dtype=np.int64)
 
 
 def non_maximum_suppression(objects, iou_threshold):
@@ -163,57 +140,9 @@ def non_maximum_suppression(objects, iou_threshold):
         x, y, w, h = obj['box']
         dets.append([x, y, x + w, y + h, s])
     if dets:
-        idxs = py_cpu_nms(np.array(dets), iou_threshold)
+        idxs = nms(np.array(dets), iou_threshold)
         return [objects[idx] for idx in idxs]
     return []
-
-
-def nms(dets, thresh):
-    """
-    Pure Python NMS implementation using NumPy.
-    dets: (N, 5) - [x1, y1, x2, y2, score]
-    thresh: IoU threshold
-    """
-    if dets.shape[0] == 0:
-        return np.array([], dtype=np.int64)
-
-    x1 = dets[:, 0]
-    y1 = dets[:, 1]
-    x2 = dets[:, 2]
-    y2 = dets[:, 3]
-    scores = dets[:, 4]
-
-    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-    order = scores.argsort()[::-1]
-
-    ndets = dets.shape[0]
-    suppressed = np.zeros((ndets), dtype=np.int64)
-
-    for _i in range(ndets):
-        i = order[_i]
-        if suppressed[i] == 1:
-            continue
-        ix1 = x1[i]
-        iy1 = y1[i]
-        ix2 = x2[i]
-        iy2 = y2[i]
-        iarea = areas[i]
-        for _j in range(_i + 1, ndets):
-            j = order[_j]
-            if suppressed[j] == 1:
-                continue
-            xx1 = max(ix1, x1[j])
-            yy1 = max(iy1, y1[j])
-            xx2 = min(ix2, x2[j])
-            yy2 = min(iy2, y2[j])
-            w = max(0.0, xx2 - xx1 + 1)
-            h = max(0.0, yy2 - yy1 + 1)
-            inter = w * h
-            ovr = inter / (iarea + areas[j] - inter)
-            if ovr >= thresh:
-                suppressed[j] = 1
-
-    return np.where(suppressed == 0)[0]
 
 
 def sigmoid(x):
@@ -260,9 +189,11 @@ def point_in_polygon(point, polygon):
     return inside
 
 
-def crop_box(img, box):
-    x, y, w, h = box
-    return img[y:y+w, x:x+w]
+def mask_to_box(mask):
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        return cv2.boundingRect(contours[0])
+    return None
 
 
 def euclidean_distance(feat1, feat2):

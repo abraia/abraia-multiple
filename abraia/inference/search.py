@@ -56,13 +56,16 @@ class ImageSearch:
         
         query_vector = self.clip_model.get_image_embeddings([img])[0]
         idxs, scores = search_vector(query_vector, self.index, max_results)
-        result_path = self.index[idxs[0]]['path']
-        print(f"Most similar image: {result_path} (score: {scores[0]})")
         
-        result_img = self.abraia.load_image(result_path)
-        show_image(result_img)
-        
-        return result_path
+        results = []
+        for idx, score in zip(idxs, scores):
+            result_path = self.index[idx]['path']
+            print(f"Similar image: {result_path} (score: {score})")
+            result_img = self.abraia.load_image(result_path)
+            show_image(result_img)
+            results.append({'path': result_path, 'score': score})
+            
+        return results
 
     def search_text(self, text, max_results=1):
         if not self.index:
@@ -70,14 +73,13 @@ class ImageSearch:
         
         query_vector = self.clip_model.get_text_embeddings([text])[0]
         idxs, scores = search_vector(query_vector, self.index, max_results)
-        result_path = self.index[idxs[0]]['path']
-        print(f"Most similar image: {result_path} (score: {scores[0]})")
         
-        result_img = self.abraia.load_image(result_path)
-        show_image(result_img)
-        
-        return result_path
-
-
-# TODO: Based on clean_image use the sam segmentation to get the bounding box.
-# Search based on the embeddings calcaluted from the cropped image.
+        results = []
+        for idx, score in zip(idxs, scores):
+            result_path = self.index[idx]['path']
+            print(f"Similar image: {result_path} (score: {score})")
+            result_img = self.abraia.load_image(result_path)
+            show_image(result_img)
+            results.append({'path': result_path, 'score': score})
+            
+        return results

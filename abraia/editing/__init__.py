@@ -78,17 +78,8 @@ def inpaint_image(img, mask):
 
 
 def clean_image(img):
-    sam = SAM()
+    from ..inference.sam import InteractiveSAM
+    interactive_sam = InteractiveSAM(img)
     lama = LAMA()
-    sam.encode(img)
+    return interactive_sam.interactive_mask(callback=lambda i, m: lama.inpaint(i, m))
 
-    def handle_click(point):
-        mask = sam.predict(img, f'[{{"type":"point","data":[{point[0]},{point[1]}],"label":1}}]')
-        sketcher.mask = cv2.bitwise_or(sketcher.dilate(mask), sketcher.mask)
-        sketcher.show(sketcher.img, sketcher.mask)
-        return lama.inpaint(img, sketcher.mask)
-
-    sketcher = Sketcher(img)
-    sketcher.on_click(handle_click)
-    out = sketcher.run()
-    return out

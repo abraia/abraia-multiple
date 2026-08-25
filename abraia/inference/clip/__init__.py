@@ -64,11 +64,11 @@ class Clip:
         """
         embeddings = []
         for batch in to_batches(images, self._batch_size):
-            images = [self._preprocessor.encode_image(image) for image in images]
-            if not images:
+            imgs = [self._preprocessor.encode_image(image) for image in batch]
+            if not imgs:
                 return self._get_empty_embedding()
-            batch = np.concatenate(images)
-            embeddings.append(self.image_model.run(None, {"IMAGE": batch})[0])
+            batch_arr = np.concatenate(imgs)
+            embeddings.append(self.image_model.run(None, {"IMAGE": batch_arr})[0])
         if not embeddings:
             return self._get_empty_embedding()
         return np.concatenate(embeddings)

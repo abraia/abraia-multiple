@@ -8,15 +8,8 @@ from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 
 from ..utils import save_text
-from .dataset import list_datasets, load_dataset, search_images, list_models, download_file
-
-
-#TODO: Remove on next release
-def load_tasks(task):
-    if task:
-        tasks = ['classify', 'detect', 'segment']
-        return tasks[:tasks.index(task)+1]
-    return []
+from .ops import train_test_split
+from .dataset import list_datasets, load_dataset, search_images, list_models, download_file, dataset_split, abraia
 
 
 def save_annotation(annotation, folder, classes, task):
@@ -61,10 +54,24 @@ def save_config(dataset, classes):
     path = os.path.join(dataset, 'data.yaml')
     save_text(path, yaml_content)
 
+
+def split_dataset(annotations):
+    backgrounds = [annotation for annotation in annotations if not annotation.get('objects')]
+    annotations = [annotation for annotation in annotations if annotation.get('objects')]
+    train, test = train_test_split(annotations, test_size=0.3)
+    val, test = train_test_split(test, test_size=0.5)
+    train.extend(backgrounds)
+    return train, val, test
+
     
 def prepare_dataset(dataset, force = False):
     if force or not os.path.exists(dataset.project):
-        splits = list(zip(['train', 'val', 'test'], dataset.split()))
+        annotations = dataset.annotations
+        dataset_path = f"{dataset.project}/dataset.json"
+        if abraia.check_file(dataset_path):
+            filenames = abraia.load_json(dataset_path)
+            annotations = [a for a in annotations if a.get('filename') in filenames]
+        splits = list(zip(['train', 'val', 'test'], split_dataset(annotations)))
         all_annotations, all_folders = [], []
         for x, annotations in splits:
             folder = os.path.join(dataset.project, x)

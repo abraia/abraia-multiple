@@ -3,7 +3,8 @@ import json
 import numpy as np
 import onnxruntime as ort
 
-from ..utils import download_file, get_providers
+from ..utils import download_file, get_providers, Sketcher
+from .ops import mask_to_box
 
 
 def get_input_points(prompt):
@@ -91,3 +92,52 @@ class SAM:
             m = cv2.warpAffine(m, inv_transform_matrix[:2], (width, height), flags=cv2.INTER_LINEAR)
             mask[m > 0.0] = 255
         return mask
+
+
+class InteractiveSAM(Sketcher, SAM):
+
+    def __init__(self, img, radius=7):
+        SAM.__init__(self)
+        self.image_embedding = None
+        self.encode(img)
+        self.cropped_img = None
+        self.selected_box = None
+        Sketcher.__init__(self, img, radius=radius)
+
+    def select_object(self):
+        """Interactively select an object by clicking on it, returning the cropped image and bounding box."""
+        def handle_click(point):
+            prompt = json.dumps([{"type": "point", "data": point, "label": 1}])
+            mask = self.predict(self.img, prompt=prompt)
+            box = mask_to_box(mask)
+            if box:
+                x, y, w, h = box
+                self.selected_box = box
+                self.cropped_img = self.img[y:y+h, x:x+w]
+                display_img = self.img.copy()
+                cv2.rectangle(display_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                return display_img
+            return self.img
+
+        self.on_click(handle_click)
+        print("Click on an object in the image (press 's' to confirm selection, 'ESC' to exit)...")
+        self.run()
+        return self.cropped_img, self.selected_box
+
+    def interactive_mask(self, callback=None):
+        """Interactively build a mask via clicks, optionally applying a callback (e.g. for inpainting)."""
+        def handle_click(point):
+            prompt = json.dumps([{"type": "point", "data": point, "label": 1}])
+            mask = self.predict(self.img, prompt=prompt)
+            self.mask = cv2.bitwise_or(self.dilate(mask), self.mask)
+            self.show(self.img, self.mask)
+            if callback:
+                return callback(self.img, self.mask)
+            return self.output
+
+        self.on_click(handle_click)
+        return self.run()
+
+
+
+
