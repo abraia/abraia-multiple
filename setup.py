@@ -14,7 +14,7 @@ with pathlib.Path('requirements.txt').open() as requirements_txt:
     
 extras_require = {
     'multiple': ['spectral>=0.23.1', 'scipy>=1.14.1', 'tifffile>=2024.8.30'],
-    'dev': ['ImageHash>=4.3.2', 'tifffile>=2024.8.30', 'ultralytics==8.3.230', 'onnx>=1.16.0', 'transformers>=4.57.1'],
+    'dev': ['tifffile>=2024.8.30', 'ultralytics==8.3.230', 'onnx>=1.16.0', 'transformers>=4.57.1'],
 }
 
 setup(

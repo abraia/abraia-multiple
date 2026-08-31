@@ -25,11 +25,22 @@ GOOGLE_PICTURE_ID = '''&biw=1536&bih=674&tbm=isch&sxsrf=ACYBGNSXXpS6YmAKUiLKKBs6
 BING_BASE_URL = 'https://www.bing.com/images/async?q='
 
 
+def dhash(img, hash_size=8):
+    import numpy as np
+    img = img.convert("L").resize((hash_size + 1, hash_size), Image.LANCZOS)
+    pixels = np.asarray(img, dtype=float)
+    diff = pixels[:, 1:] > pixels[:, :-1]
+    hash_bits = diff.flatten()
+    decimal_value = 0
+    for bit in hash_bits:
+        decimal_value = (decimal_value << 1) | int(bit)
+    return f"{decimal_value:0{hash_size * hash_size // 4}x}"
+
+
 def convert_to_jpg(src, save_output, max_size=1920):
-    import imagehash
     im = Image.open(src).convert('RGB')
     im.thumbnail([max_size, max_size], Image.LANCZOS)
-    phash = str(imagehash.phash(im))
+    phash = dhash(im)
     filename = phash + '.jpg'
     im.save(os.path.join(save_output, filename))
     return filename

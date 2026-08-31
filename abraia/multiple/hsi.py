@@ -7,10 +7,6 @@ from PIL import Image
 
 from ..training.ops import train_test_split
 
-from tensorflow import keras
-from keras.utils import np_utils
-from keras.models import Model
-from keras.layers import Input, Conv2D, Conv3D, Flatten, Dense, Reshape, Dropout
 
 from . import Multiple, random, principal_components, rgb, ndvi, resample
 
@@ -184,34 +180,6 @@ def generate_training_data(X, y, patch_size, train_ratio=0.7):
     return X_train, X_test, y_train, y_test
 
 
-def create_hsn_model(input_shape, n_classes):
-    input_layer = Input((*input_shape, 1))
-    ## convolutional layers
-    conv_layer1 = Conv3D(filters=8, kernel_size=(3, 3, 7), activation='relu')(input_layer)
-    conv_layer2 = Conv3D(filters=16, kernel_size=(3, 3, 5), activation='relu')(conv_layer1)
-    conv_layer3 = Conv3D(filters=32, kernel_size=(3, 3, 3), activation='relu')(conv_layer2)
-    conv_layer3 = Reshape((conv_layer3.shape[1], conv_layer3.shape[2], conv_layer3.shape[3] * conv_layer3.shape[4]))(conv_layer3)
-    conv_layer4 = Conv2D(filters=64, kernel_size=(3,3), activation='relu')(conv_layer3)
-    flatten_layer = Flatten()(conv_layer4)
-    ## fully connected layers
-    dense_layer1 = Dense(units=256, activation='relu')(flatten_layer)
-    dense_layer1 = Dropout(0.4)(dense_layer1)
-    dense_layer2 = Dense(units=128, activation='relu')(dense_layer1)
-    dense_layer2 = Dropout(0.4)(dense_layer2)
-    output_layer = Dense(units=n_classes, activation='softmax')(dense_layer2)
-    # define and compile the model with input layer and output layer
-    model = Model(inputs=input_layer, outputs=output_layer)
-    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-    return model
-
-
-def predict_hsn_model(model, X, patch_size):
-    width, height = X.shape[1], X.shape[0]
-    X_pred = create_patches(X, patch_size)
-    y_pred = np.argmax(model.predict(X_pred), axis=1)
-    return y_pred.reshape(height, width).astype(int)
-
-
 def plot_image(img, title=''):
     plt.figure()
     plt.title(title)
@@ -233,50 +201,3 @@ def plot_images(imgs, titles=None, cmap='nipy_spectral'):
         ax[i].imshow(imgs[i], cmap=cmap)
         ax[i].axis('off')
     plt.show()
-
-
-def plot_train_history(history):
-    plt.ylim(0, 1.01)
-    plt.grid()
-    plt.plot(history.history['loss'])
-    plt.plot(history.history['accuracy'])
-    plt.ylabel('Loss')
-    plt.xlabel('Epochs')
-    plt.legend(['Training loss','Test accuracy'], loc='upper right')
-
-
-class HyperspectralModel:
-    def __init__(self, name, *args):
-        self.name = name
-        if self.name == 'hsn':
-            self.input_shape, self.n_classes = args
-            self.model = create_hsn_model(self.input_shape, self.n_classes) # Hybrid Spectral Net
-        else:
-            raise ValueError(f"Model {name} not supported")
-
-    def train(self, X, y, train_ratio=0.7, epochs=50):
-        if self.name == 'hsn':
-            X = principal_components(X, n_components=self.input_shape[2])
-            X_train, X_test, y_train, y_test = generate_training_data(X, y, self.input_shape[0], train_ratio)
-            self.history = self.model.fit(x=X_train, y=np_utils.to_categorical(y_train), batch_size=256, epochs=epochs)
-            return y_test, np.argmax(self.model.predict(X_test), axis=1)
-
-    def predict(self, X):
-        if self.name == 'hsn':
-            X = principal_components(X, n_components=self.input_shape[2])
-            return predict_hsn_model(self.model, X, self.input_shape[0])
-    
-    def plot_history(self):
-        if self.history:
-            plot_train_history(self.history)
-    
-    def save(self, filename='model.h5'):
-        self.model.save(filename)
-
-    def load(self, filename='model.h5'):
-        self.model = keras.models.load_model(filename)
-
-
-def create_model(name, *args):
-    """Create a new model: hsn"""
-    return HyperspectralModel(name, *args)
