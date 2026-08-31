@@ -3,6 +3,7 @@ import numpy as np
 
 
 def is_clockwise(contour):
+    """Check if a contour is oriented clockwise."""
     value = 0
     num = len(contour)
     for i in range(num):
@@ -13,6 +14,7 @@ def is_clockwise(contour):
 
 
 def get_merge_point_idx(contour1, contour2):                   
+    """Find the closest point indices between two contours for merging."""
     idx1, idx2 = 0, 0
     distance_min = -1
     for i, p1 in enumerate(contour1):
@@ -25,6 +27,7 @@ def get_merge_point_idx(contour1, contour2):
 
 
 def merge_contours(contour1, contour2, idx1, idx2):
+    """Merge two contours at given point indices."""
     contour = []
     for i in list(range(0, idx1 + 1)):
         contour.append(contour1[i])
@@ -38,6 +41,7 @@ def merge_contours(contour1, contour2, idx1, idx2):
 
 
 def merge_with_parent(contour_parent, contour):
+    """Merge a child contour into a parent contour."""
     if not is_clockwise(contour_parent):
         contour_parent = contour_parent[::-1]
     if is_clockwise(contour):
@@ -47,6 +51,7 @@ def merge_with_parent(contour_parent, contour):
 
 
 def approx_contour(contour, approx=0.001):
+    """Approximate a contour using Douglas-Peucker algorithm."""
     epsilon = approx * cv2.arcLength(contour, True)
     contour = cv2.approxPolyDP(contour, epsilon, True)
     return contour.reshape(-1, 2)
@@ -55,6 +60,8 @@ def approx_contour(contour, approx=0.001):
 def mask_to_polygon(mask, origin=[0, 0], approx=0.001):
     """Returns the largest bounding polygon based on the segmentation mask."""
     contours, hierarchies = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours or hierarchies is None:
+        return []
     contours = [approx_contour(contour, approx) for contour in contours]
     parent_idxs = [int(hierarchy[3]) for hierarchy in hierarchies[0]]
     contours_parent = []
@@ -64,6 +71,8 @@ def mask_to_polygon(mask, origin=[0, 0], approx=0.001):
         if parent_idx >= 0 and len(contour) >= 3 and len(contours_parent[parent_idx]):
             contours_parent[parent_idx] = merge_with_parent(contours_parent[parent_idx], contour)
     lengths = [len(contour) for contour in contours_parent]
+    if not lengths or max(lengths) == 0:
+        return []
     polygon = contours_parent[np.argmax(lengths)] + np.array(origin)
     return polygon.tolist()
 
@@ -79,12 +88,14 @@ def mask_to_polygon(mask, origin=[0, 0], approx=0.001):
 
 
 def approximate_polygon(polygon, approx=0.02):
+    """Approximate a polygon using Douglas-Peucker algorithm."""
     contour = np.array([polygon]).astype(np.int32)
     contour = approx_contour(contour, approx)
     return contour.tolist()
 
 
 def normalize(img, mean, std):
+    """Normalize an image using mean and standard deviation."""
     img = (img / 255 - np.array(mean)) / np.array(std)
     return img.astype(np.float32)
 
@@ -134,6 +145,7 @@ def nms(dets, thresh):
 
 
 def non_maximum_suppression(objects, iou_threshold):
+    """Apply non-maximum suppression to detected objects."""
     dets = []
     for obj in objects:
         s = obj['score']
@@ -146,6 +158,7 @@ def non_maximum_suppression(objects, iou_threshold):
 
 
 def sigmoid(x):
+    """Compute the sigmoid activation function."""
     return 1 / (1 + np.exp(-x))
 
 
@@ -156,6 +169,7 @@ def softmax(x, axis=-1):
 
 
 def count_objects(results):
+    """Count object occurrences across detection results."""
     counts = {}
     for result in results:
         label= result['label']
@@ -189,14 +203,19 @@ def point_in_polygon(point, polygon):
     return inside
 
 
+def polygon_to_box(polygon):
+    """Calculates the bounding box from a polygon."""
+    return cv2.boundingRect(np.array(polygon, dtype=np.int32))
+
+
 def mask_to_box(mask):
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        return cv2.boundingRect(contours[0])
-    return None
+    """Calculate the bounding box from a segmentation mask."""
+    polygon = mask_to_polygon(mask)
+    return polygon_to_box(polygon)
 
 
 def euclidean_distance(feat1, feat2):
+    """Compute the Euclidean distance between two feature vectors."""
     return float(np.linalg.norm(feat1 - feat2))
 
 
@@ -206,10 +225,12 @@ def cosine_similarity(feat1, feat2):
 
 
 def search_vector(vector, index, max_results=1):
+    """Search for nearest vectors in an index using cosine similarity."""
     distances = [cosine_similarity(vector, row['vector']) for row in index]
     idxs = np.argsort(distances)[-max_results:][::-1]
     return idxs, [distances[idx] for idx in idxs]
 
 
 def normalize_vector(vector):
+    """Normalize a vector to unit length."""
     return vector / np.linalg.norm(vector)

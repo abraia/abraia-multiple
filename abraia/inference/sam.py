@@ -115,12 +115,11 @@ class InteractiveSAM(Sketcher, SAM):
                 self.selected_box = box
                 self.cropped_img = self.img[y:y+h, x:x+w]
                 display_img = self.img.copy()
-                cv2.rectangle(display_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                return display_img
-            return self.img
+                cv2.rectangle(display_img, (x, y), (x+w, y+h), (255, 0, 0), 3)
+                return display_img, mask
+            return self.img, None
 
         self.on_click(handle_click)
-        print("Click on an object in the image (press 's' to confirm selection, 'ESC' to exit)...")
         self.run()
         return self.cropped_img, self.selected_box
 
@@ -130,10 +129,9 @@ class InteractiveSAM(Sketcher, SAM):
             prompt = json.dumps([{"type": "point", "data": point, "label": 1}])
             mask = self.predict(self.img, prompt=prompt)
             self.mask = cv2.bitwise_or(self.dilate(mask), self.mask)
-            self.show(self.img, self.mask)
             if callback:
                 return callback(self.img, self.mask)
-            return self.output
+            return self.img, self.mask
 
         self.on_click(handle_click)
         return self.run()

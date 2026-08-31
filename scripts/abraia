@@ -270,7 +270,11 @@ def run(project, classes, src):
         from abraia.demo import monitor_objects_hailo
         monitor_objects_hailo(src, classes)
     else:
-        src = classes if classes != 'faces' else src or 0
+        if classes in 'search':
+            from abraia.demo import search_images
+            search_images(project, query=src or "man with red shirt")
+        else:
+            src = classes if classes != 'faces' else src or 0
         try:
             from abraia.training import list_models
             from abraia.inference.detect import Model

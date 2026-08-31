@@ -45,7 +45,11 @@ class Sketcher:
     def on_mouse(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
             if self.handle_click:
-                self.show(self.handle_click([x, y]))
+                res = self.handle_click([x, y])
+                if isinstance(res, tuple):
+                    self.show(res[0], res[1])
+                else:
+                    self.show(res)
 
     def run(self):
         out = self.img

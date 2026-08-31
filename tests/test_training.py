@@ -50,3 +50,21 @@ def test_dataset_annotate_filter(mock_annotate):
     assert len(annotations) == 2
     assert annotations[0] == {'filename': 'old.jpg', 'objects': [{'label': 'dog'}]}
     assert annotations[1] == {'filename': 'new.jpg', 'objects': [{'label': 'cat'}]}
+
+
+def test_dataset_annotated_status():
+    ds = Dataset('test_project')
+    # Empty dataset
+    assert ds.annotated is False
+
+    # Images present, all annotated
+    ds.images = [{'name': 'img1.jpg'}, {'name': 'img2.jpg'}]
+    ds.annotations = [{'filename': 'img1.jpg'}, {'filename': 'img2.jpg'}]
+    ds._update_annotated()
+    assert ds.annotated is True
+
+    # Images present, not all annotated
+    ds.annotations = [{'filename': 'img1.jpg'}]
+    ds._update_annotated()
+    assert ds.annotated is False
+

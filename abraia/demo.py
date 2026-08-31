@@ -1,16 +1,12 @@
 import os
 import time
 
-from tqdm import tqdm
-from glob import glob
-
 from abraia.inference import Model, Tracker, FaceRecognizer, FaceAttribute, PlateRecognizer
 from abraia.inference.faces import find_pose
-from abraia.inference.clip import Clip
-from abraia.inference.ops import count_objects, search_vector
+from abraia.inference.ops import count_objects
 from abraia.inference.tools import LineCounter, RegionFilter, RegionTimer
 from abraia.utils.draw import render_results, render_counter, render_region, draw_overlay, draw_text_multiline
-from abraia.utils import Video, download_url, load_image, show_image
+from abraia.utils import Video, download_url, load_image
 
 
 DEMOS = {
@@ -172,7 +168,7 @@ def detect_plates(src=None):
         video.show(frame)
 
 
-def retrieve_images(query="man with red shirt", project='multiple'):
+def search_images(project, query="man with red shirt"):
     """Search for images using a text query or an image path (with click object selection) via ImageSearch."""
     from abraia.inference import ImageSearch, InteractiveSAM
 
@@ -184,10 +180,10 @@ def retrieve_images(query="man with red shirt", project='multiple'):
         img = load_image(query)
         interactive_sam = InteractiveSAM(img)
         cropped, box = interactive_sam.select_object()
-        if cropped is not None:
-            print("Searching for similar images in project...")
-            search.search_similar(cropped, max_results=5)
-        else:
+        if cropped is None:
             print("No object selected.")
+            cropped = img
+        print("Searching for similar images in project...")
+        search.search_similar(cropped, max_results=5)
     else:
         search.search_text(query, max_results=5)

@@ -11,7 +11,7 @@ from tqdm import tqdm
 from PIL import Image
 
 from ..client import Abraia
-from ..utils import HEADERS, load_image, load_url, list_dir, url_path
+from ..utils import HEADERS, load_image, load_url, url_path
 
 from abraia.inference.ops import mask_to_polygon
 from abraia.inference.sam import SAM
@@ -204,12 +204,17 @@ class Dataset:
         self.classes = []
         self.task = ''
         self.images = []
+        self.annotated = False
+
+    def _update_annotated(self):
+        self.annotated = bool(self.images) and all(img['name'] in {a['filename'] for a in self.annotations} for img in self.images)
 
     def load(self):
         if self.project in list_datasets():
             self.annotations = self._load_annotations(self.project)
             self.classes, self.task = self._process_annotations(self.annotations)
             self.images = self._list_images(self.project)
+        self._update_annotated()
         return self
     
     def _load_annotations(self, project):
@@ -261,22 +266,12 @@ class Dataset:
                 callback({'current': i + 1, 'total': len(images), 'filename': filename})
         if pbar:
             pbar.close()
+        self._update_annotated()
         return self.annotations
 
     def save(self):
         abraia.save_json(f"{self.project}/annotations.json", self.annotations)
-
-
-def dataset_split(annotations):
-    # TODO: Split dataset by classes to avoid class imbalance
-    if hasattr(annotations, 'annotations'):
-        annotations = annotations.annotations
-    backgrounds = [annotation for annotation in annotations if not annotation.get('objects')]
-    annotations = [annotation for annotation in annotations if annotation.get('objects')]
-    train, test = train_test_split(annotations, test_size=0.3)
-    val, test = train_test_split(test, test_size=0.5)
-    train.extend(backgrounds)
-    return train, val, test
+        self._update_annotated()
 
 
 def load_dataset(project):

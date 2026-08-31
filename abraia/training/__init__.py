@@ -1,5 +1,4 @@
 import os
-import shutil
 import itertools
 
 from PIL import Image
@@ -9,7 +8,7 @@ from tqdm.contrib.concurrent import process_map
 
 from ..utils import save_text
 from .ops import train_test_split
-from .dataset import list_datasets, load_dataset, search_images, list_models, download_file, dataset_split, abraia
+from .dataset import list_datasets, load_dataset, search_images, list_models, download_file, abraia
 
 
 def save_annotation(annotation, folder, classes, task):
