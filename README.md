@@ -1,22 +1,88 @@
 [![Build Status](https://github.com/abraia/abraia-multiple/actions/workflows/build.yml/badge.svg)](https://github.com/abraia/abraia-multiple/actions/workflows/build.yml)
 [![Python Package](https://img.shields.io/pypi/v/abraia.svg)](https://pypi.org/project/abraia/)
 ![Package Downloads](https://img.shields.io/pypi/dm/abraia)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 # Abraia Vision SDK
 
-The [Abraia Vision](https://abraia.me/vision/) SDK helps developers create, customize, and deploy edge-ready vision applications. It unifies image processing, model training, and inference so you can transform visual data into production-ready solutions, including real-time video analysis and object tracking.
+The **Abraia Vision SDK** is a high-performance, edge-ready Python library and toolkit for computer vision, image processing, model training, and advanced inference. It unifies state-of-the-art vision models (such as YOLO, SAM, CLIP, and custom recognition pipelines) into a seamless API for production-ready applications, real-time video analysis, object tracking, hyperspectral imaging, and edge hardware deployment.
 
-Install the Abraia SDK and CLI on Windows, Mac, or Linux:
+---
+
+## 📚 Table of Contents
+
+- [Installation](#-installation)
+- [Core Modules & Features](#-core-modules--features)
+  - [1. Inference & Computer Vision](#1-inference--computer-vision)
+  - [2. Image Editing & Enhancement](#2-image-editing--enhancement)
+  - [3. Multispectral & Hyperspectral Imaging (HSI)](#3-multispectral--hyperspectral-imaging-hsi)
+  - [4. Edge AI & Hardware Acceleration (Hailo)](#4-edge-ai--hardware-acceleration-hailo)
+  - [5. Training & Dataset Operations](#5-training--dataset-operations)
+  - [6. Utilities & Video Processing](#6-utilities--video-processing)
+- [Examples & Usage Guides](#-examples--usage-guides)
+  - [People Monitoring & Tracking](#people-monitoring--tracking)
+  - [Face Recognition](#face-recognition)
+  - [License Plate Recognition (ALPR)](#license-plate-recognition-alpr)
+  - [Semantic Search with CLIP](#semantic-search-with-clip)
+- [Development & Testing](#-development--testing)
+- [License](#-license)
+
+---
+
+## 📦 Installation
+
+Install the Abraia SDK from PyPI:
 
 ```sh
-python -m pip install -U abraia
+pip install -U abraia
 ```
 
-With [Abraia DeepLab](https://abraia.me/deeplab/), you can annotate images, train custom classification, detection, and segmentation models, and export them for use in this Python SDK.
+For training and development run the installation with optional extras (`dev`, `multiple`):
 
-### People monitoring
+```sh
+pip install -U abraia[dev,multiple]
+```
 
-Abraia SDK provides a set of tools to monitor people flow and waiting time in public spaces or commercial areas. You can easily implement queue monitoring or flow counting applications using the specialized tools available in the `abraia.inference.tools` module.
+---
+
+## 🚀 Core Modules & Features
+
+### 1. Inference & Computer Vision (`abraia.inference`)
+- **Object Detection**: Fast ONNX/YOLO-based object detection (`abraia.inference.Model`).
+- **Segmentation (SAM)**: Segment Anything Model integration for precise image masking (`abraia.inference.Sam`).
+- **Object Tracking & People Flow**: Advanced multi-object tracking (`Tracker`), line crossing counters (`LineCounter`), and region duration timers (`RegionTimer`).
+- **Face Recognition**: Identify and match faces in images and streams (`FaceRecognizer`).
+- **License Plate Recognition (ALPR)**: Automatic license plate detection and text recognition (`PlateRecognizer`).
+- **OCR**: Extract text from images (`Ocr`).
+- **Semantic Search (CLIP)**: Vector embeddings and similarity search for text-to-image and image-to-image retrieval (`Clip`).
+
+### 2. Image Editing & Enhancement (`abraia.editing`)
+- **Upscaling**: Super-resolution image enhancement (`upscale`).
+- **Smart Cropping**: Intelligent content-aware cropping (`smartcrop`).
+- **Background Removal**: Foreground segmentation and background removal (`removebg`).
+- **Inpainting**: Image restoration and object removal (`inpaint`).
+
+### 3. Multispectral & Hyperspectral Imaging (`abraia.multiple`)
+- Specialized tools for hyperspectral and multispectral image analysis, cube processing, and spectral signature extraction (`abraia.multiple.hsi`).
+
+### 4. Edge AI & Hardware Acceleration (`abraia.hailo`)
+- Optimized runtime support and toolboxes for Hailo NPU hardware acceleration (`abraia.hailo`).
+
+### 5. Training & Dataset Operations (`abraia.training`)
+- Tools for training custom classification (`classify`) and detection (`detect`) models, along with dataset preprocessing utilities (`dataset`, `ops`).
+
+### 6. Utilities & Video Processing (`abraia.utils`)
+- Robust video frame iteration and manipulation (`Video`).
+- Annotation and rendering tools (`render_results`, `render_counter`, `render_region`).
+- Compression and sketch generation utilities.
+
+---
+
+## 💡 Examples & Usage Guides
+
+### People Monitoring & Tracking
+
+Monitor people flow, count crossings, and track dwell times in public spaces or commercial areas:
 
 ```python
 from abraia.inference import Model, Tracker
@@ -42,9 +108,9 @@ for k, frame in enumerate(video):
 
 ![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.jpg)
 
-### Face recognition
+### Face Recognition
 
-Identify people on images with face recognition as shown bellow. 
+Identify and recognize people in images:
 
 ```python
 import os
@@ -70,9 +136,9 @@ save_image(out, 'images/rolling-stones-identified.jpg')
 
 ![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
 
-### License plates recognition
+### License Plate Recognition (ALPR)
 
-Automatically recognize car license plates in images and video streams.
+Automatically detect and recognize car license plates in images and video streams:
 
 ```python
 from abraia.inference import PlateRecognizer
@@ -88,9 +154,9 @@ show_image(img)
 
 ![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
-### Semantic search
+### Semantic Search with CLIP
 
-Search on images with embeddings.
+Search images using natural language text queries via CLIP embeddings:
 
 ```python
 from tqdm import tqdm
@@ -111,18 +177,79 @@ idxs, scores = search_vector(vector, image_index)
 print(f"Similarity score is {scores[0]} for image {image_paths[idxs[0]]}")
 ```
 
-### Hyperspectral imaging
+---
 
-The `abraia.multiple` module simplifies working with multispectral and hyperspectral images, offering HSI analysis and classification workflows.
+## 🍓 Real-Time Edge Object Counter on Raspberry Pi with Hailo NPU
 
-Hyperspectral data contains many spectral bands, so it cannot be shown directly as a standard RGB image. Instead, extract a few bands and plot them as grayscale images, or apply PCA to generate a 3-channel pseudo-RGB image from the first three principal components.
+Deploy high-performance real-time object detection and counting on a Raspberry Pi equipped with a Hailo AI expansion board (such as Hailo-8 or Hailo-8L). This pipeline combines hardware-accelerated model inference (`abraia.hailo`), multi-object tracking (`abraia.inference.Tracker`), line crossing counters (`LineCounter`), and region timers (`RegionTimer`), integrated with the asynchronous video processing pipeline (`VideoInput` & `VideoDisplay`).
 
-Use the available Colab notebook to start experimenting with the multispectral tools:
+### Implementation Guide
 
-![classification](https://github.com/abraia/abraia-multiple/raw/master/images/classification.png)
+Create a script (e.g., `edge_counter.py`) ready for deployment on your Raspberry Pi:
 
-[![](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/abraia/abraia-multiple/blob/master/notebooks/hyperspectral.ipynb) Hyperspectral image analysis and classification
+```python
+import threading
+from abraia.hailo.toolbox import ModelInference
+from abraia.inference import Tracker
+from abraia.inference.tools import LineCounter, RegionTimer
+from abraia.utils import VideoInput, VideoDisplay, render_results, render_counter, render_region
+from abraia.hailo.detect import run_inference_pipeline
 
-## License
+# 1. Initialize threaded video input (e.g., Raspberry Pi Camera or RTSP stream)
+stop_event = threading.Event()
+input_data = VideoInput(input_src=0, resolution=(1920, 1080), stop_event=stop_event)
+visualizer = VideoDisplay(source_fps=input_data.source_fps, stop_event=stop_event)
 
-This software is licensed under the MIT License. [View the license](LICENSE).
+# 2. Load Hailo compiled model (.hef) optimized for edge NPU
+model_inference = ModelInference(
+    hef_path="yolov8n.hef",
+    task="detect",
+    labels=["person", "car"],
+    batch_size=1,
+    score_threshold=0.3
+)
+
+# 3. Setup Tracker & Analytics Tools (Line Counter & Region Timer)
+tracker = Tracker(frame_rate=input_data.source_fps or 30.0)
+line_counter = LineCounter([(100, 540), (1820, 540)])     # Crossing boundary line
+region_timer = RegionTimer([(300, 200), (1620, 200), (1620, 900), (300, 900)]) # Zone of interest
+
+# 4. Custom Inference & Analytics Result Handler
+def edge_processing_handler(frame, detections, tracker=None, tracklet_history=None):
+    if tracker:
+        detections = tracker.update(detections)
+    
+    # Update line crossing and region analytics
+    in_count, out_count = line_counter.update(detections)
+    in_objects, out_objects = region_timer.update(detections, 1.0 / (input_data.source_fps or 30.0))
+    
+    # Render real-time visual overlays
+    frame = render_counter(frame, line_counter.line, f"In: {in_count} | Out: {out_count}")
+    frame = render_region(frame, region_timer.region, f"Zone Count: {len(in_objects)}")
+    return render_results(frame, detections)
+
+# 5. Run High-Performance Edge Pipeline
+try:
+    run_inference_pipeline(
+        model_inference=model_inference,
+        input_data=input_data,
+        visualizer=visualizer,
+        tracker=tracker
+    )
+finally:
+    stop_event.set()
+```
+
+### Deployment on Raspberry Pi
+
+Execute the script directly on the Raspberry Pi:
+
+```sh
+python3 edge_counter.py
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
