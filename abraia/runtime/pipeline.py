@@ -2,10 +2,84 @@
 
 from dataclasses import dataclass, field
 import json
+import logging
 import os
 from pathlib import Path
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional
+
+
+logger = logging.getLogger(__name__)
+
+
+def _close_resources(resources):
+    """Close unique resources without masking the original pipeline error."""
+    seen = set()
+    for resource in resources:
+        if resource is None or id(resource) in seen:
+            continue
+        seen.add(id(resource))
+        close = getattr(resource, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                logger.warning("Failed to close pipeline resource", exc_info=True)
+
+
+def _build_stages(stages_config, source_config, source, video, tracker_cls,
+                  line_counter_cls, region_filter_cls, region_timer_cls):
+    """Build stages and retain their stateful components for cleanup."""
+    stages = []
+    components = {}
+    for stage_config in stages_config:
+        if not isinstance(stage_config, dict):
+            raise ValueError("Each pipeline stage must be an object")
+        stage_type = stage_config.get("type")
+        if stage_config.get("enabled") is False and stage_type in (
+            "tracker", "line_counter", "counter", "region_filter", "region", "region_timer"
+        ):
+            continue
+
+        if stage_type == "tracker":
+            enabled = stage_config.get("enabled", True)
+            if enabled == "auto":
+                enabled = _is_temporal_source(source_config, source)
+            if not enabled:
+                continue
+            tracker = tracker_cls(
+                track_thresh=stage_config.get("track_thresh", 0.25),
+                track_buffer=stage_config.get("track_buffer", 30),
+                match_thresh=stage_config.get("match_thresh", 0.8),
+                frame_rate=video.frame_rate,
+            )
+            stage = TrackerStage(tracker)
+            components["tracker"] = tracker
+        elif stage_type in ("line_counter", "counter"):
+            line = stage_config.get("line")
+            if not line or len(line) != 2:
+                raise ValueError("line_counter requires a two-point 'line'")
+            counter = line_counter_cls(line)
+            stage = LineCounterStage(counter)
+            components["line_counter"] = counter
+        elif stage_type in ("region_filter", "region"):
+            polygon = stage_config.get("polygon", stage_config.get("region"))
+            if not polygon:
+                raise ValueError("region_filter requires a 'polygon'")
+            region_filter = region_filter_cls(polygon)
+            stage = RegionFilterStage(region_filter)
+            components["region_filter"] = region_filter
+        elif stage_type == "region_timer":
+            polygon = stage_config.get("polygon", stage_config.get("region"))
+            if not polygon:
+                raise ValueError("region_timer requires a 'polygon'")
+            region_timer = region_timer_cls(polygon)
+            stage = RegionTimerStage(region_timer)
+            components["region_timer"] = region_timer
+        else:
+            raise ValueError(f"Unknown pipeline stage type: {stage_type}")
+        stages.append(stage)
+    return stages, components
 
 
 def _is_remote_source(source: str) -> bool:
@@ -65,36 +139,42 @@ class Pipeline:
         self.model_kwargs = model_kwargs or {}
         self.on_frame = on_frame
         self.components = components or {}
+        self._closed = False
 
         frame_rate = getattr(source, "frame_rate", None)
         self.frame_rate = float(frame_rate or 0)
 
     def run(self) -> Optional[FrameContext]:
         """Process all source frames and return the last frame context."""
+        if self._closed:
+            raise RuntimeError("Pipeline has already been closed")
         last_context = None
-        for frame_index, frame in enumerate(self.source):
-            started = time.time()
-            frame_time = (
-                frame_index / self.frame_rate
-                if self.frame_rate > 0
-                else float(frame_index)
-            )
-            context = FrameContext(frame, frame_index, frame_time)
-            context.results = self.model.run(frame, **self.model_kwargs)
+        try:
+            for frame_index, frame in enumerate(self.source):
+                started = time.time()
+                frame_time = (
+                    frame_index / self.frame_rate
+                    if self.frame_rate > 0
+                    else float(frame_index)
+                )
+                context = FrameContext(frame, frame_index, frame_time)
+                context.results = self.model.run(frame, **self.model_kwargs)
 
-            for stage in self.stages:
-                context = stage(context) or context
+                for stage in self.stages:
+                    context = stage(context) or context
 
-            if self.on_frame is not None:
-                elapsed_ms = (time.time() - started) * 1000
-                self.on_frame(context, elapsed_ms)
+                if self.on_frame is not None:
+                    elapsed_ms = (time.time() - started) * 1000
+                    self.on_frame(context, elapsed_ms)
 
-            output = self.render(context) if self.render else context.frame
-            if self.display is not None:
-                self.display.show(output)
-            last_context = context
+                output = self.render(context) if self.render else context.frame
+                if self.display is not None:
+                    self.display.show(output)
+                last_context = context
 
-        return last_context
+            return last_context
+        finally:
+            self.close()
 
     @classmethod
     def from_file(
@@ -131,15 +211,18 @@ class Pipeline:
         stages_config = config.get("stages", []) or []
         if not isinstance(source_config, dict) or "src" not in source_config:
             raise ValueError("Pipeline source must define 'src'")
-        if not isinstance(model_config, dict) or not model_config.get("uri"):
-            raise ValueError("Pipeline model must define 'uri'")
+        if not isinstance(model_config, dict):
+            raise ValueError("Pipeline model must be an object")
+        model_kind = str(model_config.get("kind", "onnx")).strip().lower()
+        if model_kind == "onnx" and not model_config.get("uri"):
+            raise ValueError("An ONNX pipeline model must define 'uri'")
         if not isinstance(display_config, dict):
             raise ValueError("Pipeline display must be an object")
         if not isinstance(stages_config, list):
             raise ValueError("Pipeline stages must be an array")
 
         from ..inference import Tracker
-        from ..inference.detect import Model
+        from ..inference.registry import create_model
         from ..inference.tools import LineCounter, RegionFilter, RegionTimer
         from .video import Video
 
@@ -166,68 +249,37 @@ class Pipeline:
         if isinstance(destination, str) and not os.path.isabs(destination):
             destination = str(root / destination)
 
-        video = Video(
-            source,
-            resolution=resolution,
-            fps=source_config.get("fps", 30),
-            dest=destination,
-        )
         model_kwargs = {
             key: model_config[key]
             for key in ("labels", "conf_threshold", "iou_threshold", "approx")
             if key in model_config
         }
-        model = Model(model_config["uri"])
-
-        stages = []
+        if model_kind not in ("onnx", "object_detection", "instance_segmentation"):
+            model_kwargs = {}
+        model = create_model(model_config, base_dir=root)
+        video = None
         components = {}
-        for stage_config in stages_config:
-            if not isinstance(stage_config, dict):
-                raise ValueError("Each pipeline stage must be an object")
-            stage_type = stage_config.get("type")
-            if stage_config.get("enabled") is False and stage_type in (
-                "tracker", "line_counter", "counter", "region_filter", "region", "region_timer"
-            ):
-                continue
-
-            if stage_type == "tracker":
-                enabled = stage_config.get("enabled", True)
-                if enabled == "auto":
-                    enabled = _is_temporal_source(source_config, source)
-                if not enabled:
-                    continue
-                tracker = Tracker(
-                    track_thresh=stage_config.get("track_thresh", 0.25),
-                    track_buffer=stage_config.get("track_buffer", 30),
-                    match_thresh=stage_config.get("match_thresh", 0.8),
-                    frame_rate=video.frame_rate,
-                )
-                stage = TrackerStage(tracker)
-                components["tracker"] = tracker
-            elif stage_type in ("line_counter", "counter"):
-                line = stage_config.get("line")
-                if not line or len(line) != 2:
-                    raise ValueError("line_counter requires a two-point 'line'")
-                counter = LineCounter(line)
-                stage = LineCounterStage(counter)
-                components["line_counter"] = counter
-            elif stage_type in ("region_filter", "region"):
-                polygon = stage_config.get("polygon", stage_config.get("region"))
-                if not polygon:
-                    raise ValueError("region_filter requires a 'polygon'")
-                region_filter = RegionFilter(polygon)
-                stage = RegionFilterStage(region_filter)
-                components["region_filter"] = region_filter
-            elif stage_type == "region_timer":
-                polygon = stage_config.get("polygon", stage_config.get("region"))
-                if not polygon:
-                    raise ValueError("region_timer requires a 'polygon'")
-                region_timer = RegionTimer(polygon)
-                stage = RegionTimerStage(region_timer)
-                components["region_timer"] = region_timer
-            else:
-                raise ValueError(f"Unknown pipeline stage type: {stage_type}")
-            stages.append(stage)
+        try:
+            video = Video(
+                source,
+                resolution=resolution,
+                fps=source_config.get("fps", 30),
+                dest=destination,
+                source_type=source_type,
+            )
+            stages, components = _build_stages(
+                stages_config,
+                source_config,
+                source,
+                video,
+                Tracker,
+                LineCounter,
+                RegionFilter,
+                RegionTimer,
+            )
+        except Exception:
+            _close_resources([model, video, *components.values()])
+            raise
 
         render_results_enabled = display_config.get("render_results", True)
         render_metrics_enabled = display_config.get("render_metrics", True)
@@ -273,6 +325,25 @@ class Pipeline:
             on_frame=on_frame,
             components=components,
         )
+
+    def close(self):
+        """Close the model and any closeable pipeline components."""
+        if self._closed:
+            return
+        self._closed = True
+        _close_resources([
+            self.display,
+            self.source,
+            self.model,
+            *self.stages,
+            *self.components.values(),
+        ])
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
 
 class TrackerStage:

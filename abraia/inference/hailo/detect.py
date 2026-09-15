@@ -131,6 +131,9 @@ def run_inference_pipeline(
             preprocess_thread.join()
         if inference_thread is not None:
             inference_thread.join()
+        input_data.close()
+        visualizer.close()
+        model_inference.close()
 
     if not worker_errors.empty():
         raise worker_errors.get()
@@ -218,33 +221,40 @@ def main(**kwargs) -> None:
         stop_event=stop_event
     )
 
-    model_inference = ModelInference(
-        hef_path, task, labels,
-        batch_size=input_data.batch_size,
-        score_threshold=args.score_threshold,
-        model_type=model_type
-    )
-
-    tracker = None
-    tracklet_history = None
-    if args.track:
-        tracker_config = CONFIG_DATA.get("tracker", {})
-        tracker = Tracker(
-            track_thresh=tracker_config.get('track_thresh', 0.1),
-            track_buffer=tracker_config.get('track_buffer', 30),
-            match_thresh=tracker_config.get('match_thresh', 0.9),
-            frame_rate=input_data.source_fps or 30.0
+    model_inference = None
+    try:
+        model_inference = ModelInference(
+            hef_path, task, labels,
+            batch_size=input_data.batch_size,
+            score_threshold=args.score_threshold,
+            model_type=model_type
         )
-        if args.draw_trail:
-            tracklet_history = TrackletHistory()
 
-    run_inference_pipeline(
-        model_inference=model_inference,
-        input_data=input_data,
-        visualizer=visualizer,
-        tracker=tracker,
-        tracklet_history=tracklet_history,
-    )
+        tracker = None
+        tracklet_history = None
+        if args.track:
+            tracker_config = CONFIG_DATA.get("tracker", {})
+            tracker = Tracker(
+                track_thresh=tracker_config.get('track_thresh', 0.1),
+                track_buffer=tracker_config.get('track_buffer', 30),
+                match_thresh=tracker_config.get('match_thresh', 0.9),
+                frame_rate=input_data.source_fps or 30.0
+            )
+            if args.draw_trail:
+                tracklet_history = TrackletHistory()
+
+        run_inference_pipeline(
+            model_inference=model_inference,
+            input_data=input_data,
+            visualizer=visualizer,
+            tracker=tracker,
+            tracklet_history=tracklet_history,
+        )
+    finally:
+        input_data.close()
+        visualizer.close()
+        if model_inference is not None:
+            model_inference.close()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 import numpy as np
 from abraia.inference import ops, Clip
+from abraia.inference.detect import preprocess
+from abraia.inference.ocr import TextRecognizer
+from abraia.inference.sam import SAM
 from abraia.inference.service import InferenceService
 
 
@@ -64,3 +67,64 @@ def test_inference_service_reuses_and_closes_backend_sessions():
 
     service.close()
     assert instances[0].closed
+
+
+def test_classifier_preprocess_returns_fixed_input_shape_for_wide_images():
+    image = np.zeros((720, 1280, 3), dtype=np.uint8)
+
+    assert preprocess(image, (224, 224)).shape == (1, 3, 224, 224)
+
+
+def test_text_recognizer_processes_all_recognition_batches():
+    class Input:
+        name = "input"
+
+    class Session:
+        def get_inputs(self):
+            return [Input()]
+
+        def run(self, _outputs, inputs):
+            batch = next(iter(inputs.values())).shape[0]
+            return [np.zeros((batch, 1, 2), dtype=np.float32)]
+
+    recognizer = TextRecognizer.__new__(TextRecognizer)
+    recognizer.rec_image_shape = [3, 32, 320]
+    recognizer.rec_batch_num = 6
+    recognizer.limited_max_width = 1280
+    recognizer.limited_min_width = 16
+    recognizer.session = Session()
+    recognizer.resize_norm_img = lambda image, ratio: np.zeros(
+        (3, 32, 320), dtype=np.float32
+    )
+    recognizer.postprocess_op = lambda outputs: [
+        ("decoded", 1.0)
+    ] * len(outputs)
+
+    images = [np.zeros((32, 32, 3), dtype=np.uint8) for _ in range(7)]
+
+    result = recognizer(images)
+
+    assert len(result) == 7
+    assert all(text == "decoded" for text, _score in result)
+
+
+def test_sam_close_releases_both_sessions():
+    class Session:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    sam = SAM.__new__(SAM)
+    sam.encoder = Session()
+    sam.decoder = Session()
+    sam.image_embedding = object()
+    sam._closed = False
+
+    sam.close()
+
+    assert sam.encoder is None
+    assert sam.decoder is None
+    assert sam.image_embedding is None
+    assert sam._closed

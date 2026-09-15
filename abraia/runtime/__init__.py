@@ -9,10 +9,11 @@ from .pipeline import (
     TrackerStage,
 )
 from .stream import VideoDisplay, VideoInput
-from .video import Video
+from .video import FrameSource, Video
 
 __all__ = [
     "FrameContext",
+    "FrameSource",
     "LineCounterStage",
     "Pipeline",
     "RegionFilterStage",

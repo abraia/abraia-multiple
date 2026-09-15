@@ -21,6 +21,7 @@ _LAZY_EXPORTS = {
     "Clip": (".clip", "Clip"),
     "InferenceService": (".service", "InferenceService"),
     "ModelSession": (".service", "ModelSession"),
+    "create_model": (".registry", "create_model"),
 }
 
 
@@ -52,4 +53,5 @@ __all__ = [
     "Clip",
     "InferenceService",
     "ModelSession",
+    "create_model",
 ]

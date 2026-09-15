@@ -86,14 +86,18 @@ from abraia.runtime import Pipeline
 Pipeline.from_file("pipeline.json").run()
 ```
 
-The first pipeline format supports a source, model, tracker, line counter,
-region filter or timer, and display output. Stages run in the order listed:
+The first pipeline format supports a source, detector, tracker, line counter,
+region filter or timer, and display output. Stages run in the order listed.
+The detector can be an ONNX model (the default for existing configurations) or
+one of the built-in face and license-plate detectors:
 
 ```json
 {
   "version": 1,
   "source": {"type": "video", "src": "people.mp4"},
   "model": {
+    "task": "detection",
+    "kind": "onnx",
     "uri": "multiple/models/yolov8n.onnx",
     "labels": ["person"]
   },
@@ -102,6 +106,39 @@ region filter or timer, and display output. Stages run in the order listed:
     {"type": "line_counter", "line": [[0, 650], [1920, 650]]}
   ],
   "display": {"show": true, "dest": "output.avi"}
+}
+```
+
+Built-in detectors do not require a model URI. For example:
+
+```json
+"model": {
+  "task": "detection",
+  "kind": "license_plate",
+  "params": {"threshold": 0.85, "iou_threshold": 0.15}
+}
+```
+
+The Studio model selector also includes the bundled object-detection and
+instance-segmentation presets. Their model URIs are
+`multiple/models/yolov8n.onnx` and `multiple/models/yolov8n-seg.onnx`.
+OCR recognition is available as a built-in model:
+
+```json
+"model": {
+  "task": "recognition",
+  "kind": "ocr",
+  "params": {"drop_score": 0.5}
+}
+```
+
+Face recognition uses a JSON index containing `name` and `vector` entries:
+
+```json
+"model": {
+  "task": "recognition",
+  "kind": "face",
+  "params": {"index": "faces.json", "threshold": 0.45}
 }
 ```
 

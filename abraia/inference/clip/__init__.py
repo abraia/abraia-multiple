@@ -1,7 +1,6 @@
 import os
 import logging
 import numpy as np
-import onnxruntime as ort
 
 from PIL import Image
 from typing import Union, Iterable, Optional
@@ -10,6 +9,7 @@ from .preprocessor import Preprocessor
 from .tokenizer import Tokenizer
 
 from ...utils import download_url, download_file
+from ..session import close_resource, close_session, create_onnx_session
 
 
 class Clip:
@@ -32,15 +32,24 @@ class Clip:
             cache_dir: If provided, the models will be downloaded to / loaded from this location
         """
 
-        image_model_path = download_file('multiple/models/clip/clip_image_model_vitb32.onnx')
-        text_model_path = download_file('multiple/models/clip/clip_text_model_vitb32.onnx')
-        self.image_model = Clip._load_model(image_model_path)
-        self.text_model = Clip._load_model(text_model_path)
-        
-        self.embedding_size = 512
-        self._tokenizer = Tokenizer()
-        self._preprocessor = Preprocessor()
-        self._batch_size = batch_size
+        self.image_model = None
+        self.text_model = None
+        try:
+            image_model_path = download_file('multiple/models/clip/clip_image_model_vitb32.onnx')
+            text_model_path = download_file('multiple/models/clip/clip_text_model_vitb32.onnx')
+            self.image_model = Clip._load_model(image_model_path)
+            self.text_model = Clip._load_model(text_model_path)
+
+            self.embedding_size = 512
+            self._tokenizer = Tokenizer()
+            self._preprocessor = Preprocessor()
+            self._batch_size = batch_size
+        except Exception:
+            close_resource(self.image_model)
+            close_resource(self.text_model)
+            self.image_model = None
+            self.text_model = None
+            raise
 
     @staticmethod
     def _load_model(path: str):
@@ -49,7 +58,7 @@ class Clip:
             logging.info(f"The model file ({path}) doesn't exist or it is invalid. "
                 f"Downloading it from the public S3 bucket: {s3_url}.")
             download_url(s3_url, path)
-        return ort.InferenceSession(path, providers=ort.get_available_providers())
+        return create_onnx_session(path)
             
     def get_image_embeddings(self, images: Iterable[Union[Image.Image, np.ndarray]]) -> np.ndarray:
         """Compute the embeddings for a list of images.
@@ -96,6 +105,19 @@ class Clip:
     def _get_empty_embedding(self):
         return np.empty((0, self.embedding_size), dtype=np.float32)
 
+    def close(self):
+        """Release the image and text ONNX sessions."""
+        for name in ("image_model", "text_model"):
+            session = getattr(self, name, None)
+            setattr(self, name, None)
+            close_session(session)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
 
 
 def to_batches(items, size):
@@ -130,4 +152,4 @@ def to_batches(items, size):
         yield batch
 
 
-__all__ = [Clip]
+__all__ = ["Clip"]

@@ -15,12 +15,10 @@
 
 import cv2
 import math
-import string
-# import pyclipper
 import numpy as np
-import onnxruntime as ort
 
 from ..utils import download_file
+from .session import close_resource, close_session, create_onnx_session
 
 
 def get_char(character_dict_path, use_space_char=False):
@@ -180,22 +178,6 @@ def resize_img(img, limit_side_len):
     return img, (ratio_h, ratio_w)
 
 
-def str_count(s):
-    """Count the number of Chinese characters. A single English character and a single number
-    equal to half the length of Chinese characters."""
-    count_zh = count_pu = 0
-    s_len = len(s)
-    en_dg_count = 0
-    for c in s:
-        if c in string.ascii_letters or c.isdigit() or c.isspace():
-            en_dg_count += 1
-        elif c.isalpha():
-            count_zh += 1
-        else:
-            count_pu += 1
-    return s_len - math.ceil(en_dg_count / 2)
-
-
 def sorted_boxes(dt_boxes):
     """Sort text boxes in order from top to bottom, left to right
     args:
@@ -219,7 +201,7 @@ class TextDetector():
     def __init__(self):
         self.postprocess_op = DBPostProcess(thresh=0.3, box_thresh=0.5, max_candidates=1000, unclip_ratio=1.6)
         det_src = download_file('multiple/models/ocr_det.onnx')
-        self.session = ort.InferenceSession(det_src)
+        self.session = create_onnx_session(det_src)
         self.input_name = self.session.get_inputs()[0].name
     
     def order_points_clockwise(self, pts):
@@ -271,6 +253,11 @@ class TextDetector():
         dt_boxes = self.filter_tag_det_res(dt_boxes, (width, height))
         return dt_boxes
 
+    def close(self):
+        """Release the ONNX session."""
+        session, self.session = self.session, None
+        close_session(session)
+
 
 class TextRecognizer():
     def __init__(self):
@@ -284,7 +271,7 @@ class TextRecognizer():
         self.postprocess_op = BaseRecLabelDecode(char_dict_src, use_space_char=True)
 
         rec_src = download_file('multiple/models/ocr_rec.onnx')
-        self.session = ort.InferenceSession(rec_src)
+        self.session = create_onnx_session(rec_src)
        
     def resize_norm_img(self, img, max_wh_ratio):
         imgC, imgH, imgW = self.rec_image_shape
@@ -304,6 +291,8 @@ class TextRecognizer():
 
     def __call__(self, img_list):
         img_num = len(img_list)
+        if not img_num:
+            return []
         width_list = [img.shape[1] / img.shape[0] for img in img_list]
         # Sorting can speed up the recognition process
         indices = np.argsort(np.array(width_list))
@@ -328,19 +317,30 @@ class TextRecognizer():
             ort_inputs = {self.session.get_inputs()[0].name: norm_img_batch}
             ort_outs = self.session.run(None, ort_inputs)
             outputs1 = ort_outs[0]
-        
-        rec_result = self.postprocess_op(outputs1)
-        for rno in range(len(rec_result)):
-            rec_res[indices[beg_img_no + rno]] = rec_result[rno]
+            rec_result = self.postprocess_op(outputs1)
+            for rno in range(len(rec_result)):
+                rec_res[indices[beg_img_no + rno]] = rec_result[rno]
         return rec_res
+
+    def close(self):
+        """Release the ONNX session."""
+        session, self.session = self.session, None
+        close_session(session)
 
 
 class TextSystem():
-    def __init__(self):
-        self.text_detector = TextDetector()
-        self.text_recognizer = TextRecognizer()
-        self.drop_score = 0.5
-        
+    def __init__(self, drop_score=0.5):
+        self.text_detector = None
+        self.text_recognizer = None
+        try:
+            self.text_detector = TextDetector()
+            self.text_recognizer = TextRecognizer()
+            self.drop_score = float(drop_score)
+        except Exception:
+            close_resource(self.text_detector)
+            close_resource(self.text_recognizer)
+            raise
+
     def get_rotate_crop_image(self, img, points):
         width = int(max(np.linalg.norm(points[0] - points[1]), np.linalg.norm(points[2] - points[3])))
         height = int(max(np.linalg.norm(points[0] - points[3]), np.linalg.norm(points[1] - points[2])))
@@ -361,5 +361,30 @@ class TextSystem():
             for box, (text, score) in zip(dt_boxes, rec_res):
                 if score >= self.drop_score:
                     results.append({'box': box.astype(np.int32), 'text': text, 'score': float(score)})
-        return results 
-        
+        return results
+
+    def run(self, img):
+        """Recognize text using the pipeline model protocol."""
+        normalized = []
+        for result in self(img):
+            points = np.asarray(result.get('box'))
+            if points.ndim == 2 and points.shape[1] == 2:
+                x1, y1 = points.min(axis=0)
+                x2, y2 = points.max(axis=0)
+                result['points'] = points
+                result['box'] = [
+                    int(round(x1)),
+                    int(round(y1)),
+                    int(round(x2 - x1)),
+                    int(round(y2 - y1)),
+                ]
+            result['label'] = result.get('text', '')
+            normalized.append(result)
+        return normalized
+
+    def close(self):
+        """Release text detection and recognition sessions."""
+        for component in (self.text_detector, self.text_recognizer):
+            close = getattr(component, "close", None)
+            if callable(close):
+                close()

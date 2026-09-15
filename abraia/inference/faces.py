@@ -1,12 +1,10 @@
+import os
 import cv2
 import math
 import numpy as np
-import onnxruntime as ort
 
-from itertools import product as product
-from math import ceil
-
-from ..utils import download_file
+from .session import close_resource, close_session, create_onnx_session
+from ..utils import download_file, load_json
 from .ops import non_maximum_suppression, softmax, search_vector
 
 
@@ -52,22 +50,6 @@ def find_pose(points):
     return round(angle * 180 / np.pi, 2), round(Xfrontal / 2, 2), round(Yfrontal / 2, 2)
 
 
-def prior_box(min_sizes, steps, image_size):
-    feature_maps = [[ceil(image_size[0] / step), ceil(image_size[1] / step)] for step in steps]
-    anchors = []
-    for k, f in enumerate(feature_maps):
-        for i, j in product(range(f[0]), range(f[1])):
-            for min_size in min_sizes[k]:
-                s_kx = min_size / image_size[1]
-                s_ky = min_size / image_size[0]
-                dense_cx = [x * steps[k] / image_size[1] for x in [j + 0.5]]
-                dense_cy = [y * steps[k] / image_size[0] for y in [i + 0.5]]
-                for cy, cx in product(dense_cy, dense_cx):
-                    anchors += [cx, cy, s_kx, s_ky]
-    output = np.array(anchors).reshape(-1, 4)
-    return output
-
-
 def generate_anchors(baseSize, ratios, scales):
     anchors = []
     cx, cy = [baseSize * 0.5, baseSize * 0.5]
@@ -110,11 +92,13 @@ def process_stride(results, prob_threshold, stride, scales, scale):
 
 
 class Retinaface:
-    def __init__(self):
+    def __init__(self, prob_threshold=0.75, iou_threshold=0.5):
         self.image_size = (640, 640)
         self.landmarksScale = 0.18181818
+        self.prob_threshold = float(prob_threshold)
+        self.iou_threshold = float(iou_threshold)
         model_src = download_file('multiple/models/retinaface_mnet25_v2.simplified.onnx')
-        self.session = ort.InferenceSession(model_src)
+        self.session = create_onnx_session(model_src)
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [out.name for out in self.session.get_outputs()]
 
@@ -146,12 +130,30 @@ class Retinaface:
             faces[k] = {'score': score, 'box': [round(x / scale), round(y / scale), round(w / scale), round(h / scale)], 'keypoints': keypoints / scale }
         return faces
 
+    def run(self, img, prob_threshold=None, iou_threshold=None):
+        """Detect faces using the pipeline model protocol."""
+        prob_threshold = self.prob_threshold if prob_threshold is None else prob_threshold
+        iou_threshold = self.iou_threshold if iou_threshold is None else iou_threshold
+        results = self.detect_faces(
+            img,
+            prob_threshold=prob_threshold,
+            iou_threshold=iou_threshold,
+        )
+        for result in results:
+            result.setdefault('label', 'face')
+        return results
+
+    def close(self):
+        """Release the ONNX session."""
+        session, self.session = self.session, None
+        close_session(session)
+
 
 class FaceAttribute:
     def __init__(self):
         """Age and Gender Prediction"""
         model_src = download_file('multiple/models/faces/genderage.simplified.onnx')
-        self.session = ort.InferenceSession(model_src)
+        self.session = create_onnx_session(model_src)
         inputs = self.session.get_inputs()
         self.input_size = tuple(inputs[0].shape[2:][::-1])
         self.input_names = [x.name for x in self.session.get_inputs()]
@@ -172,11 +174,16 @@ class FaceAttribute:
         gender, age, score = self.postprocess(predictions)
         return gender, age, score
 
+    def close(self):
+        """Release the ONNX session."""
+        session, self.session = self.session, None
+        close_session(session)
+
 
 class ArcFace:
     def __init__(self):
         model_src = download_file('multiple/models/mobilefacenet-res2-6-10-2-dim512.simplified.onnx')
-        self.session = ort.InferenceSession(model_src)
+        self.session = create_onnx_session(model_src)
         inputs = self.session.get_inputs()
         self.input_name = inputs[0].name
         self.image_size = tuple(inputs[0].shape[2:])
@@ -187,11 +194,25 @@ class ArcFace:
         out = self.session.run(self.output_names, {self.input_name: blob})[0]
         return out.flatten()
 
+    def close(self):
+        """Release the ONNX session."""
+        session, self.session = self.session, None
+        close_session(session)
+
 
 class FaceRecognizer:
-    def __init__(self):
-        self.detector = Retinaface()
-        self.arcface = ArcFace()
+    def __init__(self, index=None, threshold=0.45):
+        self.detector = None
+        self.arcface = None
+        try:
+            self.detector = Retinaface()
+            self.arcface = ArcFace()
+            self.index = _load_face_index(index)
+            self.threshold = float(threshold)
+        except Exception:
+            close_resource(self.detector)
+            close_resource(self.arcface)
+            raise
 
     def detect_faces(self, img):
         return self.detector.detect_faces(img)
@@ -200,16 +221,58 @@ class FaceRecognizer:
         results = self.detector.detect_faces(img) if results == None else results
         return [align_face(img, result['keypoints'], size) for result in results]
     
-    def identify_faces(self, img, results=None, index = [], threshold=0.45):
+    def identify_faces(self, img, results=None, index=None, threshold=0.45):
         results = self.detector.detect_faces(img) if results == None else results
+        index = self.index if index is None else index
         for result in results:
-            del result['score']
             result['label'] = 'unknown'
             face = align_face(img, result['keypoints'])
             result['vector'] = self.arcface.calculate_embeddings(face)
+            result['identity_score'] = None
             if len(index):
                 idxs, scores = search_vector(result['vector'], index)
                 if len(idxs) and scores[0] > threshold:
-                    result['score'] = scores[0]
+                    result['identity_score'] = float(scores[0])
                     result['label'] = index[idxs[0]]['name']
         return results
+
+    def run(self, img, threshold=None):
+        """Identify faces using the pipeline model protocol."""
+        threshold = self.threshold if threshold is None else threshold
+        return self.identify_faces(img, index=self.index, threshold=threshold)
+
+    def close(self):
+        """Release the detector and face-embedding sessions."""
+        for component in (self.detector, self.arcface):
+            close = getattr(component, "close", None)
+            if callable(close):
+                close()
+
+
+def _load_face_index(index):
+    """Load and validate a JSON face index or an inline index list."""
+    if index is None:
+        return []
+    if isinstance(index, (str, os.PathLike)):
+        index = load_json(index)
+    if isinstance(index, dict):
+        index = index.get('faces', index.get('index'))
+    if not isinstance(index, list):
+        raise ValueError('Face recognition index must be a list')
+
+    normalized = []
+    for position, entry in enumerate(index):
+        if not isinstance(entry, dict) or not entry.get('name'):
+            raise ValueError(
+                f"Face index entry {position} must define 'name'"
+            )
+        vector = entry.get('vector')
+        if vector is None:
+            raise ValueError(
+                f"Face index entry {position} must define 'vector'"
+            )
+        vector = np.asarray(vector, dtype=np.float32)
+        if vector.ndim != 1 or not vector.size:
+            raise ValueError(f'Face index entry {position} has an invalid vector')
+        normalized.append({'name': str(entry['name']), 'vector': vector})
+    return normalized

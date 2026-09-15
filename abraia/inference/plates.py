@@ -1,11 +1,11 @@
 import cv2
 import numpy as np
-import onnxruntime as ort
 
 from ..utils import download_file
 from .detect import Model
 from .ocr import TextSystem
 from .ops import non_maximum_suppression
+from .session import close_resource, close_session, create_onnx_session
 
 
 class LicensePlateDetector():
@@ -14,7 +14,7 @@ class LicensePlateDetector():
         self.threshold = threshold
         self.iou_threshold = iou_threshold
         lpd_src = download_file('multiple/models/lpd.onnx')
-        self.session = ort.InferenceSession(lpd_src)
+        self.session = create_onnx_session(lpd_src)
     
     def detect(self, img, net_stride = 2**4):
         height, width = img.shape[:2]
@@ -51,6 +51,18 @@ class LicensePlateDetector():
         results = non_maximum_suppression(objects, self.iou_threshold)
         return results
 
+    def run(self, img):
+        """Detect license plates using the pipeline model protocol."""
+        results = self.detect(img)
+        for result in results:
+            result.setdefault('label', 'license_plate')
+        return results
+
+    def close(self):
+        """Release the ONNX session."""
+        session, self.session = self.session, None
+        close_session(session)
+
 
 class PlateDetector():
     def __init__(self):
@@ -59,6 +71,11 @@ class PlateDetector():
 
     def detect(self, img):
         return self.detection.run(img, approx=0.02)
+
+    def close(self):
+        close = getattr(self.detection, "close", None)
+        if callable(close):
+            close()
 
 
 def extract_plate(img, points, out_size, offset=30):
@@ -78,10 +95,20 @@ def extract_plate(img, points, out_size, offset=30):
 
 
 class PlateRecognizer():
-    def __init__(self):
-        self.license_plate = LicensePlateDetector(threshold=0.85, iou_threshold=0.15)
-        self.text_system = TextSystem()
-        self.out_size = 300
+    def __init__(self, threshold=0.85, iou_threshold=0.15, out_size=300):
+        self.license_plate = None
+        self.text_system = None
+        try:
+            self.license_plate = LicensePlateDetector(
+                threshold=threshold,
+                iou_threshold=iou_threshold,
+            )
+            self.text_system = TextSystem()
+            self.out_size = out_size
+        except Exception:
+            close_resource(self.license_plate)
+            close_resource(self.text_system)
+            raise
 
     def recognize(self, img):
         results = self.license_plate.detect(img)
@@ -92,6 +119,21 @@ class PlateRecognizer():
             result['lines'] = outputs
         results = [result for result in results if len(result['lines'])]
         for result in results:
-            result['label'] = '\n'.join([line.get('text', '') for line in result['lines']])
-            del result['score']
+            result['text'] = '\n'.join([line.get('text', '') for line in result['lines']])
+            result['label'] = result['text']
+            result['text_score'] = max(
+                (line.get('score', 0.0) for line in result['lines']),
+                default=0.0,
+            )
         return results
+
+    def run(self, img):
+        """Recognize license plates using the pipeline model protocol."""
+        return self.recognize(img)
+
+    def close(self):
+        """Release the detector and OCR sessions."""
+        for component in (self.license_plate, self.text_system):
+            close = getattr(component, "close", None)
+            if callable(close):
+                close()

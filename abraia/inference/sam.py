@@ -1,10 +1,10 @@
 import cv2
 import json
 import numpy as np
-import onnxruntime as ort
 
-from ..utils import download_file, get_providers, Sketcher
+from ..utils import download_file, Sketcher
 from .ops import mask_to_box
+from .session import close_resource, close_session, create_onnx_session
 
 
 def get_input_points(prompt):
@@ -26,14 +26,26 @@ class SAM:
 
     def __init__(self):
         self.image_embedding = None
+        self._closed = False
         self.target_size = 1024
         self.input_size = (684, 1024)
-        encoder_src = download_file('multiple/models/mobile_sam.encoder.onnx')
-        decoder_src = download_file('multiple/models/mobile_sam.decoder.onnx')
-        self.encoder = ort.InferenceSession(encoder_src, providers=get_providers())
-        self.decoder = ort.InferenceSession(decoder_src, providers=get_providers())
+        self.encoder = None
+        self.decoder = None
+        try:
+            encoder_src = download_file('multiple/models/mobile_sam.encoder.onnx')
+            decoder_src = download_file('multiple/models/mobile_sam.decoder.onnx')
+            self.encoder = create_onnx_session(encoder_src)
+            self.decoder = create_onnx_session(decoder_src)
+        except Exception:
+            close_resource(self.encoder)
+            close_resource(self.decoder)
+            self.encoder = None
+            self.decoder = None
+            raise
 
     def encode(self, img):
+        if self._closed:
+            raise RuntimeError("SAM has already been closed")
         scale_x = self.input_size[1] / img.shape[1]
         scale_y = self.input_size[0] / img.shape[0]
         scale = min(scale_x, scale_y)
@@ -70,6 +82,8 @@ class SAM:
         return masks[0]
 
     def predict(self, img, prompt="[]"):
+        if self._closed:
+            raise RuntimeError("SAM has already been closed")
         height, width = img.shape[:2]
 
         scale_x = self.input_size[1] / img.shape[1]
@@ -93,6 +107,23 @@ class SAM:
             m = cv2.warpAffine(m, inv_transform_matrix[:2], (width, height), flags=cv2.INTER_LINEAR)
             mask[m > 0.0] = 255
         return mask
+
+    def close(self):
+        """Release the encoder and decoder sessions."""
+        if self._closed:
+            return
+        for name in ("encoder", "decoder"):
+            session, setattr_target = getattr(self, name, None), name
+            setattr(self, setattr_target, None)
+            close_session(session)
+        self.image_embedding = None
+        self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
 
 class InteractiveSAM(Sketcher, SAM):
@@ -136,5 +167,3 @@ class InteractiveSAM(Sketcher, SAM):
 
         self.on_click(handle_click)
         return self.run()
-
-

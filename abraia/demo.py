@@ -1,8 +1,7 @@
 import os
-import time
 from copy import deepcopy
 
-from abraia.inference import FaceRecognizer, FaceAttribute, PlateRecognizer
+from abraia.inference import FaceRecognizer, FaceAttribute
 from abraia.inference.faces import find_pose
 from abraia.inference.ops import count_objects
 from abraia.runtime import Pipeline
@@ -89,6 +88,17 @@ PIPELINES = {
             {'type': 'line_counter', 'line': [[950, 670], [270, 895]]},
             {'type': 'region_timer', 'polygon': [[0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0]]},
         ],
+        'display': {'show': True},
+    },
+    'plates': {
+        'version': 1,
+        'source': {'type': 'video', 'src': 'cars.mp4'},
+        'model': {
+            'task': 'recognition',
+            'kind': 'license_plate',
+            'params': {'threshold': 0.85, 'iou_threshold': 0.15},
+        },
+        'stages': [],
         'display': {'show': True},
     },
 }
@@ -192,19 +202,6 @@ def track_faces(src=None, resolution=(1280, 720)):
             gender, age, score = attribute.predict(face)
             print(f"{gender[0]} {age}, {score}")
             result['label'] = f"{gender[0]} {age} ({result['label']})"
-        frame = render_results(frame, results)
-        video.show(frame)
-
-
-def detect_plates(src=None):
-    """Detect license plates in a video and show OCR results."""
-    src = src or 'cars.mp4'
-    if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
-        download_url(f"https://api.abraia.me/files/multiple/videos/{src}", src)
-    video = Video(src)
-    recognizer = PlateRecognizer()
-    for frame in video:
-        results = recognizer.recognize(frame)
         frame = render_results(frame, results)
         video.show(frame)
 

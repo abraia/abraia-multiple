@@ -83,6 +83,12 @@ class InferenceService:
             raise ValueError("Backend name and callable factory are required")
         self._backend_factories[name] = factory
 
+    def create_model(self, config, base_dir=None):
+        """Create a configured built-in model using the shared registry."""
+        from .registry import create_model
+
+        return create_model(config, base_dir=base_dir)
+
     def run(self, model_uri, image, backend="onnx", **kwargs):
         """Run a model, reusing its loaded session for subsequent calls."""
         session = self.get_session(model_uri, backend=backend)

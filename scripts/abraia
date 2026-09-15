@@ -289,9 +289,6 @@ def run(project, classes, src):
         if classes == 'faces':
             from abraia.demo import track_faces
             track_faces(src)
-        elif classes == 'plates':
-            from abraia.demo import detect_plates
-            detect_plates(src)
         else:
             from abraia.demo import monitor_objects
             monitor_objects(src, classes)
@@ -299,7 +296,7 @@ def run(project, classes, src):
         from abraia.demo import monitor_objects_hailo
         monitor_objects_hailo(src, classes)
     else:
-        if classes in 'search':
+        if classes == 'search':
             from abraia.demo import search_images
             search_images(project, query=src or "man with red shirt")
         else:

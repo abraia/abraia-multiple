@@ -1,23 +1,26 @@
 import os
 import cv2
 import math
-import json
 import numpy as np
-import onnxruntime as ort
 
-from .ops import non_maximum_suppression, normalize, mask_to_polygon, softmax, sigmoid
-from ..utils import download_file, load_json, get_providers
-from .sam import SAM
-
-
-def resize(img, size):
-    scale = max(size / img.shape[1], size / img.shape[0])
-    width, height = round(scale * img.shape[1]), round(scale * img.shape[0])
-    return cv2.resize(img, (width, height), interpolation=cv2.INTER_LINEAR)
+from .ops import non_maximum_suppression, normalize, softmax, sigmoid
+from .session import close_session, create_onnx_session
+from ..utils import download_file, load_json
 
 
 def preprocess(img, size = 224):
-    img = resize(img, size)
+    """Resize and center-crop an image to the classifier input size."""
+    if isinstance(size, (tuple, list)):
+        target_height, target_width = map(int, size)
+    else:
+        target_height = target_width = int(size)
+    scale = max(target_width / img.shape[1], target_height / img.shape[0])
+    width = max(target_width, round(scale * img.shape[1]))
+    height = max(target_height, round(scale * img.shape[0]))
+    img = cv2.resize(img, (width, height), interpolation=cv2.INTER_LINEAR)
+    left = (width - target_width) // 2
+    top = (height - target_height) // 2
+    img = img[top:top + target_height, left:left + target_width]
     img = normalize(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     return np.expand_dims(img.transpose((2, 0, 1)), axis=0)
 
@@ -97,9 +100,17 @@ def process_output(outputs, size, shape, classes, conf_threshold=0.25, iou_thres
 
 class Model:
     def __init__(self, model_uri):
+        model_uri = os.fspath(model_uri)
+        if os.path.isabs(model_uri) and not os.path.isfile(model_uri):
+            raise FileNotFoundError(f"Model file not found: {model_uri}")
         config_uri = f"{os.path.splitext(model_uri)[0]}.json"
-        self.config = load_json(download_file(config_uri))
-        self.session = ort.InferenceSession(download_file(model_uri), providers=get_providers())
+        model_path = model_uri if os.path.isfile(model_uri) else download_file(model_uri)
+        if os.path.isfile(config_uri):
+            config_path = config_uri
+        else:
+            config_path = download_file(config_uri)
+        self.config = load_json(config_path)
+        self.session = create_onnx_session(model_path)
         self.input_name = self.session.get_inputs()[0].name
         self.input_shape = self.config['inputShape']
         self._closed = False
@@ -112,7 +123,10 @@ class Model:
             inputs = {self.input_name: prepare_input(img, self.input_shape)}
             outputs = self.session.run(None, inputs)
             return process_output(outputs, img_size, self.input_shape, self.config['classes'], conf_threshold, iou_threshold, approx, labels=labels)
-        outputs = self.session.run(None, {self.input_name: preprocess(img)})
+        input_size = tuple(self.input_shape[2:4]) if len(self.input_shape) >= 4 else 224
+        if any(value is None for value in input_size):
+            input_size = 224
+        outputs = self.session.run(None, {self.input_name: preprocess(img, input_size)})
         return postprocess(outputs, self.config['classes'])
 
     def close(self):
@@ -120,9 +134,7 @@ class Model:
         if self._closed:
             return
         session, self.session = self.session, None
-        close = getattr(session, "close", None)
-        if callable(close):
-            close()
+        close_session(session)
         self._closed = True
 
     def __enter__(self):
@@ -130,14 +142,3 @@ class Model:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
-
-
-def segment_objects(frame, results):
-    sam = SAM()
-    sam.encode(frame)
-    for result in results:
-        x, y, w, h = result['box']
-        mask = sam.predict(frame, prompt=json.dumps([{"type": "rectangle", "data": [x, y, x+w, y+h]}]))
-        # result['polygon'] = mask_to_polygon(mask[y:y+h, x:x+w], (x, y))
-        result['mask'] = mask[y:y+h, x:x+w]
-    return results
