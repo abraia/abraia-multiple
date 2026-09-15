@@ -59,7 +59,12 @@ def is_camera(src: Any) -> bool:
 
 
 class Camera:
-    """Class that wraps Picamera2 when is_raspberry_pi and cv2.VideoCapture in any other case."""
+    """Camera wrapper whose :meth:`read` method always returns RGB frames.
+
+    Picamera2's ``RGB888`` stream is stored as ``[B, G, R]`` bytes for
+    OpenCV/NumPy, despite the format name.  Normalize that buffer here so
+    callers do not need to know which capture backend is active.
+    """
     def __init__(self, src=0, resolution=(1920, 1080), fps=30):
         self.width, self.height = resolution
         self.fps = fps
@@ -109,7 +114,7 @@ class Camera:
                     frame = self.picam2.capture_array()
                     if frame is None:
                         return False, None
-                    return True, frame
+                    return True, cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 except Exception:
                     return False, None
             elif self.cap:

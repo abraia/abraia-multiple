@@ -161,7 +161,7 @@ class VideoInput:
         next_keep_video_ms = None
 
         while not self.stop_event.is_set():
-            ret, frame_bgr = self.cap.read()
+            ret, frame = self.cap.read()
             if not ret: break
             
             current_pos_ms = float(self.cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
@@ -180,7 +180,10 @@ class VideoInput:
                 if time.monotonic() < next_keep_timestamp: continue
                 next_keep_timestamp += keep_period
             
-            yield cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            if isinstance(self.cap, Camera):
+                yield frame
+            else:
+                yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         self.cap.release()
 
     def preprocess(self, input_queue: queue.Queue, preprocess_fn: Callable[[np.ndarray], np.ndarray]) -> None:
