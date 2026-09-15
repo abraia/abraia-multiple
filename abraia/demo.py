@@ -113,8 +113,9 @@ HAILO_DEMOS = {
         'src': '5479199-hd_1280_720_25fps.mp4'
     },
     'segment': {
-        'hef_path': 'yolov5m_seg_with_nms',
+        'hef_path': 'yolov8n_seg',
         'task': 'segment',
+        'model_type': 'v8',
         'src': '853889-hd_1920_1080_25fps.mp4'
     },
     'pose': {

@@ -744,7 +744,7 @@ if HAILO_AVAILABLE:
         scores_obj = np.concatenate([np.ones((scores.shape[0], scores.shape[1], 1)), scores], axis=-1)
         coeffs = np.concatenate([np.reshape(c, (-1, c.shape[1] * c.shape[2], n_masks)) for c in endnodes[2:9:3]], axis=1)
         predictions = np.concatenate([decoded_boxes, scores_obj, coeffs], axis=2)
-        nms_res = segment_non_max_suppression(predictions, conf_thres=kwargs["score_threshold"], iou_thresh=kwargs["nms_iou_thresh"], multi_label=True)
+        nms_res = segment_non_max_suppression(predictions, conf_thres=kwargs["score_threshold"], iou_thres=kwargs["nms_iou_thresh"], multi_label=True)
         outputs = []
         for b in range(batch_size):
             masks = segment_process_mask_optimized(proto_data[b].astype(np.float32, copy=False), nms_res[b]["mask"].astype(np.float32, copy=False), nms_res[b]["detection_boxes"], image_dims)
@@ -799,6 +799,16 @@ if HAILO_AVAILABLE:
         keypoints[:, 0] = np.clip((keypoints[:, 0] - pad_w) / scale, 0, ow - 1)
         keypoints[:, 1] = np.clip((keypoints[:, 1] - pad_h) / scale, 0, oh - 1)
         return keypoints
+
+    def map_mask_to_orig(mask: np.ndarray, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> np.ndarray:
+        """Map a mask from letterboxed model space to the original image."""
+        oh, ow = orig_dim
+        mh, mw = model_dim
+        scale = min(mw / ow, mh / oh)
+        resized_w, resized_h = int(ow * scale), int(oh * scale)
+        pad_w, pad_h = (mw - resized_w) // 2, (mh - resized_h) // 2
+        unpadded = mask[pad_h:pad_h + resized_h, pad_w:pad_w + resized_w]
+        return cv2.resize(unpadded, (ow, oh), interpolation=cv2.INTER_LINEAR)
 
     def resolve_shape(layer, model_type, arch_cfg):
         b, h, w, c_tag = layer
@@ -881,11 +891,16 @@ if HAILO_AVAILABLE:
             detections = []
             for i in range(len(boxes)):
                 if scores[i] > self.score_threshold:
-                    cx, cy, w, h = boxes[i]
-                    xmin, ymin, xmax, ymax = map_box_to_orig([(cx - w / 2) * mw, (cy - h / 2) * mh, (cx + w / 2) * mw, (cy + h / 2) * mh], (oh, ow), (mh, mw))
+                    x1, y1, x2, y2 = boxes[i]
+                    xmin, ymin, xmax, ymax = map_box_to_orig(
+                        [x1 * mw, y1 * mh, x2 * mw, y2 * mh],
+                        (oh, ow),
+                        (mh, mw),
+                    )
+                    mask = map_mask_to_orig(masks[i], (oh, ow), (mh, mw))
                     detections.append({
                         'label': self.labels[classes[i]] if self.labels else str(classes[i]), 'score': float(scores[i]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
-                        'mask': (masks[i, ymin:ymax, xmin:xmax] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
+                        'mask': (mask[ymin:ymax, xmin:xmax] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
                     })
             return detections
 

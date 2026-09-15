@@ -27,7 +27,7 @@ DEFAULT_OPTIONS = {
     "labels": None,
     "batch_size": 1,
     "score_threshold": 0.25,
-    "model_type": "v5",
+    "model_type": None,
     "track": True,
     "draw_trail": False,
     "frame_rate": None,
@@ -43,6 +43,15 @@ CONFIG_DATA = {
         "match_thresh": 0.9
     }
 }
+
+
+def resolve_model_type(model_type, hef_path, task):
+    """Resolve the postprocessor architecture for a Hailo model."""
+    if model_type:
+        return model_type
+    if task == "segment" and "yolov8" in str(hef_path).lower():
+        return "v8"
+    return "v5"
 
 
 def inference_result_handler(original_frame, detections, tracker=None, tracklet_history=None):
@@ -142,6 +151,8 @@ def main(**kwargs) -> None:
         task = args.task
         labels = get_labels(args.labels)
 
+    model_type = resolve_model_type(args.model_type, hef_path, task)
+
     stop_event = threading.Event()
 
     input_data = VideoInput(
@@ -163,7 +174,7 @@ def main(**kwargs) -> None:
         hef_path, task, labels,
         batch_size=input_data.batch_size,
         score_threshold=args.score_threshold,
-        model_type=args.model_type
+        model_type=model_type
     )
 
     tracker = None
