@@ -857,8 +857,13 @@ if HAILO_AVAILABLE:
                 for det in detection:
                     bbox, score = det[:4], det[4]
                     if score >= self.score_threshold:
-                        cx, cy, w, h = bbox
-                        xmin, ymin, xmax, ymax = map_box_to_orig([(cx - w / 2) * mw, (cy - h / 2) * mh, (cx + w / 2) * mw, (cy + h / 2) * mh], (oh, ow), (mh, mw))
+                        # Hailo's raw detection output is normalized as
+                        # [ymin, xmin, ymax, xmax, score].
+                        xmin, ymin, xmax, ymax = map_box_to_orig(
+                            [bbox[1] * mw, bbox[0] * mh, bbox[3] * mw, bbox[2] * mh],
+                            (oh, ow),
+                            (mh, mw),
+                        )
                         detections.append({'label': self.labels[class_id] if self.labels else str(class_id), 'score': float(score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': class_id})
             return detections
         
