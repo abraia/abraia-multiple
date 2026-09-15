@@ -6,11 +6,11 @@ import threading
 
 from typing import Any, Optional, Tuple
 
-from .draw import (
+from ..utils.draw import (
     render_resolution,
     render_status,
 )
-from .filesystem import make_dirs
+from ..utils.filesystem import make_dirs
 
 logger = logging.getLogger(__name__)
 

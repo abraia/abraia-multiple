@@ -81,7 +81,7 @@ Object detection, tracking, and counting workflows can be configured in a
 JSON file and run from Python:
 
 ```python
-from abraia.utils import Pipeline
+from abraia.runtime import Pipeline
 
 Pipeline.from_file("pipeline.json").run()
 ```
@@ -109,13 +109,13 @@ region filter or timer, and display output. Stages run in the order listed:
 - Specialized tools for hyperspectral and multispectral image analysis, cube processing, spectral indices, radiometric calibration, scene manifests, and spectral signature extraction (`multiple.analysis`). Remote datasets support TIFF cubes, ENVI header/data pairs (`.hdr` with `.raw`, `.img`, or a declared companion file), and IMEC snapshot-mosaic scenes (`.raw` plus their calibration `.xml`). Studio can upload a folder containing the raw scenes and shared calibration file.
 - The public `multiple` API is grouped into visualization, local I/O, shared band contracts, metadata, manifests, remote datasets and clients, radiometry, analysis, and registration modules. Analysis and GIS integrations expose optional dependency errors only when used.
 
-### 4. Edge AI & Hardware Acceleration (`abraia.hailo`)
-- Optimized runtime support and toolboxes for Hailo NPU hardware acceleration (`abraia.hailo`).
+### 4. Edge AI & Hardware Acceleration (`abraia.inference.hailo`)
+- Optimized runtime support and toolboxes for Hailo NPU hardware acceleration (`abraia.inference.hailo`).
 
 ### 5. Training & Dataset Operations (`abraia.training`)
 - Tools for training custom classification (`classify`) and detection (`detect`) models, along with dataset preprocessing utilities (`dataset`, `ops`).
 
-### 6. Utilities & Video Processing (`abraia.utils`)
+### 6. Runtime & Video Processing (`abraia.runtime`)
 - Robust video frame iteration and manipulation (`Video`).
 - Annotation and rendering tools (`render_results`, `render_counter`, `render_region`).
 - Compression and sketch generation utilities.
@@ -131,7 +131,8 @@ Monitor people flow, count crossings, and track dwell times in public spaces or 
 ```python
 from abraia.inference import Model, Tracker
 from abraia.inference.tools import LineCounter, RegionTimer
-from abraia.utils import Video, render_results, render_counter, render_region
+from abraia.runtime import Video
+from abraia.utils import render_results, render_counter, render_region
 
 model = Model("multiple/models/yolov8n.onnx")
 video = Video('people-walking.mp4')
@@ -225,7 +226,7 @@ print(f"Similarity score is {scores[0]} for image {image_paths[idxs[0]]}")
 
 ## 🍓 Real-Time Edge Object Counter on Raspberry Pi with Hailo NPU
 
-Deploy high-performance real-time object detection and counting on a Raspberry Pi equipped with a Hailo AI expansion board (such as Hailo-8 or Hailo-8L). This pipeline combines hardware-accelerated model inference (`abraia.hailo`), multi-object tracking (`abraia.inference.Tracker`), line crossing counters (`LineCounter`), and region timers (`RegionTimer`), integrated with the asynchronous video processing pipeline (`VideoInput` & `VideoDisplay`).
+Deploy high-performance real-time object detection and counting on a Raspberry Pi equipped with a Hailo AI expansion board (such as Hailo-8 or Hailo-8L). This pipeline combines hardware-accelerated model inference (`abraia.inference.hailo`), multi-object tracking (`abraia.inference.Tracker`), line crossing counters (`LineCounter`), and region timers (`RegionTimer`), integrated with the asynchronous video processing pipeline (`VideoInput` & `VideoDisplay`).
 
 ### Implementation Guide
 
@@ -233,11 +234,12 @@ Create a script (e.g., `edge_counter.py`) ready for deployment on your Raspberry
 
 ```python
 import threading
-from abraia.hailo.toolbox import ModelInference
+from abraia.inference.hailo.toolbox import ModelInference
 from abraia.inference import Tracker
 from abraia.inference.tools import LineCounter, RegionTimer
-from abraia.utils import VideoInput, VideoDisplay, render_results, render_counter, render_region
-from abraia.hailo.detect import run_inference_pipeline
+from abraia.runtime import VideoInput, VideoDisplay
+from abraia.utils import render_results, render_counter, render_region
+from abraia.inference.hailo.detect import run_inference_pipeline
 
 # 1. Initialize threaded video input (e.g., Raspberry Pi Camera or RTSP stream)
 stop_event = threading.Event()

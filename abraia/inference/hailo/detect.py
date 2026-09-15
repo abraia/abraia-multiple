@@ -9,14 +9,15 @@ from abraia.utils import download_file, load_json
 from .toolbox import (
     MAX_INPUT_QUEUE_SIZE,
     MAX_OUTPUT_QUEUE_SIZE,
+    HAILO_AVAILABLE,
     ModelInference,
     get_labels,
     default_preprocess
 )
-from ..utils.stream import VideoInput, VideoDisplay
+from ...runtime.stream import VideoInput, VideoDisplay
 
-from ..inference.tracker import TrackletHistory, Tracker
-from ..utils.draw import render_results
+from ..tracker import TrackletHistory, Tracker
+from ...utils.draw import render_results
 
 logger = logging.getLogger(__name__)
 
@@ -89,16 +90,27 @@ def run_inference_pipeline(
 
     height, width, _ = model_inference.get_input_shape()
 
+    worker_errors = queue.Queue()
+
+    def run_worker(worker, *args):
+        try:
+            worker(*args)
+        except Exception as exc:
+            worker_errors.put(exc)
+            input_data.stop_event.set()
+
+    preprocess_thread = None
+    inference_thread = None
     try:
         preprocess_thread = threading.Thread(
-            target=input_data.preprocess,
-            args=(input_queue, lambda frame: default_preprocess(frame, width, height)),
+            target=run_worker,
+            args=(input_data.preprocess, input_queue, lambda frame: default_preprocess(frame, width, height)),
             name="preprocess-thread",
         )
 
         inference_thread = threading.Thread(
-            target=model_inference.infer,
-            args=(input_queue, output_queue, input_data.stop_event),
+            target=run_worker,
+            args=(model_inference.infer, input_queue, output_queue, input_data.stop_event),
             name="inference-thread",
         )
 
@@ -114,13 +126,51 @@ def run_inference_pipeline(
         )
     finally:
         input_data.stop_event.set()
-        preprocess_thread.join()
-        inference_thread.join()
+        visualizer.stop_event.set()
+        if preprocess_thread is not None:
+            preprocess_thread.join()
+        if inference_thread is not None:
+            inference_thread.join()
+
+    if not worker_errors.empty():
+        raise worker_errors.get()
 
     logger.info(visualizer.frame_rate_summary())
     logger.info("Processing completed successfully.")
     if visualizer.dest:
         logger.info(f"Saved outputs to '{visualizer.dest}'.")
+
+
+def _resolve_model_inputs(model_uri, task, labels_path):
+    """Resolve a local or remote HEF and its optional metadata sidecar."""
+    if not model_uri:
+        raise ValueError("hef_path is required")
+
+    model_uri = os.fspath(model_uri)
+    labels = get_labels(labels_path)
+    config = None
+
+    if os.path.exists(model_uri):
+        hef_path = model_uri
+        config_uri = os.path.splitext(model_uri)[0] + ".json"
+        if os.path.exists(config_uri):
+            config = load_json(config_uri)
+    elif model_uri.lower().endswith(".hef") and os.path.dirname(model_uri):
+        hef_path = download_file(model_uri)
+        config_uri = os.path.splitext(model_uri)[0] + ".json"
+        try:
+            config = load_json(download_file(config_uri))
+        except Exception as exc:
+            logger.info("No usable Hailo metadata sidecar for %s: %s", model_uri, exc)
+    else:
+        # Bare names such as ``yolov8n`` are resolved by ModelInference's
+        # Hailo resource catalog; they are not API file paths.
+        hef_path = model_uri
+
+    if isinstance(config, dict):
+        task = config.get("task", task)
+        labels = config.get("classes", labels)
+    return hef_path, task, labels
 
 
 def main(**kwargs) -> None:
@@ -131,7 +181,7 @@ def main(**kwargs) -> None:
         **kwargs: Programmatic arguments to override defaults.
 
     Example:
-        from abraia.hailo import object_detection
+        from abraia.inference.hailo import detect as object_detection
         object_detection.main(input='video.mp4', track=True)
     """
     options = DEFAULT_OPTIONS.copy()
@@ -139,17 +189,15 @@ def main(**kwargs) -> None:
     args = SimpleNamespace(**options)
     logging.basicConfig(level=logging.INFO)
 
-    try: 
-        model_uri = args.hef_path
-        config_uri = f"{os.path.splitext(model_uri)[0]}.json"
-        config = load_json(download_file(config_uri))
-        hef_path = download_file(model_uri)
-        labels = config['classes']
-        task = config['task']
-    except:
-        hef_path = args.hef_path
-        task = args.task
-        labels = get_labels(args.labels)
+    if not HAILO_AVAILABLE:
+        raise RuntimeError(
+            "Hailo support is unavailable; install the hailo_platform package "
+            "on a Hailo-enabled host"
+        )
+
+    hef_path, task, labels = _resolve_model_inputs(
+        args.hef_path, args.task, args.labels
+    )
 
     model_type = resolve_model_type(args.model_type, hef_path, task)
 

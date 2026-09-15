@@ -12,8 +12,8 @@ from pathlib import Path
 from functools import partial
 from typing import Dict, List, Optional, Tuple
 
-from ..utils import download_url, get_remote_file_size
-from ..inference.ops import sigmoid, softmax, nms
+from ...utils import download_url, get_remote_file_size
+from ..ops import sigmoid, softmax, nms
             
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,13 @@ HAILO_FW_CONTROL_CMD = "hailortcli fw-control identify"
 def detect_hailo_arch() -> Optional[str]:
     """Detect the connected Hailo device architecture."""
     try:
-        res = subprocess.run(shlex.split(HAILO_FW_CONTROL_CMD), capture_output=True, text=True)
+        res = subprocess.run(
+            shlex.split(HAILO_FW_CONTROL_CMD),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
         if res.returncode == 0:
             stdout = res.stdout.upper()
             for key, arch in HAILO_ARCHS.items():
@@ -351,7 +357,7 @@ def convert_box_from_normalized(normalized_box: list,
         # 1. Scale to padded image space (e.g. 640)
         padded_coord = round(norm_val * padded_image_size)
         padded_coord = min(max(padded_coord, 0), padded_image_size)
-        box_on_padded_image.append(round(norm_val * 640))
+        box_on_padded_image.append(padded_coord)
 
         # 2. Remove padding to get input image space
         if i % 2 == 0:  # x coordinate
@@ -403,6 +409,8 @@ if HAILO_AVAILABLE:
             self.configured_model = self.config_ctx.__enter__()
             self.configured_model.set_scheduler_priority(priority)
             self.last_infer_job = None
+            self.pending_jobs = collections.deque()
+            self._closed = False
 
         def _set_input_type(self, input_type: Optional[str] = None) -> None:
             """
@@ -488,6 +496,12 @@ if HAILO_AVAILABLE:
             Returns:
                 Async job handle returned by `run_async`, which can be used to wait for completion or check status.
             """
+            if self._closed:
+                raise RuntimeError("Hailo inference has already been closed")
+
+            while len(self.pending_jobs) >= MAX_ASYNC_INFER_JOBS:
+                self.pending_jobs.popleft().wait(10000)
+
             bindings_list = self._create_bindings(self.configured_model, input_batch)
             self.configured_model.wait_for_async_ready(timeout_ms=10000)
 
@@ -496,6 +510,7 @@ if HAILO_AVAILABLE:
                 bindings_list,
                 partial(inference_callback_fn, bindings_list=bindings_list)
             )
+            self.pending_jobs.append(self.last_infer_job)
             return self.last_infer_job
 
         def _create_bindings(self, configured_model, input_batch):
@@ -561,328 +576,340 @@ if HAILO_AVAILABLE:
             return data_type_dict
 
         def close(self):
-            # Wait for the final job to complete before exiting
-            if self.last_infer_job is not None:
-                self.last_infer_job.wait(10000)
+            """Wait for all submitted jobs and release the configured model."""
+            if self._closed:
+                return
+
+            while self.pending_jobs:
+                self.pending_jobs.popleft().wait(10000)
 
             if self.config_ctx:
                 self.config_ctx.__exit__(None, None, None)
+                self.config_ctx = None
+
+            release = getattr(self.target, "release", None)
+            if callable(release):
+                release()
+            self._closed = True
 
 
-    def segment_xywh2xyxy(x):
-        y = np.copy(x)
-        y[:, 0] = x[:, 0] - x[:, 2] / 2
-        y[:, 1] = x[:, 1] - x[:, 3] / 2
-        y[:, 2] = x[:, 0] + x[:, 2] / 2
-        y[:, 3] = x[:, 1] + x[:, 3] / 2
-        return y
+def segment_xywh2xyxy(x):
+    y = np.copy(x)
+    y[:, 0] = x[:, 0] - x[:, 2] / 2
+    y[:, 1] = x[:, 1] - x[:, 3] / 2
+    y[:, 2] = x[:, 0] + x[:, 2] / 2
+    y[:, 3] = x[:, 1] + x[:, 3] / 2
+    return y
 
 
-    def segment_non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, max_det=300, nm=32, multi_label=True):
-        assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
-        assert 0 <= iou_thres <= 1, f"Invalid IoU threshold {iou_thres}, valid values are between 0.0 and 1.0"
+def segment_non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, max_det=300, nm=32, multi_label=True):
+    assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
+    assert 0 <= iou_thres <= 1, f"Invalid IoU threshold {iou_thres}, valid values are between 0.0 and 1.0"
 
-        nc = prediction.shape[2] - nm - 5  # number of classes
-        xc = prediction[..., 4] > conf_thres  # candidates
+    nc = prediction.shape[2] - nm - 5  # number of classes
+    xc = prediction[..., 4] > conf_thres  # candidates
 
-        max_wh = 7680  # (pixels) maximum box width and height
-        mi = 5 + nc  # mask start index
-        output = []
-        for xi, x in enumerate(prediction):  # image index, image inference
-            x = x[xc[xi]]  # confidence
-            if not x.shape[0]:
-                output.append({
-                    "detection_boxes": np.zeros((0, 4)),
-                    "mask": np.zeros((0, 32)),
-                    "detection_classes": np.zeros((0, 80)),
-                    "detection_scores": np.zeros((0, 80)),
-                })
-                continue
-
-            x[:, 5:] *= x[:, 4:5]
-            boxes = segment_xywh2xyxy(x[:, :4])
-            mask = x[:, mi:]
-
-            multi_label &= nc > 1
-            if not multi_label:
-                conf = np.expand_dims(x[:, 5:mi].max(1), 1)
-                j = np.expand_dims(x[:, 5:mi].argmax(1), 1).astype(np.float32)
-                keep = np.squeeze(conf, 1) > conf_thres
-                x = np.concatenate((boxes, conf, j, mask), 1)[keep]
-            else:
-                i, j = (x[:, 5:mi] > conf_thres).nonzero()
-                x = np.concatenate((boxes[i], x[i, 5 + j, None], j[:, None].astype(np.float32), mask[i]), 1)
-
-            # Invalid box distributions (for example, an all-infinite Hailo
-            # output passed through softmax) decode to NaN/Inf coordinates.
-            # Keep those candidates out of NMS and mask cropping; converting
-            # them to integer pixel coordinates otherwise raises an exception.
-            finite = np.isfinite(x[:, :5]).all(axis=1)
-            if not finite.all():
-                logger.debug("Discarding %d non-finite segmentation candidates", np.count_nonzero(~finite))
-                x = x[finite]
-
-            x = x[x[:, 4].argsort()[::-1]]
-            cls_shift = x[:, 5:6] * max_wh
-            boxes = x[:, :4] + cls_shift
-            conf = x[:, 4:5]
-            keep = nms(np.hstack([boxes.astype(np.float32), conf.astype(np.float32)]), iou_thres)
-
-            if keep.shape[0] > max_det:
-                keep = keep[:max_det]
-
-            out = x[keep]
+    max_wh = 7680  # (pixels) maximum box width and height
+    mi = 5 + nc  # mask start index
+    output = []
+    for xi, x in enumerate(prediction):  # image index, image inference
+        x = x[xc[xi]]  # confidence
+        if not x.shape[0]:
             output.append({
-                "detection_boxes": out[:, :4],
-                "mask": out[:, 6:],
-                "detection_classes": out[:, 5],
-                "detection_scores": out[:, 4]
+                "detection_boxes": np.zeros((0, 4), dtype=np.float32),
+                "mask": np.zeros((0, nm), dtype=np.float32),
+                "detection_classes": np.zeros((0,), dtype=np.float32),
+                "detection_scores": np.zeros((0,), dtype=np.float32),
             })
+            continue
 
-        return output
+        x[:, 5:] *= x[:, 4:5]
+        boxes = segment_xywh2xyxy(x[:, :4])
+        mask = x[:, mi:]
 
+        multi_label &= nc > 1
+        if not multi_label:
+            conf = np.expand_dims(x[:, 5:mi].max(1), 1)
+            j = np.expand_dims(x[:, 5:mi].argmax(1), 1).astype(np.float32)
+            keep = np.squeeze(conf, 1) > conf_thres
+            x = np.concatenate((boxes, conf, j, mask), 1)[keep]
+        else:
+            i, j = (x[:, 5:mi] > conf_thres).nonzero()
+            x = np.concatenate((boxes[i], x[i, 5 + j, None], j[:, None].astype(np.float32), mask[i]), 1)
 
-    def segment_process_mask_optimized(protos, masks_in, bboxes, shape, upsample=True, downsample=False):
-        mh, mw, c = protos.shape
-        ih, iw = shape
-        protos_flat = protos.reshape(-1, c).T
-        masks = masks_in @ protos_flat
-        masks = sigmoid(masks).reshape(-1, mh, mw)
+        # Invalid box distributions (for example, an all-infinite Hailo
+        # output passed through softmax) decode to NaN/Inf coordinates.
+        # Keep those candidates out of NMS and mask cropping; converting
+        # them to integer pixel coordinates otherwise raises an exception.
+        finite = np.isfinite(x[:, :5]).all(axis=1)
+        if not finite.all():
+            logger.debug("Discarding %d non-finite segmentation candidates", np.count_nonzero(~finite))
+            x = x[finite]
 
-        bboxes = bboxes.copy()
-        if downsample:
-            bboxes[:, [0, 2]] *= mw / iw
-            bboxes[:, [1, 3]] *= mh / ih
-            masks = segment_crop_mask_roi_vectorized(masks, bboxes)
+        x = x[x[:, 4].argsort()[::-1]]
+        cls_shift = x[:, 5:6] * max_wh
+        boxes = x[:, :4] + cls_shift
+        conf = x[:, 4:5]
+        keep = nms(np.hstack([boxes.astype(np.float32), conf.astype(np.float32)]), iou_thres)
 
-        if upsample:
-            resized = np.empty((masks.shape[0], ih, iw), dtype=np.float32)
-            for i in range(masks.shape[0]):
-                resized[i] = cv2.resize(masks[i], (iw, ih), interpolation=cv2.INTER_LINEAR)
-            masks = resized
+        if keep.shape[0] > max_det:
+            keep = keep[:max_det]
 
-        if not downsample:
-            masks = segment_crop_mask_roi_vectorized(masks, bboxes)
+        out = x[keep]
+        output.append({
+            "detection_boxes": out[:, :4],
+            "mask": out[:, 6:],
+            "detection_classes": out[:, 5],
+            "detection_scores": out[:, 4]
+        })
 
-        return masks
-
-
-    def segment_crop_mask_roi_vectorized(masks, boxes):
-        N, H, W = masks.shape
-        output = np.zeros_like(masks)
-        boxes = np.round(boxes).astype(int)
-        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, W - 1)
-        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, H - 1)
-        for i in range(N):
-            x1, y1, x2, y2 = boxes[i]
-            output[i, y1:y2, x1:x2] = masks[i, y1:y2, x1:x2]
-        return output
-
-
-    def segment_make_grid(anchors, stride, bs=8, nx=20, ny=20):
-        na = len(anchors) // 2
-        y, x = np.arange(ny), np.arange(nx)
-        yv, xv = np.meshgrid(y, x, indexing="ij")
-        grid = np.stack((xv, yv), 2)
-        grid = np.stack([grid for _ in range(na)], 0) - 0.5
-        grid = np.stack([grid for _ in range(bs)], 0)
-        anchor_grid = np.reshape(anchors * stride, (na, -1))
-        anchor_grid = np.stack([anchor_grid for _ in range(ny)], axis=1)
-        anchor_grid = np.stack([anchor_grid for _ in range(nx)], axis=2)
-        anchor_grid = np.stack([anchor_grid for _ in range(bs)], 0)
-        return grid, anchor_grid
+    return output
 
 
-    def segment_yolov5_decoding(branch_idx, output, stride_list, anchor_list, num_classes):
-        BS, H, W = output.shape[0:3]
-        stride = stride_list[branch_idx]
-        anchors = anchor_list[branch_idx] / stride
-        num_anchors = len(anchors) // 2
-        grid, anchor_grid = segment_make_grid(anchors, stride, BS, W, H)
-        output = output.transpose((0, 3, 1, 2)).reshape((BS, num_anchors, -1, H, W)).transpose((0, 1, 3, 4, 2))
-        xy, wh, conf, mask = np.array_split(output, [2, 4, 4 + num_classes + 1], axis=4)
-        xy = (sigmoid(xy) * 2 + grid) * stride
-        wh = (sigmoid(wh) * 2) ** 2 * anchor_grid
-        out = np.concatenate((xy, wh, sigmoid(conf), mask), 4)
-        return out.reshape((BS, num_anchors * H * W, -1)).astype(np.float32)
+def segment_process_mask_optimized(protos, masks_in, bboxes, shape, upsample=True, downsample=False):
+    mh, mw, c = protos.shape
+    ih, iw = shape
+    protos_flat = protos.reshape(-1, c).T
+    masks = masks_in @ protos_flat
+    masks = sigmoid(masks).reshape(-1, mh, mw)
+
+    bboxes = bboxes.copy()
+    if downsample:
+        bboxes[:, [0, 2]] *= mw / iw
+        bboxes[:, [1, 3]] *= mh / ih
+        masks = segment_crop_mask_roi_vectorized(masks, bboxes)
+
+    if upsample:
+        resized = np.empty((masks.shape[0], ih, iw), dtype=np.float32)
+        for i in range(masks.shape[0]):
+            resized[i] = cv2.resize(masks[i], (iw, ih), interpolation=cv2.INTER_LINEAR)
+        masks = resized
+
+    if not downsample:
+        masks = segment_crop_mask_roi_vectorized(masks, bboxes)
+
+    return masks
 
 
-    def normalize_yolov8_scores(scores):
-        """Return YOLOv8 class scores as probabilities.
+def segment_crop_mask_roi_vectorized(masks, boxes):
+    N, H, W = masks.shape
+    output = np.zeros_like(masks)
+    boxes = np.round(boxes).astype(int)
+    boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, W - 1)
+    boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, H - 1)
+    for i in range(N):
+        x1, y1, x2, y2 = boxes[i]
+        output[i, y1:y2, x1:x2] = masks[i, y1:y2, x1:x2]
+    return output
 
-        Hailo model-zoo HEFs normally apply sigmoid in the model script, but
-        host-postprocessed/custom HEFs can expose the class logits instead.
-        Support both forms without applying sigmoid twice to probabilities.
-        """
-        if not np.issubdtype(scores.dtype, np.floating):
-            return scores
-        finite_scores = scores[np.isfinite(scores)]
-        if finite_scores.size and (finite_scores.min() < 0 or finite_scores.max() > 1):
-            return sigmoid(scores)
+
+def segment_make_grid(anchors, stride, bs=8, nx=20, ny=20):
+    na = len(anchors) // 2
+    y, x = np.arange(ny), np.arange(nx)
+    yv, xv = np.meshgrid(y, x, indexing="ij")
+    grid = np.stack((xv, yv), 2)
+    grid = np.stack([grid for _ in range(na)], 0) - 0.5
+    grid = np.stack([grid for _ in range(bs)], 0)
+    anchor_grid = np.reshape(anchors * stride, (na, -1))
+    anchor_grid = np.stack([anchor_grid for _ in range(ny)], axis=1)
+    anchor_grid = np.stack([anchor_grid for _ in range(nx)], axis=2)
+    anchor_grid = np.stack([anchor_grid for _ in range(bs)], 0)
+    return grid, anchor_grid
+
+
+def segment_yolov5_decoding(branch_idx, output, stride_list, anchor_list, num_classes):
+    BS, H, W = output.shape[0:3]
+    stride = stride_list[branch_idx]
+    anchors = anchor_list[branch_idx] / stride
+    num_anchors = len(anchors) // 2
+    grid, anchor_grid = segment_make_grid(anchors, stride, BS, W, H)
+    output = output.transpose((0, 3, 1, 2)).reshape((BS, num_anchors, -1, H, W)).transpose((0, 1, 3, 4, 2))
+    xy, wh, conf, mask = np.array_split(output, [2, 4, 4 + num_classes + 1], axis=4)
+    xy = (sigmoid(xy) * 2 + grid) * stride
+    wh = (sigmoid(wh) * 2) ** 2 * anchor_grid
+    out = np.concatenate((xy, wh, sigmoid(conf), mask), 4)
+    return out.reshape((BS, num_anchors * H * W, -1)).astype(np.float32)
+
+
+def normalize_yolov8_scores(scores):
+    """Return YOLOv8 class scores as probabilities.
+
+    Hailo model-zoo HEFs normally apply sigmoid in the model script, but
+    host-postprocessed/custom HEFs can expose the class logits instead.
+    Support both forms without applying sigmoid twice to probabilities.
+    """
+    if not np.issubdtype(scores.dtype, np.floating):
         return scores
+    finite_scores = scores[np.isfinite(scores)]
+    if finite_scores.size and (finite_scores.min() < 0 or finite_scores.max() > 1):
+        return sigmoid(scores)
+    return scores
 
 
-    def segment_yolov8_decoding(raw_boxes, strides, image_dims, reg_max):
-        boxes = None
-        for box_distribute, stride in zip(raw_boxes, strides):
-            shape = [int(x / stride) for x in image_dims]
-            grid_x, grid_y = np.meshgrid(np.arange(shape[1]) + 0.5, np.arange(shape[0]) + 0.5)
-            ct_row, ct_col = grid_y.flatten() * stride, grid_x.flatten() * stride
-            center = np.stack((ct_col, ct_row, ct_col, ct_row), axis=1)
-            reg_range = np.arange(reg_max + 1)
-            box_distribute = np.reshape(box_distribute, (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1))
-            finite_distribution = np.isfinite(box_distribute).all(axis=(2, 3))
-            safe_distribution = np.where(
-                finite_distribution[..., None, None], box_distribute, 0
-            )
-            box_distance = softmax(safe_distribution)
-            # Retain the invalid-anchor marker so NMS can discard it. This
-            # avoids passing NaN coordinates to integer pixel conversion.
-            box_distance[~finite_distribution] = np.nan
-            box_distance = np.sum(box_distance * np.reshape(reg_range, (1, 1, 1, -1)), axis=-1) * stride
-            box_distance = np.concatenate([box_distance[:, :, :2] * (-1), box_distance[:, :, 2:]], axis=-1)
-            decode_box = np.expand_dims(center, axis=0) + box_distance
-            xmin, ymin, xmax, ymax = decode_box[:, :, 0], decode_box[:, :, 1], decode_box[:, :, 2], decode_box[:, :, 3]
-            xywh_box = np.transpose([(xmin + xmax) / 2, (ymin + ymax) / 2, xmax - xmin, ymax - ymin], [1, 2, 0])
-            boxes = xywh_box if boxes is None else np.concatenate([boxes, xywh_box], axis=1)
-        return boxes
-
-
-    def segment_yolov5_postprocess(endnodes, **kwargs):
-        img_dims = tuple(kwargs["input_shape"])
-        protos = endnodes[0]
-        anchor_list = np.array(kwargs["anchors"]["sizes"][::-1])
-        stride_list = kwargs["anchors"]["strides"][::-1]
-        num_classes = kwargs["classes"]
-        outputs = []
-        for branch_idx, output in enumerate(endnodes[1:]):
-            outputs.append(segment_yolov5_decoding(branch_idx, output, stride_list, anchor_list, num_classes))
-        outputs = np.concatenate(outputs, 1)
-        outputs = segment_non_max_suppression(outputs, kwargs["score_threshold"], kwargs["nms_iou_thresh"], nm=protos.shape[-1])
-        for batch_idx, output in enumerate(outputs):
-            output["mask"] = segment_process_mask_optimized(protos[batch_idx].astype(np.float32, copy=False), output["mask"].astype(np.float32, copy=False), output["detection_boxes"], img_dims, upsample=True)
-            output["detection_boxes"][:, [0, 2]] /= img_dims[1]
-            output["detection_boxes"][:, [1, 3]] /= img_dims[0]
-        return outputs
-
-
-    def segment_yolov8_postprocess(endnodes, **kwargs):
-        num_classes, strides, image_dims, reg_max = kwargs["classes"], kwargs["anchors"]["strides"][::-1], tuple(kwargs["input_shape"]), kwargs["anchors"]["regression_length"]
-        raw_boxes = endnodes[:7:3]
-        scores = np.concatenate([np.reshape(s, (-1, s.shape[1] * s.shape[2], num_classes)) for s in endnodes[1:8:3]], axis=1)
-        scores = normalize_yolov8_scores(scores)
-        decoded_boxes = segment_yolov8_decoding(raw_boxes, strides, image_dims, reg_max)
-        proto_data = endnodes[9]
-        batch_size, _, _, n_masks = proto_data.shape
-        scores_obj = np.concatenate([np.ones((scores.shape[0], scores.shape[1], 1)), scores], axis=-1)
-        coeffs = np.concatenate([np.reshape(c, (-1, c.shape[1] * c.shape[2], n_masks)) for c in endnodes[2:9:3]], axis=1)
-        predictions = np.concatenate([decoded_boxes, scores_obj, coeffs], axis=2)
-        # One class per anchor keeps host-side NMS bounded to the number of
-        # anchors. Multi-label expansion can turn 8,400 anchors into tens of
-        # thousands of candidates and starve the asynchronous video callback.
-        nms_res = segment_non_max_suppression(
-            predictions,
-            conf_thres=kwargs["score_threshold"],
-            iou_thres=kwargs["nms_iou_thresh"],
-            multi_label=False,
+def segment_yolov8_decoding(raw_boxes, strides, image_dims, reg_max):
+    boxes = None
+    for box_distribute, stride in zip(raw_boxes, strides):
+        shape = [int(x / stride) for x in image_dims]
+        grid_x, grid_y = np.meshgrid(np.arange(shape[1]) + 0.5, np.arange(shape[0]) + 0.5)
+        ct_row, ct_col = grid_y.flatten() * stride, grid_x.flatten() * stride
+        center = np.stack((ct_col, ct_row, ct_col, ct_row), axis=1)
+        reg_range = np.arange(reg_max + 1)
+        box_distribute = np.reshape(box_distribute, (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1))
+        finite_distribution = np.isfinite(box_distribute).all(axis=(2, 3))
+        safe_distribution = np.where(
+            finite_distribution[..., None, None], box_distribute, 0
         )
-        outputs = []
-        for b in range(batch_size):
-            masks = segment_process_mask_optimized(proto_data[b].astype(np.float32, copy=False), nms_res[b]["mask"].astype(np.float32, copy=False), nms_res[b]["detection_boxes"], image_dims)
-            outputs.append({
-                "detection_boxes": np.array(nms_res[b]["detection_boxes"]) / np.tile(image_dims, 2),
-                "mask": masks,
-                "detection_scores": np.array(nms_res[b]["detection_scores"]),
-                "detection_classes": np.array(nms_res[b]["detection_classes"]).astype(int)
-            })
-        return outputs
-
-    def decode_pose_results(raw_boxes: np.ndarray, raw_kpts: np.ndarray, strides: List[int], image_dims: Tuple[int, int], reg_max: int) -> Tuple[np.ndarray, np.ndarray]:
-        boxes = None
-        decoded_kpts = None
-
-        for box_distribute, kpts, stride in zip(raw_boxes, raw_kpts, strides):
-            shape = [int(x / stride) for x in image_dims]
-            grid_x, grid_y = np.meshgrid(np.arange(shape[1]) + 0.5, np.arange(shape[0]) + 0.5)
-            ct_row, ct_col = grid_y.flatten() * stride, grid_x.flatten() * stride
-            center = np.stack((ct_col, ct_row, ct_col, ct_row), axis=1)
-
-            box_distribute = np.reshape(
-                box_distribute,
-                (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1),
-            )
-            finite_distribution = np.isfinite(box_distribute).all(axis=(2, 3))
-            safe_distribution = np.where(
-                finite_distribution[..., None, None], box_distribute, 0
-            )
-            box_distance = softmax(safe_distribution)
-            # Preserve invalid anchors so the pose postprocessor can discard
-            # them instead of turning a failed softmax into a real detection.
-            box_distance[~finite_distribution] = np.nan
-            box_distance = np.sum(box_distance * np.reshape(np.arange(reg_max + 1), (1, 1, 1, -1)), axis=-1) * stride
-
-            decode_box = np.expand_dims(center, axis=0) + np.concatenate([box_distance[:, :, :2] * (-1), box_distance[:, :, 2:]], axis=-1)
-            xmin, ymin, xmax, ymax = decode_box[:, :, 0], decode_box[:, :, 1], decode_box[:, :, 2], decode_box[:, :, 3]
-            xywh_box = np.transpose([(xmin + xmax) / 2, (ymin + ymax) / 2, xmax - xmin, ymax - ymin], [1, 2, 0])
-            boxes = xywh_box if boxes is None else np.concatenate([boxes, xywh_box], axis=1)
-
-            decoded_kpts_for_layer = np.array(kpts, copy=True)
-            decoded_kpts_for_layer[..., :2] = (
-                stride * (decoded_kpts_for_layer[..., :2] * 2 - 0.5)
-                + center[None, :, None, :2]
-            )
-            kpts = decoded_kpts_for_layer
-            decoded_kpts = kpts if decoded_kpts is None else np.concatenate([decoded_kpts, kpts], axis=1)
-
-        return boxes, decoded_kpts
-
-    def map_box_to_orig(box: list, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> list:
-        oh, ow = orig_dim
-        mh, mw = model_dim
-        scale = min(mw / ow, mh / oh)
-        pad_w, pad_h = (mw - int(ow * scale)) // 2, (mh - int(oh * scale)) // 2
-        xmin, ymin, xmax, ymax = box
-        xmin = max(0, min(ow - 1, int((xmin - pad_w) / scale)))
-        ymin = max(0, min(oh - 1, int((ymin - pad_h) / scale)))
-        xmax = max(0, min(ow - 1, int((xmax - pad_w) / scale)))
-        ymax = max(0, min(oh - 1, int((ymax - pad_h) / scale)))
-        return [xmin, ymin, xmax, ymax]
-
-    def map_keypoints_to_orig(keypoints: np.ndarray, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> np.ndarray:
-        oh, ow = orig_dim
-        mh, mw = model_dim
-        scale = min(mw / ow, mh / oh)
-        pad_w, pad_h = (mw - int(ow * scale)) // 2, (mh - int(oh * scale)) // 2
-        keypoints[:, 0] = np.clip((keypoints[:, 0] - pad_w) / scale, 0, ow - 1)
-        keypoints[:, 1] = np.clip((keypoints[:, 1] - pad_h) / scale, 0, oh - 1)
-        return keypoints
-
-    def map_mask_to_orig(mask: np.ndarray, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> np.ndarray:
-        """Map a mask from letterboxed model space to the original image."""
-        oh, ow = orig_dim
-        mh, mw = model_dim
-        scale = min(mw / ow, mh / oh)
-        resized_w, resized_h = int(ow * scale), int(oh * scale)
-        pad_w, pad_h = (mw - resized_w) // 2, (mh - resized_h) // 2
-        unpadded = mask[pad_h:pad_h + resized_h, pad_w:pad_w + resized_w]
-        return cv2.resize(unpadded, (ow, oh), interpolation=cv2.INTER_LINEAR)
-
-    def resolve_shape(layer, model_type, arch_cfg):
-        b, h, w, c_tag = layer
-        mask_channels = arch_cfg["mask_channels"]
-        if isinstance(c_tag, str):
-            if c_tag == "mask_channels": c = mask_channels
-            elif c_tag == "detection_channels": c = (arch_cfg['classes'] + 4 + 1 + mask_channels) * len(arch_cfg['anchors']['strides'])
-            elif c_tag == "detection_output_channels": c = (arch_cfg["classes"] + 4 + 1 + mask_channels) * len(arch_cfg['anchors']['strides']) if model_type == 'v5' else (arch_cfg['anchors']['regression_length'] + 1) * 4
-            elif c_tag == "classes": c = arch_cfg["classes"]
-            else: raise ValueError(f"Unsupported channel tag: {c_tag}")
-        else: c = c_tag
-        return (b, h, w, c)
+        box_distance = softmax(safe_distribution)
+        # Retain the invalid-anchor marker so NMS can discard it. This
+        # avoids passing NaN coordinates to integer pixel conversion.
+        box_distance[~finite_distribution] = np.nan
+        box_distance = np.sum(box_distance * np.reshape(reg_range, (1, 1, 1, -1)), axis=-1) * stride
+        box_distance = np.concatenate([box_distance[:, :, :2] * (-1), box_distance[:, :, 2:]], axis=-1)
+        decode_box = np.expand_dims(center, axis=0) + box_distance
+        xmin, ymin, xmax, ymax = decode_box[:, :, 0], decode_box[:, :, 1], decode_box[:, :, 2], decode_box[:, :, 3]
+        xywh_box = np.transpose([(xmin + xmax) / 2, (ymin + ymax) / 2, xmax - xmin, ymax - ymin], [1, 2, 0])
+        boxes = xywh_box if boxes is None else np.concatenate([boxes, xywh_box], axis=1)
+    return boxes
 
 
+def segment_yolov5_postprocess(endnodes, **kwargs):
+    img_dims = tuple(kwargs["input_shape"])
+    protos = endnodes[0]
+    anchor_list = np.array(kwargs["anchors"]["sizes"][::-1])
+    stride_list = kwargs["anchors"]["strides"][::-1]
+    num_classes = kwargs["classes"]
+    outputs = []
+    for branch_idx, output in enumerate(endnodes[1:]):
+        outputs.append(segment_yolov5_decoding(branch_idx, output, stride_list, anchor_list, num_classes))
+    outputs = np.concatenate(outputs, 1)
+    outputs = segment_non_max_suppression(outputs, kwargs["score_threshold"], kwargs["nms_iou_thresh"], nm=protos.shape[-1])
+    for batch_idx, output in enumerate(outputs):
+        output["mask"] = segment_process_mask_optimized(protos[batch_idx].astype(np.float32, copy=False), output["mask"].astype(np.float32, copy=False), output["detection_boxes"], img_dims, upsample=True)
+        output["detection_boxes"][:, [0, 2]] /= img_dims[1]
+        output["detection_boxes"][:, [1, 3]] /= img_dims[0]
+    return outputs
+
+
+def segment_yolov8_postprocess(endnodes, **kwargs):
+    num_classes, strides, image_dims, reg_max = kwargs["classes"], kwargs["anchors"]["strides"][::-1], tuple(kwargs["input_shape"]), kwargs["anchors"]["regression_length"]
+    raw_boxes = endnodes[:7:3]
+    scores = np.concatenate([np.reshape(s, (-1, s.shape[1] * s.shape[2], num_classes)) for s in endnodes[1:8:3]], axis=1)
+    scores = normalize_yolov8_scores(scores)
+    decoded_boxes = segment_yolov8_decoding(raw_boxes, strides, image_dims, reg_max)
+    proto_data = endnodes[9]
+    batch_size, _, _, n_masks = proto_data.shape
+    scores_obj = np.concatenate([np.ones((scores.shape[0], scores.shape[1], 1)), scores], axis=-1)
+    coeffs = np.concatenate([np.reshape(c, (-1, c.shape[1] * c.shape[2], n_masks)) for c in endnodes[2:9:3]], axis=1)
+    predictions = np.concatenate([decoded_boxes, scores_obj, coeffs], axis=2)
+    # One class per anchor keeps host-side NMS bounded to the number of
+    # anchors. Multi-label expansion can turn 8,400 anchors into tens of
+    # thousands of candidates and starve the asynchronous video callback.
+    nms_res = segment_non_max_suppression(
+        predictions,
+        conf_thres=kwargs["score_threshold"],
+        iou_thres=kwargs["nms_iou_thresh"],
+        multi_label=False,
+    )
+    outputs = []
+    for b in range(batch_size):
+        masks = segment_process_mask_optimized(proto_data[b].astype(np.float32, copy=False), nms_res[b]["mask"].astype(np.float32, copy=False), nms_res[b]["detection_boxes"], image_dims)
+        outputs.append({
+            "detection_boxes": np.array(nms_res[b]["detection_boxes"]) / np.tile(image_dims, 2),
+            "mask": masks,
+            "detection_scores": np.array(nms_res[b]["detection_scores"]),
+            "detection_classes": np.array(nms_res[b]["detection_classes"]).astype(int)
+        })
+    return outputs
+
+def decode_pose_results(raw_boxes: np.ndarray, raw_kpts: np.ndarray, strides: List[int], image_dims: Tuple[int, int], reg_max: int) -> Tuple[np.ndarray, np.ndarray]:
+    boxes = None
+    decoded_kpts = None
+
+    for box_distribute, kpts, stride in zip(raw_boxes, raw_kpts, strides):
+        shape = [int(x / stride) for x in image_dims]
+        grid_x, grid_y = np.meshgrid(np.arange(shape[1]) + 0.5, np.arange(shape[0]) + 0.5)
+        ct_row, ct_col = grid_y.flatten() * stride, grid_x.flatten() * stride
+        center = np.stack((ct_col, ct_row, ct_col, ct_row), axis=1)
+
+        box_distribute = np.reshape(
+            box_distribute,
+            (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1),
+        )
+        finite_distribution = np.isfinite(box_distribute).all(axis=(2, 3))
+        safe_distribution = np.where(
+            finite_distribution[..., None, None], box_distribute, 0
+        )
+        box_distance = softmax(safe_distribution)
+        # Preserve invalid anchors so the pose postprocessor can discard
+        # them instead of turning a failed softmax into a real detection.
+        box_distance[~finite_distribution] = np.nan
+        box_distance = np.sum(box_distance * np.reshape(np.arange(reg_max + 1), (1, 1, 1, -1)), axis=-1) * stride
+
+        decode_box = np.expand_dims(center, axis=0) + np.concatenate([box_distance[:, :, :2] * (-1), box_distance[:, :, 2:]], axis=-1)
+        xmin, ymin, xmax, ymax = decode_box[:, :, 0], decode_box[:, :, 1], decode_box[:, :, 2], decode_box[:, :, 3]
+        xywh_box = np.transpose([(xmin + xmax) / 2, (ymin + ymax) / 2, xmax - xmin, ymax - ymin], [1, 2, 0])
+        boxes = xywh_box if boxes is None else np.concatenate([boxes, xywh_box], axis=1)
+
+        decoded_kpts_for_layer = np.array(kpts, copy=True)
+        decoded_kpts_for_layer[..., :2] = (
+            stride * (decoded_kpts_for_layer[..., :2] * 2 - 0.5)
+            + center[None, :, None, :2]
+        )
+        kpts = decoded_kpts_for_layer
+        decoded_kpts = kpts if decoded_kpts is None else np.concatenate([decoded_kpts, kpts], axis=1)
+
+    return boxes, decoded_kpts
+
+def map_box_to_orig(box: list, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> list:
+    oh, ow = orig_dim
+    mh, mw = model_dim
+    scale = min(mw / ow, mh / oh)
+    pad_w, pad_h = (mw - int(ow * scale)) // 2, (mh - int(oh * scale)) // 2
+    xmin, ymin, xmax, ymax = box
+    xmin = max(0, min(ow, int((xmin - pad_w) / scale)))
+    ymin = max(0, min(oh, int((ymin - pad_h) / scale)))
+    xmax = max(0, min(ow, int((xmax - pad_w) / scale)))
+    ymax = max(0, min(oh, int((ymax - pad_h) / scale)))
+    return [xmin, ymin, xmax, ymax]
+
+def map_keypoints_to_orig(keypoints: np.ndarray, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> np.ndarray:
+    oh, ow = orig_dim
+    mh, mw = model_dim
+    scale = min(mw / ow, mh / oh)
+    pad_w, pad_h = (mw - int(ow * scale)) // 2, (mh - int(oh * scale)) // 2
+    keypoints[:, 0] = np.clip((keypoints[:, 0] - pad_w) / scale, 0, ow - 1)
+    keypoints[:, 1] = np.clip((keypoints[:, 1] - pad_h) / scale, 0, oh - 1)
+    return keypoints
+
+def map_mask_to_orig(mask: np.ndarray, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> np.ndarray:
+    """Map a mask from letterboxed model space to the original image."""
+    oh, ow = orig_dim
+    mh, mw = model_dim
+    scale = min(mw / ow, mh / oh)
+    resized_w, resized_h = int(ow * scale), int(oh * scale)
+    pad_w, pad_h = (mw - resized_w) // 2, (mh - resized_h) // 2
+    unpadded = mask[pad_h:pad_h + resized_h, pad_w:pad_w + resized_w]
+    return cv2.resize(unpadded, (ow, oh), interpolation=cv2.INTER_LINEAR)
+
+def resolve_shape(layer, model_type, arch_cfg):
+    b, h, w, c_tag = layer
+    mask_channels = arch_cfg["mask_channels"]
+    if isinstance(c_tag, str):
+        if c_tag == "mask_channels": c = mask_channels
+        elif c_tag == "detection_channels": c = (arch_cfg['classes'] + 4 + 1 + mask_channels) * len(arch_cfg['anchors']['strides'])
+        elif c_tag == "detection_output_channels": c = (arch_cfg["classes"] + 4 + 1 + mask_channels) * len(arch_cfg['anchors']['strides']) if model_type == 'v5' else (arch_cfg['anchors']['regression_length'] + 1) * 4
+        elif c_tag == "classes": c = arch_cfg["classes"]
+        else: raise ValueError(f"Unsupported channel tag: {c_tag}")
+    else: c = c_tag
+    return (b, h, w, c)
+
+
+if HAILO_AVAILABLE:
     class ModelInference(HailoInfer):
         def __init__(self, hef_path: str, task: str, labels: list, batch_size: int = 1, score_threshold: float = 0.25, mask_threshold: float = 0.45, model_type: str = 'v8'):
             hef_path = resolve_hef_path(hef_path, task)
+            if hef_path is None:
+                raise FileNotFoundError(f"Unable to resolve Hailo model for task '{task}'")
             # The v5/v8/pose postprocessors consume logits and DFL
             # distributions. Request dequantized output buffers from HailoRT;
             # using a HEF's native UINT8/UINT16 stream type makes those values
@@ -894,6 +921,12 @@ if HAILO_AVAILABLE:
             self.score_threshold = score_threshold
             self.mask_threshold = mask_threshold
             self.model_type = model_type
+
+        def _label(self, class_id):
+            class_id = int(class_id)
+            if self.labels and 0 <= class_id < len(self.labels):
+                return self.labels[class_id]
+            return str(class_id)
 
         def _get_results(self, bindings):
             if len(bindings._output_names) == 1:
@@ -907,11 +940,12 @@ if HAILO_AVAILABLE:
             padding_length = int(abs(img_height - img_width) / 2)
             detections = []
             for det in infer_results:
-                if det.score < self.score_threshold: break
+                if det.score < self.score_threshold:
+                    continue
                 box_on_input_image, box_on_padded_image = convert_box_from_normalized(
                     [det.x_min, det.y_min, det.x_max, det.y_max], size, padding_length, img_height, img_width)
                 xmin, ymin, xmax, ymax = box_on_input_image
-                detection = {'label': self.labels[det.class_id] if self.labels else str(det.class_id),
+                detection = {'label': self._label(det.class_id),
                     'score': float(det.score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': det.class_id}
                 if self.task == 'segment':
                     mask = resize_mask_to_unpadded_box(det.mask, box_on_input_image, box_on_padded_image)
@@ -936,7 +970,7 @@ if HAILO_AVAILABLE:
                             (oh, ow),
                             (mh, mw),
                         )
-                        detections.append({'label': self.labels[class_id] if self.labels else str(class_id), 'score': float(score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': class_id})
+                        detections.append({'label': self._label(class_id), 'score': float(score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': class_id})
             return detections
         
         def _process_segment_results(self, raw_detections, image):
@@ -966,7 +1000,7 @@ if HAILO_AVAILABLE:
                     )
                     mask = map_mask_to_orig(masks[i], (oh, ow), (mh, mw))
                     detections.append({
-                        'label': self.labels[classes[i]] if self.labels else str(classes[i]), 'score': float(scores[i]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                        'label': self._label(classes[i]), 'score': float(scores[i]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
                         'mask': (mask[ymin:ymax, xmin:xmax] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
                     })
             return detections
@@ -1008,7 +1042,7 @@ if HAILO_AVAILABLE:
                     xmin, ymin, xmax, ymax = map_box_to_orig(boxes[idx], (oh, ow), (mh, mw))
                     mapped_kpts = map_keypoints_to_orig(x[idx, 5:].reshape(17, 3)[..., :2], (oh, ow), (mh, mw))
                     detections.append({
-                        'label': self.labels[0] if self.labels else 'person', 'score': float(x[idx, 4]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                        'label': self._label(0) if self.labels else 'person', 'score': float(x[idx, 4]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
                         'keypoints': mapped_kpts, 'joint_scores': sigmoid(x[idx, 5:].reshape(17, 3)[..., 2]), 'class_id': 0
                     })
             return detections
@@ -1016,45 +1050,54 @@ if HAILO_AVAILABLE:
         def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
             if completion_info.exception:
                 logger.error(f'Inference error: {completion_info.exception}')
-            else:
-                for i, bindings in enumerate(bindings_list):
-                    try:
-                        result = self._get_results(bindings)
-                        if self.is_nms_postprocess_enabled(): processed_result = self._process_nms_results(result, input_batch[i])
-                        elif self.task == 'detect': processed_result = self._process_detect_results(result, input_batch[i])
-                        elif self.task == 'segment': processed_result = self._process_segment_results(result, input_batch[i])
-                        elif self.task == 'pose': processed_result = self._process_pose_results(result, input_batch[i])
-                        else: processed_result = result
-                    except Exception:
-                        # A malformed frame must not kill HailoInfer's async
-                        # callback thread. Keep the video flowing and retain
-                        # the traceback so the offending output is diagnosable.
-                        logger.exception('Failed to post-process Hailo %s result', self.task)
-                        processed_result = []
-                    output_queue.put((input_batch[i], processed_result))
+                for original_frame in input_batch:
+                    output_queue.put((original_frame, []))
+                return
+
+            for i, bindings in enumerate(bindings_list):
+                try:
+                    result = self._get_results(bindings)
+                    if self.is_nms_postprocess_enabled(): processed_result = self._process_nms_results(result, input_batch[i])
+                    elif self.task == 'detect': processed_result = self._process_detect_results(result, input_batch[i])
+                    elif self.task == 'segment': processed_result = self._process_segment_results(result, input_batch[i])
+                    elif self.task == 'pose': processed_result = self._process_pose_results(result, input_batch[i])
+                    else: processed_result = result
+                except Exception:
+                    # A malformed frame must not kill HailoInfer's async
+                    # callback thread. Keep the video flowing and retain
+                    # the traceback so the offending output is diagnosable.
+                    logger.exception('Failed to post-process Hailo %s result', self.task)
+                    processed_result = []
+                output_queue.put((input_batch[i], processed_result))
 
         def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
-            pending_jobs = collections.deque()
+            try:
+                while True:
+                    next_batch = input_queue.get()
+                    if not next_batch:
+                        break
 
-            while True:
-                next_batch = input_queue.get()
-                if not next_batch:
-                    break
+                    if stop_event.is_set():
+                        continue
 
-                if stop_event.is_set():
-                    continue
-
-                input_batch, preprocessed_batch = next_batch
-                inference_callback_fn = partial(self._inference_callback, input_batch=input_batch, output_queue=output_queue)
-
-                while len(pending_jobs) >= MAX_ASYNC_INFER_JOBS:
-                    pending_jobs.popleft().wait(10000)
-
-                job = self.run(preprocessed_batch, inference_callback_fn)
-                pending_jobs.append(job)
-
-            self.close()
-            output_queue.put(None)
+                    input_batch, preprocessed_batch = next_batch
+                    inference_callback_fn = partial(self._inference_callback, input_batch=input_batch, output_queue=output_queue)
+                    self.run(preprocessed_batch, inference_callback_fn)
+            except Exception:
+                # Release a producer that may be blocked on a full input
+                # queue after an inference failure.
+                stop_event.set()
+                while True:
+                    try:
+                        pending_batch = input_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        break
+                    if pending_batch is None:
+                        break
+                raise
+            finally:
+                self.close()
+                output_queue.put(None)
 
 else:
     HailoInfer = None

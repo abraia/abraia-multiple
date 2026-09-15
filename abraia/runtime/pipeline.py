@@ -141,7 +141,7 @@ class Pipeline:
         from ..inference import Tracker
         from ..inference.detect import Model
         from ..inference.tools import LineCounter, RegionFilter, RegionTimer
-        from . import Video
+        from .video import Video
 
         root = Path(base_dir or os.getcwd())
         source = source_config["src"]
@@ -237,7 +237,7 @@ class Pipeline:
             if render_metrics_enabled:
                 counter = components.get("line_counter")
                 if counter:
-                    from .draw import render_counter
+                    from ..utils.draw import render_counter
                     out = render_counter(
                         out,
                         counter.line,
@@ -245,7 +245,7 @@ class Pipeline:
                     )
                 region_timer = components.get("region_timer")
                 if region_timer:
-                    from .draw import render_region
+                    from ..utils.draw import render_region
                     out = render_region(
                         out,
                         region_timer.region,
@@ -253,7 +253,7 @@ class Pipeline:
                         color=(255, 255, 0),
                     )
             if render_results_enabled:
-                from .draw import render_results
+                from ..utils.draw import render_results
                 out = render_results(out, context.results)
             return out
 

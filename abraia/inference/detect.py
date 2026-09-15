@@ -102,8 +102,11 @@ class Model:
         self.session = ort.InferenceSession(download_file(model_uri), providers=get_providers())
         self.input_name = self.session.get_inputs()[0].name
         self.input_shape = self.config['inputShape']
+        self._closed = False
 
     def run(self, img, conf_threshold=0.35, iou_threshold=0.7, approx=0.001, labels=None):
+        if self._closed:
+            raise RuntimeError("Model session has already been closed")
         if self.config.get('task'):
             img_size = img.shape[1], img.shape[0]
             inputs = {self.input_name: prepare_input(img, self.input_shape)}
@@ -111,6 +114,22 @@ class Model:
             return process_output(outputs, img_size, self.input_shape, self.config['classes'], conf_threshold, iou_threshold, approx, labels=labels)
         outputs = self.session.run(None, {self.input_name: preprocess(img)})
         return postprocess(outputs, self.config['classes'])
+
+    def close(self):
+        """Release the backend session."""
+        if self._closed:
+            return
+        session, self.session = self.session, None
+        close = getattr(session, "close", None)
+        if callable(close):
+            close()
+        self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
 
 def segment_objects(frame, results):

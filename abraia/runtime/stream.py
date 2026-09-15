@@ -9,7 +9,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
 
-from .draw import (
+from ..utils.draw import (
     render_resolution,
     render_status,
     calculate_optimal_thickness,
@@ -25,7 +25,7 @@ from .video import (
     open_capture,
     read_rgb,
 )
-from .filesystem import make_dirs
+from ..utils.filesystem import make_dirs
 
 logger = logging.getLogger(__name__)
 
