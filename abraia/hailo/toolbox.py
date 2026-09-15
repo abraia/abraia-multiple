@@ -707,6 +707,21 @@ if HAILO_AVAILABLE:
         return out.reshape((BS, num_anchors * H * W, -1)).astype(np.float32)
 
 
+    def normalize_yolov8_scores(scores):
+        """Return YOLOv8 class scores as probabilities.
+
+        Hailo model-zoo HEFs normally apply sigmoid in the model script, but
+        host-postprocessed/custom HEFs can expose the class logits instead.
+        Support both forms without applying sigmoid twice to probabilities.
+        """
+        if not np.issubdtype(scores.dtype, np.floating):
+            return scores
+        finite_scores = scores[np.isfinite(scores)]
+        if finite_scores.size and (finite_scores.min() < 0 or finite_scores.max() > 1):
+            return sigmoid(scores)
+        return scores
+
+
     def segment_yolov8_decoding(raw_boxes, strides, image_dims, reg_max):
         boxes = None
         for box_distribute, stride in zip(raw_boxes, strides):
@@ -716,7 +731,15 @@ if HAILO_AVAILABLE:
             center = np.stack((ct_col, ct_row, ct_col, ct_row), axis=1)
             reg_range = np.arange(reg_max + 1)
             box_distribute = np.reshape(box_distribute, (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1))
-            box_distance = np.sum(softmax(box_distribute) * np.reshape(reg_range, (1, 1, 1, -1)), axis=-1) * stride
+            finite_distribution = np.isfinite(box_distribute).all(axis=(2, 3))
+            safe_distribution = np.where(
+                finite_distribution[..., None, None], box_distribute, 0
+            )
+            box_distance = softmax(safe_distribution)
+            # Retain the invalid-anchor marker so NMS can discard it. This
+            # avoids passing NaN coordinates to integer pixel conversion.
+            box_distance[~finite_distribution] = np.nan
+            box_distance = np.sum(box_distance * np.reshape(reg_range, (1, 1, 1, -1)), axis=-1) * stride
             box_distance = np.concatenate([box_distance[:, :, :2] * (-1), box_distance[:, :, 2:]], axis=-1)
             decode_box = np.expand_dims(center, axis=0) + box_distance
             xmin, ymin, xmax, ymax = decode_box[:, :, 0], decode_box[:, :, 1], decode_box[:, :, 2], decode_box[:, :, 3]
@@ -747,13 +770,22 @@ if HAILO_AVAILABLE:
         num_classes, strides, image_dims, reg_max = kwargs["classes"], kwargs["anchors"]["strides"][::-1], tuple(kwargs["input_shape"]), kwargs["anchors"]["regression_length"]
         raw_boxes = endnodes[:7:3]
         scores = np.concatenate([np.reshape(s, (-1, s.shape[1] * s.shape[2], num_classes)) for s in endnodes[1:8:3]], axis=1)
+        scores = normalize_yolov8_scores(scores)
         decoded_boxes = segment_yolov8_decoding(raw_boxes, strides, image_dims, reg_max)
         proto_data = endnodes[9]
         batch_size, _, _, n_masks = proto_data.shape
         scores_obj = np.concatenate([np.ones((scores.shape[0], scores.shape[1], 1)), scores], axis=-1)
         coeffs = np.concatenate([np.reshape(c, (-1, c.shape[1] * c.shape[2], n_masks)) for c in endnodes[2:9:3]], axis=1)
         predictions = np.concatenate([decoded_boxes, scores_obj, coeffs], axis=2)
-        nms_res = segment_non_max_suppression(predictions, conf_thres=kwargs["score_threshold"], iou_thres=kwargs["nms_iou_thresh"], multi_label=True)
+        # One class per anchor keeps host-side NMS bounded to the number of
+        # anchors. Multi-label expansion can turn 8,400 anchors into tens of
+        # thousands of candidates and starve the asynchronous video callback.
+        nms_res = segment_non_max_suppression(
+            predictions,
+            conf_thres=kwargs["score_threshold"],
+            iou_thres=kwargs["nms_iou_thresh"],
+            multi_label=False,
+        )
         outputs = []
         for b in range(batch_size):
             masks = segment_process_mask_optimized(proto_data[b].astype(np.float32, copy=False), nms_res[b]["mask"].astype(np.float32, copy=False), nms_res[b]["detection_boxes"], image_dims)
@@ -851,7 +883,12 @@ if HAILO_AVAILABLE:
     class ModelInference(HailoInfer):
         def __init__(self, hef_path: str, task: str, labels: list, batch_size: int = 1, score_threshold: float = 0.25, mask_threshold: float = 0.45, model_type: str = 'v8'):
             hef_path = resolve_hef_path(hef_path, task)
-            super().__init__(hef_path, batch_size)
+            # The v5/v8/pose postprocessors consume logits and DFL
+            # distributions. Request dequantized output buffers from HailoRT;
+            # using a HEF's native UINT8/UINT16 stream type makes those values
+            # invalid for host-side softmax, box decoding, and NMS. Hailo's
+            # byte-mask NMS path is still handled by HailoInfer itself.
+            super().__init__(hef_path, batch_size, output_type="FLOAT32")
             self.task = task
             self.labels = labels
             self.score_threshold = score_threshold
@@ -947,6 +984,7 @@ if HAILO_AVAILABLE:
             strides = [32, 16, 8]
             raw_boxes = endnodes[:7:3]
             scores = np.concatenate([np.reshape(s, (-1, s.shape[1] * s.shape[2], 1)) for s in endnodes[1:8:3]], axis=1)
+            scores = normalize_yolov8_scores(scores)
             kpts = [np.reshape(c, (-1, c.shape[1] * c.shape[2], 17, 3)) for c in endnodes[2:9:3]]
             decoded_boxes, decoded_kpts = decode_pose_results(raw_boxes, kpts, strides, (mh, mw), reg_len)
             predictions = np.concatenate([decoded_boxes, scores, np.reshape(decoded_kpts, (batch_size, -1, 51))], axis=2)
@@ -980,12 +1018,19 @@ if HAILO_AVAILABLE:
                 logger.error(f'Inference error: {completion_info.exception}')
             else:
                 for i, bindings in enumerate(bindings_list):
-                    result = self._get_results(bindings)
-                    if self.is_nms_postprocess_enabled(): processed_result = self._process_nms_results(result, input_batch[i])
-                    elif self.task == 'detect': processed_result = self._process_detect_results(result, input_batch[i])
-                    elif self.task == 'segment': processed_result = self._process_segment_results(result, input_batch[i])
-                    elif self.task == 'pose': processed_result = self._process_pose_results(result, input_batch[i])
-                    else: processed_result = result
+                    try:
+                        result = self._get_results(bindings)
+                        if self.is_nms_postprocess_enabled(): processed_result = self._process_nms_results(result, input_batch[i])
+                        elif self.task == 'detect': processed_result = self._process_detect_results(result, input_batch[i])
+                        elif self.task == 'segment': processed_result = self._process_segment_results(result, input_batch[i])
+                        elif self.task == 'pose': processed_result = self._process_pose_results(result, input_batch[i])
+                        else: processed_result = result
+                    except Exception:
+                        # A malformed frame must not kill HailoInfer's async
+                        # callback thread. Keep the video flowing and retain
+                        # the traceback so the offending output is diagnosable.
+                        logger.exception('Failed to post-process Hailo %s result', self.task)
+                        processed_result = []
                     output_queue.put((input_batch[i], processed_result))
 
         def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
