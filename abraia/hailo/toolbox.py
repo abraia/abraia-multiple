@@ -613,6 +613,15 @@ if HAILO_AVAILABLE:
                 i, j = (x[:, 5:mi] > conf_thres).nonzero()
                 x = np.concatenate((boxes[i], x[i, 5 + j, None], j[:, None].astype(np.float32), mask[i]), 1)
 
+            # Invalid box distributions (for example, an all-infinite Hailo
+            # output passed through softmax) decode to NaN/Inf coordinates.
+            # Keep those candidates out of NMS and mask cropping; converting
+            # them to integer pixel coordinates otherwise raises an exception.
+            finite = np.isfinite(x[:, :5]).all(axis=1)
+            if not finite.all():
+                logger.debug("Discarding %d non-finite segmentation candidates", np.count_nonzero(~finite))
+                x = x[finite]
+
             x = x[x[:, 4].argsort()[::-1]]
             cls_shift = x[:, 5:6] * max_wh
             boxes = x[:, :4] + cls_shift
@@ -766,7 +775,18 @@ if HAILO_AVAILABLE:
             ct_row, ct_col = grid_y.flatten() * stride, grid_x.flatten() * stride
             center = np.stack((ct_col, ct_row, ct_col, ct_row), axis=1)
 
-            box_distance = softmax(np.reshape(box_distribute, (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1)))
+            box_distribute = np.reshape(
+                box_distribute,
+                (-1, box_distribute.shape[1] * box_distribute.shape[2], 4, reg_max + 1),
+            )
+            finite_distribution = np.isfinite(box_distribute).all(axis=(2, 3))
+            safe_distribution = np.where(
+                finite_distribution[..., None, None], box_distribute, 0
+            )
+            box_distance = softmax(safe_distribution)
+            # Preserve invalid anchors so the pose postprocessor can discard
+            # them instead of turning a failed softmax into a real detection.
+            box_distance[~finite_distribution] = np.nan
             box_distance = np.sum(box_distance * np.reshape(np.arange(reg_max + 1), (1, 1, 1, -1)), axis=-1) * stride
 
             decode_box = np.expand_dims(center, axis=0) + np.concatenate([box_distance[:, :, :2] * (-1), box_distance[:, :, 2:]], axis=-1)
@@ -774,7 +794,12 @@ if HAILO_AVAILABLE:
             xywh_box = np.transpose([(xmin + xmax) / 2, (ymin + ymax) / 2, xmax - xmin, ymax - ymin], [1, 2, 0])
             boxes = xywh_box if boxes is None else np.concatenate([boxes, xywh_box], axis=1)
 
-            kpts = stride * (kpts * 2 - 0.5) + np.expand_dims(center[..., :2], axis=1)
+            decoded_kpts_for_layer = np.array(kpts, copy=True)
+            decoded_kpts_for_layer[..., :2] = (
+                stride * (decoded_kpts_for_layer[..., :2] * 2 - 0.5)
+                + center[None, :, None, :2]
+            )
+            kpts = decoded_kpts_for_layer
             decoded_kpts = kpts if decoded_kpts is None else np.concatenate([decoded_kpts, kpts], axis=1)
 
         return boxes, decoded_kpts
@@ -921,11 +946,20 @@ if HAILO_AVAILABLE:
             decoded_boxes, decoded_kpts = decode_pose_results(raw_boxes, kpts, strides, (mh, mw), reg_len)
             predictions = np.concatenate([decoded_boxes, scores, np.reshape(decoded_kpts, (batch_size, -1, 51))], axis=2)
             detections = []
-            x = predictions[0][predictions[0, :, 4] > self.score_threshold]
+            x = predictions[0]
+            x = x[
+                (x[:, 4] > self.score_threshold)
+                & np.isfinite(x).all(axis=1)
+            ]
             if x.shape[0] > 0:
                 boxes = np.copy(x[:, :4])
                 boxes[:, 0], boxes[:, 1] = x[:, 0] - x[:, 2] / 2, x[:, 1] - x[:, 3] / 2
                 boxes[:, 2], boxes[:, 3] = x[:, 0] + x[:, 2] / 2, x[:, 1] + x[:, 3] / 2
+                finite_boxes = np.isfinite(boxes).all(axis=1)
+                if not finite_boxes.all():
+                    logger.debug("Discarding %d non-finite pose boxes", np.count_nonzero(~finite_boxes))
+                    boxes = boxes[finite_boxes]
+                    x = x[finite_boxes]
                 indices = nms(np.concatenate((boxes, x[:, 4:5]), axis=1), iou_thres)[:max_det]
                 for idx in indices:
                     xmin, ymin, xmax, ymax = map_box_to_orig(boxes[idx], (oh, ow), (mh, mw))
