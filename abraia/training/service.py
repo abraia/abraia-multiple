@@ -10,7 +10,7 @@ class TrainingService:
 
     def auto_annotate(self, dataset, label, progress_callback, is_cancelled):
         """Annotate unannotated dataset images and persist each result."""
-        from .dataset import Annotator, annotate_images
+        from .dataset import Annotator, annotate_image
 
         segment = dataset.task == "segment"
         completed = {annotation["filename"] for annotation in dataset.annotations}
@@ -21,9 +21,13 @@ class TrainingService:
             for index, image_data in enumerate(images, start=1):
                 if is_cancelled():
                     break
-                image_annotations = annotate_images(
-                    [image_data], [label], segment=segment, annotator=annotator
+                annotation = annotate_image(
+                    image_data,
+                    [label],
+                    segment=segment,
+                    annotator=annotator,
                 )
+                image_annotations = [annotation] if annotation else []
                 if image_annotations:
                     dataset.annotations.extend(image_annotations)
                 dataset.save()
@@ -55,18 +59,34 @@ class TrainingService:
             )
             if is_cancelled():
                 raise RuntimeError("Training canceled")
-            trainer = ModelTrainer(project, dataset.task, dataset.classes)
+            # Model construction can import/load a backend for several
+            # seconds. Publish the transition before doing that work so the
+            # UI does not remain stuck on dataset preparation.
+            training_callback({"stage": "Loading model"})
+            trainer = ModelTrainer(
+                project,
+                dataset.task,
+                dataset.classes,
+                client=getattr(dataset, "client", None),
+            )
 
             def on_epoch(metrics):
                 if is_cancelled():
                     raise RuntimeError("Training canceled")
                 training_callback({"stage": "Training", **metrics})
 
-            trainer.train(epochs=epochs, callback=on_epoch)
+            training_callback({"stage": "Training"})
+            trainer.train(
+                epochs=epochs,
+                callback=on_epoch,
+                is_cancelled=is_cancelled,
+            )
             if is_cancelled():
                 raise RuntimeError("Training canceled")
             training_callback({"stage": "Validating model"})
-            stats = trainer.test()
+            stats = trainer.test(is_cancelled=is_cancelled)
+            if is_cancelled():
+                raise RuntimeError("Training canceled")
             training_callback({"stage": "Exporting model"})
             trainer.save()
             return {"stats": stats, "epochs": epochs, "task": dataset.task}

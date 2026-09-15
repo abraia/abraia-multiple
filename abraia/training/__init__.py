@@ -1,11 +1,9 @@
 import os
-import itertools
-import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PIL import Image
 from typing import Dict, Any
 from tqdm import tqdm
-from tqdm.contrib.concurrent import process_map
 
 from ..utils import save_text
 from .ops import train_test_split
@@ -34,13 +32,13 @@ def save_annotation(annotation, folder, classes, task):
     save_text(label_path, '\n'.join(label_lines))
 
 
-def save_data(annotation, folder, classes, task):
+def save_data(annotation, folder, classes, task, client=None):
     path = annotation['path']
     dest = folder if task == 'classify' else os.path.join(folder, 'images')
     if task == 'classify':
         label = next((obj.get('label', '') for obj in annotation.get('objects', [])), '')
         dest = os.path.join(dest, label)
-    download_file(path, dest)
+    download_file(path, dest, client=client)
     if task != 'classify':
         save_annotation(annotation, folder, classes, task)
 
@@ -59,19 +57,25 @@ def save_config(dataset, classes):
 def split_dataset(annotations):
     backgrounds = [annotation for annotation in annotations if not annotation.get('objects')]
     annotations = [annotation for annotation in annotations if annotation.get('objects')]
-    train, test = train_test_split(annotations, test_size=0.3)
-    val, test = train_test_split(test, test_size=0.5)
+    if not annotations:
+        return backgrounds, [], []
+    train, test = train_test_split(annotations, test_size=0.3, random_state=42)
+    if test:
+        val, test = train_test_split(test, test_size=0.5, random_state=42)
+    else:
+        val, test = [], []
     train.extend(backgrounds)
     return train, val, test
 
     
 def prepare_dataset(dataset, force=False, callback=None):
     """Download and split a dataset, optionally reporting each file."""
+    client = getattr(dataset, "client", abraia)
     if force or not os.path.exists(dataset.project):
         annotations = dataset.annotations
         dataset_path = f"{dataset.project}/dataset.json"
-        if abraia.check_file(dataset_path):
-            filenames = abraia.load_json(dataset_path)
+        if client.check_file(dataset_path):
+            filenames = client.load_json(dataset_path)
             annotations = [a for a in annotations if a.get('filename') in filenames]
         splits = list(zip(['train', 'val', 'test'], split_dataset(annotations)))
         all_annotations, all_folders = [], []
@@ -95,45 +99,37 @@ def prepare_dataset(dataset, force=False, callback=None):
                 "total": total,
                 "filename": "Starting download",
             })
-        if sys.platform == 'darwin':
-            # Avoid spawning processes from Studio's background thread.
-            for current, (annotation, folder) in enumerate(
-                tqdm(
-                    zip(all_annotations, all_folders),
-                    total=len(all_annotations),
-                    desc="Downloading images",
-                ),
-                start=1,
-            ):
-                save_data(annotation, folder, dataset.classes, dataset.task)
-                report(current, annotation)
-        elif callback:
-            # ``process_map`` owns its progress bar and cannot stream progress
-            # to a caller callback. Use the callback-aware path for clients
-            # such as Studio; callers without a callback retain parallelism.
-            for current, (annotation, folder) in enumerate(
-                zip(all_annotations, all_folders), start=1
-            ):
-                save_data(annotation, folder, dataset.classes, dataset.task)
-                report(current, annotation)
-        else:
-            process_map(
-                save_data,
-                all_annotations,
-                all_folders,
-                itertools.repeat(dataset.classes),
-                itertools.repeat(dataset.task),
-                max_workers=5,
-                chunksize=1,
-                desc="Downloading images",
-            )
+        work = list(zip(all_annotations, all_folders))
+        # Downloads are I/O-bound. Complete them in parallel while keeping
+        # progress delivery on the caller thread.
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {
+                executor.submit(
+                    save_data,
+                    annotation,
+                    folder,
+                    dataset.classes,
+                    dataset.task,
+                    client,
+                ): annotation
+                for annotation, folder in work
+            }
+            completed = as_completed(futures)
+            if callback is None:
+                completed = tqdm(completed, total=total, desc="Downloading images")
+            for current, future in enumerate(completed, start=1):
+                future.result()
+                report(current, futures[future])
         if dataset.task != 'classify':
             save_config(dataset.project, dataset.classes)
 
 
 class ModelTrainer:
     """High-level trainer orchestrator using models and dataset utilities."""
-    def __init__(self, project: str, task: str, classes: list, imgsz: int = None):
+    def __init__(self, project: str, task: str, classes: list, imgsz: int = None,
+                 client=None):
+        if task not in {"classify", "detect", "segment"}:
+            raise ValueError(f"Unsupported training task: {task}")
         self.project = project
         self.task = task
         self.classes = classes
@@ -141,10 +137,10 @@ class ModelTrainer:
         imgsz = imgsz or (224 if task == 'classify' else 640)
         if task == 'classify':
             from . import classify
-            self.model = classify.Model()
+            self.model = classify.Model(client=client)
         else:
             from . import detect
-            self.model = detect.Model(task, imgsz=imgsz)
+            self.model = detect.Model(task, imgsz=imgsz, client=client)
 
     def _progress_callback(self, progress):
         if self.pbar is None:
@@ -152,15 +148,27 @@ class ModelTrainer:
         self.pbar.set_description(f"Loss: {progress['loss']:.4f} Acc: {progress['acc']:.4f}")
         self.pbar.update(1)
 
-    def train(self, epochs: int = None, batch: int = 32, callback=None) -> None:
+    def train(self, epochs: int = None, batch: int = 32, callback=None,
+              is_cancelled=None) -> None:
         epochs = epochs or (30 if self.task == 'classify' else 300)
-        callback = callback or self._progress_callback
-        self.model.train(self.project, epochs=epochs, batch=batch, callback=callback)
-        if self.pbar:
-            self.pbar.close()
+        callback = self._progress_callback if callback is None else callback
+        try:
+            self.model.train(
+                self.project,
+                epochs=epochs,
+                batch=batch,
+                callback=callback,
+                is_cancelled=is_cancelled,
+            )
+        finally:
+            if self.pbar:
+                self.pbar.close()
+                self.pbar = None
 
-    def test(self, split: str = 'val') -> Dict[str, Any]:
-        return self.model.test(split=split)
+    def test(self, split: str = 'val', is_cancelled=None) -> Dict[str, Any]:
+        if is_cancelled is None:
+            return self.model.test(split=split)
+        return self.model.test(split=split, is_cancelled=is_cancelled)
 
     def save(self, device='cpu') -> None:
         self.model.save(self.project, self.classes, device=device)

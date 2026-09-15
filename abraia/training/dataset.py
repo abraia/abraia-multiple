@@ -14,10 +14,7 @@ from PIL import Image
 
 from ..client import Abraia
 from ..utils import HEADERS, load_image, load_url, url_path
-
-from abraia.inference.ops import mask_to_polygon
-from abraia.inference.sam import SAM
-
+from .core import DatasetBase
 
 abraia = Abraia()
 if sys.platform == 'darwin':
@@ -51,13 +48,22 @@ def convert_to_jpg(src, save_output, max_size=1920):
 
 
 def download_page(url):
-    resp = requests.get(url, headers=HEADERS)
+    resp = requests.get(url, headers=HEADERS, timeout=10)
     resp.raise_for_status()
     return resp.text
 
 
-def save_image_file(link, upload_folder, existing_filenames=None, timeout=10, max_size=1920):
+def save_image_file(
+    link,
+    upload_folder,
+    existing_filenames=None,
+    timeout=10,
+    max_size=1920,
+    client=None,
+):
+    client = abraia if client is None else client
     resp = requests.get(link, headers=HEADERS, allow_redirects=True, timeout=timeout)
+    resp.raise_for_status()
     kind = filetype.guess(resp.content)
     if kind and kind.mime.startswith('image'):
         d = io.BytesIO(resp.content)
@@ -66,7 +72,7 @@ def save_image_file(link, upload_folder, existing_filenames=None, timeout=10, ma
             filename = convert_to_jpg(d, temp_dir, max_size)
             if existing_filenames is None or filename not in existing_filenames:
                 local_path = os.path.join(temp_dir, filename)
-                abraia.upload_file(local_path, upload_folder)
+                client.upload_file(local_path, upload_folder)
                 return True, filename
             return False, filename
     else:
@@ -111,14 +117,15 @@ def search_google(query):
         yield link
 
 
-def search_images(query, save_output, limit=100, callback=None):
+def search_images(query, save_output, limit=100, callback=None, client=None):
     """Search and download images from Google and Bing."""
     seen = set()
     download_count = 0
+    client = abraia if client is None else client
     try:
-        files = abraia.list_files(save_output)[0]
+        files = client.list_files(save_output)[0]
         existing_filenames = {f['name'] for f in files}
-    except:
+    except Exception:
         existing_filenames = set()
 
     links = [search_google(query), search_bing(query)]
@@ -133,8 +140,14 @@ def search_images(query, save_output, limit=100, callback=None):
                 seen.add(link)
                 if download_count < limit:
                     try:
-                        uploaded, filename = save_image_file(link, save_output, existing_filenames=existing_filenames)
+                        uploaded, filename = save_image_file(
+                            link,
+                            save_output,
+                            existing_filenames=existing_filenames,
+                            client=client,
+                        )
                         if uploaded:
+                            existing_filenames.add(filename)
                             download_count += 1
                             if callback:
                                 callback({'current': download_count, 'total': limit, 'filename': filename})
@@ -153,21 +166,23 @@ def search_images(query, save_output, limit=100, callback=None):
     if pbar:
         pbar.close()
         
-    return abraia.list_files(save_output)[0]
+    return client.list_files(save_output)[0]
 
 
-def download_file(path, folder):
+def download_file(path, folder, client=None):
+    client = abraia if client is None else client
     dest = os.path.join(folder, os.path.basename(path))
     if not os.path.exists(dest):
-        abraia.download_file(path, dest)
+        client.download_file(path, dest)
     return dest
 
 
-def list_datasets():
-    folders = abraia.list_files()[1]
+def list_datasets(client=None):
+    client = abraia if client is None else client
+    folders = client.list_files()[1]
     def has_annotations(folder):
         try:
-            return abraia.check_file(f"{folder['name']}/annotations.json")
+            return client.check_file(f"{folder['name']}/annotations.json")
         except Exception:
             return False
 
@@ -178,8 +193,9 @@ def list_datasets():
         return [folder['name'] for folder, is_valid in zip(folders, valid) if is_valid]
 
 
-def list_models(project):
-    files = abraia.list_files(f"{project}/")[0]
+def list_models(project, client=None):
+    client = abraia if client is None else client
+    files = client.list_files(f"{project}/")[0]
     return [f['name'] for f in files if f['name'].endswith('.onnx')]
 
 
@@ -194,6 +210,7 @@ class Annotator:
         self.pipe = pipeline(task="zero-shot-object-detection", model=model)
         self.segment_enabled = segment
         if self.segment_enabled:
+            from abraia.inference.sam import SAM
             self.sam = SAM()
 
     def detect(self, img, classes, threshold=0.3):
@@ -210,6 +227,8 @@ class Annotator:
         return objects
 
     def segment(self, img, objects):
+        from abraia.inference.ops import mask_to_polygon
+
         self.sam.encode(img)
         for result in objects:
             x, y, w, h = result['box']
@@ -217,90 +236,45 @@ class Annotator:
             result['polygon'] = mask_to_polygon(mask[y:y+h, x:x+w], (x, y))
         return objects
 
-    def annotate(self, img, label, threshold=0.3):
-        objects = self.detect(img, [label], threshold=threshold)
-        if objects and self.segment_enabled:
-            try:
-                objects = self.segment(img, objects)
-            except:
-                return None
-        return objects
+def annotate_image(image_data, classes, segment=False, annotator=None,
+                   include_empty=False):
+    """Load and annotate one image row.
 
-
-def annotate_images(images, classes, segment=False, annotator=None):
-    """Annotate image rows with Grounding DINO.
-
-    This compatibility helper keeps the batch-oriented API used by Studio and
-    older callers while sharing the current :class:`Annotator` implementation.
+    Keeping image transport and annotation in one primitive prevents the SDK,
+    batch helper, and Studio service from drifting apart.
     """
     annotator = annotator or Annotator(segment=segment)
-    annotations = []
-    for row in tqdm(images):
-        url, filename = row['url'], row['name']
-        img = load_image(load_url(url))
-        objects = annotator.detect(img, classes)
-        if not objects:
-            continue
-        if segment:
-            try:
-                objects = annotator.segment(img, objects)
-            except Exception:
-                continue
-        annotations.append({'url': url, 'filename': filename, 'objects': objects})
-    return annotations
-
-
-class DatasetBase:
-    """Common annotation and dataset state without model dependencies."""
-
-    def __init__(self, project):
-        self.project = project
-        self.annotations = []
-        self.classes = []
-        self.task = ""
-        self.images = []
-        self.annotated = False
-
-    def _update_annotated(self):
-        annotated_filenames = {
-            annotation.get("filename")
-            for annotation in self.annotations
-            if isinstance(annotation, dict)
-        }
-        self.annotated = bool(self.images) and all(
-            image.get("name") in annotated_filenames
-            for image in self.images
-            if isinstance(image, dict)
-        )
-
-    @staticmethod
-    def _process_annotations(annotations):
-        labels = set()
-        classify = detect = segment = False
-        for annotation in annotations or []:
-            if not isinstance(annotation, dict):
-                continue
-            for obj in annotation.get("objects", []):
-                if not isinstance(obj, dict):
-                    continue
-                label = obj.get("label")
-                if label:
-                    labels.add(label)
-                    classify = True
-                if "polygon" in obj:
-                    segment = True
-                elif "box" in obj:
-                    detect = True
-        task = "segment" if segment else "detect" if detect else "classify" if classify else ""
-        return list(labels), task
-
-
+    url, filename = image_data["url"], image_data["name"]
+    img = load_image(load_url(url))
+    objects = annotator.detect(img, classes)
+    if objects and segment:
+        try:
+            objects = annotator.segment(img, objects)
+        except Exception:
+            objects = None
+    if not objects and not include_empty:
+        return None
+    return {"url": url, "filename": filename, "objects": objects}
 class Dataset(DatasetBase):
 
+    def __init__(self, project, client=None):
+        super().__init__(project)
+        self.client = abraia if client is None else client
+
     def load(self, validate=True):
-        if validate and self.project not in list_datasets():
-            self._update_annotated()
-            return self
+        if validate:
+            available_projects = (
+                list_datasets()
+                if self.client is abraia
+                else list_datasets(self.client)
+            )
+            if self.project not in available_projects:
+                self.annotations = []
+                self.images = []
+                self.classes = []
+                self.task = ""
+                self._update_annotated()
+                return self
         with ThreadPoolExecutor(max_workers=2) as executor:
             annotations_future = executor.submit(self._load_annotations, self.project)
             images_future = executor.submit(self._list_images, self.project)
@@ -311,17 +285,17 @@ class Dataset(DatasetBase):
         return self
     
     def _load_annotations(self, project):
-        annotations = abraia.load_json(f"{project}/annotations.json")
+        annotations = self.client.load_json(f"{project}/annotations.json")
         for annotation in annotations:
             annotation['path'] = f"{project}/{annotation['filename']}"
-            annotation['url'] = url_path(f"{abraia.userid}/{annotation['path']}")
+            annotation['url'] = url_path(f"{self.client.userid}/{annotation['path']}")
         return annotations
 
     def _list_images(self, project):
-        files = abraia.list_files(f"{project}/")[0]
+        files = self.client.list_files(f"{project}/")[0]
         files = [f for f in files if f['type'] in ['image/jpeg', 'image/png']]
         for data in files:
-            data['url'] = url_path(f"{abraia.userid}/{data['path']}")
+            data['url'] = url_path(f"{self.client.userid}/{data['path']}")
         return files
 
     def annotate(self, label, segment=False, callback=None):
@@ -334,10 +308,14 @@ class Dataset(DatasetBase):
         for i, row in enumerate(iterable):
             if pbar:
                 pbar.set_description(f"Annotating {row['name']}")
-            url, filename = row['url'], row['name']
-            img = load_image(load_url(url))
-            objects = annotator.annotate(img, label)
-            annotation = {'url': url, 'filename': filename, 'objects': objects}
+            filename = row['name']
+            annotation = annotate_image(
+                row,
+                [label],
+                segment=segment,
+                annotator=annotator,
+                include_empty=True,
+            )
             self.annotations.append(annotation)
             self.save()
             if callback:
@@ -348,9 +326,9 @@ class Dataset(DatasetBase):
         return self.annotations
 
     def save(self):
-        abraia.save_json(f"{self.project}/annotations.json", self.annotations)
+        self.client.save_json(f"{self.project}/annotations.json", self.annotations)
         self._update_annotated()
 
 
-def load_dataset(project, validate=True):
-    return Dataset(project).load(validate=validate)
+def load_dataset(project, validate=True, client=None):
+    return Dataset(project, client=client).load(validate=validate)

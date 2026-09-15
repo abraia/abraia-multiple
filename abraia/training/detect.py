@@ -29,34 +29,71 @@ def build_model_name(model_name, task):
 
 
 class Model:
-    def __init__(self, task, model_type='yolov8n', imgsz=640):
+    def __init__(self, task, model_type='yolov8n', imgsz=640, client=None):
         model_name = build_model_name(model_type, task)
         self.model = YOLO(f"{model_name}.pt", verbose=False)
         self.model_name = model_name
         self.metrics = {}
         self.task = task
         self.imgsz = imgsz
+        self.client = abraia if client is None else client
+        self._training_callbacks = {}
 
-    def train(self, project, epochs=100, batch=32, callback=None):
+    def _remove_training_callbacks(self):
+        for event, callback in self._training_callbacks.items():
+            self._remove_callback(event, callback)
+        self._training_callbacks.clear()
+
+    def _remove_callback(self, event, callback):
+        callbacks = self.model.callbacks.get(event, [])
+        try:
+            callbacks.remove(callback)
+        except ValueError:
+            pass
+
+    def train(self, project, epochs=100, batch=32, callback=None,
+              is_cancelled=None):
+        self._remove_training_callbacks()
         if callback:
             def on_train_epoch_end(trainer):
                 loss_items = trainer.loss_items.cpu().detach().numpy()
                 loss = float(np.sum(loss_items)) / len(loss_items)
                 acc = trainer.metrics.get('metrics/mAP50(B)', 0) if hasattr(trainer, 'metrics') else 0
                 callback({'epoch': trainer.epoch, 'epochs': trainer.epochs, 'loss': loss, 'acc': float(acc)})
+            self._training_callbacks['on_train_epoch_end'] = on_train_epoch_end
             self.model.add_callback('on_train_epoch_end', on_train_epoch_end)
+        if is_cancelled:
+            def on_train_batch_end(_trainer):
+                if is_cancelled():
+                    raise RuntimeError("Training canceled")
+            self._training_callbacks['on_train_batch_end'] = on_train_batch_end
+            self.model.add_callback('on_train_batch_end', on_train_batch_end)
         data = f"{project}" if self.task == 'classify' else f"{project}/data.yaml"
         train_options = {'data': data, 'batch': batch, 'epochs': epochs, 'imgsz': self.imgsz}
         if sys.platform == 'darwin':
             # Ultralytics workers inherit locks when training is launched by
             # Studio's Python worker thread. A single loader is safer on macOS.
             train_options['workers'] = 0
-        self.model.train(**train_options)
+        try:
+            self.model.train(**train_options)
+        finally:
+            self._remove_training_callbacks()
 
-    def test(self, split='val'):
+    def test(self, split='val', is_cancelled=None):
         out = io.StringIO()
-        with contextlib.redirect_stderr(out):
-            metrics = self.model.val(split=split)
+        validation_callback = None
+        if is_cancelled:
+            def on_val_batch_end(_validator):
+                if is_cancelled():
+                    raise RuntimeError("Training canceled")
+            validation_callback = on_val_batch_end
+            self.model.add_callback('on_val_batch_end', validation_callback)
+        try:
+            with contextlib.redirect_stderr(out):
+                metrics = self.model.val(split=split)
+        finally:
+            if validation_callback:
+                self._remove_callback('on_val_batch_end', validation_callback)
         self.metrics = {'mAP': float(metrics.box.map50), 'P': metrics.box.p.tolist(), 'R': metrics.box.r.tolist(), 
                         'confusionMatrix': metrics.confusion_matrix.matrix.tolist()}
         return self.metrics
@@ -67,8 +104,8 @@ class Model:
         with contextlib.redirect_stdout(out):
             model_src = self.model.export(format="onnx", device=device, opset=11, half=half)
             shutil.copy(model_src, f"{self.model_name}.onnx")
-        abraia.upload_file(f"{self.model_name}.onnx", f"{project}/{self.model_name}.onnx")
-        abraia.save_json(f"{project}/{self.model_name}.json", 
+        self.client.upload_file(f"{self.model_name}.onnx", f"{project}/{self.model_name}.onnx")
+        self.client.save_json(f"{project}/{self.model_name}.json",
                          {'task': self.task, 'inputShape': [1, 3, self.imgsz, self.imgsz], 
                           'classes': classes, 'metrics': self.metrics})
 
@@ -89,6 +126,6 @@ class Model:
         return objects
     
     def compile(self, project, classes, device='hailo8'):
-        abraia.download_file(f"{project}/{self.model_name}.onnx", f"{self.model_name}.onnx")
+        self.client.download_file(f"{project}/{self.model_name}.onnx", f"{self.model_name}.onnx")
         print("Compile model for edge deployment to hailo hef format...")
         print(f"hailomz compile yolov8n --ckpt yolov8n.onnx --calib-path {project}/train/images --classes {len(classes)} --hw-arch {device} --performance")

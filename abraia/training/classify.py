@@ -4,9 +4,7 @@ import sys
 import time
 import onnx
 import torch
-import torchvision
 import numpy as np
-import matplotlib.pyplot as plt
 
 from torchvision import models, transforms, datasets
 
@@ -17,11 +15,13 @@ from ..utils import temporal_src
 abraia = Abraia()
 
 
-torch.backends.cudnn.benchmark = True
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+def default_device():
+    """Return the preferred training device without storing global state."""
+    return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def create_model(class_names, pretrained=True):
+def create_model(class_names, pretrained=True, device=None):
+    device = device or default_device()
     model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
     for param in model.parameters():
         param.requires_grad = False
@@ -34,13 +34,17 @@ def create_model(class_names, pretrained=True):
 # License: BSD
 # Author: Sasank Chilamkurthy
 
-def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=None, num_epochs=25, callback=None):
+def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=None,
+                num_epochs=25, callback=None, device=None, is_cancelled=None):
+    device = device or next(model.parameters()).device
     criterion = criterion or torch.nn.CrossEntropyLoss()
     optimizer = optimizer or torch.optim.SGD(model.fc.parameters(), lr=0.001, momentum=0.9)
     scheduler = scheduler or torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
     for epoch in range(num_epochs):
+        if is_cancelled and is_cancelled():
+            raise RuntimeError("Training canceled")
         for phase in ['train', 'val']:
             if phase == 'train':
                 model.train()  # Set model to training mode
@@ -50,6 +54,8 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
             running_corrects = 0
             # Iterate over data
             for inputs, labels in dataloaders[phase]:
+                if is_cancelled and is_cancelled():
+                    raise RuntimeError("Training canceled")
                 inputs = inputs.to(device)
                 labels = labels.to(device)
                 # zero the parameter gradients
@@ -86,55 +92,13 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
     return model
 
 
-def imshow(inp, title=None):
-    """Imshow for Tensor."""
-    inp = inp.numpy().transpose((1, 2, 0))
-    mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
-    inp = std * inp + mean
-    inp = np.clip(inp, 0, 1)
-    plt.imshow(inp)
-    if title is not None:
-        plt.title(title)
-    plt.pause(0.001)  # pause a bit so that plots are updated
-
-
-def visualize_data(dataloader):
-    class_names = dataloader.dataset.classes
-    inputs, classes = next(iter(dataloader))
-    out = torchvision.utils.make_grid(inputs)  # Make a grid from batch
-    imshow(out, title=[class_names[x] for x in classes])
-
-
-def visualize_model(model, dataloader, num_images=6):
-    class_names = dataloader.dataset.classes
-    was_training = model.training
-    model.eval()
-    images_so_far = 0
-    fig = plt.figure()
-    with torch.no_grad():
-        for i, (inputs, labels) in enumerate(dataloader):
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            for j in range(inputs.size()[0]):
-                images_so_far += 1
-                ax = plt.subplot(num_images//2, 2, images_so_far)
-                ax.axis('off')
-                ax.set_title(f'predicted: {class_names[preds[j]]}')
-                imshow(inputs.cpu().data[j])
-                if images_so_far == num_images:
-                    model.train(mode=was_training)
-                    return
-        model.train(mode=was_training)
-
-
 class Model:
-    def __init__(self):
+    def __init__(self, client=None):
         self.input_shape = [1, 3, 224, 224]
         self.model_name = 'resnet18'
         self.metrics = {}
+        self.device = default_device()
+        self.client = abraia if client is None else client
         self.transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
@@ -166,25 +130,35 @@ class Model:
         classes = image_datasets['train'].classes
         return dataloaders, classes
 
-    def train(self, dataset, epochs=25, batch=8, callback=None):
+    def train(self, dataset, epochs=25, batch=8, callback=None, is_cancelled=None):
         dataloaders, classes = self.create_dataset(dataset, batch=batch)
-        model_conv = create_model(classes)
+        model_conv = create_model(classes, device=self.device)
         self.dataloaders = dataloaders
         self.classes = classes
         since = time.time()
-        self.model = train_model(model_conv, dataloaders, num_epochs=epochs, callback=callback)
+        self.model = train_model(
+            model_conv,
+            dataloaders,
+            num_epochs=epochs,
+            callback=callback,
+            device=self.device,
+            is_cancelled=is_cancelled,
+        )
         time_elapsed = time.time() - since
         if not callback:
             print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
 
-    def test(self, split='val'):
+    def test(self, split='val', is_cancelled=None):
         self.model.eval()
+        model_device = next(self.model.parameters()).device
         running_corrects = 0
         confusion_matrix = np.zeros((len(self.classes), len(self.classes)), dtype=int)
         with torch.no_grad():
             for inputs, labels in self.dataloaders[split]:
-                inputs = inputs.to(device)
-                labels = labels.to(device)
+                if is_cancelled and is_cancelled():
+                    raise RuntimeError("Training canceled")
+                inputs = inputs.to(model_device)
+                labels = labels.to(model_device)
                 outputs = self.model(inputs)
                 _, preds = torch.max(outputs, 1)
                 running_corrects += torch.sum(preds == labels.data)
@@ -195,21 +169,26 @@ class Model:
         return self.metrics
 
     def save(self, dataset, classes, device='cpu'):
-        self.model.to(device)
+        target_device = torch.device(device)
+        self.model.to(target_device)
+        self.device = target_device
         model_src = temporal_src(f"{dataset}/{self.model_name}.onnx")
-        dummy_input = torch.randn(1, 3, 224, 224)
+        dummy_input = torch.randn(1, 3, 224, 224, device=target_device)
         torch.onnx.export(self.model, dummy_input, model_src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
         onnx_model = onnx.load(model_src)
         onnx.checker.check_model(onnx_model)
         onnx.save(onnx_model, model_src)
-        abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
-        abraia.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes, 'metrics': self.metrics})
+        self.client.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
+        self.client.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes, 'metrics': self.metrics})
 
     def run(self, img):
+        self.model.eval()
         input_tensor = self.transform(img)
-        input_batch = input_tensor.unsqueeze(0)
-        output = self.model(input_batch)
-        pred = torch.softmax(output.squeeze(0), dim=0)
+        model_device = next(self.model.parameters()).device
+        input_batch = input_tensor.unsqueeze(0).to(model_device)
+        with torch.no_grad():
+            output = self.model(input_batch)
+            pred = torch.softmax(output.squeeze(0), dim=0)
         idx = int(pred.argmax())
         score = float(pred[idx])
         label = self.classes[idx]

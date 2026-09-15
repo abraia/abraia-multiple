@@ -1,5 +1,8 @@
 from abraia.training.dataset import Dataset
+from abraia.training.core import DatasetBase
+from abraia.training.ops import resample, train_test_split
 from unittest.mock import patch
+import numpy as np
 
 
 @patch('abraia.training.dataset.Dataset._load_annotations')
@@ -34,22 +37,36 @@ def test_dataset_save(mock_save_json):
     mock_save_json.assert_called_once_with('test_project/annotations.json', ds.annotations)
 
 
-@patch('abraia.training.dataset.Dataset.annotate')
-def test_dataset_annotate_filter(mock_annotate):
-    mock_annotate.return_value = [{'filename': 'old.jpg', 'objects': [{'label': 'dog'}]}, {'filename': 'new.jpg', 'objects': [{'label': 'cat'}]}]
-    
+@patch('abraia.training.dataset.Dataset.save')
+@patch('abraia.training.dataset.load_url')
+@patch('abraia.training.dataset.load_image')
+@patch('abraia.training.dataset.Annotator')
+def test_dataset_annotate_filter(
+    mock_annotator_cls, mock_load_image, mock_load_url, mock_save
+):
     ds = Dataset('test_project')
-    ds.images = [{'name': 'old.jpg'}, {'name': 'new.jpg'}]
+    ds.images = [
+        {'name': 'old.jpg', 'url': 'old-url'},
+        {'name': 'new.jpg', 'url': 'new-url'},
+    ]
     ds.annotations = [{'filename': 'old.jpg', 'objects': [{'label': 'dog'}]}]
-    
-    annotations = ds.annotate('cat', segment=False, progress_callback=None)
-    
-    # Verify only new.jpg was passed to annotate_images (now Dataset.annotate)
-    mock_annotate.assert_called_once_with('cat', segment=False, progress_callback=None)
-    # Verify annotations are merged
+
+    mock_annotator_cls.return_value.detect.return_value = [
+        {'label': 'cat', 'box': [0, 0, 1, 1]}
+    ]
+    mock_load_url.side_effect = lambda url: url
+    mock_load_image.return_value = object()
+    events = []
+
+    annotations = ds.annotate('cat', callback=events.append)
+
     assert len(annotations) == 2
     assert annotations[0] == {'filename': 'old.jpg', 'objects': [{'label': 'dog'}]}
-    assert annotations[1] == {'filename': 'new.jpg', 'objects': [{'label': 'cat'}]}
+    assert annotations[1]['filename'] == 'new.jpg'
+    assert annotations[1]['objects'][0]['label'] == 'cat'
+    assert events == [{'current': 1, 'total': 1, 'filename': 'new.jpg'}]
+    mock_annotator_cls.assert_called_once_with(segment=False)
+    mock_save.assert_called_once_with()
 
 
 def test_dataset_annotated_status():
@@ -99,11 +116,60 @@ def test_prepare_dataset_reports_download_progress(monkeypatch):
 
     training.prepare_dataset(dataset, callback=events.append)
 
-    assert [event["current"] for event in events] == [0, 1, 2, 3]
+    assert [event["current"] for event in events][0] == 0
+    assert sorted(event["current"] for event in events[1:]) == [1, 2, 3]
     assert all(event["total"] == 3 for event in events)
 
 
+def test_dataset_base_preserves_first_seen_class_order():
+    classes, task = DatasetBase._process_annotations(
+        [{"objects": [{"label": "dog"}, {"label": "cat"}, {"label": "dog"}]}]
+    )
+
+    assert classes == ["dog", "cat"]
+    assert task == "classify"
+
+
+def test_dataset_uses_injected_client_without_global_client_calls():
+    class FakeClient:
+        userid = "user"
+
+        def load_json(self, path):
+            assert path == "project/annotations.json"
+            return [{"filename": "cat.jpg", "objects": [{"label": "cat"}]}]
+
+        def list_files(self, path):
+            assert path == "project/"
+            return [
+                [{
+                    "name": "cat.jpg",
+                    "path": "project/cat.jpg",
+                    "type": "image/jpeg",
+                }],
+                [],
+            ]
+
+    dataset = Dataset("project", client=FakeClient()).load(validate=False)
+
+    assert dataset.classes == ["cat"]
+    assert dataset.task == "classify"
+    assert dataset.images[0]["url"]
+
+
+def test_split_helpers_do_not_change_numpy_global_rng_state():
+    values = [{"objects": [{"label": "cat"}]} for _ in range(8)]
+    np.random.seed(7)
+    expected = np.random.random()
+    np.random.seed(7)
+
+    train_test_split(values, test_size=0.25, random_state=42)
+    resample(values, n_samples=3, random_state=42)
+
+    assert np.random.random() == expected
+
+
 from abraia.training import ModelTrainer
+from abraia.training.service import TrainingService
 
 @patch('abraia.training.classify.Model')
 def test_model_trainer_test(mock_classify_model_cls):
@@ -115,6 +181,70 @@ def test_model_trainer_test(mock_classify_model_cls):
     
     assert metrics['acc'] == 0.95
     mock_model.test.assert_called_once_with(split='val')
+
+
+@patch('abraia.training.prepare_dataset')
+@patch('abraia.training.ModelTrainer')
+def test_training_service_reports_stage_transitions_before_backend_work(
+    mock_trainer_cls, mock_prepare_dataset
+):
+    trainer = mock_trainer_cls.return_value
+    trainer.test.return_value = {"acc": 1.0}
+    dataset = type(
+        "Dataset",
+        (),
+        {"task": "classify", "classes": ["cat"], "client": object()},
+    )()
+    events = []
+
+    TrainingService().train_dataset(
+        "project",
+        dataset,
+        epochs=2,
+        training_callback=events.append,
+        is_cancelled=lambda: False,
+    )
+
+    assert [event["stage"] for event in events] == [
+        "Preparing dataset",
+        "Loading model",
+        "Training",
+        "Validating model",
+        "Exporting model",
+    ]
+    mock_trainer_cls.assert_called_once_with(
+        "project", "classify", ["cat"], client=dataset.client
+    )
+
+
+def test_train_model_honors_cancellation_between_batches():
+    import torch
+
+    class DummyModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = torch.nn.Linear(2, 2)
+
+        def forward(self, x):
+            return self.fc(x)
+
+    loader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(
+            torch.randn(4, 2), torch.tensor([0, 1, 0, 1])
+        ),
+        batch_size=2,
+    )
+    try:
+        train_model(
+            DummyModel(),
+            {"train": loader, "val": loader},
+            num_epochs=3,
+            is_cancelled=lambda: True,
+        )
+    except RuntimeError as error:
+        assert str(error) == "Training canceled"
+    else:
+        raise AssertionError("training did not honor cancellation")
 
 
 import torch
@@ -146,5 +276,3 @@ def test_train_model_epochs():
     for i, call in enumerate(callback_calls):
         assert call['epoch'] == i
         assert call['epochs'] == num_epochs
-
-
