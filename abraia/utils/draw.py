@@ -45,10 +45,6 @@ def draw_rectangle(img, rect, color, thickness = 2):
     return img
 
 
-# def draw_filled_rectangle(img, rect, color):
-#     return draw_rectangle(img, rect, color, -1)
-
-
 def draw_filled_rectangle(img, rect, color, opacity = 1):
     x, y, w, h = np.round(rect).astype(np.int32)
     pt1, pt2 = (x, y), (x + w, y + h)
@@ -78,31 +74,12 @@ def draw_filled_polygon(img, polygon, color, opacity = 1):
     return img
 
 
-# def draw_blurred_mask(img, mask):
-#     w_k = int(0.1 * max(img.shape[:2]))
-#     w_k = w_k + 1 if w_k % 2 == 0 else w_k
-#     blurred_img = cv2.GaussianBlur(img, (w_k, w_k), 0)
-#     mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-#     img = np.where(mask==0, img, blurred_img)
-#     return img
-
-
-# def draw_blurred_polygon(img, polygon):
-#     points = np.round(polygon).astype(np.int32)
-#     mask = np.zeros(img.shape, dtype=np.uint8)
-#     mask = cv2.fillPoly(mask, [points], 255)
-#     return draw_blurred_mask(img, mask)
-
-
 def draw_blurred_mask(img, mask):
     w_k = int(0.1 * max(img.shape[:2]))
     w_k = w_k + 1 if w_k % 2 == 0 else w_k
     mask = cv2.cvtColor((np.asarray(mask) > 0).astype(np.uint8), cv2.COLOR_GRAY2BGR)
     blurred_img = cv2.GaussianBlur(img, (w_k, w_k), 0)
     img = np.where(mask==0, img, blurred_img)
-    # img1 = cv2.multiply(1 - (blurred_mask / 255), img)
-    # img2 = cv2.multiply(blurred_mask / 255, blurred_img)
-    # img = (cv2.add(img1, img2)).astype(np.uint8)
     return img
 
 

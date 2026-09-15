@@ -75,7 +75,7 @@ class Pipeline:
         for frame_index, frame in enumerate(self.source):
             started = time.time()
             frame_time = (
-                round(frame_index / self.frame_rate, 2)
+                frame_index / self.frame_rate
                 if self.frame_rate > 0
                 else float(frame_index)
             )
@@ -128,10 +128,15 @@ class Pipeline:
         source_config = config.get("source") or {}
         model_config = config.get("model") or {}
         display_config = config.get("display") or {}
+        stages_config = config.get("stages", []) or []
         if not isinstance(source_config, dict) or "src" not in source_config:
             raise ValueError("Pipeline source must define 'src'")
         if not isinstance(model_config, dict) or not model_config.get("uri"):
             raise ValueError("Pipeline model must define 'uri'")
+        if not isinstance(display_config, dict):
+            raise ValueError("Pipeline display must be an object")
+        if not isinstance(stages_config, list):
+            raise ValueError("Pipeline stages must be an array")
 
         from ..inference import Tracker
         from ..inference.detect import Model
@@ -176,7 +181,7 @@ class Pipeline:
 
         stages = []
         components = {}
-        for stage_config in config.get("stages", []):
+        for stage_config in stages_config:
             if not isinstance(stage_config, dict):
                 raise ValueError("Each pipeline stage must be an object")
             stage_type = stage_config.get("type")
@@ -252,7 +257,12 @@ class Pipeline:
                 out = render_results(out, context.results)
             return out
 
-        display = video if display_config.get("show", True) else None
+        show_display = bool(display_config.get("show", True))
+        if not show_display:
+            # Keep the sink alive when a destination was configured, but do
+            # not open an OpenCV preview window in headless runs.
+            video._display_enabled = False
+        display = video if show_display or destination else None
         return cls(
             source=video,
             model=model,

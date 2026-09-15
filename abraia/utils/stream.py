@@ -22,8 +22,10 @@ from .video import (
     is_image,
     is_camera,
     Camera,
-    make_dirs,
+    open_capture,
+    read_rgb,
 )
+from .filesystem import make_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ CAMERA_RESOLUTION_MAP: Dict[str, Tuple[int, int]] = {
 def get_input_type(src: Any) -> Optional[str]:
     """Determine the type of input source."""
     src_str = str(src)
-    if is_camera(src_str):
+    if is_camera(src):
         return "rpi_camera" if is_raspberry_pi() else "usb_camera"
     if is_stream_url(src_str):
         return "stream"
@@ -50,39 +52,38 @@ def get_input_type(src: Any) -> Optional[str]:
 
 
 def open_cv_capture(src: Any, source_type: str, resolution=(1280, 720), fps=30) -> Any:
-    """Open an OpenCV-based capture source."""
-    if source_type == "video" and not os.path.exists(src):
-        raise FileNotFoundError(f"Video file not found: {src}")
-    cap = cv2.VideoCapture(int(src) if source_type == "usb_camera" else src)
-    if source_type == "usb_camera":
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-        cap.set(cv2.CAP_PROP_FPS, fps)
-    if not cap.isOpened():
-        cap.release()
-        raise RuntimeError(f"Failed to open {source_type} source: {src}")
-    logger.info(f"Using {source_type} input: {src}")
+    """Open an OpenCV-compatible capture source."""
+    cap = open_capture(src, source_type, resolution=resolution, fps=fps)
+    logger.info("Using %s input: %s", source_type, src)
     return cap
 
 
 def open_rpi_camera(resolution=(1280, 720), fps=30) -> Optional[Any]:
     """Open camera using Camera."""
     cam = Camera(src=0, resolution=resolution, fps=fps)
-    return cam if cam.isOpened() else None
+    if cam.isOpened():
+        return cam
+    cam.release()
+    return None
 
 
 def load_images_opencv(images_path: str) -> List[np.ndarray]:
     path = Path(images_path)
-    def read_rgb(p: Path):
+
+    def read_image(p: Path):
         img = cv2.imread(str(p))
         if img is not None:
             return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         return None
     if is_image(str(path)):
-        img = read_rgb(path)
+        img = read_image(path)
         return [img] if img is not None else []
     elif path.is_dir():
-        images = [read_rgb(img) for img in path.glob("*") if is_image(str(img))]
+        images = [
+            read_image(img)
+            for img in sorted(path.glob("*"))
+            if is_image(str(img))
+        ]
         return [img for img in images if img is not None]
     return []
 
@@ -100,7 +101,7 @@ class VideoInput:
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
         self.batch_size = batch_size
-        self.resolution = resolution
+        self.resolution = self._camera_resolution(resolution)
         self.frame_rate = frame_rate
         self.video_unpaced = video_unpaced
         self.stop_event = stop_event or threading.Event()
@@ -117,21 +118,34 @@ class VideoInput:
         self.source_fps = None
         if self.input_type == "images":
             self.images = load_images_opencv(input_src)
+            if not self.images:
+                raise ValueError(f"No readable images found in: {input_src}")
         else:
-            width, height = 1280, 720
-            if self.resolution in CAMERA_RESOLUTION_MAP:
-                width, height = CAMERA_RESOLUTION_MAP[self.resolution]
+            width, height = self.resolution
             if self.input_type == "rpi_camera":
                 self.cap = open_rpi_camera(resolution=(width, height))
                 self.source_fps = 30
             else:
-                self.cap = open_cv_capture(input_src, self.input_type, resolution=(width, height))
+                self.cap = open_cv_capture(
+                    input_src,
+                    self.input_type,
+                    resolution=(width, height),
+                    fps=self.frame_rate or 30,
+                )
             if self.cap is None:
                 raise RuntimeError(f"Unable to open {self.input_type} source: {input_src}")
             if self.cap is not None:
                 self.source_fps = self.cap.get(cv2.CAP_PROP_FPS)
                 self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
                 self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+
+    @staticmethod
+    def _camera_resolution(resolution: Any) -> Tuple[int, int]:
+        if isinstance(resolution, str):
+            return CAMERA_RESOLUTION_MAP.get(resolution, (1280, 720))
+        if isinstance(resolution, (tuple, list)) and len(resolution) == 2:
+            return int(resolution[0]), int(resolution[1])
+        return 1280, 720
 
     @property
     def has_capture(self) -> bool:
@@ -146,48 +160,63 @@ class VideoInput:
             yield from self.images
             return
 
-        is_camera = self.input_type in ("usb_camera", "rpi_camera", "stream")
-        is_video = self.input_type == "video"
-        target_fps = self.frame_rate or 0
+        camera_source = self.input_type in ("usb_camera", "rpi_camera", "stream")
+        video_source = self.input_type == "video"
+        target_fps = max(float(self.frame_rate or 0), 0)
         source_fps = self.source_fps or 0
-        
+
         should_drop = target_fps > 0 and (source_fps == 0 or target_fps < source_fps)
-        should_pace = is_video and not self.video_unpaced
-        
-        keep_period = 1.0 / target_fps if should_drop and is_camera else 0
-        video_keep_period_ms = 1000.0 / target_fps if should_drop and is_video and should_pace else 0
-        
+        should_pace = video_source and not self.video_unpaced
+
+        keep_period = 1.0 / target_fps if should_drop and camera_source else 0
+        video_keep_period_ms = (
+            1000.0 / target_fps
+            if should_drop and video_source and should_pace
+            else 0
+        )
+
         next_keep_timestamp = time.monotonic()
         video_start_ms, wall_start_time = None, None
         next_keep_video_ms = None
 
         try:
             while not self.stop_event.is_set():
-                ret, frame = self.cap.read()
-                if not ret: break
+                ret, frame = read_rgb(self.cap)
+                if not ret:
+                    break
 
                 current_pos_ms = float(self.cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
                 if should_pace:
                     if video_start_ms is None:
                         video_start_ms, wall_start_time = current_pos_ms, time.monotonic()
                     if video_keep_period_ms:
-                        if next_keep_video_ms is None: next_keep_video_ms = current_pos_ms
-                        if current_pos_ms + 1e-3 < next_keep_video_ms: continue
-                        while current_pos_ms + 1e-3 >= next_keep_video_ms: next_keep_video_ms += video_keep_period_ms
+                        if next_keep_video_ms is None:
+                            next_keep_video_ms = current_pos_ms
+                        if current_pos_ms + 1e-3 < next_keep_video_ms:
+                            continue
+                        while current_pos_ms + 1e-3 >= next_keep_video_ms:
+                            next_keep_video_ms += video_keep_period_ms
                     desired_wall_time = wall_start_time + (current_pos_ms - video_start_ms) / 1000.0
                     if time.monotonic() < desired_wall_time:
                         time.sleep(max(0, desired_wall_time - time.monotonic()))
 
                 if keep_period:
-                    if time.monotonic() < next_keep_timestamp: continue
-                    next_keep_timestamp += keep_period
+                    if time.monotonic() < next_keep_timestamp:
+                        continue
+                    next_keep_timestamp = time.monotonic() + keep_period
 
-                if isinstance(self.cap, Camera):
-                    yield frame
-                else:
-                    yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                yield frame
         finally:
-            self.cap.release()
+            self.close()
+
+    def close(self) -> None:
+        """Release the capture, if this input owns one."""
+        capture, self.cap = self.cap, None
+        if capture is not None:
+            try:
+                capture.release()
+            except Exception:
+                logger.debug("Failed to release input capture", exc_info=True)
 
     def preprocess(self, input_queue: queue.Queue, preprocess_fn: Callable[[np.ndarray], np.ndarray]) -> None:
         raw_frames, processed_frames = [], []
@@ -224,15 +253,15 @@ class VideoDisplay:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.video_writer is not None:
-            self.video_writer.release()
+        self._close_writer()
         try:
             cv2.destroyAllWindows()
         except cv2.error:
             pass
 
     def show(self, frame: np.ndarray, fps: float, is_capture: bool = True) -> bool:
-        if not hasattr(self, 'thickness'):
+        frame = frame.copy()
+        if not hasattr(self, "thickness"):
             self.thickness = calculate_optimal_thickness(frame.shape[:2])
             self.text_scale = calculate_optimal_text_scale(frame.shape[:2])
 
@@ -252,12 +281,18 @@ class VideoDisplay:
                         self.source_fps or 30.0,
                         (width, height),
                     )
-                if self.video_writer:
+                    if not self.video_writer.isOpened():
+                        self.video_writer.release()
+                        self.video_writer = None
+                        raise RuntimeError(
+                            f"Unable to open video destination: {self.dest}"
+                        )
+                if self.video_writer is not None:
                     self.video_writer.write(output_bgr_frame)
             else:
                 path = Path(self.dest)
                 out_path = path.parent / f"{path.stem}_{self.image_index}{path.suffix}"
-                out_path.parent.mkdir(parents=True, exist_ok=True)
+                make_dirs(out_path)
                 cv2.imwrite(str(out_path), output_bgr_frame)
                 self.image_index += 1
         if not self._display_enabled:
@@ -273,6 +308,11 @@ class VideoDisplay:
             )
             self._display_enabled = False
         return True
+
+    def _close_writer(self) -> None:
+        if self.video_writer is not None:
+            self.video_writer.release()
+            self.video_writer = None
 
     def start(self):
         self._start_time = time.time()
@@ -300,19 +340,25 @@ class VideoDisplay:
 
     def visualize(self, output_queue: queue.Queue, callback: Callable, is_capture: bool = True, **kwargs) -> None:
         self.start()
-        with self:
-            while True:
-                try:
+        try:
+            with self:
+                while True:
                     result = output_queue.get()
-                    if result is None:
-                        break
-                    original_frame, inference_result = result
-                    if self.stop_event.is_set():
-                        continue
-                    frame_with_detections = callback(original_frame, inference_result, **kwargs)
-                    self.increment()
-                    if not self.show(frame_with_detections, self.fps, is_capture=is_capture):
-                        self.stop_event.set()
-                finally:
-                    output_queue.task_done()
-        self.stop_event.set()
+                    try:
+                        if result is None:
+                            break
+                        original_frame, inference_result = result
+                        if self.stop_event.is_set():
+                            continue
+                        frame_with_detections = callback(
+                            original_frame, inference_result, **kwargs
+                        )
+                        self.increment()
+                        if not self.show(
+                            frame_with_detections, self.fps, is_capture=is_capture
+                        ):
+                            self.stop_event.set()
+                    finally:
+                        output_queue.task_done()
+        finally:
+            self.stop_event.set()

@@ -1,30 +1,21 @@
 import os
-import sys
 import cv2
 import time
 import logging
 import threading
-import numpy as np
 
-from pathlib import Path
-from typing import Dict, Generator, List, Optional, Tuple, Callable, Any
+from typing import Any, Optional, Tuple
 
 from .draw import (
     render_resolution,
     render_status,
 )
+from .filesystem import make_dirs
 
 logger = logging.getLogger(__name__)
 
 VIDEO_SUFFIXES = (".mp4", ".avi", ".mov", ".mkv")
 IMAGE_EXTENSIONS: Tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp")
-
-
-def make_dirs(dest):
-    """Create directory if it doesn't exist."""
-    dirname = os.path.dirname(dest)
-    if dirname:
-        os.makedirs(dirname, exist_ok=True)
 
 
 def is_raspberry_pi() -> bool:
@@ -36,26 +27,69 @@ def is_raspberry_pi() -> bool:
         return False
 
 
-def is_stream_url(src: str) -> bool:
+def is_stream_url(src: Any) -> bool:
     """Return True if the input looks like a supported network stream URL."""
-    src_lower = src.lower()
-    return (src_lower.startswith("rtsp://") or src_lower.startswith("http://") or src_lower.startswith("https://"))
+    src_lower = str(src).lower()
+    return src_lower.startswith(("rtsp://", "http://", "https://"))
 
 
-def is_video(src: str) -> bool:
+def is_video(src: Any) -> bool:
     """Return True if the input is a video file."""
+    src = str(src)
     return os.path.isfile(src) and src.lower().endswith(VIDEO_SUFFIXES)
 
 
-def is_image(src: str) -> bool:
+def is_image(src: Any) -> bool:
     """Return True if the input is an image file."""
+    src = str(src)
     return os.path.isfile(src) and src.lower().endswith(IMAGE_EXTENSIONS)
 
 
 def is_camera(src: Any) -> bool:
     """Return True if the input is a camera source."""
-    src_str = str(src)
-    return src_str.isdigit()
+    return str(src).strip().isdigit()
+
+
+def open_capture(
+    src: Any,
+    source_type: Optional[str] = None,
+    resolution: Tuple[int, int] = (1920, 1080),
+    fps: float = 30,
+) -> Any:
+    """Open a camera, video file, or network stream.
+
+    Capture objects returned by this function expose OpenCV's capture API.
+    Camera sources are wrapped by :class:`Camera`, which also supports the
+    Raspberry Pi camera backend and returns RGB frames.
+    """
+    source_type = source_type or ("camera" if is_camera(src) else None)
+    if source_type in ("camera", "rpi_camera"):
+        camera_src = int(str(src).strip()) if is_camera(src) else src
+        capture = Camera(camera_src, resolution=resolution, fps=fps)
+    else:
+        if source_type == "video" and not os.path.exists(src):
+            raise FileNotFoundError(f"Video file not found: {src}")
+        capture = cv2.VideoCapture(src)
+        if source_type == "usb_camera":
+            capture.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+            capture.set(cv2.CAP_PROP_FPS, fps)
+
+    if not capture.isOpened():
+        capture.release()
+        kind = source_type or "video"
+        raise RuntimeError(f"Failed to open {kind} source: {src}")
+    return capture
+
+
+def read_rgb(capture: Any) -> Tuple[bool, Any]:
+    """Read one RGB frame from either a ``Camera`` or OpenCV capture."""
+    ret, frame = capture.read()
+    if not ret or frame is None:
+        return False, None
+    if isinstance(capture, Camera):
+        return True, frame
+    return True, cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
 
 class Camera:
@@ -73,7 +107,7 @@ class Camera:
         self._opened = False
         self._io_lock = threading.Lock()
 
-        if is_raspberry_pi() and (src == 0 or src == '0'):
+        if is_raspberry_pi() and is_camera(src) and int(str(src).strip()) == 0:
             try:
                 from picamera2 import Picamera2
                 self.picam2 = Picamera2()
@@ -99,9 +133,9 @@ class Camera:
                 self._opened = False
 
         if not self._opened:
-            cap_src = int(src) if isinstance(src, str) and src.isdigit() else src
+            cap_src = int(str(src).strip()) if is_camera(src) else src
             self.cap = cv2.VideoCapture(cap_src)
-            if isinstance(src, int) or (isinstance(src, str) and src.isdigit()):
+            if is_camera(src):
                 self.cap.set(cv2.CAP_PROP_FPS, fps)
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
@@ -182,14 +216,7 @@ class Video:
         self.quit = False
         self._display_enabled = True
         self.win_name = ''
-        if isinstance(src, int) or (isinstance(src, str) and src.isdigit()):
-            cam_src = int(src) if isinstance(src, str) else src
-            self.cap = Camera(src=cam_src, resolution=resolution, fps=fps)
-        else:
-            self.cap = cv2.VideoCapture(src)
-        if not self.cap.isOpened():
-            self.cap.release()
-            raise RuntimeError(f"Unable to open video source: {src}")
+        self.cap = open_capture(src, resolution=resolution, fps=fps)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or fps
         self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) or resolution[0])
@@ -212,13 +239,12 @@ class Video:
     def __iter__(self):
         try:
             while self.cap is not None and self.cap.isOpened():
-                ret, frame = self.cap.read()
-                if ret is False or frame is None or self.quit:
+                if self.quit:
                     break
-                if isinstance(self.cap, Camera):
-                    yield frame
-                else:
-                    yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                ret, frame = read_rgb(self.cap)
+                if not ret:
+                    break
+                yield frame
         finally:
             self.close()
 
@@ -259,14 +285,9 @@ class Video:
         if isinstance(self.cap, Camera) and hasattr(self.cap, 'picam2') and self.cap.picam2:
             return None
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-        ret, frame = self.cap.read()
-        if ret is False or frame is None:
-            return None
-        if isinstance(self.cap, Camera):
-            return frame
-        else:
-            return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
+        ret, frame = read_rgb(self.cap)
+        return frame if ret else None
+
     def show(self, frame):
         t1 = time.time()
         display_frame = frame.copy()

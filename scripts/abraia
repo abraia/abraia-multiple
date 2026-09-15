@@ -5,9 +5,11 @@ import os
 import json
 import click
 import itertools
+from concurrent.futures import ProcessPoolExecutor
 from glob import glob
+from tqdm import tqdm
 
-from abraia.utils import load_image, save_image, get_type, list_dir, process_map
+from abraia.utils import load_image, save_image, get_type, list_dir
 from abraia.editing import anonymize_image, upscale_image
 
 from abraia import config
@@ -17,6 +19,35 @@ from abraia import __version__
 
 
 abraia = Abraia()
+
+
+def process_map(task, *values, desc="", max_workers=3):
+    """Apply a picklable task in parallel with CLI progress output."""
+    if not values:
+        return []
+    lengths = [len(value) for value in values]
+    if len(set(lengths)) != 1:
+        raise ValueError("All process_map iterables must have the same length")
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        results = []
+        with tqdm(total=lengths[0], desc=desc) as progress:
+            for result in executor.map(task, *values):
+                progress.set_postfix_str(str(result))
+                progress.update(1)
+                results.append(result)
+        return results
+
+
+def process_media(src, callback):
+    """Apply a callback to an image or each frame of a video source."""
+    from abraia.utils import Video, show_image
+
+    if get_type(str(src)).startswith("image"):
+        show_image(callback(load_image(src)))
+        return
+    with Video(src) as video:
+        for frame in video:
+            video.show(callback(frame))
 
 
 def list_files(folder):
@@ -274,7 +305,7 @@ def run(project, classes, src):
         else:
             from abraia.training import list_models
             from abraia.inference.detect import Model
-            from abraia.utils import process_media, render_results
+            from abraia.utils import render_results
             models = list_models(project)
             if not models:
                 click.echo(f"No trained model found in project '{project}'")
