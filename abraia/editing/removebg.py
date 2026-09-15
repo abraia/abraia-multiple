@@ -19,7 +19,6 @@ def post_process(mask):
     """
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.GaussianBlur(mask, (5, 5), sigmaX=2, sigmaY=2, borderType=cv2.BORDER_DEFAULT)
-    # mask = np.where(mask < 127, 0, 255).astype(np.uint8)
     return mask
 
 
@@ -36,7 +35,6 @@ class BackgroundRemover:
         self.input_mean = (0.5, 0.5, 0.5)
         self.input_std = (1.0, 1.0, 1.0)
         self.providers = ort.get_available_providers()
-        # model_src = download_file('multiple/models/editing/isnet-medium.onnx')
         model_src = download_file('multiple/models/editing/rmbg14_fp16.onnx')
         self.session = ort.InferenceSession(model_src, providers=self.providers)
         self.input_name = self.session.get_inputs()[0].name
@@ -55,8 +53,6 @@ class BackgroundRemover:
     
     def postprocess(self, out, size):
         pred = out.reshape(self.image_size)
-        # ma, mi = np.max(pred), np.min(pred)
-        # pred = (pred - mi) / (ma - mi)
         mask = (np.clip(pred, 0, 1) * 255).astype(np.uint8)
         mask = cv2.resize(mask, size, interpolation=cv2.INTER_LINEAR)
         return mask

@@ -86,8 +86,6 @@ class Upscaler:
         self.scale = 2
         self.overlap = overlap
         self.tile_size = (1024, 1024)
-        # model_src = download_file('multiple/models/editing/4xNomosWebPhoto_RealPLKSR_fp32_opset17.onnx')
-        # model_src = download_file('multiple/models/editing/4xNomosUni_span_multijpg_fp32_opset17.onnx')
         model_src = download_file('multiple/models/editing/2xNomosUni_compact_multijpg_ldl_fp32_opset17.onnx')
         self.session = ort.InferenceSession(model_src, sess_options)
         self.input_name = self.session.get_inputs()[0].name

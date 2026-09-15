@@ -298,9 +298,6 @@ def red_ratio(img):
 
 def optimal_threshold(img):
     area = img.shape[0] * img.shape[1]
-    # k = max(0.0021 * log(7.5e-6 * area), 0)
-    # thr = k * (1 - luminance(img)) + 0.45 * k + 0.0003
-    # thr = 0.4 * thr if red_ratio(img) > 0.004 else thr
     k = max(0.00089 * log(8.9e-6 * area), 0)
     thr = 10/3 * k * (1 - luminance(img)) + k + 0.0003
     return thr
@@ -308,7 +305,6 @@ def optimal_threshold(img):
 
 def minimal_quality(img):
     area = img.shape[0] * img.shape[1]
-    # qmin = 100 - 7.5 * log(0.00004 * area)
     qmin = min(100 - 6.5 * log(0.00006 * area), 95)
     return int(qmin)
 

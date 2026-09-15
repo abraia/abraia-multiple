@@ -6,8 +6,8 @@ from io import BytesIO
 from PIL import Image
 from numpy.testing import assert_almost_equal
 
-from abraia.utils.compress import compare_mse, compare_mssim, compare_psnr, compare_ssim, filter_gaussian
-from abraia.utils.compress import convert_mode, getsize, optimal_quality, save_jpeg, save_png, save_webp
+from abraia.editing.compress import compare_mse, compare_mssim, compare_psnr, compare_ssim, filter_gaussian
+from abraia.editing.compress import convert_mode, getsize, optimal_quality, save_jpeg, save_png, save_webp
 
 
 img1 = cv2.imread('images/person.jpg', cv2.IMREAD_UNCHANGED)
