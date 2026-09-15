@@ -86,6 +86,15 @@ class Camera:
                 self._opened = True
             except Exception as e:
                 logger.error(f"Failed to open Picamera2 on Raspberry Pi: {e}")
+                if self.picam2:
+                    try:
+                        self.picam2.stop()
+                    except Exception:
+                        pass
+                    try:
+                        self.picam2.close()
+                    except Exception:
+                        pass
                 self.picam2 = None
                 self._opened = False
 
@@ -116,6 +125,7 @@ class Camera:
                         return False, None
                     return True, cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 except Exception:
+                    logger.debug("Failed to capture a Picamera2 frame", exc_info=True)
                     return False, None
             elif self.cap:
                 ret, frame = self.cap.read()
@@ -177,6 +187,9 @@ class Video:
             self.cap = Camera(src=cam_src, resolution=resolution, fps=fps)
         else:
             self.cap = cv2.VideoCapture(src)
+        if not self.cap.isOpened():
+            self.cap.release()
+            raise RuntimeError(f"Unable to open video source: {src}")
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or fps
         self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) or resolution[0])
@@ -187,28 +200,62 @@ class Video:
             make_dirs(dest)
             fourcc = cv2.VideoWriter_fourcc(*"XVID")
             self.out = cv2.VideoWriter(dest, fourcc, self.fps, (self.width, self.height))
+            if not self.out.isOpened():
+                self.out.release()
+                self.out = None
+                raise RuntimeError(f"Unable to open video destination: {dest}")
         self.t0 = time.time()
 
     def __len__(self):
         return self.frames
 
     def __iter__(self):
-        while self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if ret is False or frame is None or self.quit:
-                break
-            if isinstance(self.cap, Camera):
-                yield frame
-            else:
-                yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self.cap.release()
-        if self.out:
-            self.out.release()
+        try:
+            while self.cap is not None and self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret is False or frame is None or self.quit:
+                    break
+                if isinstance(self.cap, Camera):
+                    yield frame
+                else:
+                    yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        finally:
+            self.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def close(self):
+        """Release capture, writer, and any display window."""
+        if self.cap is not None:
+            try:
+                self.cap.release()
+            except Exception:
+                logger.debug("Failed to release video source", exc_info=True)
+            finally:
+                self.cap = None
+        if self.out is not None:
+            try:
+                self.out.release()
+            except Exception:
+                logger.debug("Failed to release video writer", exc_info=True)
+            finally:
+                self.out = None
         if self.win_name:
-            cv2.destroyWindow(self.win_name)
-            cv2.waitKey(1)
+            try:
+                cv2.destroyWindow(self.win_name)
+                cv2.waitKey(1)
+            except cv2.error:
+                pass
+            finally:
+                self.win_name = ''
 
     def get_frame(self, frame_num):
+        if self.cap is None:
+            return None
         if isinstance(self.cap, Camera) and hasattr(self.cap, 'picam2') and self.cap.picam2:
             return None
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
@@ -222,10 +269,11 @@ class Video:
     
     def show(self, frame):
         t1 = time.time()
-        render_status(frame, fps=1 / (t1 - self.t0) if t1 > self.t0 else 0)
-        render_resolution(frame)
+        display_frame = frame.copy()
+        render_status(display_frame, fps=1 / (t1 - self.t0) if t1 > self.t0 else 0)
+        render_resolution(display_frame)
         self.t0 = t1
-        out = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        out = cv2.cvtColor(display_frame, cv2.COLOR_RGB2BGR)
         if self.out:
             self.out.write(out)
         if not self._display_enabled:

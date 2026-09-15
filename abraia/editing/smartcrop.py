@@ -70,7 +70,9 @@ class Saliency:
         salmap = combine_maps(salmap, modmap, alpha)
         return salmap
 
-    def predict(self, img, faces=[]):
+    def predict(self, img, faces=None):
+        if faces is None:
+            faces = []
         salmap = spectral_residual(img)
         salmap = self.faces_map(salmap, faces, 0.35)
         salmap = self.center_model(salmap, 0.05)
@@ -138,7 +140,9 @@ def image_roi(img, rect):
     return img[y:y+h, x:x+w]
 
 
-def crop_region(salmap, faces=[]):
+def crop_region(salmap, faces=None):
+    if faces is None:
+        faces = []
     h, w = salmap.shape
     if len(faces) > 0:
         recti = faces[0]
@@ -161,7 +165,8 @@ def saliency_area(salmap, rect):
 
 def content_preservation(salmap, rect):
     sarea = saliency_area(salmap, rect)
-    return sarea / np.sum(salmap)
+    total = np.sum(salmap)
+    return sarea / total if total > 0 else 0.0
 
 
 def boundary_simplicity(energy, rect):
@@ -240,6 +245,7 @@ def attention_windows(salmap, ratio, recti, recto, step=2):
 
 
 def best_crop_area(salmap, faces, energy, ratio):
+    original_height, original_width = salmap.shape
     recti, recto = crop_region(salmap, faces)
     salmap = max_pooling(salmap)
     energy = max_pooling(energy)
@@ -250,12 +256,18 @@ def best_crop_area(salmap, faces, energy, ratio):
     recti = rectangle_scale(recti, (0.5, 0.5))
     recti = rectangle_intersection(recto, recti)
     rects = attention_windows(salmap, ratio, recti, recto)
+    if len(rects) == 0:
+        return [0, 0, original_width, original_height]
     preservation = np.array([content_preservation(salmap, rect) for rect in rects])
     simplicities = np.array([boundary_simplicity(energy, rect) for rect in rects])
-    content = preservation > 0.8 * np.max(preservation)
-    if not np.all(content):
-        simplicities = simplicities[:np.argmin(content)]
-    idx = np.argmin(simplicities)
+    finite = np.isfinite(preservation) & np.isfinite(simplicities)
+    if not np.any(finite):
+        return [0, 0, original_width, original_height]
+    content = preservation >= 0.8 * np.max(preservation[finite])
+    candidates = np.flatnonzero(finite & content)
+    if len(candidates) == 0:
+        candidates = np.flatnonzero(finite)
+    idx = candidates[np.argmin(simplicities[candidates])]
     return rectangle_scale(rects[idx], (2, 2))
 
 

@@ -97,7 +97,7 @@ def draw_filled_polygon(img, polygon, color, opacity = 1):
 def draw_blurred_mask(img, mask):
     w_k = int(0.1 * max(img.shape[:2]))
     w_k = w_k + 1 if w_k % 2 == 0 else w_k
-    mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    mask = cv2.cvtColor((np.asarray(mask) > 0).astype(np.uint8), cv2.COLOR_GRAY2BGR)
     blurred_img = cv2.GaussianBlur(img, (w_k, w_k), 0)
     img = np.where(mask==0, img, blurred_img)
     # img1 = cv2.multiply(1 - (blurred_mask / 255), img)
@@ -107,11 +107,12 @@ def draw_blurred_mask(img, mask):
 
 
 def draw_overlay_mask(img, mask, color = (255, 0, 0), opacity = 1):
+    mask = np.asarray(mask) > 0
     img_copy = img.copy()
-    overlay = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
-    overlay[mask == 255] = color
+    overlay = cv2.cvtColor(mask.astype(np.uint8), cv2.COLOR_GRAY2RGB)
+    overlay[mask] = color
     img_over = cv2.addWeighted(img_copy, 1 - opacity, overlay, opacity, 0)
-    img_copy[mask == 255] = img_over[mask == 255]
+    img_copy[mask] = img_over[mask]
     return img_copy
 
 
@@ -140,7 +141,7 @@ def draw_text_multiline(img, lines, point, background_color = None, text_color =
                         text_scale = 0.8, padding = 6):
     x, y = point
     for line in lines:
-        draw_text(img, line, (x, y), background_color, text_color, text_scale, padding)
+        img = draw_text(img, line, (x, y), background_color, text_color, text_scale, padding)
         text_font, text_thickness = cv2.FONT_HERSHEY_DUPLEX, 1
         h = cv2.getTextSize(line, text_font, text_scale, text_thickness)[0][1]
         y += h + 2 * padding + 2
@@ -148,25 +149,69 @@ def draw_text_multiline(img, lines, point, background_color = None, text_color =
 
 
 def draw_overlay(img, overlay, rect = None, opacity = 1):
-    x, y, width, height = rect if rect is not None else [0, 0, img.shape[1], img.shape[0]]
-    x1, y1, x2, y2 = x, y, x + width, y + height
+    if not 0 <= opacity <= 1:
+        raise ValueError('opacity must be between 0 and 1.')
+    x, y, width, height = map(
+        int, rect if rect is not None else [0, 0, img.shape[1], img.shape[0]])
+    if width <= 0 or height <= 0:
+        return img
+
+    overlay = np.asarray(overlay)
+    if overlay.ndim == 2:
+        overlay = cv2.cvtColor(overlay, cv2.COLOR_GRAY2RGB)
+    if overlay.ndim != 3 or overlay.shape[2] not in (3, 4):
+        raise ValueError('overlay must have 3 or 4 channels.')
     overlay = cv2.resize(overlay, (width, height))
-    alpha_channel = (overlay[:, :, 3] if overlay.shape[2] == 4 else np.ones((height, width), dtype=np.uint8) * 255)
-    alpha_float = (cv2.convertScaleAbs(alpha_channel * opacity).astype(np.float32) / 255)[..., np.newaxis]
-    blended_roi = cv2.convertScaleAbs((1 - alpha_float) * img[y1:y2, x1:x2] + alpha_float * overlay[:, :, :3])
+
+    x1, y1 = max(0, x), max(0, y)
+    x2, y2 = min(img.shape[1], x + width), min(img.shape[0], y + height)
+    if x1 >= x2 or y1 >= y2:
+        return img
+    overlay_x1, overlay_y1 = x1 - x, y1 - y
+    overlay_x2 = overlay_x1 + (x2 - x1)
+    overlay_y2 = overlay_y1 + (y2 - y1)
+    overlay_roi = overlay[overlay_y1:overlay_y2, overlay_x1:overlay_x2]
+    if overlay_roi.shape[2] == 4:
+        alpha_channel = overlay_roi[:, :, 3].astype(np.float32) / 255
+    else:
+        alpha_channel = np.ones(overlay_roi.shape[:2], dtype=np.float32)
+    alpha_float = (alpha_channel * opacity)[..., np.newaxis]
+    base = img[y1:y2, x1:x2].astype(np.float32)
+    colors = overlay_roi[:, :, :3].astype(np.float32)
+    blended_roi = np.clip(
+        (1 - alpha_float) * base + alpha_float * colors,
+        0,
+        255,
+    ).astype(img.dtype)
     img[y1:y2, x1:x2] = blended_roi
     return img
 
 
-def draw_mask(overlay, mask, box, color):
+def _paint_mask(overlay, mask, box, color):
     x, y, w, h = map(int, box)
-    mh, mw = mask.shape[:2]
-    y1, y2 = max(0, y), min(overlay.shape[0], y + mh)
-    x1, x2 = max(0, x), min(overlay.shape[1], x + mw)
+    if w <= 0 or h <= 0:
+        return overlay
+    mask = np.asarray(mask) > 0
+    if mask.ndim != 2:
+        raise ValueError('mask must be a two-dimensional array.')
+    if mask.shape != (h, w):
+        mask = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST) > 0
+    y1, y2 = max(0, y), min(overlay.shape[0], y + h)
+    x1, x2 = max(0, x), min(overlay.shape[1], x + w)
     if y2 > y1 and x2 > x1:
         m_y1, m_y2 = y1 - y, y2 - y
         m_x1, m_x2 = x1 - x, x2 - x
-        overlay[y1:y2, x1:x2][mask[m_y1:m_y2, m_x1:m_x2] == 1] = color
+        target = overlay[y1:y2, x1:x2]
+        target_mask = mask[m_y1:m_y2, m_x1:m_x2]
+        if overlay.ndim == 3:
+            target[target_mask] = color
+        else:
+            target[target_mask] = color[0] if isinstance(color, (tuple, list)) else color
+    return overlay
+
+
+def draw_mask(overlay, mask, box, color):
+    return _paint_mask(overlay, mask, box, color)
 
 
 def calculate_optimal_thickness(img_size):
@@ -188,23 +233,16 @@ JOINT_PAIRS = [
 
 def render_box(img, box, color, thickness=None):
     thickness = thickness or calculate_optimal_thickness(img.shape[:2])
-    draw_rectangle(img, box, color, thickness)
+    return draw_rectangle(img, box, color, thickness)
 
 
 def render_mask(overlay, mask, box, color):
-    x, y, w, h = map(int, box)
-    mh, mw = mask.shape[:2]
-    y1, y2 = max(0, y), min(overlay.shape[0], y + mh)
-    x1, x2 = max(0, x), min(overlay.shape[1], x + mw)
-    if y2 > y1 and x2 > x1:
-        m_y1, m_y2 = y1 - y, y2 - y
-        m_x1, m_x2 = x1 - x, x2 - x
-        overlay[y1:y2, x1:x2][mask[m_y1:m_y2, m_x1:m_x2] == 1] = color
+    return _paint_mask(overlay, mask, box, color)
 
 
 def render_polygon(img, polygon, color, thickness=None):
     thickness = thickness or calculate_optimal_thickness(img.shape[:2])
-    draw_polygon(img, polygon, color, thickness)
+    return draw_polygon(img, polygon, color, thickness)
 
 
 def render_label(img, label, point, color, score=None, track_id=None, text_scale=None, thickness=None):
@@ -213,7 +251,7 @@ def render_label(img, label, point, color, score=None, track_id=None, text_scale
     text = f"{label} {round(score, 2)}" if score is not None else label
     if track_id is not None:
         text = f"[{track_id}] {text}"
-    draw_text(img, text, (int(point[0]), int(point[1])), background_color=color, text_scale=text_scale, padding=thickness * 3)
+    return draw_text(img, text, (int(point[0]), int(point[1])), background_color=color, text_scale=text_scale, padding=thickness * 3)
 
 
 def render_trail(img, trail, color, thickness=None):
@@ -238,41 +276,57 @@ def render_skeleton(img, keypoints, joint_scores, color, thickness=None, joint_t
             draw_line(img, (pt1, pt2), color, thickness=thickness)
 
 
-def draw_masks_overlay(img, overlay, alpha=0.5):
+def draw_masks_overlay(img, overlay, alpha=0.5, mask=None):
+    if not 0 <= alpha <= 1:
+        raise ValueError('alpha must be between 0 and 1.')
     img_over = cv2.addWeighted(img, 1 - alpha, overlay, alpha, 0)
-    mask = cv2.cvtColor(overlay, cv2.COLOR_RGB2GRAY) > 0
+    if mask is None:
+        mask = np.any(overlay != 0, axis=2)
+    else:
+        mask = np.asarray(mask) > 0
+    if mask.shape != img.shape[:2]:
+        raise ValueError('mask must have the same dimensions as the image.')
     img[mask] = img_over[mask]
     return img
 
 
 def render_results(img, results, thickness=None, text_scale=None):
+    results = results or []
     thickness = thickness or calculate_optimal_thickness(img.shape[:2])
     text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
-    overlay = np.zeros_like(img) if any('mask' in r for r in results) else None
+    has_masks = any(result.get('mask') is not None for result in results)
+    overlay = np.zeros_like(img) if has_masks else None
+    mask_coverage = np.zeros(img.shape[:2], dtype=np.uint8) if has_masks else None
     for result in results:
         label = result.get('label')
         score = result.get('score')
         track_id = result.get('track_id')
         class_id = result.get('class_id', 0)
         color = hex_to_rgb(result.get('color', get_color(track_id if track_id is not None else class_id)))
-        if result.get('polygon'):
-            render_polygon(img, result['polygon'], color, thickness)
-        elif result.get('box'):
-            box = result.get('box')
+        polygon = result.get('polygon')
+        box = result.get('box')
+        if polygon is not None and len(polygon):
+            render_polygon(img, polygon, color, thickness)
+        elif box is not None and len(box):
             render_keypoints(img, result.get('keypoints', []), color, thickness)
             if 'joint_scores' in result:
                 render_skeleton(img, result['keypoints'], result['joint_scores'], (255, 0, 255), thickness)
             render_box(img, box, color, thickness)
-            if 'mask' in result and overlay is not None:
-                # result['mask'] is already cropped to the bounding box
-                render_mask(overlay, result['mask'], result['box'], color)
+        if result.get('mask') is not None and overlay is not None:
+            # Detection masks are normally cropped to their box. A mask
+            # without a box is treated as a full-image segmentation mask.
+            mask_box = box if box is not None and len(box) else [
+                0, 0, img.shape[1], img.shape[0]
+            ]
+            render_mask(overlay, result['mask'], mask_box, color)
+            render_mask(mask_coverage, result['mask'], mask_box, 1)
         if label:
             point = result.get('box', [0, 0, 0, 0])[:2]
             render_label(img, label, point, color, score, track_id, text_scale, thickness)
         if 'trail' in result:
             render_trail(img, result['trail'], color, thickness)
     if overlay is not None:
-        img = draw_masks_overlay(img, overlay, alpha=0.5)
+        img = draw_masks_overlay(img, overlay, alpha=0.5, mask=mask_coverage)
     return img
 
 

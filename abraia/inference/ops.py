@@ -85,6 +85,83 @@ def mask_to_polygon(mask, origin=[0, 0], approx=0.001):
     return polygon.tolist()
 
 
+def colored_prediction_layers(prediction, class_names, color_for_class):
+    """Return colored mask layers for integer model predictions."""
+    labels = np.asarray(prediction)
+    if labels.ndim != 2 or not labels.size:
+        raise ValueError("model predictions must be a non-empty 2D mask")
+    layers = []
+    for class_id, name in enumerate(class_names or [], start=1):
+        mask = np.zeros(labels.shape, dtype=np.uint8)
+        mask[labels == class_id] = 1
+        if mask.any():
+            layers.append((mask.astype(bool), color_for_class(name)))
+    return layers
+
+
+def compare_mask_layers(reference_layers, prediction_layers, image_shape):
+    """Return foreground and label agreement metrics for two mask layers."""
+    if not image_shape or len(image_shape) < 2:
+        raise ValueError("image_shape must contain image height and width")
+    shape = (int(image_shape[0]), int(image_shape[1]))
+    reference = set()
+    prediction = set()
+    reference_colors = {}
+    prediction_colors = {}
+
+    for mask, color in reference_layers or []:
+        pixels = _mask_pixels(mask, shape)
+        if pixels is None:
+            continue
+        reference.update(pixels)
+        rgb = tuple(int(channel) for channel in color[:3])
+        for pixel in pixels:
+            reference_colors[pixel] = rgb
+    for mask, color in prediction_layers or []:
+        pixels = _mask_pixels(mask, shape)
+        if pixels is None:
+            continue
+        prediction.update(pixels)
+        rgb = tuple(int(channel) for channel in color[:3])
+        for pixel in pixels:
+            prediction_colors[pixel] = rgb
+
+    overlap = reference & prediction
+    union = reference | prediction
+    true_positive = len(overlap)
+    annotated_pixels = len(reference)
+    predicted_pixels = len(prediction)
+    union_pixels = len(union)
+    total_pixels = shape[0] * shape[1]
+    label_matches = sum(
+        reference_colors[pixel] == prediction_colors[pixel]
+        for pixel in overlap
+    )
+    return {
+        "annotated_pixels": annotated_pixels,
+        "predicted_pixels": predicted_pixels,
+        "overlap_pixels": true_positive,
+        "union_pixels": union_pixels,
+        "label_matches": label_matches,
+        "iou": true_positive / union_pixels if union_pixels else 1.0,
+        "precision": true_positive / predicted_pixels if predicted_pixels else 0.0,
+        "recall": true_positive / annotated_pixels if annotated_pixels else 0.0,
+        "pixel_accuracy": (
+            (total_pixels - union_pixels + true_positive) / total_pixels
+            if total_pixels
+            else 1.0
+        ),
+        "label_accuracy": label_matches / true_positive if true_positive else 0.0,
+    }
+
+
+def _mask_pixels(mask, shape):
+    mask = np.asarray(mask) > 0
+    if mask.shape != shape:
+        return None
+    return set(map(tuple, np.argwhere(mask)))
+
+
 # def mask_to_polygon(mask, origin=[0, 0], approx=0.001):
 #     """Returns the largest bounding polygon based on the segmentation mask."""
 #     contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]

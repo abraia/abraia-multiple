@@ -1,6 +1,6 @@
-import sys
 import cv2
 import numpy as np
+import logging
 from math import log
 from io import BytesIO
 
@@ -9,61 +9,87 @@ from PIL import ImageCms
 from PIL import ImageColor
 
 
+logger = logging.getLogger(__name__)
+
+
 def _assert_compatible(im1, im2):
-    """Raise an error if the shape and dtype do not match."""
-    if not im1.dtype == im2.dtype:
+    """Raise an error if the input images do not have matching shapes/types."""
+    im1, im2 = np.asarray(im1), np.asarray(im2)
+    if im1.dtype != im2.dtype:
         raise ValueError('Input images must have the same dtype.')
     if not im1.shape == im2.shape:
         raise ValueError('Input images must have the same dimensions.')
     return
 
 
-def _as_floats(im1, im2):
-    """Promote im1, im2 to nearest appropriate floating point precision."""
+def _data_range(im1, im2, data_range=None):
+    """Return the value range used to normalize image metrics."""
+    if data_range is not None:
+        data_range = float(data_range)
+        if not np.isfinite(data_range) or data_range <= 0:
+            raise ValueError('data_range must be a positive finite number.')
+        return data_range
+
+    ranges = []
+    for image in (im1, im2):
+        dtype = np.asarray(image).dtype
+        if np.issubdtype(dtype, np.integer):
+            info = np.iinfo(dtype)
+            ranges.append(float(info.max) - float(info.min))
+    # Floating point images are conventionally in [0, 1]. Callers with a
+    # different range can pass it explicitly.
+    return max(ranges, default=1.0)
+
+
+def _as_floats(im1, im2, data_range=None):
+    """Promote images to float32 and normalize using their value range."""
+    data_range = _data_range(im1, im2, data_range)
     if im1.dtype != np.float32:
         im1 = im1.astype(np.float32)
     if im2.dtype != np.float32:
         im2 = im2.astype(np.float32)
-    return im1 / 255, im2 / 255
+    return im1 / data_range, im2 / data_range
 
 
-def compare_mse(img1, img2):
+def compare_mse(img1, img2, data_range=None):
     """Compute the mean-squared error (MSE) between two images.
 
     Arguments:
         img1 (ndarray): Image of any dimensionality.
         img2 (ndarray): Image of any dimensionality.
+        data_range (float): Optional value range for floating-point images.
 
     Returns:
         mse (float): The mean-squared error (MSE) metric.
     """
+    img1, img2 = np.asarray(img1), np.asarray(img2)
     _assert_compatible(img1, img2)
-    img1, img2 = _as_floats(img1, img2)
+    img1, img2 = _as_floats(img1, img2, data_range)
     return np.mean(np.square(img1 - img2))
 
 
-def compare_psnr(img1, img2):
+def compare_psnr(img1, img2, data_range=None):
     """Compute the peak signal to noise ratio (PSNR) comparing two images.
 
     Arguments:
         img1 (ndarray): Image of any dimensionality.
         img2 (ndarray): Image of any dimensionality.
+        data_range (float): Optional value range for floating-point images.
 
     Returns:
         psnr (float): The peak signal to noise ratio (PSNR) metric.
 
     .. [1] https://en.wikipedia.org/wiki/Peak_signal-to-noise_ratio
     """
-    _assert_compatible(img1, img2)
-    img1, img2 = _as_floats(img1, img2)
-    _mse = compare_mse(img1, img2)
+    _mse = compare_mse(img1, img2, data_range=data_range)
     if _mse == 0:
         return 100
     else:
         return 10 * np.log10(1 / _mse)
 
 
-def _preprocess_images(img1, img2):
+def _preprocess_images(img1, img2, data_range=None):
+    img1, img2 = np.asarray(img1), np.asarray(img2)
     _assert_compatible(img1, img2)
     if img1.ndim == 3:
         if img1.shape[2] == 4:
@@ -71,7 +97,7 @@ def _preprocess_images(img1, img2):
             img2 = img2[:, :, :3]
         img1 = cv2.cvtColor(img1, cv2.COLOR_RGB2GRAY)
         img2 = cv2.cvtColor(img2, cv2.COLOR_RGB2GRAY)
-    return _as_floats(img1, img2)
+    return _as_floats(img1, img2, data_range)
 
 
 def _downsample(img1, img2):
@@ -105,13 +131,14 @@ def _ssim_map(img1, img2, C1=6.5025, C2=58.5225):
     return ssim_map
 
 
-def compare_ssim(img1, img2):
+def compare_ssim(img1, img2, data_range=None):
     """Compute the structural similarity index (SSIM) between two images, to
     address image quality comparison by taking texture into account.
 
     Arguments:
         img1 (ndarray): Image of any dimensionality.
         img2 (ndarray): Image of any dimensionality.
+        data_range (float): Optional value range for floating-point images.
 
     Returns:
         ssim: (float): The structural similarity index (SSIM).
@@ -130,19 +157,20 @@ def compare_ssim(img1, img2):
        optimized for structural similarity. Optical Review, 16, 613-621.
        http://arxiv.org/abs/0901.0065,
     """
-    img1, img2 = _preprocess_images(img1, img2)
+    img1, img2 = _preprocess_images(img1, img2, data_range)
     C1, C2 = 0.01 * 0.01, 0.03 * 0.03
     S = _ssim_map(img1, img2, C1, C2)
     return S.mean()
 
 
-def compare_mssim(img1, img2):
+def compare_mssim(img1, img2, data_range=None):
     """Compute the multi-scale structural similarity index (MS-SSIM) between
     two images.
 
     Arguments:
         img1 (ndarray): Image of any dimensionality.
         img2 (ndarray): Image of any dimensionality.
+        data_range (float): Optional value range for floating-point images.
 
     Returns:
         msssim: (float): The multi-scale structural similarity index (MS-SSIM).
@@ -151,7 +179,11 @@ def compare_mssim(img1, img2):
     similarity for image quality assessment," Invited Paper, IEEE Asilomar
     Conference on Signals, Systems and Computers, Nov. 2003
     """
-    img1, img2 = _preprocess_images(img1, img2)
+    img1, img2 = _preprocess_images(img1, img2, data_range)
+    if img1.ndim < 2:
+        raise ValueError('MS-SSIM requires two-dimensional images')
+    if min(img1.shape[:2]) < 11:
+        raise ValueError('MS-SSIM requires images at least 11 pixels wide and tall')
     C1, C2 = 0.01 * 0.01, 0.03 * 0.03
     weights = np.array([0.0448, 0.2856, 0.3001, 0.2363, 0.1333])
     ssims = []
@@ -168,9 +200,15 @@ def compare_mssim(img1, img2):
 def filter_gaussian(img, size, sigma, mode='same'):
     """To avoid edge effects 'valid' mode will ignore filter radius strip
     around edges."""
+    if size <= 0 or size % 2 == 0:
+        raise ValueError('Gaussian filter size must be a positive odd integer')
+    if mode not in ('same', 'valid'):
+        raise ValueError("mode must be either 'same' or 'valid'")
     out = cv2.GaussianBlur(img, (size, size), sigma)
     if mode == 'valid':
         pad = (size-1) // 2
+        if pad == 0:
+            return out
         return out[pad:-pad, pad:-pad]
     return out
 
@@ -190,8 +228,8 @@ def adobe_to_srgb(im):
         if icc:
             srgb = ImageCms.createProfile('sRGB')
             im = ImageCms.profileToProfile(im, BytesIO(icc), srgb)
-    except:
-        print('PyCMSError: cannot build transform')
+    except Exception:
+        logger.warning('Could not convert image ICC profile to sRGB', exc_info=True)
     return im
 
 
@@ -218,14 +256,15 @@ def mode_to_color(im):
 
 
 def convert_mode(im, mode, background='white'):
-    im = adobe_to_srgb(im) # color management function
+    im = adobe_to_srgb(im)
     if im.mode == mode:
         return im
     if mode == 'RGB':
-        return alpha_to_color(im, background)
-    else:
-        im.convert(mode)
-        return im
+        if im.mode in ('RGBA', 'LA') or (
+            im.mode == 'P' and 'transparency' in im.info
+        ):
+            return alpha_to_color(im.convert('RGBA'), background)
+    return im.convert(mode)
 
 
 def to_array(im):
@@ -316,13 +355,15 @@ def number_of_colors(img):
 
 def getsize(stream):
     if isinstance(stream, BytesIO):
-        return sys.getsizeof(stream)
+        return len(stream.getvalue())
     return len(stream)
 
 
 def stats(original, optimized):
     orisize = getsize(original) / 1024
     optsize = getsize(optimized) / 1024
+    if orisize == 0:
+        raise ValueError('Original stream must not be empty')
     reduction = 100 * (1 - (optsize / orisize))
     return orisize, optsize, reduction
 
@@ -334,15 +375,32 @@ def encode_jpeg(im, quality, subsampling, progressive):
     return output
 
 
-def optimal_quality(im, thr=0.003, qmin=60, qmax=95):
+def _to_gray(im):
+    array = to_array(im) if hasattr(im, 'mode') else np.asarray(im)
+    if array.ndim == 2:
+        return array
+    if array.shape[2] == 4:
+        array = array[:, :, :3]
+    return cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
+
+
+def optimal_quality(im, thr=None, qmin=None, qmax=95):
+    """Choose JPEG quality parameters from an image and target error.
+
+    ``thr`` and ``qmin`` default to the image-adaptive values. Passing them
+    explicitly overrides those values.
+    """
     img = to_array(im)
     rimg = resize_image(img)
     rim = Image.fromarray(rimg)
-    progressive = True
-    thr = optimal_threshold(img)
-    qmin = minimal_quality(img)
+    progressive = False
+    thr = optimal_threshold(img) if thr is None else float(thr)
+    qmin = minimal_quality(img) if qmin is None else int(qmin)
+    qmax = int(qmax)
+    if thr < 0 or qmin < 1 or qmax < qmin:
+        raise ValueError('Invalid JPEG quality constraints')
     thr, qmin = red_correction(img, thr, qmin)
-    gray1 = rimg if rimg.ndim == 2 else cv2.cvtColor(rimg, cv2.COLOR_RGB2GRAY)
+    gray1 = _to_gray(rimg)
     gray2 = np.zeros(gray1.shape, dtype=np.uint8)
     q0, q1 = 100, qmin
     d0, d1 = 0, 1
@@ -350,8 +408,14 @@ def optimal_quality(im, thr=0.003, qmin=60, qmax=95):
     for k in range(5):
         fileobj = encode_jpeg(rim, q, 0, False)
         progressive = getsize(fileobj) > 10240
-        gray2[...] = cv2.cvtColor(to_array(Image.open(fileobj)), cv2.COLOR_RGB2GRAY)
-        mssim = compare_mssim(gray1, gray2)
+        with Image.open(fileobj) as compressed:
+            gray2[...] = _to_gray(compressed)
+        fileobj.close()
+        mssim = (
+            compare_ssim(gray1, gray2)
+            if min(gray1.shape[:2]) < 11
+            else compare_mssim(gray1, gray2)
+        )
         d = 1 / mssim - 1
         if abs(thr - d) < (0.05 * thr):
             break
@@ -368,7 +432,7 @@ def optimal_quality(im, thr=0.003, qmin=60, qmax=95):
     
 
 def save_jpeg(im, dest, quality=None, subsampling=2, progressive=False):
-    im = alpha_to_color(mode_to_color(im))
+    im = convert_mode(im, 'RGB')
     if quality is None:
         quality, progressive, subsampling = optimal_quality(im)
     im.save(dest, 'JPEG', quality=quality, progressive=progressive, subsampling=subsampling, optimize=True)

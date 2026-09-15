@@ -1,5 +1,4 @@
 import os
-import sys
 import cv2
 import time
 import queue
@@ -23,6 +22,7 @@ from .video import (
     is_image,
     is_camera,
     Camera,
+    make_dirs,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,30 +32,35 @@ CAMERA_RESOLUTION_MAP: Dict[str, Tuple[int, int]] = {
 }
 
 
-def get_input_type(src: Any) -> str:
+def get_input_type(src: Any) -> Optional[str]:
     """Determine the type of input source."""
     src_str = str(src)
     if is_camera(src_str):
         return "rpi_camera" if is_raspberry_pi() else "usb_camera"
     if is_stream_url(src_str):
         return "stream"
-    if os.path.exists(src_str):
-        return "video" if is_video(src_str) else "images"
+    if os.path.isdir(src_str):
+        return "images"
+    if os.path.isfile(src_str):
+        if is_video(src_str):
+            return "video"
+        if is_image(src_str):
+            return "images"
+    return None
 
 
 def open_cv_capture(src: Any, source_type: str, resolution=(1280, 720), fps=30) -> Any:
     """Open an OpenCV-based capture source."""
     if source_type == "video" and not os.path.exists(src):
-        logger.error(f"File not found: {src}")
-        sys.exit(1)
+        raise FileNotFoundError(f"Video file not found: {src}")
     cap = cv2.VideoCapture(int(src) if source_type == "usb_camera" else src)
     if source_type == "usb_camera":
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
         cap.set(cv2.CAP_PROP_FPS, fps)
     if not cap.isOpened():
-        logger.error(f"Failed to open {source_type} source: {src}")
-        sys.exit(1)
+        cap.release()
+        raise RuntimeError(f"Failed to open {source_type} source: {src}")
     logger.info(f"Using {source_type} input: {src}")
     return cap
 
@@ -82,13 +87,6 @@ def load_images_opencv(images_path: str) -> List[np.ndarray]:
     return []
 
 
-def make_dirs(dest):
-    """Create directory if it doesn't exist."""
-    dirname = os.path.dirname(dest)
-    if dirname:
-        os.makedirs(dirname, exist_ok=True)
-
-
 class VideoInput:
     def __init__(
         self,
@@ -99,6 +97,8 @@ class VideoInput:
         video_unpaced: bool = False,
         stop_event: Optional[threading.Event] = None,
     ):
+        if batch_size < 1:
+            raise ValueError("batch_size must be at least 1")
         self.batch_size = batch_size
         self.resolution = resolution
         self.frame_rate = frame_rate
@@ -110,8 +110,7 @@ class VideoInput:
 
         self.input_type = get_input_type(input_src)
         if not self.input_type:
-            logger.error(f"Invalid input '{input_src}'.")
-            sys.exit(1)
+            raise ValueError(f"Invalid input source: {input_src}")
 
         self.width = None
         self.height = None
@@ -127,6 +126,8 @@ class VideoInput:
                 self.source_fps = 30
             else:
                 self.cap = open_cv_capture(input_src, self.input_type, resolution=(width, height))
+            if self.cap is None:
+                raise RuntimeError(f"Unable to open {self.input_type} source: {input_src}")
             if self.cap is not None:
                 self.source_fps = self.cap.get(cv2.CAP_PROP_FPS)
                 self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
@@ -160,43 +161,49 @@ class VideoInput:
         video_start_ms, wall_start_time = None, None
         next_keep_video_ms = None
 
-        while not self.stop_event.is_set():
-            ret, frame = self.cap.read()
-            if not ret: break
-            
-            current_pos_ms = float(self.cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
-            if should_pace:
-                if video_start_ms is None:
-                    video_start_ms, wall_start_time = current_pos_ms, time.monotonic()
-                if video_keep_period_ms:
-                    if next_keep_video_ms is None: next_keep_video_ms = current_pos_ms
-                    if current_pos_ms + 1e-3 < next_keep_video_ms: continue
-                    while current_pos_ms + 1e-3 >= next_keep_video_ms: next_keep_video_ms += video_keep_period_ms
-                desired_wall_time = wall_start_time + (current_pos_ms - video_start_ms) / 1000.0
-                if time.monotonic() < desired_wall_time:
-                    time.sleep(max(0, desired_wall_time - time.monotonic()))
-            
-            if keep_period:
-                if time.monotonic() < next_keep_timestamp: continue
-                next_keep_timestamp += keep_period
-            
-            if isinstance(self.cap, Camera):
-                yield frame
-            else:
-                yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self.cap.release()
+        try:
+            while not self.stop_event.is_set():
+                ret, frame = self.cap.read()
+                if not ret: break
+
+                current_pos_ms = float(self.cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
+                if should_pace:
+                    if video_start_ms is None:
+                        video_start_ms, wall_start_time = current_pos_ms, time.monotonic()
+                    if video_keep_period_ms:
+                        if next_keep_video_ms is None: next_keep_video_ms = current_pos_ms
+                        if current_pos_ms + 1e-3 < next_keep_video_ms: continue
+                        while current_pos_ms + 1e-3 >= next_keep_video_ms: next_keep_video_ms += video_keep_period_ms
+                    desired_wall_time = wall_start_time + (current_pos_ms - video_start_ms) / 1000.0
+                    if time.monotonic() < desired_wall_time:
+                        time.sleep(max(0, desired_wall_time - time.monotonic()))
+
+                if keep_period:
+                    if time.monotonic() < next_keep_timestamp: continue
+                    next_keep_timestamp += keep_period
+
+                if isinstance(self.cap, Camera):
+                    yield frame
+                else:
+                    yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        finally:
+            self.cap.release()
 
     def preprocess(self, input_queue: queue.Queue, preprocess_fn: Callable[[np.ndarray], np.ndarray]) -> None:
         raw_frames, processed_frames = [], []
-        for frame in self._generate_frames():
-            raw_frames.append(frame)
-            processed_frames.append(preprocess_fn(frame))
-            if len(raw_frames) >= self.batch_size:
+        try:
+            for frame in self._generate_frames():
+                raw_frames.append(frame)
+                processed_frames.append(preprocess_fn(frame))
+                if len(raw_frames) >= self.batch_size:
+                    input_queue.put((raw_frames, processed_frames))
+                    raw_frames, processed_frames = [], []
+            if raw_frames:
                 input_queue.put((raw_frames, processed_frames))
-                raw_frames, processed_frames = [], []
-        if raw_frames:
-            input_queue.put((raw_frames, processed_frames))
-        input_queue.put(None)
+        finally:
+            # Consumers must always be released, including when capture or
+            # preprocessing fails in a worker thread.
+            input_queue.put(None)
 
 
 class VideoDisplay:
@@ -211,6 +218,7 @@ class VideoDisplay:
         self.video_writer = None
         self.image_index = 0
         self.window_name = "Output"
+        self._display_enabled = True
 
     def __enter__(self):
         return self
@@ -218,7 +226,10 @@ class VideoDisplay:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.video_writer is not None:
             self.video_writer.release()
-        cv2.destroyAllWindows()
+        try:
+            cv2.destroyAllWindows()
+        except cv2.error:
+            pass
 
     def show(self, frame: np.ndarray, fps: float, is_capture: bool = True) -> bool:
         if not hasattr(self, 'thickness'):
@@ -235,7 +246,12 @@ class VideoDisplay:
                     make_dirs(self.dest)
                     height, width = frame.shape[:2]
                     fourcc = cv2.VideoWriter_fourcc(*"XVID")
-                    self.video_writer = cv2.VideoWriter(self.dest, fourcc, self.source_fps, (width, height))
+                    self.video_writer = cv2.VideoWriter(
+                        self.dest,
+                        fourcc,
+                        self.source_fps or 30.0,
+                        (width, height),
+                    )
                 if self.video_writer:
                     self.video_writer.write(output_bgr_frame)
             else:
@@ -244,9 +260,18 @@ class VideoDisplay:
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 cv2.imwrite(str(out_path), output_bgr_frame)
                 self.image_index += 1
-        cv2.imshow(self.window_name, output_bgr_frame)
-        if (cv2.waitKey(1) & 0xFF) == ord("q"):
-            return False
+        if not self._display_enabled:
+            return True
+        try:
+            cv2.imshow(self.window_name, output_bgr_frame)
+            if (cv2.waitKey(1) & 0xFF) == ord("q"):
+                return False
+        except cv2.error:
+            logger.warning(
+                "OpenCV display unavailable; continuing without preview",
+                exc_info=True,
+            )
+            self._display_enabled = False
         return True
 
     def start(self):

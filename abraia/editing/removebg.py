@@ -33,7 +33,8 @@ class BackgroundRemover:
     
     def __init__(self):
         self.image_size = (1024, 1024)
-        self.input_mean = (0.485, 0.456, 0.406)
+        self.input_mean = (0.5, 0.5, 0.5)
+        self.input_std = (1.0, 1.0, 1.0)
         self.providers = ort.get_available_providers()
         # model_src = download_file('multiple/models/editing/isnet-medium.onnx')
         model_src = download_file('multiple/models/editing/rmbg14_fp16.onnx')
@@ -41,9 +42,14 @@ class BackgroundRemover:
         self.input_name = self.session.get_inputs()[0].name
 
     def preprocess(self, img):
+        img = np.asarray(img)
+        if img.ndim != 3 or img.shape[2] != 3:
+            raise ValueError('Background removal expects an RGB image')
         img = cv2.resize(img, self.image_size, interpolation=cv2.INTER_LINEAR)
-        img = img / np.max(img) - np.array(self.input_mean)
-        # img = img / 255 - np.array(self.input_mean)
+        img = img.astype(np.float32) / 255.0
+        img = (img - np.array(self.input_mean, dtype=np.float32)) / np.array(
+            self.input_std, dtype=np.float32
+        )
         img = img.transpose((2, 0, 1)).astype(np.float32)
         return np.expand_dims(img, axis=0)
     
@@ -51,7 +57,7 @@ class BackgroundRemover:
         pred = out.reshape(self.image_size)
         # ma, mi = np.max(pred), np.min(pred)
         # pred = (pred - mi) / (ma - mi)
-        mask = (pred * 255).astype(np.uint8)
+        mask = (np.clip(pred, 0, 1) * 255).astype(np.uint8)
         mask = cv2.resize(mask, size, interpolation=cv2.INTER_LINEAR)
         return mask
 

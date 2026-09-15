@@ -69,6 +69,40 @@ def test_dataset_annotated_status():
     assert ds.annotated is False
 
 
+def test_prepare_dataset_reports_download_progress(monkeypatch):
+    import abraia.training as training
+
+    annotations = [
+        {"filename": "one.jpg"},
+        {"filename": "two.jpg"},
+        {"filename": "three.jpg"},
+    ]
+    dataset = type(
+        "Dataset",
+        (),
+        {
+            "project": "progress-test",
+            "annotations": annotations,
+            "classes": ["cat"],
+            "task": "classify",
+        },
+    )()
+    monkeypatch.setattr(training.os.path, "exists", lambda _path: False)
+    monkeypatch.setattr(training.abraia, "check_file", lambda _path: False)
+    monkeypatch.setattr(
+        training,
+        "split_dataset",
+        lambda values: (values[:1], values[1:2], values[2:]),
+    )
+    monkeypatch.setattr(training, "save_data", lambda *args: None)
+    events = []
+
+    training.prepare_dataset(dataset, callback=events.append)
+
+    assert [event["current"] for event in events] == [0, 1, 2, 3]
+    assert all(event["total"] == 3 for event in events)
+
+
 from abraia.training import ModelTrainer
 
 @patch('abraia.training.classify.Model')
@@ -112,6 +146,5 @@ def test_train_model_epochs():
     for i, call in enumerate(callback_calls):
         assert call['epoch'] == i
         assert call['epochs'] == num_epochs
-
 
 

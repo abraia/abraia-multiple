@@ -10,6 +10,7 @@ from tqdm.contrib.concurrent import process_map
 from ..utils import save_text
 from .ops import train_test_split
 from .dataset import list_datasets, load_dataset, search_images, list_models, download_file, abraia
+from .service import TrainingService
 
 
 def save_annotation(annotation, folder, classes, task):
@@ -64,7 +65,8 @@ def split_dataset(annotations):
     return train, val, test
 
     
-def prepare_dataset(dataset, force = False):
+def prepare_dataset(dataset, force=False, callback=None):
+    """Download and split a dataset, optionally reporting each file."""
     if force or not os.path.exists(dataset.project):
         annotations = dataset.annotations
         dataset_path = f"{dataset.project}/dataset.json"
@@ -77,12 +79,54 @@ def prepare_dataset(dataset, force = False):
             folder = os.path.join(dataset.project, x)
             all_annotations.extend(annotations)
             all_folders.extend([folder] * len(annotations))
+        total = len(all_annotations)
+
+        def report(current, annotation):
+            if callback:
+                callback({
+                    "current": current,
+                    "total": total,
+                    "filename": annotation.get("filename", "image"),
+                })
+
+        if callback:
+            callback({
+                "current": 0,
+                "total": total,
+                "filename": "Starting download",
+            })
         if sys.platform == 'darwin':
             # Avoid spawning processes from Studio's background thread.
-            for annotation, folder in tqdm(zip(all_annotations, all_folders), total=len(all_annotations), desc="Downloading images"):
+            for current, (annotation, folder) in enumerate(
+                tqdm(
+                    zip(all_annotations, all_folders),
+                    total=len(all_annotations),
+                    desc="Downloading images",
+                ),
+                start=1,
+            ):
                 save_data(annotation, folder, dataset.classes, dataset.task)
+                report(current, annotation)
+        elif callback:
+            # ``process_map`` owns its progress bar and cannot stream progress
+            # to a caller callback. Use the callback-aware path for clients
+            # such as Studio; callers without a callback retain parallelism.
+            for current, (annotation, folder) in enumerate(
+                zip(all_annotations, all_folders), start=1
+            ):
+                save_data(annotation, folder, dataset.classes, dataset.task)
+                report(current, annotation)
         else:
-            process_map(save_data, all_annotations, all_folders, itertools.repeat(dataset.classes), itertools.repeat(dataset.task), max_workers=5, chunksize=1, desc="Downloading images")
+            process_map(
+                save_data,
+                all_annotations,
+                all_folders,
+                itertools.repeat(dataset.classes),
+                itertools.repeat(dataset.task),
+                max_workers=5,
+                chunksize=1,
+                desc="Downloading images",
+            )
         if dataset.task != 'classify':
             save_config(dataset.project, dataset.classes)
 

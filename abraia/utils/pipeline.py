@@ -133,10 +133,10 @@ class Pipeline:
         if not isinstance(model_config, dict) or not model_config.get("uri"):
             raise ValueError("Pipeline model must define 'uri'")
 
-        from .inference import Tracker
-        from .inference.detect import Model
-        from .inference.tools import LineCounter, RegionFilter, RegionTimer
-        from .utils import Video
+        from ..inference import Tracker
+        from ..inference.detect import Model
+        from ..inference.tools import LineCounter, RegionFilter, RegionTimer
+        from . import Video
 
         root = Path(base_dir or os.getcwd())
         source = source_config["src"]
@@ -232,7 +232,7 @@ class Pipeline:
             if render_metrics_enabled:
                 counter = components.get("line_counter")
                 if counter:
-                    from .utils.draw import render_counter
+                    from .draw import render_counter
                     out = render_counter(
                         out,
                         counter.line,
@@ -240,7 +240,7 @@ class Pipeline:
                     )
                 region_timer = components.get("region_timer")
                 if region_timer:
-                    from .utils.draw import render_region
+                    from .draw import render_region
                     out = render_region(
                         out,
                         region_timer.region,
@@ -248,7 +248,7 @@ class Pipeline:
                         color=(255, 255, 0),
                     )
             if render_results_enabled:
-                from .utils.draw import render_results
+                from .draw import render_results
                 out = render_results(out, context.results)
             return out
 

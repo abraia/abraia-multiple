@@ -5,35 +5,60 @@ import onnxruntime as ort
 from ..utils import download_file
 
 
+def _tile_starts(length, tile_length, overlap):
+    step = tile_length - overlap
+    if tile_length <= 0 or overlap < 0 or overlap >= tile_length:
+        raise ValueError('overlap must be non-negative and smaller than the tile dimensions')
+    if length <= 0:
+        return []
+    if length <= tile_length:
+        return [0]
+    starts = list(range(0, length, step))
+    if starts[-1] + tile_length > length:
+        starts[-1] = max(0, length - tile_length)
+    return list(dict.fromkeys(starts))
+
+
 def tiling(img, tile_size, overlap = 8):
     """Return an image in a tiled manner."""
     tile_width, tile_height = tile_size
     height, width = img.shape[:2]
-    for y in range(0, height, tile_height - overlap):
+    for y in _tile_starts(height, tile_height, overlap):
         y_end = min(y + tile_height, height)
-        y = max(0, y_end - tile_height)
-        for x in range(0, width, tile_width - overlap):
+        for x in _tile_starts(width, tile_width, overlap):
             x_end = min(x + tile_width, width)
-            x = max(0, x_end - tile_width)
             tile = img[y:y_end, x:x_end]
             yield tile
 
 
 def stitching(tiles, img_size, overlap = 8):
     """Return an image from a set of tiles."""
+    tiles = list(tiles)
+    if not tiles:
+        raise ValueError('at least one tile is required')
     tile_height, tile_width = tiles[0].shape[:2]
+    overlap = min(overlap, max(tile_height - 1, 0), max(tile_width - 1, 0))
     width, height = img_size
-    out = np.empty((height, width, 3), dtype=np.uint8)
+    channels = tiles[0].shape[2] if tiles[0].ndim == 3 else 1
+    out = np.zeros((height, width, channels), dtype=np.float32)
+    weights = np.zeros((height, width, 1), dtype=np.float32)
     k = 0
-    for y in range(0, height, tile_height - overlap):
-        for x in range(0, width, tile_width - overlap):
-            x_end = min(x + tile_width, width)
-            y_end = min(y + tile_height, height)
-            x = max(0, x_end - tile_width)
-            y = max(0, y_end - tile_height)
-            out[y:y_end, x:x_end, :] = tiles[k]
+    for y in _tile_starts(height, tile_height, overlap):
+        for x in _tile_starts(width, tile_width, overlap):
+            tile = tiles[k]
+            if tile.ndim == 2:
+                tile = tile[..., np.newaxis]
+            tile_height_actual, tile_width_actual = tile.shape[:2]
+            y_end = min(y + tile_height_actual, height)
+            x_end = min(x + tile_width_actual, width)
+            tile = tile[:y_end - y, :x_end - x]
+            out[y:y_end, x:x_end] += tile
+            weights[y:y_end, x:x_end] += 1
             k += 1
-    return out
+    if k != len(tiles):
+        raise ValueError('tile count does not match image dimensions')
+    out = np.divide(out, weights, out=np.zeros_like(out), where=weights != 0)
+    return np.clip(out, 0, 255).astype(np.uint8)
 
 
 def ceil_modulo(x, mod):
@@ -47,7 +72,6 @@ def pad_img_to_modulo(img, mod):
 
 
 class LAMA:
-    
     def __init__(self):
         self.image_size = (512, 512)
         sess_options = ort.SessionOptions()
@@ -91,4 +115,3 @@ class LAMA:
             outs.append(self.process(im, msk))
         out = stitching(outs, img_size)
         return out
-    

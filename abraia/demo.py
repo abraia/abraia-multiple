@@ -5,7 +5,7 @@ from copy import deepcopy
 from abraia.inference import FaceRecognizer, FaceAttribute, PlateRecognizer
 from abraia.inference.faces import find_pose
 from abraia.inference.ops import count_objects
-from abraia.pipeline import Pipeline
+from abraia.utils import Pipeline
 from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
 from abraia.utils import Video, download_url, load_image
 

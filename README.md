@@ -81,7 +81,7 @@ Object detection, tracking, and counting workflows can be configured in a
 JSON file and run from Python:
 
 ```python
-from abraia.pipeline import Pipeline
+from abraia.utils import Pipeline
 
 Pipeline.from_file("pipeline.json").run()
 ```

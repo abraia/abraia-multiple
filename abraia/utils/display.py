@@ -16,7 +16,6 @@ class Sketcher:
     """
 
     def __init__(self, img: np.ndarray, radius: int = 7):
-        print(Sketcher.__doc__)
         self.window = Window('Image')
         self.radius = radius
         self.handle_click: Optional[Callable[[list], Any]] = None

@@ -31,6 +31,10 @@ def create_gradient_mask(shape, feather):
     """Create a gradient mask for smooth blending of tiles."""
     mask = np.ones(shape)
     _, _, h, w = shape
+    feather = int(round(feather))
+    if feather <= 0:
+        return mask
+    feather = min(feather, h, w)
     for feather_step in range(feather):
         factor = (feather_step + 1) / feather
         mask[:, :, feather_step, :] *= factor
@@ -42,12 +46,17 @@ def create_gradient_mask(shape, feather):
 
 def tiled_upscale(samples, function, scale, tile_size, overlap = 8):
     """Apply a scaling function to image samples in a tiled manner."""
+    if scale <= 0:
+        raise ValueError('scale must be positive')
     height, width = samples.shape[2:]
     tile_width, tile_height = tile_size
+    if tile_width <= 0 or tile_height <= 0:
+        raise ValueError('tile dimensions must be positive')
+    if overlap < 0 or overlap >= min(tile_width, tile_height):
+        raise ValueError('overlap must be non-negative and smaller than the tile dimensions')
     out_height, out_width = round(height * scale), round(width * scale)
-    output = np.empty((1, 3, out_height, out_width))
     out = np.zeros((1, 3, out_height, out_width))
-    out_div = np.zeros_like(output)
+    out_div = np.zeros_like(out)
     for y in range(0, height, tile_height - overlap):
         for x in range(0, width, tile_width - overlap):
             # Ensure we don't go out of bounds
@@ -67,7 +76,8 @@ def tiled_upscale(samples, function, scale, tile_size, overlap = 8):
             out[:, :, out_y : out_y + out_h, out_x : out_x + out_w] += processed_tile * mask
             out_div[:, :, out_y : out_y + out_h, out_x : out_x + out_w] += mask
     # Normalize the output
-    output = out / out_div
+    output = np.zeros_like(out)
+    np.divide(out, out_div, out=output, where=out_div != 0)
     return output
 
 

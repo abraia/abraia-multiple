@@ -9,6 +9,8 @@ import mimetypes
 import numpy as np
 import pillow_heif
 import time
+import threading
+from urllib.parse import quote
 from requests.adapters import HTTPAdapter
 
 from tqdm import tqdm
@@ -17,10 +19,18 @@ from pathlib import Path
 from PIL import Image, ImageOps
 from concurrent.futures import ProcessPoolExecutor
 
-from .video import Video
+from .video import Video, make_dirs
 from .stream import VideoInput, VideoDisplay
 from .display import Sketcher, Window
 from .draw import get_color, render_results
+from .pipeline import (
+    FrameContext,
+    LineCounterStage,
+    Pipeline,
+    RegionFilterStage,
+    RegionTimerStage,
+    TrackerStage,
+)
 
 pillow_heif.register_heif_opener()
 
@@ -30,11 +40,20 @@ API_URL = 'https://api.abraia.me'
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'}
 
-_url_session = requests.Session()
-_url_session.headers.update(HEADERS)
-_url_adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)
-_url_session.mount('https://', _url_adapter)
-_url_session.mount('http://', _url_adapter)
+_url_sessions = threading.local()
+
+
+def _get_url_session():
+    """Return a connection-pooled session local to the current thread."""
+    session = getattr(_url_sessions, 'session', None)
+    if session is None:
+        session = requests.Session()
+        session.headers.update(HEADERS)
+        adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+        _url_sessions.session = session
+    return session
 
 mimetypes.add_type('image/webp', '.webp')
 mimetypes.add_type('image/heic', '.heic')
@@ -47,10 +66,13 @@ def get_type(path):
 
 def md5sum(src):
     hash_md5 = hashlib.md5()
-    f = BytesIO(src.getvalue()) if isinstance(src, BytesIO) else open(src, 'rb')
-    for chunk in iter(lambda: f.read(4096), b''):
-        hash_md5.update(chunk)
-    f.close()
+    if isinstance(src, BytesIO):
+        f = BytesIO(src.getvalue())
+    else:
+        f = open(src, 'rb')
+    with f:
+        for chunk in iter(lambda: f.read(4096), b''):
+            hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
 
@@ -61,6 +83,8 @@ class NumpyEncoder(json.JSONEncoder):
             return int(obj)
         elif isinstance(obj, np.floating):
             return float(obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
@@ -71,49 +95,79 @@ def is_url(url):
 
 
 def url_path(path):
-    return f"{API_URL}/files/{path}"
+    path = os.fspath(path).replace('\\', '/')
+    return f"{API_URL}/files/{quote(path.lstrip('/'), safe='/')}"
 
 
 def list_dir(folder):
     return [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
 
 
-def make_dirs(dest):
-    """Create directory if it doesn't exist."""
-    dirname = os.path.dirname(dest)
-    if dirname:
-        os.makedirs(dirname, exist_ok=True)
-
-
 def get_remote_file_size(url: str, timeout: int = 30):
     """Get the size of a remote file via HEAD request."""
     try:
-        r = requests.head(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
-        length = r.headers.get('Content-Length')
-        return int(length) if length else None
+        with _get_url_session().head(
+            url, timeout=timeout, allow_redirects=True
+        ) as response:
+            if not response.ok:
+                return None
+            length = response.headers.get('Content-Length')
+            return int(length) if length else None
     except Exception:
         return None
 
 
 def temporal_src(path):
-    dest = os.path.join(tempdir, path)
-    make_dirs(dest)
-    return dest
+    relative = Path(os.fspath(path))
+    if relative.is_absolute() or '..' in relative.parts:
+        raise ValueError('Temporary paths must remain relative to the cache directory')
+    dest = Path(tempdir) / relative
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    return str(dest)
 
 
-def download_url(url: str, dest: str, chunk_size: int = 8192):
-    filename = os.path.basename(dest)
-    temp_dest = Path(dest).with_name(filename + '.part')
-    temp_dest.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(url, headers=HEADERS, stream=True, allow_redirects=True) as r:
-        r.raise_for_status()
-        total = int(r.headers.get('content-length', 0))
-        with open(temp_dest, 'wb') as f, tqdm(desc=filename, total=total, unit='iB', unit_scale=True, unit_divisor=1024) as bar:
-            for chunk in r.iter_content(chunk_size=chunk_size): 
-                size = f.write(chunk)
-                bar.update(size)
-            f.flush()
-    temp_dest.rename(dest)
+def download_url(
+    url: str,
+    dest: str,
+    chunk_size: int = 8192,
+    timeout=(10, 120),
+):
+    """Download a URL atomically, removing partial output on failure."""
+    destination = Path(dest)
+    filename = destination.name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temp_fd, temp_name = tempfile.mkstemp(
+        prefix=f'.{filename}.', suffix='.part', dir=destination.parent
+    )
+    os.close(temp_fd)
+    temp_dest = Path(temp_name)
+    try:
+        with _get_url_session().get(
+            url,
+            stream=True,
+            allow_redirects=True,
+            timeout=timeout,
+        ) as response:
+            response.raise_for_status()
+            total = int(response.headers.get('content-length', 0))
+            with temp_dest.open('wb') as fileobj, tqdm(
+                desc=filename,
+                total=total,
+                unit='iB',
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as bar:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if not chunk:
+                        continue
+                    size = fileobj.write(chunk)
+                    bar.update(size)
+                fileobj.flush()
+                os.fsync(fileobj.fileno())
+        os.replace(temp_dest, destination)
+    except Exception:
+        temp_dest.unlink(missing_ok=True)
+        raise
 
 
 def download_file(path):
@@ -124,9 +178,17 @@ def download_file(path):
 
 
 def load_url(url, timeout=(10, 120)):
+    """Return a readable response body for a URL.
+
+    The returned raw stream owns the underlying connection; callers must
+    close it after consuming the response. Prefer :func:`load_url_bytes` when
+    a stream is not required.
+    """
     for attempt in range(3):
         try:
-            r = _url_session.get(url, stream=True, allow_redirects=True, timeout=timeout)
+            r = _get_url_session().get(
+                url, stream=True, allow_redirects=True, timeout=timeout
+            )
             if r.status_code == 200:
                 return r.raw
             r.close()
@@ -155,25 +217,48 @@ def load_url_bytes(url, timeout=(10, 120)):
 
 
 def load_json(src, gz=False):
-    with gzip.open(src, 'rt') if gz else open(src, 'r') as f:
+    with gzip.open(src, 'rt', encoding='utf-8') if gz else open(
+        src, 'r', encoding='utf-8'
+    ) as f:
         return json.load(f)
     
 
-def save_json(data, dest, gz=False):
+_MISSING = object()
+
+
+def save_json(dest, data=_MISSING, gz=False):
+    """Save JSON using the same destination-first order as other save APIs.
+
+    The historical ``save_json(data, dest)`` order remains accepted for
+    compatibility with older SDK callers.
+    """
+    if (
+        not isinstance(dest, (str, os.PathLike))
+        and isinstance(data, (str, os.PathLike))
+    ):
+        dest, data = data, dest
+    if data is _MISSING:
+        raise TypeError('save_json() missing required argument: data')
     make_dirs(dest)
-    with gzip.open(dest, 'wt') if gz else open(dest, 'w') as f:    
-        f.write(json.dumps(data, cls=NumpyEncoder))
+    with gzip.open(dest, 'wt', encoding='utf-8') if gz else open(
+        dest, 'w', encoding='utf-8'
+    ) as f:
+        json.dump(data, f, cls=NumpyEncoder)
     return dest
 
 
 def load_text(src, gz=False):
-    with gzip.open(src, 'rt') if gz else open(src, 'r') as f:
+    with gzip.open(src, 'rt', encoding='utf-8') if gz else open(
+        src, 'r', encoding='utf-8'
+    ) as f:
         return f.read()
 
 
 def save_text(dest, text, gz=False):
     make_dirs(dest)
-    with gzip.open(dest, 'wt') if gz else open(dest, 'w') as f:
+    with gzip.open(dest, 'wt', encoding='utf-8') if gz else open(
+        dest, 'w', encoding='utf-8'
+    ) as f:
         f.write(text)
     return dest
 
@@ -191,9 +276,10 @@ def save_data(dest, data, gz=False):
 
 
 def load_image(src, mode='RGB', max_size=2048):
-    im = ImageOps.exif_transpose(Image.open(src).convert(mode)) 
-    if im.width > max_size or im.height > max_size:
-        im.thumbnail((max_size, max_size), Image.LANCZOS)
+    with Image.open(src) as opened:
+        im = ImageOps.exif_transpose(opened).convert(mode)
+    if max_size is not None and (im.width > max_size or im.height > max_size):
+        im.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
     return np.array(im)
 
 
@@ -322,15 +408,21 @@ def get_providers():
 
     available_providers = ort.get_available_providers()
     providers = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
-    return [provider for provider in available_providers if provider in providers]
+    return [provider for provider in providers if provider in available_providers]
 
 
 def process_map(task, *values, desc='', max_workers=3):
-    with ProcessPoolExecutor(max_workers) as exe:
+    """Apply a picklable task in parallel and return results with progress."""
+    if not values:
+        return []
+    with ProcessPoolExecutor(max_workers=max_workers) as exe:
+        results = []
         with tqdm(total=len(values[0]), desc=desc) as pbar:
             for result in exe.map(task, *values):
-                pbar.set_postfix_str(result)
+                results.append(result)
+                pbar.set_postfix_str(str(result))
                 pbar.update(1)
+        return results
 
 
 def process_media(src, callback):
@@ -339,7 +431,67 @@ def process_media(src, callback):
         out = callback(img)
         show_image(out)
     else:
-        video = Video(src)
-        for frame in video:
-            out = callback(frame)
-            video.show(out)
+        with Video(src) as video:
+            for frame in video:
+                out = callback(frame)
+                video.show(out)
+
+
+__all__ = [
+    'API_URL',
+    'HEADERS',
+    'FrameContext',
+    'LineCounterStage',
+    'NumpyEncoder',
+    'Pipeline',
+    'RegionFilterStage',
+    'RegionTimerStage',
+    'Sketcher',
+    'TrackerStage',
+    'Video',
+    'VideoDisplay',
+    'VideoInput',
+    'Window',
+    'array_copy',
+    'array_from_image_buffer',
+    'array_ndim',
+    'array_shape',
+    'array_size',
+    'array_squeeze',
+    'array_to_list',
+    'as_array',
+    'compose_mask_layers',
+    'download_file',
+    'download_url',
+    'encode_image',
+    'encode_mask_overlay',
+    'get_color',
+    'get_providers',
+    'get_remote_file_size',
+    'get_type',
+    'image_base64',
+    'is_url',
+    'list_dir',
+    'load_data',
+    'load_image',
+    'load_json',
+    'load_text',
+    'load_url',
+    'load_url_bytes',
+    'make_dirs',
+    'mask_array',
+    'md5sum',
+    'merge_masks',
+    'process_map',
+    'process_media',
+    'render_results',
+    'resize_mask',
+    'save_data',
+    'save_image',
+    'save_json',
+    'save_text',
+    'show_image',
+    'temporal_src',
+    'url_path',
+    'zeros_array',
+]
