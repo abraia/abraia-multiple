@@ -909,8 +909,13 @@ if HAILO_AVAILABLE:
             raw_detections_keys = list(raw_detections.keys())
             layer_from_shape = {raw_detections[key].shape: key for key in raw_detections_keys}
             endnodes = [raw_detections[layer_from_shape[resolve_shape(layer, self.model_type, arch_cfg)]] for layer in arch_cfg["layers"]]
-            if self.model_type == "v5": result = segment_yolov5_postprocess(endnodes, **arch_cfg)[0]
-            elif self.model_type == "v8": result = segment_yolov8_postprocess(endnodes, **arch_cfg)[0]
+            # Use the runtime threshold during host-side NMS. The model-zoo
+            # default (0.001) is useful for evaluation but allows almost every
+            # low-confidence class through multi-label NMS, which can make the
+            # callback appear stalled before results reach the renderer.
+            postprocess_cfg = {**arch_cfg, "score_threshold": self.score_threshold}
+            if self.model_type == "v5": result = segment_yolov5_postprocess(endnodes, **postprocess_cfg)[0]
+            elif self.model_type == "v8": result = segment_yolov8_postprocess(endnodes, **postprocess_cfg)[0]
             else: raise ValueError(f"Unsupported architecture key: {self.model_type}")
             boxes, masks, scores, classes = result['detection_boxes'], result['mask'], result['detection_scores'], result['detection_classes']
             detections = []
