@@ -175,11 +175,6 @@ def process_dataset(project, anonymize=False, upscale_threshold=0):
     if len(heics):
         process_map(convert_to_jpg, heics, desc="Converting images")
         files = list_dir(project)
-    tiffs = [f for f in files if get_type(f) == 'image/tiff']
-    if len(tiffs):
-        from abraia.multiple import create_visible
-        process_map(create_visible, tiffs, desc="Creating images")
-        files = list_dir(project)
     if anonymize:
         images = [f for f in files if get_type(f).startswith('image')]
         process_map(anonymize, images, desc="Anonymizing images")
@@ -232,6 +227,9 @@ def train(project, epochs):
     click.echo('Training model...')
     training_session = ModelTrainer(project, dataset.task, dataset.classes)
     training_session.train(epochs)
+    click.echo('Evaluating metrics...')
+    metrics = training_session.test()
+    click.echo(json.dumps(metrics, indent=2))
     click.echo('Saving model...')
     training_session.save()
 
@@ -274,8 +272,6 @@ def run(project, classes, src):
             from abraia.demo import search_images
             search_images(project, query=src or "man with red shirt")
         else:
-            src = classes if classes != 'faces' else src or 0
-        try:
             from abraia.training import list_models
             from abraia.inference.detect import Model
             from abraia.utils import process_media, render_results
@@ -291,9 +287,8 @@ def run(project, classes, src):
                 results = model.run(img)
                 return render_results(img, results)
             
+            src = classes if classes != 'faces' else src or 0
             process_media(src, callback)
-        except APIError as error:
-            echo_error(error)
 
 
 if __name__ == '__main__':

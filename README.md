@@ -43,6 +43,19 @@ For training and development run the installation with optional extras (`dev`, `
 pip install -U abraia[dev,multiple]
 ```
 
+For Vision Studio with ENVI support, install the Studio extra:
+
+```sh
+pip install -U abraia[studio]
+```
+
+For supervised HSI analysis or GIS helpers, add the
+corresponding optional extras:
+
+```sh
+pip install -U abraia[multiple,analysis,gis]
+```
+
 ---
 
 ## 🚀 Core Modules & Features
@@ -62,8 +75,39 @@ pip install -U abraia[dev,multiple]
 - **Background Removal**: Foreground segmentation and background removal (`removebg`).
 - **Inpainting**: Image restoration and object removal (`inpaint`).
 
-### 3. Multispectral & Hyperspectral Imaging (`abraia.multiple`)
-- Specialized tools for hyperspectral and multispectral image analysis, cube processing, and spectral signature extraction (`abraia.multiple.hsi`).
+### Object Processing Pipelines
+
+Object detection, tracking, and counting workflows can be configured in a
+JSON file and run from Python:
+
+```python
+from abraia.pipeline import Pipeline
+
+Pipeline.from_file("pipeline.json").run()
+```
+
+The first pipeline format supports a source, model, tracker, line counter,
+region filter or timer, and display output. Stages run in the order listed:
+
+```json
+{
+  "version": 1,
+  "source": {"type": "video", "src": "people.mp4"},
+  "model": {
+    "uri": "multiple/models/yolov8n.onnx",
+    "labels": ["person"]
+  },
+  "stages": [
+    {"type": "tracker"},
+    {"type": "line_counter", "line": [[0, 650], [1920, 650]]}
+  ],
+  "display": {"show": true, "dest": "output.avi"}
+}
+```
+
+### 3. Multispectral & Hyperspectral Imaging (`multiple`)
+- Specialized tools for hyperspectral and multispectral image analysis, cube processing, spectral indices, radiometric calibration, scene manifests, and spectral signature extraction (`multiple.analysis`). Remote datasets support TIFF cubes, ENVI header/data pairs (`.hdr` with `.raw`, `.img`, or a declared companion file), and IMEC snapshot-mosaic scenes (`.raw` plus their calibration `.xml`). Studio can upload a folder containing the raw scenes and shared calibration file.
+- The public `multiple` API is grouped into visualization, local I/O, shared band contracts, metadata, manifests, remote datasets and clients, radiometry, analysis, and registration modules. Analysis and GIS integrations expose optional dependency errors only when used.
 
 ### 4. Edge AI & Hardware Acceleration (`abraia.hailo`)
 - Optimized runtime support and toolboxes for Hailo NPU hardware acceleration (`abraia.hailo`).

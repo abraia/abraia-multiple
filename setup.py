@@ -14,7 +14,16 @@ with pathlib.Path('requirements.txt').open() as requirements_txt:
     
 extras_require = {
     'multiple': ['spectral>=0.23.1', 'scipy>=1.14.1', 'tifffile>=2024.8.30'],
+    'analysis': ['scikit-learn>=1.3.0', 'joblib>=1.3.0'],
+    'gis': ['folium>=0.14.0', 'shapely>=2.0.0'],
     'dev': ['tifffile>=2024.8.30', 'ultralytics==8.3.230', 'onnx>=1.16.0', 'transformers>=4.57.1'],
+    'studio': [
+        'PySide6>=6.5',
+        'spectral>=0.23.1',
+        'tifffile>=2024.8.30',
+        'scikit-learn>=1.3.0',
+        'joblib>=1.3.0',
+    ],
 }
 
 setup(
@@ -28,12 +37,16 @@ setup(
     author_email='jorge@abraiasoftware.com',
     license='MIT',
     zip_safe=False,
-    packages=find_packages(exclude=['tests']),
-    package_data={'': ['*.jpg', '*.gz']},
+    packages=find_packages(exclude=['tests', 'tests.*', 'miscode', 'miscode.*']),
+    package_data={
+        '': ['*.jpg', '*.gz'],
+        'studio': ['assets/mdi/*.svg', 'assets/mdi/README.md'],
+    },
     include_package_data=True,
     tests_require=['pytest'],
-    setup_requires=['setuptools>=38.6.0', 'pytest-runner'],
+    setup_requires=['setuptools>=38.6.0'],
     scripts=['scripts/abraia', 'scripts/abraia.bat'],
     install_requires=install_requires,
-    extras_require=extras_require
+    extras_require=extras_require,
+    entry_points={'console_scripts': ['abraia-studio=studio.app:main']},
 )

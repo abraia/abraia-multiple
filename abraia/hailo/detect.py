@@ -13,7 +13,7 @@ from .toolbox import (
     get_labels,
     default_preprocess
 )
-from ..utils.video import VideoInput, VideoDisplay
+from ..utils.stream import VideoInput, VideoDisplay
 
 from ..inference.tracker import TrackletHistory, Tracker
 from ..utils.draw import render_results

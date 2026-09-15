@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import io
 import json
@@ -6,6 +7,7 @@ import urllib
 import requests
 import filetype
 import itertools
+from concurrent.futures import ThreadPoolExecutor
 
 from tqdm import tqdm
 from PIL import Image
@@ -18,6 +20,8 @@ from abraia.inference.sam import SAM
 
 
 abraia = Abraia()
+if sys.platform == 'darwin':
+    os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 
 GOOGLE_BASE_URL = 'https://www.google.com/search?q='
 GOOGLE_PICTURE_ID = '''&biw=1536&bih=674&tbm=isch&sxsrf=ACYBGNSXXpS6YmAKUiLKKBs6xWb4uUY5gA:1581168823770&source=lnms&sa=X&ved=0ahUKEwioj8jwiMLnAhW9AhAIHbXTBMMQ_AUI3QUoAQ'''
@@ -161,7 +165,17 @@ def download_file(path, folder):
 
 def list_datasets():
     folders = abraia.list_files()[1]
-    return [folder['name'] for folder in folders if abraia.check_file(f"{folder['name']}/annotations.json")]
+    def has_annotations(folder):
+        try:
+            return abraia.check_file(f"{folder['name']}/annotations.json")
+        except Exception:
+            return False
+
+    if not folders:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(folders))) as executor:
+        valid = executor.map(has_annotations, folders)
+        return [folder['name'] for folder, is_valid in zip(folders, valid) if is_valid]
 
 
 def list_models(project):
@@ -171,6 +185,11 @@ def list_models(project):
 
 class Annotator:
     def __init__(self, model="IDEA-Research/grounding-dino-tiny", segment=False):
+        if sys.platform == 'darwin':
+            # Prevent native thread-pool contention when annotation follows
+            # local PyTorch/Ultralytics training in the same process.
+            import torch
+            torch.set_num_threads(1)
         from transformers import pipeline
         self.pipe = pipeline(task="zero-shot-object-detection", model=model)
         self.segment_enabled = segment
@@ -208,23 +227,86 @@ class Annotator:
         return objects
 
 
-class Dataset:
+def annotate_images(images, classes, segment=False, annotator=None):
+    """Annotate image rows with Grounding DINO.
+
+    This compatibility helper keeps the batch-oriented API used by Studio and
+    older callers while sharing the current :class:`Annotator` implementation.
+    """
+    annotator = annotator or Annotator(segment=segment)
+    annotations = []
+    for row in tqdm(images):
+        url, filename = row['url'], row['name']
+        img = load_image(load_url(url))
+        objects = annotator.detect(img, classes)
+        if not objects:
+            continue
+        if segment:
+            try:
+                objects = annotator.segment(img, objects)
+            except Exception:
+                continue
+        annotations.append({'url': url, 'filename': filename, 'objects': objects})
+    return annotations
+
+
+class DatasetBase:
+    """Common annotation and dataset state without model dependencies."""
+
     def __init__(self, project):
         self.project = project
         self.annotations = []
         self.classes = []
-        self.task = ''
+        self.task = ""
         self.images = []
         self.annotated = False
 
     def _update_annotated(self):
-        self.annotated = bool(self.images) and all(img['name'] in {a['filename'] for a in self.annotations} for img in self.images)
+        annotated_filenames = {
+            annotation.get("filename")
+            for annotation in self.annotations
+            if isinstance(annotation, dict)
+        }
+        self.annotated = bool(self.images) and all(
+            image.get("name") in annotated_filenames
+            for image in self.images
+            if isinstance(image, dict)
+        )
 
-    def load(self):
-        if self.project in list_datasets():
-            self.annotations = self._load_annotations(self.project)
-            self.classes, self.task = self._process_annotations(self.annotations)
-            self.images = self._list_images(self.project)
+    @staticmethod
+    def _process_annotations(annotations):
+        labels = set()
+        classify = detect = segment = False
+        for annotation in annotations or []:
+            if not isinstance(annotation, dict):
+                continue
+            for obj in annotation.get("objects", []):
+                if not isinstance(obj, dict):
+                    continue
+                label = obj.get("label")
+                if label:
+                    labels.add(label)
+                    classify = True
+                if "polygon" in obj:
+                    segment = True
+                elif "box" in obj:
+                    detect = True
+        task = "segment" if segment else "detect" if detect else "classify" if classify else ""
+        return list(labels), task
+
+
+class Dataset(DatasetBase):
+
+    def load(self, validate=True):
+        if validate and self.project not in list_datasets():
+            self._update_annotated()
+            return self
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            annotations_future = executor.submit(self._load_annotations, self.project)
+            images_future = executor.submit(self._list_images, self.project)
+            self.annotations = annotations_future.result()
+            self.images = images_future.result()
+        self.classes, self.task = self._process_annotations(self.annotations)
         self._update_annotated()
         return self
     
@@ -234,21 +316,6 @@ class Dataset:
             annotation['path'] = f"{project}/{annotation['filename']}"
             annotation['url'] = url_path(f"{abraia.userid}/{annotation['path']}")
         return annotations
-
-    def _process_annotations(self, annotations):
-        labels = set()
-        classify, detect, segment = False, False, False
-        for annotation in annotations:
-            for obj in annotation.get('objects', []):
-                label = obj.get('label')
-                if label:
-                    labels.add(label)
-                    classify = True
-                if 'polygon' in obj:
-                    segment = True
-                elif 'box' in obj:
-                    detect = True
-        return list(labels), 'segment' if segment else 'detect' if detect else 'classify' if classify else ''
 
     def _list_images(self, project):
         files = abraia.list_files(f"{project}/")[0]
@@ -285,5 +352,5 @@ class Dataset:
         self._update_annotated()
 
 
-def load_dataset(project):
-    return Dataset(project).load()
+def load_dataset(project, validate=True):
+    return Dataset(project).load(validate=validate)

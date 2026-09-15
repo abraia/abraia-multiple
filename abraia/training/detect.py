@@ -2,6 +2,7 @@ from ..client import Abraia
 
 import os
 import io
+import sys
 import shutil
 import contextlib
 import numpy as np
@@ -45,14 +46,20 @@ class Model:
                 callback({'epoch': trainer.epoch, 'epochs': trainer.epochs, 'loss': loss, 'acc': float(acc)})
             self.model.add_callback('on_train_epoch_end', on_train_epoch_end)
         data = f"{project}" if self.task == 'classify' else f"{project}/data.yaml"
-        results = self.model.train(data=data, batch=batch, epochs=epochs, imgsz=self.imgsz)
+        train_options = {'data': data, 'batch': batch, 'epochs': epochs, 'imgsz': self.imgsz}
+        if sys.platform == 'darwin':
+            # Ultralytics workers inherit locks when training is launched by
+            # Studio's Python worker thread. A single loader is safer on macOS.
+            train_options['workers'] = 0
+        self.model.train(**train_options)
 
     def test(self, split='val'):
         out = io.StringIO()
         with contextlib.redirect_stderr(out):
             metrics = self.model.val(split=split)
-        return {'mAP': float(metrics.box.map50), 'P': metrics.box.p.tolist(), 'R': metrics.box.r.tolist(), 
-                'confusionMatrix': metrics.confusion_matrix.matrix.tolist()}
+        self.metrics = {'mAP': float(metrics.box.map50), 'P': metrics.box.p.tolist(), 'R': metrics.box.r.tolist(), 
+                        'confusionMatrix': metrics.confusion_matrix.matrix.tolist()}
+        return self.metrics
 
     def save(self, project, classes, device='cpu', half=False):
         # TODO: Add model name versioning

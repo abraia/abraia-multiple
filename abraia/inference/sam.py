@@ -25,6 +25,7 @@ def get_input_points(prompt):
 class SAM:
 
     def __init__(self):
+        self.image_embedding = None
         self.target_size = 1024
         self.input_size = (684, 1024)
         encoder_src = download_file('multiple/models/mobile_sam.encoder.onnx')
@@ -49,7 +50,7 @@ class SAM:
         encoder_output = self.encoder.run(None, encoder_inputs)
         self.image_embedding = encoder_output[0]
         return self.image_embedding
-    
+
     def decode(self, image_embedding, input_points, input_labels):
         onnx_coord = np.concatenate([input_points, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
         onnx_label = np.concatenate([input_labels, np.array([-1])], axis=0)[None, :].astype(np.float32)
@@ -78,7 +79,7 @@ class SAM:
         transform_matrix = np.array([[scale, 0, 0],
                                      [0, scale, 0],
                                      [0, 0, 1]])
-        
+
         if self.image_embedding is None:
             self.image_embedding = self.encode(img)
 
@@ -135,7 +136,5 @@ class InteractiveSAM(Sketcher, SAM):
 
         self.on_click(handle_click)
         return self.run()
-
-
 
 

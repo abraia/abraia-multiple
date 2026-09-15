@@ -1,5 +1,6 @@
 import os
 import copy
+import sys
 import time
 import onnx
 import torch
@@ -20,52 +21,6 @@ torch.backends.cudnn.benchmark = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-# def read_image(path):
-#     dest = abraia.download_file(path, cache=True)
-#     return load_image(dest)
-
-
-# def load_dataset(dataset, shuffle=True):
-#     paths, labels = [], []
-#     annotations = abraia.load_json(f"{dataset}/annotations.json")
-#     keys = list(filter(lambda k: k != 'filename', annotations[0].keys()))
-#     paths = [f"{dataset}/{annotation['filename']}" for annotation in annotations]
-#     labels = [annotation['label'] for annotation in annotations]
-#     if shuffle:
-#         ids = list(range(len(paths)))
-#         random.shuffle(ids)
-#         paths = [paths[id] for id in ids]
-#         labels = [labels[id] for id in ids]
-#     return paths, labels
-
-
-# class Dataset(torch.utils.data.Dataset):
-#     def __init__(self, root_dir, transform=None, target_transform=None):
-#         paths, labels = load_dataset(root_dir)
-#         self.paths = paths
-#         self.labels = labels
-#         self.root_dir = root_dir
-#         self.transform = transform
-#         self.target_transform = target_transform
-#         self.classes = list(np.sort(np.unique(labels)))
-
-#     def __len__(self):
-#         return len(self.paths)
-
-#     def __getitem__(self, idx):
-#         if torch.is_tensor(idx):
-#             idx = idx.tolist()
-#         path = self.paths[idx]
-#         label = self.labels[idx]
-#         label = self.classes.index(label)
-#         img = read_image(path)
-#         if self.transform:
-#             img = self.transform(img)
-#         if self.target_transform:
-#             label = self.target_transform(label)
-#         return img, label
-
-
 def create_model(class_names, pretrained=True):
     model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
     for param in model.parameters():
@@ -74,16 +29,6 @@ def create_model(class_names, pretrained=True):
     model.fc = torch.nn.Linear(num_ftrs, len(class_names))
     model.to(device)
     return model
-
-
-transform = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225])
-])
 
 
 # License: BSD
@@ -96,9 +41,6 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
     for epoch in range(num_epochs):
-        print(f'Epoch {epoch}/{num_epochs - 1}')
-        print('-' * 10)
-        # Each epoch has a training and validation phase
         for phase in ['train', 'val']:
             if phase == 'train':
                 model.train()  # Set model to training mode
@@ -129,15 +71,16 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
                 scheduler.step()
             epoch_loss = running_loss / len(dataloaders[phase].dataset)
             epoch_acc = running_corrects.double() / len(dataloaders[phase].dataset)
-            print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
-            if callback:
+            if not callback:
+                print(f"Epoch {epoch+1}/{num_epochs} [{phase}] loss: {epoch_loss:.4f}, acc: {epoch_acc:.4f}")
+            if callback and phase == 'val':
                 callback({'epoch': epoch, 'epochs': num_epochs, 'loss': epoch_loss, 'acc': float(epoch_acc)})
             # deep copy the model
             if phase == 'val' and epoch_acc > best_acc:
                 best_acc = epoch_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
-        print()
-    print(f'Best val Acc: {best_acc:4f}')
+    if not callback:
+        print(f"Best val Acc: {best_acc:.4f}")
     # load best model weights
     model.load_state_dict(best_model_wts)
     return model
@@ -189,29 +132,37 @@ def visualize_model(model, dataloader, num_images=6):
 
 class Model:
     def __init__(self):
-        self.imgsz = 224
-        self.input_shape = [1, 3, self.imgsz, self.imgsz]
+        self.input_shape = [1, 3, 224, 224]
         self.model_name = 'resnet18'
+        self.metrics = {}
+        self.transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225])
+        ])
 
     def create_dataset(self, dataset, batch=8):
         # Data augmentation and normalization for training
         # Just normalization for validation
         data_transforms = {
             'train': transforms.Compose([
-                transforms.RandomResizedCrop(self.imgsz),
+                transforms.RandomRotation(15),
+                transforms.RandomResizedCrop(224),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ]),
-            'val': transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(self.imgsz),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ]),
+            'val': self.transform,
         }
         image_datasets = {x: datasets.ImageFolder(os.path.join(dataset, x), transform=data_transforms[x]) for x in ['train', 'val']}
-        dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=batch, shuffle=True, num_workers=4) for x in ['train', 'val']}
+        # Multiprocessing DataLoader workers started from Studio's background
+        # thread can leave native locks behind on macOS. Keep the GUI path
+        # single-process there; other platforms retain the faster loaders.
+        num_workers = 0 if sys.platform == 'darwin' else 4
+        dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=batch, shuffle=True, num_workers=num_workers) for x in ['train', 'val']}
         classes = image_datasets['train'].classes
         return dataloaders, classes
 
@@ -223,7 +174,8 @@ class Model:
         since = time.time()
         self.model = train_model(model_conv, dataloaders, num_epochs=epochs, callback=callback)
         time_elapsed = time.time() - since
-        print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
+        if not callback:
+            print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
 
     def test(self, split='val'):
         self.model.eval()
@@ -239,21 +191,22 @@ class Model:
                 for t, p in zip(labels.view(-1), preds.view(-1)):
                     confusion_matrix[t.long(), p.long()] += 1
         acc = running_corrects.double() / len(self.dataloaders[split].dataset)
-        return {'acc': float(acc), 'confusionMatrix': confusion_matrix.tolist()}
+        self.metrics = {'acc': float(acc), 'confusionMatrix': confusion_matrix.tolist()}
+        return self.metrics
 
     def save(self, dataset, classes, device='cpu'):
         self.model.to(device)
         model_src = temporal_src(f"{dataset}/{self.model_name}.onnx")
-        dummy_input = torch.randn(1, 3, self.imgsz, self.imgsz)
+        dummy_input = torch.randn(1, 3, 224, 224)
         torch.onnx.export(self.model, dummy_input, model_src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
         onnx_model = onnx.load(model_src)
         onnx.checker.check_model(onnx_model)
         onnx.save(onnx_model, model_src)
         abraia.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
-        abraia.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes})
+        abraia.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes, 'metrics': self.metrics})
 
     def run(self, img):
-        input_tensor = transform(img)
+        input_tensor = self.transform(img)
         input_batch = input_tensor.unsqueeze(0)
         output = self.model(input_batch)
         pred = torch.softmax(output.squeeze(0), dim=0)

@@ -7,8 +7,9 @@ import tempfile
 import requests
 import mimetypes
 import numpy as np
-import onnxruntime as ort
 import pillow_heif
+import time
+from requests.adapters import HTTPAdapter
 
 from tqdm import tqdm
 from io import BytesIO
@@ -17,7 +18,8 @@ from PIL import Image, ImageOps
 from concurrent.futures import ProcessPoolExecutor
 
 from .video import Video
-from .sketcher import Sketcher
+from .stream import VideoInput, VideoDisplay
+from .display import Sketcher, Window
 from .draw import get_color, render_results
 
 pillow_heif.register_heif_opener()
@@ -27,6 +29,12 @@ tempdir = tempfile.gettempdir()
 API_URL = 'https://api.abraia.me'
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'}
+
+_url_session = requests.Session()
+_url_session.headers.update(HEADERS)
+_url_adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)
+_url_session.mount('https://', _url_adapter)
+_url_session.mount('http://', _url_adapter)
 
 mimetypes.add_type('image/webp', '.webp')
 mimetypes.add_type('image/heic', '.heic')
@@ -115,9 +123,35 @@ def download_file(path):
     return dest
 
 
-def load_url(url):
-    r = requests.get(url, headers=HEADERS, stream=True, allow_redirects=True)
-    return r.raw if r.status_code == 200 else None
+def load_url(url, timeout=(10, 120)):
+    for attempt in range(3):
+        try:
+            r = _url_session.get(url, stream=True, allow_redirects=True, timeout=timeout)
+            if r.status_code == 200:
+                return r.raw
+            r.close()
+            return None
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 2:
+                return None
+            time.sleep(0.25 * (attempt + 1))
+    return None
+
+
+def load_url_bytes(url, timeout=(10, 120)):
+    """Load a remote resource and close its connection after reading it."""
+    for attempt in range(3):
+        response = load_url(url, timeout=timeout)
+        if response is None:
+            return None
+        try:
+            return response.read()
+        except (OSError, requests.ConnectionError, requests.Timeout):
+            if attempt == 2:
+                return None
+            time.sleep(0.25 * (attempt + 1))
+        finally:
+            response.close()
 
 
 def load_json(src, gz=False):
@@ -163,6 +197,108 @@ def load_image(src, mode='RGB', max_size=2048):
     return np.array(im)
 
 
+def encode_image(image, format='PNG', mode=None):
+    """Encode a NumPy image array and return its encoded bytes."""
+    pil_image = Image.fromarray(np.asarray(image))
+    if mode is not None:
+        pil_image = pil_image.convert(mode)
+    with BytesIO() as buffer:
+        pil_image.save(buffer, format=format)
+        return buffer.getvalue()
+
+
+def as_array(value, dtype=None, copy=False):
+    """Convert an array-like value using the SDK's NumPy dependency."""
+    array = np.asarray(value, dtype=dtype)
+    return array.copy() if copy else array
+
+
+def array_from_image_buffer(buffer, width, height, stride, channels=3):
+    """Decode a packed uint8 image buffer into an owned HWC array."""
+    rows = np.frombuffer(buffer, dtype=np.uint8).reshape(int(height), int(stride))
+    return rows[:, :int(width) * int(channels)].reshape(
+        int(height), int(width), int(channels)
+    ).copy()
+
+
+def array_shape(value):
+    """Return the shape of an array-like value."""
+    return np.asarray(value).shape
+
+
+def array_ndim(value):
+    """Return the number of dimensions of an array-like value."""
+    return np.asarray(value).ndim
+
+
+def array_size(value):
+    """Return the number of elements in an array-like value."""
+    return np.asarray(value).size
+
+
+def array_copy(value):
+    """Return an owned NumPy copy of an array-like value."""
+    return np.asarray(value).copy()
+
+
+def array_squeeze(value):
+    """Remove singleton dimensions from an array-like value."""
+    return np.squeeze(value)
+
+
+def array_to_list(value):
+    """Convert a NumPy value to a regular Python list when applicable."""
+    return value.tolist() if hasattr(value, 'tolist') else value
+
+
+def zeros_array(shape, dtype='uint8'):
+    """Return a zero-filled NumPy array."""
+    return np.zeros(shape, dtype=dtype)
+
+
+def mask_array(value):
+    """Return an array-like value as a boolean mask."""
+    return np.asarray(value) > 0
+
+
+def merge_masks(target, mask):
+    """Merge a boolean mask into an existing mask in place."""
+    np.logical_or(target, mask, out=target)
+    return target
+
+
+def encode_mask_overlay(mask, color=(32, 184, 121), alpha=96):
+    """Encode a colored RGBA mask overlay as PNG bytes."""
+    mask = mask_array(mask)
+    rgba = np.zeros((*mask.shape, 4), dtype=np.uint8)
+    rgba[..., :3] = color
+    rgba[..., 3] = np.where(mask, int(alpha), 0).astype(np.uint8)
+    return encode_image(rgba, format='PNG')
+
+
+def compose_mask_layers(layers, shape, alpha=96):
+    """Compose colored mask layers, returning ``(mask, PNG overlay bytes)``."""
+    rgba = np.zeros((*shape, 4), dtype=np.uint8)
+    combined = np.zeros(shape, dtype=bool)
+    for mask, color in layers or []:
+        mask = mask_array(mask)
+        if mask.shape != tuple(shape):
+            continue
+        np.logical_or(combined, mask, out=combined)
+        rgba[mask, :3] = color
+        rgba[mask, 3] = int(alpha)
+    return combined, encode_image(rgba, format='PNG')
+
+
+def resize_mask(mask, size):
+    """Resize a binary mask to ``(width, height)`` with nearest-neighbor sampling."""
+    mask_image = Image.fromarray((np.asarray(mask) > 0).astype(np.uint8) * 255)
+    resized = mask_image.resize(
+        (int(size[0]), int(size[1])), Image.Resampling.NEAREST
+    )
+    return np.asarray(resized) > 0
+
+
 def save_image(img, dest):
     make_dirs(dest)
     Image.fromarray(img).save(dest)
@@ -182,6 +318,8 @@ def image_base64(img, format='jpeg'):
 
 
 def get_providers():
+    import onnxruntime as ort
+
     available_providers = ort.get_available_providers()
     providers = ["CUDAExecutionProvider", "CoreMLExecutionProvider", "CPUExecutionProvider"]
     return [provider for provider in available_providers if provider in providers]

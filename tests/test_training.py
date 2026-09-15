@@ -68,3 +68,50 @@ def test_dataset_annotated_status():
     ds._update_annotated()
     assert ds.annotated is False
 
+
+from abraia.training import ModelTrainer
+
+@patch('abraia.training.classify.Model')
+def test_model_trainer_test(mock_classify_model_cls):
+    mock_model = mock_classify_model_cls.return_value
+    mock_model.test.return_value = {'acc': 0.95, 'confusionMatrix': [[10, 0], [1, 9]]}
+    
+    trainer = ModelTrainer('test_proj', 'classify', ['cat', 'dog'])
+    metrics = trainer.test('val')
+    
+    assert metrics['acc'] == 0.95
+    mock_model.test.assert_called_once_with(split='val')
+
+
+import torch
+from abraia.training.classify import train_model
+
+def test_train_model_epochs():
+    class DummyModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = torch.nn.Linear(2, 2)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = DummyModel()
+    inputs = torch.randn(4, 2)
+    labels = torch.tensor([0, 1, 0, 1])
+    dataset = torch.utils.data.TensorDataset(inputs, labels)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=2)
+    dataloaders = {'train': loader, 'val': loader}
+
+    callback_calls = []
+    def callback(progress):
+        callback_calls.append(progress)
+
+    num_epochs = 3
+    train_model(model, dataloaders, num_epochs=num_epochs, callback=callback)
+
+    assert len(callback_calls) == num_epochs
+    for i, call in enumerate(callback_calls):
+        assert call['epoch'] == i
+        assert call['epochs'] == num_epochs
+
+
+

@@ -1,5 +1,6 @@
 import os
 import itertools
+import sys
 
 from PIL import Image
 from typing import Dict, Any
@@ -76,7 +77,12 @@ def prepare_dataset(dataset, force = False):
             folder = os.path.join(dataset.project, x)
             all_annotations.extend(annotations)
             all_folders.extend([folder] * len(annotations))
-        process_map(save_data, all_annotations, all_folders, itertools.repeat(dataset.classes), itertools.repeat(dataset.task), max_workers=5, chunksize=1, desc="Downloading images")
+        if sys.platform == 'darwin':
+            # Avoid spawning processes from Studio's background thread.
+            for annotation, folder in tqdm(zip(all_annotations, all_folders), total=len(all_annotations), desc="Downloading images"):
+                save_data(annotation, folder, dataset.classes, dataset.task)
+        else:
+            process_map(save_data, all_annotations, all_folders, itertools.repeat(dataset.classes), itertools.repeat(dataset.task), max_workers=5, chunksize=1, desc="Downloading images")
         if dataset.task != 'classify':
             save_config(dataset.project, dataset.classes)
 

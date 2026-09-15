@@ -1,55 +1,104 @@
 import os
 import time
+from copy import deepcopy
 
-from abraia.inference import Model, Tracker, FaceRecognizer, FaceAttribute, PlateRecognizer
+from abraia.inference import FaceRecognizer, FaceAttribute, PlateRecognizer
 from abraia.inference.faces import find_pose
 from abraia.inference.ops import count_objects
-from abraia.inference.tools import LineCounter, RegionFilter, RegionTimer
-from abraia.utils.draw import render_results, render_counter, render_region, draw_overlay, draw_text_multiline
+from abraia.pipeline import Pipeline
+from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
 from abraia.utils import Video, download_url, load_image
 
 
-DEMOS = {
+PIPELINES = {
     'tomato': {
-        'model': 'multiple/tomato/yolov8n_v6.onnx',
-        'src': '10179855-hd_1280_720_30fps.mp4',
-        'labels': ['tomato'],
-        'counter': [(960, 0), (960, 720)]
+        'version': 1,
+        'source': {'type': 'video', 'src': '10179855-hd_1280_720_30fps.mp4'},
+        'model': {
+            'uri': 'multiple/tomato/yolov8n_v6.onnx',
+            'labels': ['tomato'],
+        },
+        'stages': [
+            {'type': 'tracker'},
+            {'type': 'line_counter', 'line': [[960, 0], [960, 720]]},
+        ],
+        'display': {'show': True},
     },
     'apple': {
-        'model': 'multiple/models/yolov8n-seg.onnx',
-        'src': '5479199-hd_1280_720_25fps.mp4',
-        'labels': ['apple'],
-        'counter': [(960, 0), (960, 720)]
+        'version': 1,
+        'source': {'type': 'video', 'src': '5479199-hd_1280_720_25fps.mp4'},
+        'model': {
+            'uri': 'multiple/models/yolov8n-seg.onnx',
+            'labels': ['apple'],
+        },
+        'stages': [
+            {'type': 'tracker'},
+            {'type': 'line_counter', 'line': [[960, 0], [960, 720]]},
+        ],
+        'display': {'show': True},
     },
     'strawberry': {
-        'model': 'multiple/strawberry/yolov8n.onnx',
-        'src': '9710983-hd_1920_1080_30fps.mp4',
-        'labels': ['strawberry']
+        'version': 1,
+        'source': {'type': 'video', 'src': '9710983-hd_1920_1080_30fps.mp4'},
+        'model': {
+            'uri': 'multiple/strawberry/yolov8n.onnx',
+            'labels': ['strawberry'],
+        },
+        'stages': [{'type': 'tracker'}],
+        'display': {'show': True},
     },
     'grapes': {
-        'model': 'multiple/grapes/yolov8n.onnx',
-        'src': '5658544-hd_1366_720_24fps.mp4',
-        'labels': ['grapes']
+        'version': 1,
+        'source': {'type': 'video', 'src': '5658544-hd_1366_720_24fps.mp4'},
+        'model': {
+            'uri': 'multiple/grapes/yolov8n.onnx',
+            'labels': ['grapes'],
+        },
+        'stages': [{'type': 'tracker'}],
+        'display': {'show': True},
     },
     'people': {
-        'src': '853889-hd_1920_1080_25fps.mp4',
-        'labels': ['person'],
-        'counter': [(0, 650), (1920, 650)],
-        'region': [(0, 600), (1920, 600), (1920, 700), (0, 700)]
+        'version': 1,
+        'source': {'type': 'video', 'src': '853889-hd_1920_1080_25fps.mp4'},
+        'model': {'uri': 'multiple/models/yolov8n.onnx', 'labels': ['person']},
+        'stages': [
+            {'type': 'region_filter', 'polygon': [[0, 600], [1920, 600], [1920, 700], [0, 700]]},
+            {'type': 'tracker'},
+            {'type': 'line_counter', 'line': [[0, 650], [1920, 650]]},
+        ],
+        'display': {'show': True},
     },
     'queue': {
-        'src': '4775505-hd_1920_1080_30fps.mp4',
-        'labels': ['person'],
-        'timer': [(10, 600), (1690, 600), (1690, 700), (10, 700)]
+        'version': 1,
+        'source': {'type': 'video', 'src': '4775505-hd_1920_1080_30fps.mp4'},
+        'model': {'uri': 'multiple/models/yolov8n.onnx', 'labels': ['person']},
+        'stages': [
+            {'type': 'tracker'},
+            {'type': 'region_timer', 'polygon': [[10, 600], [1690, 600], [1690, 700], [10, 700]]},
+        ],
+        'display': {'show': True},
     },
     'escalator': {
-        'src': '14393755-hd_1920_1080_30fps.mp4',
-        'labels': ['person'],
-        'counter': [(950, 670), (270, 895)],
-        'region': [[0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0]],
-        'timer': [[0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0]]
-    }
+        'version': 1,
+        'source': {'type': 'video', 'src': '14393755-hd_1920_1080_30fps.mp4'},
+        'model': {'uri': 'multiple/models/yolov8n.onnx', 'labels': ['person']},
+        'stages': [
+            {'type': 'region_filter', 'polygon': [[0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0]]},
+            {'type': 'tracker'},
+            {'type': 'line_counter', 'line': [[950, 670], [270, 895]]},
+            {'type': 'region_timer', 'polygon': [[0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0]]},
+        ],
+        'display': {'show': True},
+    },
+}
+
+
+DEFAULT_PIPELINE = {
+    'version': 1,
+    'source': {'type': 'video', 'src': 0},
+    'model': {'uri': 'multiple/models/yolov8n.onnx'},
+    'stages': [{'type': 'tracker'}],
+    'display': {'show': True},
 }
 
 
@@ -77,42 +126,32 @@ HAILO_DEMOS = {
 
 def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
     """Monitor, count, or just detect objects in a video stream."""
-    print(f"Available demos: {', '.join(DEMOS.keys())}")
-    selected = DEMOS.get(demo) or {}
-    src = src or selected.get('src', 0)
+    print(f"Available demos: {', '.join(PIPELINES.keys())}")
+    selected = deepcopy(PIPELINES.get(demo, DEFAULT_PIPELINE))
+    src = src if src is not None else selected['source']['src']
     if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
         download_url(f"https://api.abraia.me/files/multiple/videos/{src}", src)
+    selected['source']['src'] = src
+    selected['source']['resolution'] = list(resolution)
 
-    video = Video(src, resolution=resolution, dest=selected.get('dest'))
-    tracker = Tracker(frame_rate=video.frame_rate)
-    model = Model(selected.get('model', 'multiple/models/yolov8n.onnx'))
-    
-    line_counter = LineCounter(selected['counter']) if selected.get('counter') else None
-    region_filter = RegionFilter(selected['region']) if selected.get('region') else None
-    region_timer = RegionTimer(selected['timer']) if selected.get('timer') else None
+    def report(context, elapsed_ms):
+        print(
+            f"#{context.frame_index} {round(elapsed_ms, 1)}ms "
+            f"{count_objects(context.results)}"
+        )
 
-    labels = selected.get('labels')
-    for k, frame in enumerate(video):
-        frame_time = round(k / video.frame_rate, 2)
-        t0 = time.time()
-        results = model.run(frame, labels=labels)
-        if region_filter:
-            results, _ = region_filter.update(results)
-        results = tracker.update(results)
-        out = frame.copy()
-        if line_counter:
-            in_count, out_count = line_counter.update(results)
-            out = render_counter(out, line_counter.line, f"In: {in_count} | Out: {out_count}")
-        if region_timer:
-            in_objects, out_objects = region_timer.update(results, frame_time)
-            out = render_region(out, region_timer.region, f"Count: {len(in_objects)}", color=(255, 255, 0))
-            results = in_objects
-        out = render_results(out, results)
-        print(f"#{k} {round((time.time() - t0) * 1000, 1)}ms {count_objects(results)}")
-        video.show(out)
+    pipeline = Pipeline.from_dict(
+        selected,
+        on_frame=report,
+    )
+    pipeline.run()
 
+    line_counter = pipeline.components.get("line_counter")
     if line_counter:
-        print(f"Final In: {in_count}, Final Out: {out_count}")
+        print(
+            f"Final In: {line_counter.in_count}, "
+            f"Final Out: {line_counter.out_count}"
+        )
 
 
 def monitor_objects_hailo(src=None, demo='detect'):

@@ -59,6 +59,14 @@ def approx_contour(contour, approx=0.001):
 
 def mask_to_polygon(mask, origin=[0, 0], approx=0.001):
     """Returns the largest bounding polygon based on the segmentation mask."""
+    mask = np.asarray(mask)
+    if mask.ndim > 2:
+        mask = np.squeeze(mask)
+    if mask.ndim != 2:
+        raise ValueError("Segmentation masks must be two-dimensional")
+    if mask.dtype != np.uint8:
+        mask = (mask > 0).astype(np.uint8)
+    mask = np.ascontiguousarray(mask)
     contours, hierarchies = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     if not contours or hierarchies is None:
         return []

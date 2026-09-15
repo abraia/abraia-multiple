@@ -1,6 +1,8 @@
 import os
 import json
 import requests
+import time
+from requests.adapters import HTTPAdapter
 
 from PIL import Image
 from io import BytesIO
@@ -8,7 +10,7 @@ from fnmatch import fnmatch
 from datetime import datetime
 
 from . import config
-from .utils import API_URL, md5sum, get_type, temporal_src, save_data, load_image, save_image
+from .utils import API_URL, HEADERS, md5sum, get_type, temporal_src, save_data, load_image, save_image
 
 
 def file_path(source, userid):
@@ -26,13 +28,39 @@ class APIError(Exception):
 
 
 class Abraia:
+    request_timeout = (10, 120)
+    request_retries = 3
+
     def __init__(self):
         abraia_id, abraia_key = config.load()
         self.auth = config.load_auth(abraia_key)
         self.userid = abraia_id
+        self.session = requests.Session()
+        self.session.headers.update(HEADERS)
+        adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)
+        self.session.mount('https://', adapter)
+        self.session.mount('http://', adapter)
+
+    def _request(self, method, url, **kwargs):
+        """Perform a resilient API request, including retryable resets."""
+        kwargs.setdefault('timeout', self.request_timeout)
+        data = kwargs.get('data')
+        position = data.tell() if hasattr(data, 'tell') else None
+        last_error = None
+        for attempt in range(self.request_retries):
+            if position is not None and hasattr(data, 'seek'):
+                data.seek(position)
+            try:
+                return self.session.request(method, url, **kwargs)
+            except (requests.ConnectionError, requests.Timeout) as error:
+                last_error = error
+                if attempt + 1 == self.request_retries:
+                    raise
+                time.sleep(0.5 * (2 ** attempt))
+        raise last_error
 
     def get_api(self, url, params):
-        resp = requests.get(url, params=params, auth=self.auth)
+        resp = self._request('GET', url, params=params, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         return resp.json()
@@ -41,7 +69,7 @@ class Abraia:
         dirname, basename = os.path.dirname(path), os.path.basename(path)
         folder = dirname + '/' if dirname else dirname
         url = f"{API_URL}/files/{self.userid}/{folder}"
-        resp = requests.get(url, auth=self.auth)
+        resp = self._request('GET', url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
@@ -58,14 +86,18 @@ class Abraia:
         name, type = os.path.basename(path), get_type(path)
         json = {'url': src} if isinstance(src, str) and src.startswith('http') else {'name': name, 'type': type, 'md5': md5sum(src)}
         url = f"{API_URL}/files/{self.userid}/{path}"
-        resp = requests.post(url, json=json, auth=self.auth)
+        resp = self._request('POST', url, json=json, auth=self.auth)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
         url = resp.get('uploadURL')
         if url:
             data = src if isinstance(src, BytesIO) else open(src, 'rb')
-            resp = requests.put(url, data=data, headers={'Content-Type': type})
+            try:
+                resp = self._request('PUT', url, data=data, headers={'Content-Type': type})
+            finally:
+                if data is not src:
+                    data.close()
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
             return file_path(f"{self.userid}/{path}", self.userid)
@@ -73,7 +105,7 @@ class Abraia:
 
     def check_file(self, path):
         url = f"{API_URL}/files/{self.userid}/{path}"
-        resp = requests.head(url, auth=self.auth)
+        resp = self._request('HEAD', url, auth=self.auth)
         if resp.status_code == 404:
             return False
         if resp.status_code in [307, 400, 403]:
@@ -83,7 +115,7 @@ class Abraia:
     def move_file(self, old_path, new_path):
         json = {'store': f"{self.userid}/{old_path}"}
         url = f"{API_URL}/files/{self.userid}/{new_path}"
-        resp = requests.post(url, json=json, auth=self.auth)
+        resp = self._request('POST', url, json=json, auth=self.auth)
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
@@ -93,7 +125,7 @@ class Abraia:
         url = f"{API_URL}/files/{self.userid}/{path}"
         if cache and os.path.exists(dest):
             return dest
-        resp = requests.get(url, stream=True, auth=self.auth)
+        resp = self._request('GET', url, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         save_data(dest, resp.content)
@@ -101,7 +133,7 @@ class Abraia:
     
     def remove_file(self, path):
         url = f"{API_URL}/files/{self.userid}/{path}"
-        resp = requests.delete(url, auth=self.auth)
+        resp = self._request('DELETE', url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
@@ -109,14 +141,14 @@ class Abraia:
 
     def load_metadata(self, path):
         url = f"{API_URL}/metadata/{self.userid}/{path}"
-        resp = requests.get(url, auth=self.auth)
+        resp = self._request('GET', url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         return resp.json()
 
     def remove_metadata(self, path):
         url = f"{API_URL}/metadata/{self.userid}/{path}"
-        resp = requests.delete(url, auth=self.auth)
+        resp = self._request('DELETE', url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         return resp.json()
@@ -130,7 +162,7 @@ class Abraia:
                 params['fmt'] = params['background'].split('.').pop()
             path = f"{self.userid}/{params['action']}"
         url = f"{API_URL}/images/{self.userid}/{path}"
-        resp = requests.get(url, params=params, stream=True, auth=self.auth)
+        resp = self._request('GET', url, params=params, stream=True, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         save_data(dest, resp.content)
@@ -150,7 +182,11 @@ class Abraia:
         return self.upload_file(stream, path)
 
     def load_json(self, path):
-        return json.loads(self.load_file(path))
+        url = f"{API_URL}/files/{self.userid}/{path}"
+        resp = self._request('GET', url, auth=self.auth)
+        if resp.status_code != 200:
+            raise APIError(resp.text, resp.status_code)
+        return resp.json()
 
     def save_json(self, path, values):
         return self.save_file(path, json.dumps(values))
