@@ -328,37 +328,6 @@ def get_labels(labels_path: str) -> list:
     return class_names
 
 
-def find_shape_closest_to_target(mask_size, target_height, target_width):
-    """
-    Find the (height, width) pair whose product equals ``mask_size`` and whose
-    Manhattan distance to (target_height, target_width) is minimal.
-
-    Manhattan distance used:
-        |h − target_height| + |w − target_width|
-
-    Args:
-        mask_size (int): Total number of pixels in the flattened mask.
-        target_height (int): Desired height.
-        target_width (int): Desired width.
-
-    Returns:
-        tuple[int, int] | None: Best-matching (height, width), or None if none found.
-    """
-    best_shape = None
-    min_diff = float("inf")
-
-    for h in range(1, mask_size + 1):
-        if mask_size % h:
-            continue
-        w = mask_size // h
-        diff = abs(h - target_height) + abs(w - target_width)
-        if diff < min_diff:
-            min_diff = diff
-            best_shape = (h, w)
-
-    return best_shape
-
-
 def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image):
     """
     Resize the mask from the padded box to match the unpadded box size.
@@ -375,14 +344,14 @@ def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image
         x1_p, y1_p, x2_p, y2_p = box_on_padded_image
         w_p, h_p = x2_p - x1_p, y2_p - y1_p
         
-        try:
-            mask_2d = mask_1d.reshape((h_p, w_p))
-        except ValueError:
-            closest_shape = find_shape_closest_to_target(mask_1d.size, h_p, w_p)
-            if not closest_shape:
-                return None
-            h, w = closest_shape
-            mask_2d = mask_1d.reshape((h, w))
+        mask_1d = np.asarray(mask_1d)
+        if h_p <= 0 or w_p <= 0 or mask_1d.size != h_p * w_p:
+            logger.warning(
+                "Ignoring Hailo mask with %d values; expected %d (%dx%d)",
+                mask_1d.size, h_p * w_p, h_p, w_p,
+            )
+            return None
+        mask_2d = mask_1d.reshape((h_p, w_p))
 
         x1_u, y1_u, x2_u, y2_u = box_on_input_image
         resized_mask = cv2.resize(mask_2d.astype(np.uint8), (x2_u - x1_u, y2_u - y1_u), interpolation=cv2.INTER_NEAREST)
@@ -391,6 +360,35 @@ def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image
         return None
 
     return resized_mask
+
+
+def convert_nms_box_from_normalized(normalized_box, model_dim, original_dim):
+    """Map a Hailo byte-mask box to original and model-space coordinates.
+
+    Hailo's byte-mask payload is an ROI whose dimensions are measured in
+    model-input pixels. The original frame box has a different scale when
+    letterbox preprocessing is used, so the two coordinate systems must stay
+    separate.
+    """
+    model_height, model_width = model_dim
+    normalized_box = np.asarray(normalized_box, dtype=np.float32)
+    normalized_box = np.clip(normalized_box, 0.0, 1.0)
+    x_min, y_min, x_max, y_max = normalized_box
+    model_box = [
+        float(x_min * model_width),
+        float(y_min * model_height),
+        float(x_max * model_width),
+        float(y_max * model_height),
+    ]
+    transform = LetterboxTransform.from_dimensions(original_dim, model_dim)
+    original_box = transform.box_to_original(model_box)
+    mask_box = [
+        0,
+        0,
+        max(0, int(np.ceil((x_max - x_min) * model_width))),
+        max(0, int(np.ceil((y_max - y_min) * model_height))),
+    ]
+    return original_box, mask_box
 
 
 def convert_box_from_normalized(normalized_box: list,
@@ -1043,15 +1041,19 @@ if HAILO_AVAILABLE:
         def _process_nms_results(self, result, image):
             infer_results = result if isinstance(result, list) else [result]
             img_height, img_width = image.shape[:2]
-            size = max(img_height, img_width)
-            padding_length = int(abs(img_height - img_width) / 2)
+            model_height, model_width, _ = self.get_input_shape()
             detections = []
             for det in infer_results:
                 if det.score < self.score_threshold:
                     continue
-                box_on_input_image, box_on_padded_image = convert_box_from_normalized(
-                    [det.x_min, det.y_min, det.x_max, det.y_max], size, padding_length, img_height, img_width)
+                box_on_input_image, box_on_padded_image = convert_nms_box_from_normalized(
+                    [det.x_min, det.y_min, det.x_max, det.y_max],
+                    (model_height, model_width),
+                    (img_height, img_width),
+                )
                 xmin, ymin, xmax, ymax = box_on_input_image
+                if xmax <= xmin or ymax <= ymin:
+                    continue
                 detection = {'label': self._label(det.class_id),
                     'score': float(det.score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': det.class_id}
                 if self.task == 'segment':
