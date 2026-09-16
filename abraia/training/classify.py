@@ -179,7 +179,15 @@ class Model:
         onnx.checker.check_model(onnx_model)
         onnx.save(onnx_model, model_src)
         self.client.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
-        self.client.save_json(f"{dataset}/{self.model_name}.json", {'inputShape': self.input_shape, 'classes': classes, 'metrics': self.metrics})
+        self.client.save_json(
+            f"{dataset}/{self.model_name}.json",
+            {
+                'task': 'classification',
+                'inputShape': self.input_shape,
+                'classes': classes,
+                'metrics': self.metrics,
+            },
+        )
 
     def run(self, img):
         self.model.eval()

@@ -4,7 +4,8 @@ import math
 import numpy as np
 
 from .ops import non_maximum_suppression, normalize, softmax, sigmoid
-from .session import close_session, create_onnx_session
+from .session import OnnxSessionMixin
+from ..tasks import normalize_config_task
 from ..utils import download_file, load_json
 
 
@@ -98,7 +99,7 @@ def process_output(outputs, size, shape, classes, conf_threshold=0.25, iou_thres
     return results
 
 
-class Model:
+class Model(OnnxSessionMixin):
     def __init__(self, model_uri):
         model_uri = os.fspath(model_uri)
         if os.path.isabs(model_uri) and not os.path.isfile(model_uri):
@@ -110,15 +111,15 @@ class Model:
         else:
             config_path = download_file(config_uri)
         self.config = load_json(config_path)
-        self.session = create_onnx_session(model_path)
+        self._init_onnx_session(model_path)
         self.input_name = self.session.get_inputs()[0].name
         self.input_shape = self.config['inputShape']
         self._closed = False
 
     def run(self, img, conf_threshold=0.35, iou_threshold=0.7, approx=0.001, labels=None):
-        if self._closed:
-            raise RuntimeError("Model session has already been closed")
-        if self.config.get('task'):
+        self._ensure_open()
+        task = normalize_config_task(self.config.get('task'))
+        if task in ('detection', 'segmentation'):
             img_size = img.shape[1], img.shape[0]
             inputs = {self.input_name: prepare_input(img, self.input_shape)}
             outputs = self.session.run(None, inputs)
@@ -128,14 +129,6 @@ class Model:
             input_size = 224
         outputs = self.session.run(None, {self.input_name: preprocess(img, input_size)})
         return postprocess(outputs, self.config['classes'])
-
-    def close(self):
-        """Release the backend session."""
-        if self._closed:
-            return
-        session, self.session = self.session, None
-        close_session(session)
-        self._closed = True
 
     def __enter__(self):
         return self

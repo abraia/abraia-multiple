@@ -9,18 +9,20 @@ from ..utils import save_text
 from .ops import train_test_split
 from .dataset import list_datasets, load_dataset, search_images, list_models, download_file, abraia
 from .service import TrainingService
+from ..tasks import TRAINING_TASKS, normalize_task, to_ultralytics_task
 
 
 def save_annotation(annotation, folder, classes, task):
+    task = normalize_task(task)
     im = Image.open(os.path.join(folder, 'images', annotation['filename']))
     label_lines = []
     for object in annotation.get('objects', []):
         label, box, polygon = object.get('label'), object.get('box'), object.get('polygon')
-        if task == 'segment':
+        if task == 'segmentation':
             if polygon:
                 label_line = f"{classes.index(label)} " + ' '.join([f"{point[0] / im.width} {point[1] / im.height}" for point in polygon])
                 label_lines.append(label_line)
-        elif task == 'detect':
+        elif task == 'detection':
             if polygon:
                 xx, yy = [point[0] for point in polygon], [point[1] for point in polygon]
                 x1, y1, x2, y2 = min(xx), min(yy), max(xx), max(yy)
@@ -33,13 +35,14 @@ def save_annotation(annotation, folder, classes, task):
 
 
 def save_data(annotation, folder, classes, task, client=None):
+    task = normalize_task(task)
     path = annotation['path']
-    dest = folder if task == 'classify' else os.path.join(folder, 'images')
-    if task == 'classify':
+    dest = folder if task == 'classification' else os.path.join(folder, 'images')
+    if task == 'classification':
         label = next((obj.get('label', '') for obj in annotation.get('objects', [])), '')
         dest = os.path.join(dest, label)
     download_file(path, dest, client=client)
-    if task != 'classify':
+    if task != 'classification':
         save_annotation(annotation, folder, classes, task)
 
 
@@ -120,7 +123,7 @@ def prepare_dataset(dataset, force=False, callback=None):
             for current, future in enumerate(completed, start=1):
                 future.result()
                 report(current, futures[future])
-        if dataset.task != 'classify':
+        if normalize_task(dataset.task) != 'classification':
             save_config(dataset.project, dataset.classes)
 
 
@@ -128,19 +131,22 @@ class ModelTrainer:
     """High-level trainer orchestrator using models and dataset utilities."""
     def __init__(self, project: str, task: str, classes: list, imgsz: int = None,
                  client=None):
-        if task not in {"classify", "detect", "segment"}:
+        task = normalize_task(task)
+        if task not in TRAINING_TASKS:
             raise ValueError(f"Unsupported training task: {task}")
         self.project = project
         self.task = task
         self.classes = classes
         self.pbar = None
-        imgsz = imgsz or (224 if task == 'classify' else 640)
-        if task == 'classify':
+        imgsz = imgsz or (224 if task == 'classification' else 640)
+        if task == 'classification':
             from . import classify
             self.model = classify.Model(client=client)
         else:
             from . import detect
-            self.model = detect.Model(task, imgsz=imgsz, client=client)
+            self.model = detect.Model(
+                to_ultralytics_task(task), imgsz=imgsz, client=client
+            )
 
     def _progress_callback(self, progress):
         if self.pbar is None:
@@ -150,7 +156,7 @@ class ModelTrainer:
 
     def train(self, epochs: int = None, batch: int = 32, callback=None,
               is_cancelled=None) -> None:
-        epochs = epochs or (30 if self.task == 'classify' else 300)
+        epochs = epochs or (30 if self.task == 'classification' else 300)
         callback = self._progress_callback if callback is None else callback
         try:
             self.model.train(
@@ -177,7 +183,7 @@ class ModelTrainer:
         return self.model.run(img)
 
     def compile(self, device='hailo8'):
-        if self.task != 'detect':
+        if self.task != 'detection':
             raise NotImplementedError("Model compilation is only implemented for detection models.")
         self.model.compile(self.project, self.classes, device=device)
     

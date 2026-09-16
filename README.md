@@ -169,7 +169,7 @@ by the Hailo resource catalog.
 - Optimized runtime support and toolboxes for Hailo NPU hardware acceleration (`abraia.inference.hailo`).
 
 ### 5. Training & Dataset Operations (`abraia.training`)
-- Tools for training custom classification (`classify`) and detection (`detect`) models, along with dataset preprocessing utilities (`dataset`, `ops`).
+- Tools for training custom classification, detection, and segmentation models, along with dataset preprocessing utilities (`dataset`, `ops`).
 
 ### 6. Runtime & Video Processing (`abraia.runtime`)
 - Robust video frame iteration and manipulation (`Video`).
@@ -282,64 +282,44 @@ print(f"Similarity score is {scores[0]} for image {image_paths[idxs[0]]}")
 
 ## 🍓 Real-Time Edge Object Counter on Raspberry Pi with Hailo NPU
 
-Deploy high-performance real-time object detection and counting on a Raspberry Pi equipped with a Hailo AI expansion board (such as Hailo-8 or Hailo-8L). This pipeline combines hardware-accelerated model inference (`abraia.inference.hailo`), multi-object tracking (`abraia.inference.Tracker`), line crossing counters (`LineCounter`), and region timers (`RegionTimer`), integrated with the asynchronous video processing pipeline (`VideoInput` & `VideoDisplay`).
+Deploy high-performance real-time object detection and counting on a Raspberry Pi equipped with a Hailo AI expansion board (such as Hailo-8 or Hailo-8L). This pipeline combines hardware-accelerated model inference (`abraia.inference.hailo`), multi-object tracking (`abraia.inference.Tracker`), line crossing counters (`LineCounter`), and region timers (`RegionTimer`) through the shared `abraia.runtime.Pipeline`.
 
 ### Implementation Guide
 
 Create a script (e.g., `edge_counter.py`) ready for deployment on your Raspberry Pi:
 
 ```python
-import threading
-from abraia.inference.hailo.toolbox import ModelInference
-from abraia.inference import Tracker
-from abraia.inference.tools import LineCounter, RegionTimer
-from abraia.runtime import VideoInput, VideoDisplay
-from abraia.utils import render_results, render_counter, render_region
-from abraia.inference.hailo.detect import run_inference_pipeline
+from abraia.runtime import Pipeline
 
-# 1. Initialize threaded video input (e.g., Raspberry Pi Camera or RTSP stream)
-stop_event = threading.Event()
-input_data = VideoInput(input_src=0, resolution=(1920, 1080), stop_event=stop_event)
-visualizer = VideoDisplay(source_fps=input_data.source_fps, stop_event=stop_event)
-
-# 2. Load Hailo compiled model (.hef) optimized for edge NPU
-model_inference = ModelInference(
-    hef_path="yolov8n.hef",
-    task="detect",
-    labels=["person", "car"],
-    batch_size=1,
-    score_threshold=0.3
-)
-
-# 3. Setup Tracker & Analytics Tools (Line Counter & Region Timer)
-tracker = Tracker(frame_rate=input_data.source_fps or 30.0)
-line_counter = LineCounter([(100, 540), (1820, 540)])     # Crossing boundary line
-region_timer = RegionTimer([(300, 200), (1620, 200), (1620, 900), (300, 900)]) # Zone of interest
-
-# 4. Custom Inference & Analytics Result Handler
-def edge_processing_handler(frame, detections, tracker=None, tracklet_history=None):
-    if tracker:
-        detections = tracker.update(detections)
-    
-    # Update line crossing and region analytics
-    in_count, out_count = line_counter.update(detections)
-    in_objects, out_objects = region_timer.update(detections, 1.0 / (input_data.source_fps or 30.0))
-    
-    # Render real-time visual overlays
-    frame = render_counter(frame, line_counter.line, f"In: {in_count} | Out: {out_count}")
-    frame = render_region(frame, region_timer.region, f"Zone Count: {len(in_objects)}")
-    return render_results(frame, detections)
-
-# 5. Run High-Performance Edge Pipeline
-try:
-    run_inference_pipeline(
-        model_inference=model_inference,
-        input_data=input_data,
-        visualizer=visualizer,
-        tracker=tracker
-    )
-finally:
-    stop_event.set()
+pipeline = Pipeline.from_dict({
+    "version": 1,
+    "source": {
+        "src": 0,
+        "resolution": [1920, 1080],
+        "fps": 30,
+        "video_unpaced": False,
+    },
+    "model": {
+        "task": "detection",
+        "kind": "hailo",
+        "uri": "yolov8n.hef",
+        "params": {
+            "labels": ["person", "car"],
+            "batch_size": 1,
+            "score_threshold": 0.3,
+        },
+    },
+    "stages": [
+        {"type": "tracker", "enabled": True},
+        {"type": "line_counter", "line": [[100, 540], [1820, 540]]},
+        {
+            "type": "region_timer",
+            "polygon": [[300, 200], [1620, 200], [1620, 900], [300, 900]],
+        },
+    ],
+    "display": {"show": True},
+})
+pipeline.run()
 ```
 
 ### Deployment on Raspberry Pi

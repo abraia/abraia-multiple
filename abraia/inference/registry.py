@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
+from ..tasks import HAILO_TASKS, normalize_config_task
+
 
 DEFAULT_MODEL_URIS = {
     "object_detection": "multiple/models/yolov8n.onnx",
@@ -29,16 +31,13 @@ def create_model(config: Dict[str, Any], base_dir=None):
     if not isinstance(config, dict):
         raise ValueError("Pipeline model must be an object")
 
-    task = str(config.get("task", "detection")).strip().lower()
-    task = {"detect": "detection", "recognize": "recognition"}.get(task, task)
-    if task not in ("detection", "recognition"):
-        raise ValueError(f"Unsupported pipeline model task: {task}")
-
+    raw_task = normalize_config_task(config.get("task"), default="detection")
     kind = str(config.get("kind", "onnx")).strip().lower()
     raw_params = config.get("params", {}) or {}
     if not isinstance(raw_params, dict):
         raise ValueError("Pipeline model 'params' must be an object")
     params = dict(raw_params)
+    task = raw_task
 
     if kind in ("onnx", "object_detection", "instance_segmentation"):
         from .detect import Model
@@ -58,15 +57,20 @@ def create_model(config: Dict[str, Any], base_dir=None):
         uri = _resolve_model_uri(config.get("uri"), base_dir=base_dir)
         if not uri:
             raise ValueError("A Hailo pipeline model requires a model 'uri'")
-        if task != "detection":
-            raise ValueError("Hailo pipeline models currently support detection tasks")
-
-        hailo_task = params.pop("hailo_task", None)
-        if hailo_task is None:
-            hailo_task = "segment" if kind == "hailo_segmentation" else "detect"
+        if "hailo_task" in params:
+            raise ValueError(
+                "Hailo model tasks belong directly in the model 'task' field"
+            )
+        if "task" not in config and kind == "hailo_segmentation":
+            raw_task = "segmentation"
+        if raw_task not in HAILO_TASKS:
+            raise ValueError(f"Unsupported Hailo pipeline task: {raw_task}")
         params.setdefault("labels", config.get("labels"))
         params.setdefault("score_threshold", config.get("conf_threshold", 0.25))
-        return HailoPipelineModel(uri, task=hailo_task, **params)
+        return HailoPipelineModel(uri, task=raw_task, **params)
+
+    if task not in ("detection", "recognition"):
+        raise ValueError(f"Unsupported pipeline model task: {task}")
 
     if kind in ("face", "face_detector"):
         if task == "detection":

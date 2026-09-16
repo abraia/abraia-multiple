@@ -1,5 +1,7 @@
 import numpy as np
+import pytest
 from abraia.inference import ops, Clip
+from abraia.runtime import AsyncInferenceRunner, FrameResult
 from abraia.inference.detect import preprocess
 from abraia.inference.ocr import TextRecognizer
 from abraia.inference.sam import SAM
@@ -9,6 +11,53 @@ from abraia.inference.service import InferenceService
 def test_softmax_values():
     logits = np.array([0, 10, -10])
     assert np.isclose(np.sum(ops.softmax(logits)), 1)
+
+
+def test_search_vectors_returns_ranked_results_for_multiple_queries():
+    index = [
+        {"vector": np.array([1.0, 0.0]), "name": "x"},
+        {"vector": np.array([0.0, 1.0]), "name": "y"},
+    ]
+
+    indices, scores = ops.search_vectors(
+        np.array([[0.9, 0.1], [0.1, 0.9]]), index
+    )
+
+    assert indices[0].tolist() == [0]
+    assert indices[1].tolist() == [1]
+    assert scores[0][0] > 0.9
+    assert scores[1][0] > 0.9
+
+
+def test_async_runner_preserves_backend_elapsed_time():
+    def inference(batch, emit, stop_event):
+        emit(FrameResult(batch.records[0], [], elapsed_ms=12.5))
+
+    result = next(iter(AsyncInferenceRunner(["frame"], inference, lambda frame: frame)))
+
+    assert result.elapsed_ms == 12.5
+
+
+def test_async_runner_rejects_missing_frame_results():
+    def inference(batch, emit, stop_event):
+        return None
+
+    runner = AsyncInferenceRunner(["frame"], inference, lambda frame: frame)
+
+    with pytest.raises(RuntimeError, match="received 0 of 1"):
+        list(runner)
+
+
+def test_async_runner_propagates_frame_errors():
+    failure = ValueError("postprocessing failed")
+
+    def inference(batch, emit, stop_event):
+        emit(FrameResult(batch.records[0], None, error=failure))
+
+    runner = AsyncInferenceRunner(["frame"], inference, lambda frame: frame)
+
+    with pytest.raises(ValueError, match="postprocessing failed"):
+        list(runner)
 
 
 def test_clip_import():
@@ -24,21 +73,21 @@ def test_mask_to_polygon_accepts_boolean_masks():
     assert len(polygon) >= 3
 
 
-from abraia.runtime.stream import load_images_opencv
+from abraia.runtime.video import load_images
 import cv2
 
-def test_load_images_opencv(tmp_path):
+def test_load_images(tmp_path):
     d = tmp_path / "sub"
     d.mkdir()
     p = d / "test.jpg"
     img = np.zeros((10, 10, 3), dtype=np.uint8)
     cv2.imwrite(str(p), img)
 
-    images = load_images_opencv(str(p))
+    images = load_images(str(p))
     assert len(images) == 1
     assert images[0].shape == (10, 10, 3)
 
-    images_dir = load_images_opencv(str(d))
+    images_dir = load_images(str(d))
     assert len(images_dir) == 1
     assert images_dir[0].shape == (10, 10, 3)
 

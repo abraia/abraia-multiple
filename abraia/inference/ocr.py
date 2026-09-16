@@ -18,7 +18,7 @@ import math
 import numpy as np
 
 from ..utils import download_file
-from .session import close_resource, close_session, create_onnx_session
+from .session import OnnxSessionMixin, close_resource
 
 
 def get_char(character_dict_path, use_space_char=False):
@@ -197,11 +197,11 @@ def sorted_boxes(dt_boxes):
     return _boxes
 
 
-class TextDetector():
+class TextDetector(OnnxSessionMixin):
     def __init__(self):
         self.postprocess_op = DBPostProcess(thresh=0.3, box_thresh=0.5, max_candidates=1000, unclip_ratio=1.6)
         det_src = download_file('multiple/models/ocr_det.onnx')
-        self.session = create_onnx_session(det_src)
+        self._init_onnx_session(det_src)
         self.input_name = self.session.get_inputs()[0].name
     
     def order_points_clockwise(self, pts):
@@ -253,13 +253,7 @@ class TextDetector():
         dt_boxes = self.filter_tag_det_res(dt_boxes, (width, height))
         return dt_boxes
 
-    def close(self):
-        """Release the ONNX session."""
-        session, self.session = self.session, None
-        close_session(session)
-
-
-class TextRecognizer():
+class TextRecognizer(OnnxSessionMixin):
     def __init__(self):
         self.rec_image_shape = [3, 32, 320]
         self.rec_batch_num = 6
@@ -271,7 +265,7 @@ class TextRecognizer():
         self.postprocess_op = BaseRecLabelDecode(char_dict_src, use_space_char=True)
 
         rec_src = download_file('multiple/models/ocr_rec.onnx')
-        self.session = create_onnx_session(rec_src)
+        self._init_onnx_session(rec_src)
        
     def resize_norm_img(self, img, max_wh_ratio):
         imgC, imgH, imgW = self.rec_image_shape
@@ -321,12 +315,6 @@ class TextRecognizer():
             for rno in range(len(rec_result)):
                 rec_res[indices[beg_img_no + rno]] = rec_result[rno]
         return rec_res
-
-    def close(self):
-        """Release the ONNX session."""
-        session, self.session = self.session, None
-        close_session(session)
-
 
 class TextSystem():
     def __init__(self, drop_score=0.5):

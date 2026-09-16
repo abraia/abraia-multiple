@@ -7,6 +7,9 @@ need to deal with application data and callbacks.
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
+import threading
 
 from ..utils import as_array
 
@@ -21,28 +24,51 @@ def _create_onnx_model(model_uri):
 class ModelSession:
     """Own one backend model instance and its resource lifecycle.
 
-    Backend factories must return an object exposing ``run``. A ``close``
-    method is optional but is used when available.
+    Backend factories must return an object exposing ``run`` or
+    ``iter_inference``. A ``close`` method is optional but is used when
+    available.
     """
 
     def __init__(self, model_uri, factory):
         self.model_uri = model_uri
         self._model = factory(model_uri)
+        if not any(
+            callable(getattr(self._model, name))
+            for name in ("run", "iter_inference")
+        ):
+            raise TypeError(
+                "Inference backend models must expose run or iter_inference"
+            )
         self._closed = False
+        self._lock = threading.RLock()
 
     def run(self, *args, **kwargs):
-        if self._closed:
-            raise RuntimeError("Model session has already been closed")
-        return self._model.run(*args, **kwargs)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Model session has already been closed")
+            return self._model.run(*args, **kwargs)
+
+    def iter_inference(self, source, **kwargs):
+        """Delegate the streaming model protocol when the backend supports it."""
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Model session has already been closed")
+            iterator = getattr(self._model, "iter_inference", None)
+            if not callable(iterator):
+                raise TypeError("This inference backend only supports run")
+        yield from iterator(source, **kwargs)
 
     def close(self):
-        if self._closed:
-            return
-        model, self._model = self._model, None
-        close = getattr(model, "close", None)
-        if callable(close):
-            close()
-        self._closed = True
+        with self._lock:
+            if self._closed:
+                return
+            model, self._model = self._model, None
+            close = getattr(model, "close", None)
+            try:
+                if callable(close):
+                    close()
+            finally:
+                self._closed = True
 
     def __enter__(self):
         return self
@@ -59,29 +85,42 @@ class InferenceService:
         if backend_factories:
             self._backend_factories.update(backend_factories)
         self._sessions = {}
+        self._lock = threading.RLock()
         self._sam = None
         self._sam_image = None
 
     def get_session(self, model_uri, backend="onnx"):
         """Return a cached model session for ``model_uri`` and ``backend``."""
-        try:
-            factory = self._backend_factories[backend]
-        except KeyError as exc:
-            available = ", ".join(sorted(self._backend_factories))
-            raise ValueError(
-                f"Unknown inference backend '{backend}'. Available backends: {available}"
-            ) from exc
+        with self._lock:
+            try:
+                factory = self._backend_factories[backend]
+            except KeyError as exc:
+                available = ", ".join(sorted(self._backend_factories))
+                raise ValueError(
+                    f"Unknown inference backend '{backend}'. Available backends: {available}"
+                ) from exc
 
-        key = (backend, str(model_uri))
-        if key not in self._sessions:
-            self._sessions[key] = ModelSession(model_uri, factory)
-        return self._sessions[key]
+            key = self._session_key(model_uri, backend)
+            if key not in self._sessions:
+                self._sessions[key] = ModelSession(model_uri, factory)
+            return self._sessions[key]
+
+    @staticmethod
+    def _session_key(model_uri, backend):
+        """Use one cache key for equivalent local path spellings."""
+        uri = os.fspath(model_uri)
+        if not uri.lower().startswith(("http://", "https://")):
+            path = Path(uri).expanduser()
+            if path.exists():
+                uri = str(path.resolve())
+        return backend, uri
 
     def register_backend(self, name, factory):
         """Register or replace a backend factory used by this service."""
         if not name or not callable(factory):
             raise ValueError("Backend name and callable factory are required")
-        self._backend_factories[name] = factory
+        with self._lock:
+            self._backend_factories[name] = factory
 
     def create_model(self, config, base_dir=None):
         """Create a configured built-in model using the shared registry."""
@@ -96,15 +135,21 @@ class InferenceService:
 
     def close(self):
         """Close all cached model sessions and interactive models."""
-        for session in self._sessions.values():
-            session.close()
-        self._sessions.clear()
-        if self._sam is not None:
-            close = getattr(self._sam, "close", None)
-            if callable(close):
-                close()
-        self._sam = None
-        self._sam_image = None
+        errors = []
+        with self._lock:
+            sessions = list(self._sessions.values())
+            self._sessions.clear()
+            sam, self._sam = self._sam, None
+            self._sam_image = None
+            for resource in [*sessions, sam]:
+                if resource is None:
+                    continue
+                try:
+                    resource.close()
+                except Exception as exc:
+                    errors.append(exc)
+        if errors:
+            raise errors[0]
 
     def __enter__(self):
         return self
@@ -120,12 +165,6 @@ class InferenceService:
         from . import SAM
 
         image = as_array(image)
-        if self._sam is None:
-            self._sam = SAM()
-        if self._sam_image is not image:
-            self._sam.encode(image)
-            self._sam_image = image
-
         prompt = [
             {
                 "type": "point",
@@ -134,4 +173,11 @@ class InferenceService:
             }
             for point in points
         ]
-        return self._sam.predict(image, prompt=json.dumps(prompt))
+        with self._lock:
+            if self._sam is None:
+                self._sam = SAM()
+            sam = self._sam
+            if self._sam_image is not image:
+                sam.encode(image)
+                self._sam_image = image
+            return sam.predict(image, prompt=json.dumps(prompt))

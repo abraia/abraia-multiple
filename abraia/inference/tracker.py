@@ -362,7 +362,7 @@ class BaseTrack(object):
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
-    def __init__(self, tlwh, score):
+    def __init__(self, tlwh, score, detection_index=None):
 
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float32)
@@ -371,6 +371,7 @@ class STrack(BaseTrack):
         self.is_activated = False
 
         self.score = score
+        self.detection_index = detection_index
         self.tracklet_len = 0
 
     def predict(self):
@@ -417,6 +418,7 @@ class STrack(BaseTrack):
         if new_id:
             self.track_id = self.next_id()
         self.score = new_track.score
+        self.detection_index = new_track.detection_index
 
     def update(self, new_track, frame_id):
         """
@@ -436,6 +438,7 @@ class STrack(BaseTrack):
         self.is_activated = True
 
         self.score = new_track.score
+        self.detection_index = new_track.detection_index
 
     @property
     # @jit(nopython=True)
@@ -526,8 +529,11 @@ class ByteTracker():
 
         detections = []
         if len(dets) > 0:
-            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
-                          (tlbr, s) in zip(dets, scores_keep)]
+            detection_indices = np.flatnonzero(remain_inds)
+            detections = [
+                STrack(STrack.tlbr_to_tlwh(tlbr), s, int(index))
+                for (tlbr, s, index) in zip(dets, scores_keep, detection_indices)
+            ]
 
         ''' Add newly detected tracklets to tracked_stracks'''
         unconfirmed = []
@@ -561,8 +567,13 @@ class ByteTracker():
         # association the untrack to the low score detections
         if len(dets_second) > 0:
             '''Detections'''
-            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
-                          (tlbr, s) in zip(dets_second, scores_second)]
+            detection_indices = np.flatnonzero(inds_second)
+            detections_second = [
+                STrack(STrack.tlbr_to_tlwh(tlbr), s, int(index))
+                for (tlbr, s, index) in zip(
+                    dets_second, scores_second, detection_indices
+                )
+            ]
         else:
             detections_second = []
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
@@ -685,10 +696,8 @@ class Tracker():
         if results:
             bboxes, scores = results_to_arrays(results)
             tracks = self.tracker.update(bboxes, scores)
-            if len(tracks) > 0:
-                track_bounding_boxes = np.asarray([track.tlbr for track in tracks])
-                ious = box_iou_batch(bboxes, track_bounding_boxes)
-                matches, _, _ = linear_assignment(1 - ious, 0.5)
-                for i_detection, i_track in matches:
-                    results[i_detection]['track_id'] = tracks[i_track].track_id
+            for track in tracks:
+                index = track.detection_index
+                if index is not None and 0 <= index < len(results):
+                    results[index]['track_id'] = track.track_id
         return results

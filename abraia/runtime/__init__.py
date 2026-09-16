@@ -8,18 +8,25 @@ from .pipeline import (
     RegionTimerStage,
     TrackerStage,
 )
-from .stream import VideoDisplay, VideoInput
+from .inference import (
+    AsyncInferenceRunner,
+    FrameBatch,
+    FrameRecord,
+    FrameResult,
+)
 from .video import FrameSource, Video
 
 __all__ = [
     "FrameContext",
     "FrameSource",
+    "AsyncInferenceRunner",
+    "FrameBatch",
+    "FrameRecord",
+    "FrameResult",
     "LineCounterStage",
     "Pipeline",
     "RegionFilterStage",
     "RegionTimerStage",
     "TrackerStage",
     "Video",
-    "VideoDisplay",
-    "VideoInput",
 ]

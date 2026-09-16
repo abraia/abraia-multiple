@@ -19,7 +19,7 @@ def test_dataset_load(mock_list_datasets, mock_list_images, mock_load_annotation
     assert ds.project == 'test_project'
     assert ds.annotations == [{'filename': 'test.jpg', 'objects': [{ 'label': 'cat' }]}]
     assert ds.classes == ['cat']
-    assert ds.task == 'classify'
+    assert ds.task == 'classification'
     assert ds.images == [{'name': 'test.jpg'}]
     
     mock_list_datasets.assert_called_once()
@@ -101,7 +101,7 @@ def test_prepare_dataset_reports_download_progress(monkeypatch):
             "project": "progress-test",
             "annotations": annotations,
             "classes": ["cat"],
-            "task": "classify",
+            "task": "classification",
         },
     )()
     monkeypatch.setattr(training.os.path, "exists", lambda _path: False)
@@ -127,7 +127,7 @@ def test_dataset_base_preserves_first_seen_class_order():
     )
 
     assert classes == ["dog", "cat"]
-    assert task == "classify"
+    assert task == "classification"
 
 
 def test_dataset_uses_injected_client_without_global_client_calls():
@@ -152,7 +152,7 @@ def test_dataset_uses_injected_client_without_global_client_calls():
     dataset = Dataset("project", client=FakeClient()).load(validate=False)
 
     assert dataset.classes == ["cat"]
-    assert dataset.task == "classify"
+    assert dataset.task == "classification"
     assert dataset.images[0]["url"]
 
 
@@ -176,7 +176,7 @@ def test_model_trainer_test(mock_classify_model_cls):
     mock_model = mock_classify_model_cls.return_value
     mock_model.test.return_value = {'acc': 0.95, 'confusionMatrix': [[10, 0], [1, 9]]}
     
-    trainer = ModelTrainer('test_proj', 'classify', ['cat', 'dog'])
+    trainer = ModelTrainer('test_proj', 'classification', ['cat', 'dog'])
     metrics = trainer.test('val')
     
     assert metrics['acc'] == 0.95
@@ -193,7 +193,7 @@ def test_training_service_reports_stage_transitions_before_backend_work(
     dataset = type(
         "Dataset",
         (),
-        {"task": "classify", "classes": ["cat"], "client": object()},
+        {"task": "classification", "classes": ["cat"], "client": object()},
     )()
     events = []
 
@@ -213,7 +213,7 @@ def test_training_service_reports_stage_transitions_before_backend_work(
         "Exporting model",
     ]
     mock_trainer_cls.assert_called_once_with(
-        "project", "classify", ["cat"], client=dataset.client
+        "project", "classification", ["cat"], client=dataset.client
     )
 
 

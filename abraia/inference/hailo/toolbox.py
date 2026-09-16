@@ -1,18 +1,18 @@
 import os
 import cv2
-import queue
 import shlex
 import logging
-import threading
 import subprocess
 import collections
 import numpy as np
 
+from dataclasses import dataclass
 from pathlib import Path
 from functools import partial
 from typing import Dict, List, Optional, Tuple
 
 from ...utils import download_url, get_remote_file_size
+from ...tasks import normalize_task, to_hailo_task
 from ..ops import sigmoid, softmax, nms
             
 
@@ -26,14 +26,82 @@ except ImportError:
     HAILO_AVAILABLE = False
 
 
+@dataclass(frozen=True)
+class LetterboxTransform:
+    """Geometry shared by preprocessing and Hailo output postprocessing."""
+
+    original_height: int
+    original_width: int
+    model_height: int
+    model_width: int
+    scale: float
+    resized_height: int
+    resized_width: int
+    pad_y: int
+    pad_x: int
+
+    @classmethod
+    def from_dimensions(cls, original_dim, model_dim):
+        original_height, original_width = original_dim
+        model_height, model_width = model_dim
+        scale = min(model_width / original_width, model_height / original_height)
+        resized_width = int(original_width * scale)
+        resized_height = int(original_height * scale)
+        return cls(
+            original_height, original_width, model_height, model_width,
+            scale, resized_height, resized_width,
+            (model_height - resized_height) // 2,
+            (model_width - resized_width) // 2,
+        )
+
+    def box_to_original(self, box):
+        xmin, ymin, xmax, ymax = box
+        return [
+            max(0, min(self.original_width, int((xmin - self.pad_x) / self.scale))),
+            max(0, min(self.original_height, int((ymin - self.pad_y) / self.scale))),
+            max(0, min(self.original_width, int((xmax - self.pad_x) / self.scale))),
+            max(0, min(self.original_height, int((ymax - self.pad_y) / self.scale))),
+        ]
+
+    def keypoints_to_original(self, keypoints):
+        mapped = np.array(keypoints, copy=True)
+        mapped[:, 0] = np.clip(
+            (mapped[:, 0] - self.pad_x) / self.scale,
+            0, self.original_width - 1,
+        )
+        mapped[:, 1] = np.clip(
+            (mapped[:, 1] - self.pad_y) / self.scale,
+            0, self.original_height - 1,
+        )
+        return mapped
+
+    def mask_to_original(self, mask):
+        unpadded = mask[
+            self.pad_y:self.pad_y + self.resized_height,
+            self.pad_x:self.pad_x + self.resized_width,
+        ]
+        return cv2.resize(
+            unpadded,
+            (self.original_width, self.original_height),
+            interpolation=cv2.INTER_LINEAR,
+        )
+
+
 def default_preprocess(image: np.ndarray, model_w: int, model_h: int) -> np.ndarray:
     img_h, img_w, _ = image.shape[:3]
-    scale = min(model_w / img_w, model_h / img_h)
-    new_img_w, new_img_h = int(img_w * scale), int(img_h * scale)
-    image = cv2.resize(image, (new_img_w, new_img_h), interpolation=cv2.INTER_CUBIC)
+    transform = LetterboxTransform.from_dimensions(
+        (img_h, img_w), (model_h, model_w)
+    )
+    resized = cv2.resize(
+        image,
+        (transform.resized_width, transform.resized_height),
+        interpolation=cv2.INTER_CUBIC,
+    )
     padded_image = np.full((model_h, model_w, 3), (114, 114, 114), dtype=np.uint8)
-    x_offset, y_offset = (model_w - new_img_w) // 2, (model_h - new_img_h) // 2
-    padded_image[y_offset:y_offset + new_img_h, x_offset:x_offset + new_img_w] = image
+    padded_image[
+        transform.pad_y:transform.pad_y + transform.resized_height,
+        transform.pad_x:transform.pad_x + transform.resized_width,
+    ] = resized
     return padded_image
 
 
@@ -75,9 +143,7 @@ S3_RESOURCES_BASE_URL = "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resourc
 RESOURCES_ROOT_PATH_DEFAULT = "/usr/local/hailo/resources"
 RESOURCES_MODELS_DIR_NAME = "models"
 
-# Queue and async inference defaults
-MAX_INPUT_QUEUE_SIZE = 60
-MAX_OUTPUT_QUEUE_SIZE = 60
+# Async inference defaults
 MAX_ASYNC_INFER_JOBS = 20
 
 # Base project paths
@@ -350,24 +416,23 @@ def convert_box_from_normalized(normalized_box: list,
             box_on_padded_image (list): Box mapped to padded model output image.
     """
 
-    box_on_padded_image = []
-    box_on_input_image = []
+    box_on_padded_image = [
+        min(max(round(norm_val * padded_image_size), 0), padded_image_size)
+        for norm_val in normalized_box
+    ]
 
-    for i, norm_val in enumerate(normalized_box):
-        # 1. Scale to padded image space (e.g. 640)
-        padded_coord = round(norm_val * padded_image_size)
-        padded_coord = min(max(padded_coord, 0), padded_image_size)
-        box_on_padded_image.append(padded_coord)
-
-        # 2. Remove padding to get input image space
-        if i % 2 == 0:  # x coordinate
-            input_coord = padded_coord - padding if padded_image_size != input_image_width else padded_coord
-            input_coord = min(max(input_coord, 0), input_image_width)
-        else:  # y coordinate
-            input_coord = padded_coord - padding if padded_image_size != input_image_height else padded_coord
-            input_coord = min(max(input_coord, 0), input_image_height)
-
-        box_on_input_image.append(input_coord)
+    transform = LetterboxTransform(
+        input_image_height,
+        input_image_width,
+        padded_image_size,
+        padded_image_size,
+        1.0,
+        input_image_height,
+        input_image_width,
+        0 if padded_image_size == input_image_height else padding,
+        0 if padded_image_size == input_image_width else padding,
+    )
+    box_on_input_image = transform.box_to_original(box_on_padded_image)
 
     return box_on_input_image, box_on_padded_image
 
@@ -393,23 +458,33 @@ if HAILO_AVAILABLE:
             # Set the scheduling algorithm to round-robin to activate the scheduler
             params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
             params.group_id = "SHARED"
-            vDevice = VDevice(params)
-
-            self.target = vDevice
-            hef_path = os.fspath(hef_path)
-            self.hef = HEF(hef_path)
-
-            self.infer_model = self.target.create_infer_model(hef_path)
-            self.infer_model.set_batch_size(batch_size)
-
-            self._set_input_type(input_type)
-            self._set_output_type(output_type)
-
-            self.config_ctx = self.infer_model.configure()
-            self.configured_model = self.config_ctx.__enter__()
-            self.configured_model.set_scheduler_priority(priority)
-            self.last_infer_job = None
+            self.target = None
+            self.hef = None
+            self.infer_model = None
+            self.config_ctx = None
+            self.configured_model = None
             self.pending_jobs = collections.deque()
+            self._closed = True
+            self._config_entered = False
+            try:
+                self.target = VDevice(params)
+                hef_path = os.fspath(hef_path)
+                self.hef = HEF(hef_path)
+
+                self.infer_model = self.target.create_infer_model(hef_path)
+                self.infer_model.set_batch_size(batch_size)
+
+                self._set_input_type(input_type)
+                self._set_output_type(output_type)
+
+                self.config_ctx = self.infer_model.configure()
+                self.configured_model = self.config_ctx.__enter__()
+                self._config_entered = True
+                self.configured_model.set_scheduler_priority(priority)
+            except Exception:
+                self._release_resources()
+                raise
+            self.last_infer_job = None
             self._closed = False
 
         def _set_input_type(self, input_type: Optional[str] = None) -> None:
@@ -579,18 +654,36 @@ if HAILO_AVAILABLE:
             """Wait for all submitted jobs and release the configured model."""
             if self._closed:
                 return
+            self._closed = True
+            try:
+                self.wait()
+            finally:
+                self._release_resources()
 
-            while self.pending_jobs:
-                self.pending_jobs.popleft().wait(10000)
-
-            if self.config_ctx:
-                self.config_ctx.__exit__(None, None, None)
-                self.config_ctx = None
+        def _release_resources(self):
+            """Release partially or fully initialized Hailo resources."""
+            if self.config_ctx is not None and self._config_entered:
+                try:
+                    self.config_ctx.__exit__(None, None, None)
+                except Exception:
+                    logger.warning("Failed to close Hailo configuration", exc_info=True)
+                finally:
+                    self.config_ctx = None
+                    self.configured_model = None
+                    self._config_entered = False
 
             release = getattr(self.target, "release", None)
             if callable(release):
-                release()
-            self._closed = True
+                try:
+                    release()
+                except Exception:
+                    logger.warning("Failed to release Hailo device", exc_info=True)
+            self.target = None
+
+        def wait(self):
+            """Wait for all submitted jobs without releasing the backend."""
+            while self.pending_jobs:
+                self.pending_jobs.popleft().wait(10000)
 
 
 def segment_xywh2xyxy(x):
@@ -861,35 +954,18 @@ def decode_pose_results(raw_boxes: np.ndarray, raw_kpts: np.ndarray, strides: Li
     return boxes, decoded_kpts
 
 def map_box_to_orig(box: list, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> list:
-    oh, ow = orig_dim
-    mh, mw = model_dim
-    scale = min(mw / ow, mh / oh)
-    pad_w, pad_h = (mw - int(ow * scale)) // 2, (mh - int(oh * scale)) // 2
-    xmin, ymin, xmax, ymax = box
-    xmin = max(0, min(ow, int((xmin - pad_w) / scale)))
-    ymin = max(0, min(oh, int((ymin - pad_h) / scale)))
-    xmax = max(0, min(ow, int((xmax - pad_w) / scale)))
-    ymax = max(0, min(oh, int((ymax - pad_h) / scale)))
-    return [xmin, ymin, xmax, ymax]
+    return LetterboxTransform.from_dimensions(orig_dim, model_dim).box_to_original(box)
 
 def map_keypoints_to_orig(keypoints: np.ndarray, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> np.ndarray:
-    oh, ow = orig_dim
-    mh, mw = model_dim
-    scale = min(mw / ow, mh / oh)
-    pad_w, pad_h = (mw - int(ow * scale)) // 2, (mh - int(oh * scale)) // 2
-    keypoints[:, 0] = np.clip((keypoints[:, 0] - pad_w) / scale, 0, ow - 1)
-    keypoints[:, 1] = np.clip((keypoints[:, 1] - pad_h) / scale, 0, oh - 1)
-    return keypoints
+    return LetterboxTransform.from_dimensions(
+        orig_dim, model_dim
+    ).keypoints_to_original(keypoints)
 
 def map_mask_to_orig(mask: np.ndarray, orig_dim: Tuple[int, int], model_dim: Tuple[int, int]) -> np.ndarray:
     """Map a mask from letterboxed model space to the original image."""
-    oh, ow = orig_dim
-    mh, mw = model_dim
-    scale = min(mw / ow, mh / oh)
-    resized_w, resized_h = int(ow * scale), int(oh * scale)
-    pad_w, pad_h = (mw - resized_w) // 2, (mh - resized_h) // 2
-    unpadded = mask[pad_h:pad_h + resized_h, pad_w:pad_w + resized_w]
-    return cv2.resize(unpadded, (ow, oh), interpolation=cv2.INTER_LINEAR)
+    return LetterboxTransform.from_dimensions(
+        orig_dim, model_dim
+    ).mask_to_original(mask)
 
 def resolve_shape(layer, model_type, arch_cfg):
     b, h, w, c_tag = layer
@@ -904,10 +980,36 @@ def resolve_shape(layer, model_type, arch_cfg):
     return (b, h, w, c)
 
 
+def select_output_layers(outputs: Dict[str, np.ndarray], expected_shapes):
+    """Select output tensors by shape and reject ambiguous model layouts."""
+    layers_by_shape = {}
+    duplicates = set()
+    for name, output in outputs.items():
+        shape = tuple(output.shape)
+        if shape in layers_by_shape:
+            duplicates.add(shape)
+        layers_by_shape[shape] = name
+    if duplicates:
+        raise ValueError(
+            "Hailo output shapes are ambiguous: "
+            + ", ".join(map(str, sorted(duplicates, key=str)))
+        )
+
+    missing = [tuple(shape) for shape in expected_shapes if tuple(shape) not in layers_by_shape]
+    if missing:
+        available = ", ".join(map(str, layers_by_shape)) or "none"
+        raise ValueError(
+            f"Hailo model is missing output shapes {missing}; available: {available}"
+        )
+    return [outputs[layers_by_shape[tuple(shape)]] for shape in expected_shapes]
+
+
 if HAILO_AVAILABLE:
     class ModelInference(HailoInfer):
         def __init__(self, hef_path: str, task: str, labels: list, batch_size: int = 1, score_threshold: float = 0.25, mask_threshold: float = 0.45, model_type: str = 'v8'):
-            hef_path = resolve_hef_path(hef_path, task)
+            task = normalize_task(task)
+            backend_task = to_hailo_task(task)
+            hef_path = resolve_hef_path(hef_path, backend_task)
             if hef_path is None:
                 raise FileNotFoundError(f"Unable to resolve Hailo model for task '{task}'")
             # The v5/v8/pose postprocessors consume logits and DFL
@@ -916,11 +1018,16 @@ if HAILO_AVAILABLE:
             # invalid for host-side softmax, box decoding, and NMS. Hailo's
             # byte-mask NMS path is still handled by HailoInfer itself.
             super().__init__(hef_path, batch_size, output_type="FLOAT32")
-            self.task = task
+            self.task = backend_task
             self.labels = labels
             self.score_threshold = score_threshold
             self.mask_threshold = mask_threshold
             self.model_type = model_type
+            self._postprocessors = {
+                "detect": self._process_detect_results,
+                "segment": self._process_segment_results,
+                "pose": self._process_pose_results,
+            }
 
         def _label(self, class_id):
             class_id = int(class_id)
@@ -977,9 +1084,11 @@ if HAILO_AVAILABLE:
             oh, ow = image.shape[:2]
             mh, mw, _ = self.get_input_shape()
             arch_cfg = SEGMENT_CONFIG[self.model_type]
-            raw_detections_keys = list(raw_detections.keys())
-            layer_from_shape = {raw_detections[key].shape: key for key in raw_detections_keys}
-            endnodes = [raw_detections[layer_from_shape[resolve_shape(layer, self.model_type, arch_cfg)]] for layer in arch_cfg["layers"]]
+            expected_shapes = [
+                resolve_shape(layer, self.model_type, arch_cfg)
+                for layer in arch_cfg["layers"]
+            ]
+            endnodes = select_output_layers(raw_detections, expected_shapes)
             # Use the runtime threshold during host-side NMS. The model-zoo
             # default (0.001) is useful for evaluation but allows almost every
             # low-confidence class through multi-label NMS, which can make the
@@ -999,6 +1108,8 @@ if HAILO_AVAILABLE:
                         (mh, mw),
                     )
                     mask = map_mask_to_orig(masks[i], (oh, ow), (mh, mw))
+                    if xmax <= xmin or ymax <= ymin:
+                        continue
                     detections.append({
                         'label': self._label(classes[i]), 'score': float(scores[i]), 'box': [xmin, ymin, xmax - xmin, ymax - ymin],
                         'mask': (mask[ymin:ymax, xmin:xmax] > self.mask_threshold).astype(np.uint8), 'class_id': int(classes[i])
@@ -1009,11 +1120,23 @@ if HAILO_AVAILABLE:
             oh, ow = image.shape[:2]
             mh, mw, _ = self.get_input_shape()
             raw_detections = result
-            raw_detections_keys = list(raw_detections.keys())
-            layer_from_shape = {raw_detections[key].shape: key for key in raw_detections_keys}
             reg_len = 15
             detection_out_channels = (reg_len + 1) * 4
-            endnodes = [raw_detections[layer_from_shape[1, h, w, c]] for h, w, c in [(20, 20, detection_out_channels), (20, 20, 1), (20, 20, 51), (40, 40, detection_out_channels), (40, 40, 1), (40, 40, 51), (80, 80, detection_out_channels), (80, 80, 1), (80, 80, 51)]]
+            expected_shapes = [
+                (1, h, w, c)
+                for h, w, c in (
+                    (20, 20, detection_out_channels),
+                    (20, 20, 1),
+                    (20, 20, 51),
+                    (40, 40, detection_out_channels),
+                    (40, 40, 1),
+                    (40, 40, 51),
+                    (80, 80, detection_out_channels),
+                    (80, 80, 1),
+                    (80, 80, 51),
+                )
+            ]
+            endnodes = select_output_layers(raw_detections, expected_shapes)
             batch_size = endnodes[0].shape[0]
             strides = [32, 16, 8]
             raw_boxes = endnodes[:7:3]
@@ -1052,73 +1175,63 @@ if HAILO_AVAILABLE:
             completion_info,
             bindings_list: list,
             input_batch: list,
-            output_queue: queue.Queue,
-            frame_info: Optional[list] = None,
+            output_callback,
+            image_batch=None,
+            stop_event=None,
         ) -> None:
-            def output_item(index, frame, result):
-                if frame_info is None:
-                    return frame, result
-                return frame_info[index], frame, result
+            image_batch = image_batch if image_batch is not None else input_batch
+
+            def emit_result(index, result=None, error=None):
+                if stop_event is not None and stop_event.is_set():
+                    return False
+                return output_callback(index, result, error) is not False
 
             if completion_info.exception:
-                logger.error(f'Inference error: {completion_info.exception}')
-                for index, original_frame in enumerate(input_batch):
-                    output_queue.put(output_item(index, original_frame, []))
+                logger.error("Hailo inference failed: %s", completion_info.exception)
+                for index in range(len(input_batch)):
+                    if stop_event is not None and stop_event.is_set():
+                        break
+                    if not emit_result(index, error=completion_info.exception):
+                        break
                 return
 
             for i, bindings in enumerate(bindings_list):
                 try:
                     result = self._get_results(bindings)
-                    if self.is_nms_postprocess_enabled(): processed_result = self._process_nms_results(result, input_batch[i])
-                    elif self.task == 'detect': processed_result = self._process_detect_results(result, input_batch[i])
-                    elif self.task == 'segment': processed_result = self._process_segment_results(result, input_batch[i])
-                    elif self.task == 'pose': processed_result = self._process_pose_results(result, input_batch[i])
-                    else: processed_result = result
-                except Exception:
-                    # A malformed frame must not kill HailoInfer's async
-                    # callback thread. Keep the video flowing and retain
-                    # the traceback so the offending output is diagnosable.
-                    logger.exception('Failed to post-process Hailo %s result', self.task)
-                    processed_result = []
-                output_queue.put(output_item(i, input_batch[i], processed_result))
-
-        def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
-            try:
-                while True:
-                    next_batch = input_queue.get()
-                    if not next_batch:
-                        break
-
-                    if stop_event.is_set():
-                        continue
-
-                    if len(next_batch) == 2:
-                        input_batch, preprocessed_batch = next_batch
-                        frame_info = None
+                    image = image_batch[i]
+                    if self.is_nms_postprocess_enabled():
+                        processed_result = self._process_nms_results(result, image)
                     else:
-                        frame_info, input_batch, preprocessed_batch = next_batch
-                    inference_callback_fn = partial(
-                        self._inference_callback,
-                        input_batch=input_batch,
-                        output_queue=output_queue,
-                        frame_info=frame_info,
-                    )
-                    self.run(preprocessed_batch, inference_callback_fn)
-            except Exception:
-                # Release a producer that may be blocked on a full input
-                # queue after an inference failure.
-                stop_event.set()
-                while True:
-                    try:
-                        pending_batch = input_queue.get(timeout=0.1)
-                    except queue.Empty:
+                        processor = self._postprocessors.get(self.task)
+                        processed_result = (
+                            processor(result, image)
+                            if processor is not None
+                            else result
+                        )
+                except Exception as exc:
+                    logger.exception("Failed to post-process Hailo %s result", self.task)
+                    if not emit_result(i, error=exc):
                         break
-                    if pending_batch is None:
-                        break
-                raise
-            finally:
-                self.close()
-                output_queue.put(None)
+                    continue
+                if not emit_result(i, processed_result):
+                    break
+
+        def infer_batch(
+            self, input_batch, output_callback, stop_event=None, image_batch=None
+        ):
+            """Submit one batch and emit decoded results by frame index."""
+            if stop_event is not None and stop_event.is_set():
+                return
+            if image_batch is not None and len(image_batch) != len(input_batch):
+                raise ValueError("image_batch must match input_batch length")
+            inference_callback_fn = partial(
+                self._inference_callback,
+                input_batch=input_batch,
+                image_batch=image_batch,
+                output_callback=output_callback,
+                stop_event=stop_event,
+            )
+            self.run(input_batch, inference_callback_fn)
 
 else:
     HailoInfer = None

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import gc
 
+from ..tasks import normalize_task
+
 
 class TrainingService:
     """Own annotation and training model lifecycles for application clients."""
@@ -12,7 +14,7 @@ class TrainingService:
         """Annotate unannotated dataset images and persist each result."""
         from .dataset import Annotator, annotate_image
 
-        segment = dataset.task == "segment"
+        segment = normalize_task(dataset.task) == "segmentation"
         completed = {annotation["filename"] for annotation in dataset.annotations}
         images = [image for image in dataset.images if image["name"] not in completed]
         total = len(images)
@@ -46,6 +48,7 @@ class TrainingService:
         # only annotation primitives live in ``training.dataset``.
         from . import ModelTrainer, prepare_dataset
 
+        task = normalize_task(dataset.task)
         trainer = None
         try:
             if is_cancelled():
@@ -65,7 +68,7 @@ class TrainingService:
             training_callback({"stage": "Loading model"})
             trainer = ModelTrainer(
                 project,
-                dataset.task,
+                task,
                 dataset.classes,
                 client=getattr(dataset, "client", None),
             )
@@ -89,7 +92,7 @@ class TrainingService:
                 raise RuntimeError("Training canceled")
             training_callback({"stage": "Exporting model"})
             trainer.save()
-            return {"stats": stats, "epochs": epochs, "task": dataset.task}
+            return {"stats": stats, "epochs": epochs, "task": task}
         finally:
             del trainer
             gc.collect()

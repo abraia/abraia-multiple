@@ -145,7 +145,7 @@ class Pipeline:
         self.frame_rate = float(frame_rate or 0)
 
     def _iter_inference(self):
-        """Yield ``(index, frame, results, elapsed_ms)`` from the model.
+        """Yield :class:`FrameResult` objects from the model.
 
         Most models expose the original synchronous ``run`` method.  Hardware
         backends may instead expose ``iter_inference(source)`` and overlap
@@ -153,24 +153,24 @@ class Pipeline:
         protocol here lets the rest of the pipeline (including stateful
         stages) remain backend-independent.
         """
+        from .inference import FrameRecord, FrameResult
+
         async_iterator = getattr(self.model, "iter_inference", None)
         if callable(async_iterator):
-            for item in async_iterator(self.source):
-                if len(item) == 3:
-                    frame_index, frame, results = item
-                    elapsed_ms = None
-                else:
-                    frame_index, frame, results, elapsed_ms = item
-                yield frame_index, frame, results, elapsed_ms
+            for result in async_iterator(self.source, **self.model_kwargs):
+                if not isinstance(result, FrameResult):
+                    raise TypeError(
+                        "Async models must yield FrameResult instances"
+                    )
+                yield result
             return
 
         for frame_index, frame in enumerate(self.source):
-            started = time.time()
-            yield (
-                frame_index,
-                frame,
+            started = time.perf_counter()
+            yield FrameResult(
+                FrameRecord(frame_index, frame, started),
                 self.model.run(frame, **self.model_kwargs),
-                (time.time() - started) * 1000,
+                (time.perf_counter() - started) * 1000,
             )
 
     def run(self) -> Optional[FrameContext]:
@@ -184,7 +184,11 @@ class Pipeline:
             raise RuntimeError("Pipeline has already been closed")
         last_context = None
         try:
-            for frame_index, frame, results, elapsed_ms in self._iter_inference():
+            for result in self._iter_inference():
+                frame_index = result.record.index
+                frame = result.record.frame
+                results = result.results
+                elapsed_ms = result.elapsed_ms
                 frame_time = (
                     frame_index / self.frame_rate
                     if self.frame_rate > 0
@@ -294,13 +298,15 @@ class Pipeline:
         video = None
         components = {}
         try:
-            video = Video(
-                source,
-                resolution=resolution,
-                fps=source_config.get("fps", 30),
-                dest=destination,
-                source_type=source_type,
-            )
+            video_kwargs = {
+                "resolution": resolution,
+                "fps": source_config.get("fps", 30),
+                "dest": destination,
+                "source_type": source_type,
+            }
+            if "video_unpaced" in source_config:
+                video_kwargs["video_unpaced"] = source_config["video_unpaced"]
+            video = Video(source, **video_kwargs)
             stages, components = _build_stages(
                 stages_config,
                 source_config,

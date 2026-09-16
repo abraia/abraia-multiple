@@ -426,7 +426,15 @@ class FrameSource:
 
 
 class Video(FrameSource):
-    def __init__(self, src=0, resolution=(1920, 1080), fps=30, dest=None, source_type=None):
+    def __init__(
+        self,
+        src=0,
+        resolution=(1920, 1080),
+        fps=30,
+        dest=None,
+        source_type=None,
+        video_unpaced=True,
+    ):
         self.out = None
         self.quit = False
         self._display_enabled = True
@@ -436,7 +444,7 @@ class Video(FrameSource):
             source_type=source_type,
             resolution=resolution,
             fps=fps,
-            video_unpaced=True,
+            video_unpaced=video_unpaced,
         )
         self.fps = self.source_fps or fps
         self.frames = len(self.images) if self.has_images else int(

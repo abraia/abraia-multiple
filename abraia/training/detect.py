@@ -1,4 +1,5 @@
 from ..client import Abraia
+from ..tasks import normalize_task
 
 import os
 import io
@@ -21,15 +22,21 @@ def sorted_folders(dir):
 
 
 def build_model_name(model_name, task):
-    if task == 'segment':
+    task = normalize_task(task)
+    if task == 'segmentation':
         model_name = f"{model_name}-seg"
-    if task == 'classify':
+    if task == 'classification':
         model_name = f"{model_name}-cls"
     return model_name
 
 
 class Model:
     def __init__(self, task, model_type='yolov8n', imgsz=640, client=None):
+        task = normalize_task(task)
+        if task not in ("detection", "segmentation"):
+            raise ValueError(
+                "Ultralytics detection models support detection or segmentation"
+            )
         model_name = build_model_name(model_type, task)
         self.model = YOLO(f"{model_name}.pt", verbose=False)
         self.model_name = model_name
@@ -68,7 +75,7 @@ class Model:
                     raise RuntimeError("Training canceled")
             self._training_callbacks['on_train_batch_end'] = on_train_batch_end
             self.model.add_callback('on_train_batch_end', on_train_batch_end)
-        data = f"{project}" if self.task == 'classify' else f"{project}/data.yaml"
+        data = f"{project}/data.yaml"
         train_options = {'data': data, 'batch': batch, 'epochs': epochs, 'imgsz': self.imgsz}
         if sys.platform == 'darwin':
             # Ultralytics workers inherit locks when training is launched by
@@ -120,7 +127,7 @@ class Model:
                 x1, y1, x2, y2 = box.xyxy.squeeze().tolist()
                 x1, y1, x2, y2 = round(x1), round(y1), round(x2), round(y2)
                 object = {'label': label, 'score': score, 'box': [x1, y1, x2 - x1, y2 - y1]}
-                if self.task == 'segment':
+                if self.task == 'segmentation':
                     object['polygon'] = results.masks[k].xy[0]
                 objects.append(object)
         return objects

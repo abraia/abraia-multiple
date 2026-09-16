@@ -3,9 +3,9 @@ import cv2
 import math
 import numpy as np
 
-from .session import close_resource, close_session, create_onnx_session
+from .session import OnnxSessionMixin, close_resource
 from ..utils import download_file, load_json
-from .ops import non_maximum_suppression, softmax, search_vector
+from .ops import non_maximum_suppression, softmax, search_vectors
 
 
 REFERENCE_FACIAL_POINTS = [[38.2946, 51.6963],
@@ -91,14 +91,14 @@ def process_stride(results, prob_threshold, stride, scales, scale):
     return generate_proposals(anchors, stride, score, bbox, landmark, prob_threshold, scale)
 
 
-class Retinaface:
+class Retinaface(OnnxSessionMixin):
     def __init__(self, prob_threshold=0.75, iou_threshold=0.5):
         self.image_size = (640, 640)
         self.landmarksScale = 0.18181818
         self.prob_threshold = float(prob_threshold)
         self.iou_threshold = float(iou_threshold)
         model_src = download_file('multiple/models/retinaface_mnet25_v2.simplified.onnx')
-        self.session = create_onnx_session(model_src)
+        self._init_onnx_session(model_src)
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [out.name for out in self.session.get_outputs()]
 
@@ -143,17 +143,11 @@ class Retinaface:
             result.setdefault('label', 'face')
         return results
 
-    def close(self):
-        """Release the ONNX session."""
-        session, self.session = self.session, None
-        close_session(session)
-
-
-class FaceAttribute:
+class FaceAttribute(OnnxSessionMixin):
     def __init__(self):
         """Age and Gender Prediction"""
         model_src = download_file('multiple/models/faces/genderage.simplified.onnx')
-        self.session = create_onnx_session(model_src)
+        self._init_onnx_session(model_src)
         inputs = self.session.get_inputs()
         self.input_size = tuple(inputs[0].shape[2:][::-1])
         self.input_names = [x.name for x in self.session.get_inputs()]
@@ -174,31 +168,27 @@ class FaceAttribute:
         gender, age, score = self.postprocess(predictions)
         return gender, age, score
 
-    def close(self):
-        """Release the ONNX session."""
-        session, self.session = self.session, None
-        close_session(session)
-
-
-class ArcFace:
+class ArcFace(OnnxSessionMixin):
     def __init__(self):
         model_src = download_file('multiple/models/mobilefacenet-res2-6-10-2-dim512.simplified.onnx')
-        self.session = create_onnx_session(model_src)
+        self._init_onnx_session(model_src)
         inputs = self.session.get_inputs()
         self.input_name = inputs[0].name
         self.image_size = tuple(inputs[0].shape[2:])
         self.output_names = [out.name for out in self.session.get_outputs()]
 
     def calculate_embeddings(self, img):
-        blob = cv2.dnn.blobFromImages([img], 1.0, self.image_size, (0, 0, 0), swapRB=True)
+        """Return one embedding, retaining the historical singular API."""
+        return self.calculate_embeddings_batch([img])[0]
+
+    def calculate_embeddings_batch(self, images):
+        """Calculate embeddings for several aligned faces in one inference."""
+        images = list(images)
+        if not images:
+            return np.empty((0, 512), dtype=np.float32)
+        blob = cv2.dnn.blobFromImages(images, 1.0, self.image_size, (0, 0, 0), swapRB=True)
         out = self.session.run(self.output_names, {self.input_name: blob})[0]
-        return out.flatten()
-
-    def close(self):
-        """Release the ONNX session."""
-        session, self.session = self.session, None
-        close_session(session)
-
+        return np.asarray(out).reshape(len(images), -1)
 
 class FaceRecognizer:
     def __init__(self, index=None, threshold=0.45):
@@ -224,16 +214,23 @@ class FaceRecognizer:
     def identify_faces(self, img, results=None, index=None, threshold=0.45):
         results = self.detector.detect_faces(img) if results == None else results
         index = self.index if index is None else index
+        faces = []
         for result in results:
             result['label'] = 'unknown'
-            face = align_face(img, result['keypoints'])
-            result['vector'] = self.arcface.calculate_embeddings(face)
+            faces.append(align_face(img, result['keypoints']))
+
+        vectors = self.arcface.calculate_embeddings_batch(faces)
+        matches, scores = search_vectors(vectors, index) if len(index) else (
+            [np.array([], dtype=np.int64) for _ in results], [[] for _ in results]
+        )
+        for result, vector, idxs, candidate_scores in zip(
+            results, vectors, matches, scores
+        ):
+            result['vector'] = vector
             result['identity_score'] = None
-            if len(index):
-                idxs, scores = search_vector(result['vector'], index)
-                if len(idxs) and scores[0] > threshold:
-                    result['identity_score'] = float(scores[0])
-                    result['label'] = index[idxs[0]]['name']
+            if len(idxs) and candidate_scores[0] > threshold:
+                result['identity_score'] = float(candidate_scores[0])
+                result['label'] = index[idxs[0]]['name']
         return results
 
     def run(self, img, threshold=None):

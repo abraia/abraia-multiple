@@ -5,16 +5,16 @@ from ..utils import download_file
 from .detect import Model
 from .ocr import TextSystem
 from .ops import non_maximum_suppression
-from .session import close_resource, close_session, create_onnx_session
+from .session import OnnxSessionMixin, close_resource
 
 
-class LicensePlateDetector():
+class LicensePlateDetector(OnnxSessionMixin):
     def __init__(self, threshold = 0.5, iou_threshold = 0.1, out_size = 300):
         self.out_size = out_size
         self.threshold = threshold
         self.iou_threshold = iou_threshold
         lpd_src = download_file('multiple/models/lpd.onnx')
-        self.session = create_onnx_session(lpd_src)
+        self._init_onnx_session(lpd_src)
     
     def detect(self, img, net_stride = 2**4):
         height, width = img.shape[:2]
@@ -57,12 +57,6 @@ class LicensePlateDetector():
         for result in results:
             result.setdefault('label', 'license_plate')
         return results
-
-    def close(self):
-        """Release the ONNX session."""
-        session, self.session = self.session, None
-        close_session(session)
-
 
 class PlateDetector():
     def __init__(self):

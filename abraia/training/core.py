@@ -1,5 +1,7 @@
 """Dependency-free dataset state and annotation metadata helpers."""
 
+from ..tasks import normalize_task
+
 
 class DatasetBase:
     """Common dataset state shared by remote dataset adapters."""
@@ -47,12 +49,12 @@ class DatasetBase:
                 elif obj.get("box") is not None:
                     has_boxes = True
         task = (
-            "segment"
+            "segmentation"
             if has_polygons
-            else "detect"
+            else "detection"
             if has_boxes
-            else "classify"
+            else "classification"
             if has_class_labels
             else ""
         )
-        return list(labels), task
+        return list(labels), normalize_task(task)
