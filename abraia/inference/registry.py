@@ -52,6 +52,22 @@ def create_model(config: Dict[str, Any], base_dir=None):
             raise ValueError("ONNX pipeline models only support the detection task")
         return Model(_resolve_model_uri(uri, base_dir=base_dir))
 
+    if kind in ("hailo", "hailo_detection", "hailo_segmentation"):
+        from .hailo.pipeline import HailoPipelineModel
+
+        uri = _resolve_model_uri(config.get("uri"), base_dir=base_dir)
+        if not uri:
+            raise ValueError("A Hailo pipeline model requires a model 'uri'")
+        if task != "detection":
+            raise ValueError("Hailo pipeline models currently support detection tasks")
+
+        hailo_task = params.pop("hailo_task", None)
+        if hailo_task is None:
+            hailo_task = "segment" if kind == "hailo_segmentation" else "detect"
+        params.setdefault("labels", config.get("labels"))
+        params.setdefault("score_threshold", config.get("conf_threshold", 0.25))
+        return HailoPipelineModel(uri, task=hailo_task, **params)
+
     if kind in ("face", "face_detector"):
         if task == "detection":
             from .faces import Retinaface
@@ -88,7 +104,7 @@ def create_model(config: Dict[str, Any], base_dir=None):
 
         return TextSystem(**params)
 
-    available = "onnx, object_detection, instance_segmentation, face, license_plate, ocr"
+    available = "onnx, object_detection, instance_segmentation, hailo, face, license_plate, ocr"
     raise ValueError(f"Unknown detector kind '{kind}'. Available detectors: {available}")
 
 

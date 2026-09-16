@@ -1,4 +1,4 @@
-"""Small synchronous pipelines for frame-by-frame inference workflows."""
+"""Pipelines for frame-by-frame inference workflows."""
 
 from dataclasses import dataclass, field
 import json
@@ -144,27 +144,61 @@ class Pipeline:
         frame_rate = getattr(source, "frame_rate", None)
         self.frame_rate = float(frame_rate or 0)
 
+    def _iter_inference(self):
+        """Yield ``(index, frame, results, elapsed_ms)`` from the model.
+
+        Most models expose the original synchronous ``run`` method.  Hardware
+        backends may instead expose ``iter_inference(source)`` and overlap
+        capture, preprocessing, and inference internally.  Keeping this small
+        protocol here lets the rest of the pipeline (including stateful
+        stages) remain backend-independent.
+        """
+        async_iterator = getattr(self.model, "iter_inference", None)
+        if callable(async_iterator):
+            for item in async_iterator(self.source):
+                if len(item) == 3:
+                    frame_index, frame, results = item
+                    elapsed_ms = None
+                else:
+                    frame_index, frame, results, elapsed_ms = item
+                yield frame_index, frame, results, elapsed_ms
+            return
+
+        for frame_index, frame in enumerate(self.source):
+            started = time.time()
+            yield (
+                frame_index,
+                frame,
+                self.model.run(frame, **self.model_kwargs),
+                (time.time() - started) * 1000,
+            )
+
     def run(self) -> Optional[FrameContext]:
-        """Process all source frames and return the last frame context."""
+        """Process all source frames and return the last frame context.
+
+        Models with an ``iter_inference(source)`` method may process frames
+        asynchronously.  Results are still consumed in source order so
+        stateful stages such as tracking and counting remain deterministic.
+        """
         if self._closed:
             raise RuntimeError("Pipeline has already been closed")
         last_context = None
         try:
-            for frame_index, frame in enumerate(self.source):
-                started = time.time()
+            for frame_index, frame, results, elapsed_ms in self._iter_inference():
                 frame_time = (
                     frame_index / self.frame_rate
                     if self.frame_rate > 0
                     else float(frame_index)
                 )
                 context = FrameContext(frame, frame_index, frame_time)
-                context.results = self.model.run(frame, **self.model_kwargs)
+                context.results = results
 
                 for stage in self.stages:
                     context = stage(context) or context
 
                 if self.on_frame is not None:
-                    elapsed_ms = (time.time() - started) * 1000
+                    if elapsed_ms is None:
+                        elapsed_ms = 0
                     self.on_frame(context, elapsed_ms)
 
                 output = self.render(context) if self.render else context.frame

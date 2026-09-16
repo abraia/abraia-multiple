@@ -88,8 +88,8 @@ Pipeline.from_file("pipeline.json").run()
 
 The first pipeline format supports a source, detector, tracker, line counter,
 region filter or timer, and display output. Stages run in the order listed.
-The detector can be an ONNX model (the default for existing configurations) or
-one of the built-in face and license-plate detectors:
+The detector can be an ONNX model (the default for existing configurations), a
+Hailo model, or one of the built-in face and license-plate detectors:
 
 ```json
 {
@@ -141,6 +141,25 @@ Face recognition uses a JSON index containing `name` and `vector` entries:
   "params": {"index": "faces.json", "threshold": 0.45}
 }
 ```
+
+Hailo models use the asynchronous producer/consumer runtime internally. The
+pipeline keeps completed frames ordered before applying tracking and counting
+stages:
+
+```json
+"model": {
+  "task": "detection",
+  "kind": "hailo",
+  "uri": "yolov8n",
+  "labels": ["person", "car"],
+  "conf_threshold": 0.25,
+  "params": {"batch_size": 1}
+}
+```
+
+The Hailo platform runtime must be installed and a compatible device must be
+available. The model URI may be a local `.hef` file or a model name resolved
+by the Hailo resource catalog.
 
 ### 3. Multispectral & Hyperspectral Imaging (`multiple`)
 - Specialized tools for hyperspectral and multispectral image analysis, cube processing, spectral indices, radiometric calibration, scene manifests, and spectral signature extraction (`multiple.analysis`). Remote datasets support TIFF cubes, ENVI header/data pairs (`.hdr` with `.raw`, `.img`, or a declared companion file), and IMEC snapshot-mosaic scenes (`.raw` plus their calibration `.xml`). Studio can upload a folder containing the raw scenes and shared calibration file.

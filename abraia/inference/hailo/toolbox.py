@@ -1047,11 +1047,23 @@ if HAILO_AVAILABLE:
                     })
             return detections
 
-        def _inference_callback(self, completion_info, bindings_list: list, input_batch: list, output_queue: queue.Queue) -> None:
+        def _inference_callback(
+            self,
+            completion_info,
+            bindings_list: list,
+            input_batch: list,
+            output_queue: queue.Queue,
+            frame_info: Optional[list] = None,
+        ) -> None:
+            def output_item(index, frame, result):
+                if frame_info is None:
+                    return frame, result
+                return frame_info[index], frame, result
+
             if completion_info.exception:
                 logger.error(f'Inference error: {completion_info.exception}')
-                for original_frame in input_batch:
-                    output_queue.put((original_frame, []))
+                for index, original_frame in enumerate(input_batch):
+                    output_queue.put(output_item(index, original_frame, []))
                 return
 
             for i, bindings in enumerate(bindings_list):
@@ -1068,7 +1080,7 @@ if HAILO_AVAILABLE:
                     # the traceback so the offending output is diagnosable.
                     logger.exception('Failed to post-process Hailo %s result', self.task)
                     processed_result = []
-                output_queue.put((input_batch[i], processed_result))
+                output_queue.put(output_item(i, input_batch[i], processed_result))
 
         def infer(self, input_queue: queue.Queue, output_queue: queue.Queue, stop_event: threading.Event):
             try:
@@ -1080,8 +1092,17 @@ if HAILO_AVAILABLE:
                     if stop_event.is_set():
                         continue
 
-                    input_batch, preprocessed_batch = next_batch
-                    inference_callback_fn = partial(self._inference_callback, input_batch=input_batch, output_queue=output_queue)
+                    if len(next_batch) == 2:
+                        input_batch, preprocessed_batch = next_batch
+                        frame_info = None
+                    else:
+                        frame_info, input_batch, preprocessed_batch = next_batch
+                    inference_callback_fn = partial(
+                        self._inference_callback,
+                        input_batch=input_batch,
+                        output_queue=output_queue,
+                        frame_info=frame_info,
+                    )
                     self.run(preprocessed_batch, inference_callback_fn)
             except Exception:
                 # Release a producer that may be blocked on a full input

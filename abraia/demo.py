@@ -113,26 +113,92 @@ DEFAULT_PIPELINE = {
 }
 
 
-HAILO_DEMOS = {
+HAILO_PIPELINES = {
+    'detect': {
+        'version': 1,
+        'source': {
+            'type': 'camera',
+            'src': 0,
+            'resolution': [1280, 720],
+            'fps': 30,
+        },
+        'model': {
+            'task': 'detection',
+            'kind': 'hailo',
+            'uri': 'yolov8n',
+            'params': {'hailo_task': 'detect'},
+        },
+        'stages': [{'type': 'tracker'}],
+        'display': {'show': True},
+    },
     'tomato': {
-        'hef_path': 'multiple/tomato/yolov8n.hef',
-        'src': '10179855-hd_1280_720_30fps.mp4'
+        'version': 1,
+        'source': {
+            'type': 'video',
+            'src': '10179855-hd_1280_720_30fps.mp4',
+            'resolution': [1280, 720],
+            'fps': 30,
+        },
+        'model': {
+            'task': 'detection',
+            'kind': 'hailo',
+            'uri': 'multiple/tomato/yolov8n.hef',
+            'params': {'hailo_task': 'detect'},
+        },
+        'stages': [{'type': 'tracker'}],
+        'display': {'show': True},
     },
     'apple': {
-        'hef_path': 'yolov5m_seg_with_nms',
-        'task': 'segment',
-        'src': '5479199-hd_1280_720_25fps.mp4'
+        'version': 1,
+        'source': {
+            'type': 'video',
+            'src': '5479199-hd_1280_720_25fps.mp4',
+            'resolution': [1280, 720],
+            'fps': 25,
+        },
+        'model': {
+            'task': 'detection',
+            'kind': 'hailo',
+            'uri': 'yolov5m_seg_with_nms',
+            'params': {'hailo_task': 'segment', 'model_type': 'v5'},
+        },
+        'stages': [{'type': 'tracker'}],
+        'display': {'show': True},
     },
     'segment': {
-        'hef_path': 'yolov8n_seg',
-        'task': 'segment',
-        'model_type': 'v8',
-        'src': '853889-hd_1920_1080_25fps.mp4'
+        'version': 1,
+        'source': {
+            'type': 'video',
+            'src': '853889-hd_1920_1080_25fps.mp4',
+            'resolution': [1280, 720],
+            'fps': 25,
+        },
+        'model': {
+            'task': 'detection',
+            'kind': 'hailo',
+            'uri': 'yolov8n_seg',
+            'params': {'hailo_task': 'segment', 'model_type': 'v8'},
+        },
+        'stages': [{'type': 'tracker'}],
+        'display': {'show': True},
     },
     'pose': {
-        'hef_path': 'yolov8m_pose',
-        'task': 'pose',
-    }
+        'version': 1,
+        'source': {
+            'type': 'camera',
+            'src': 0,
+            'resolution': [1280, 720],
+            'fps': 30,
+        },
+        'model': {
+            'task': 'detection',
+            'kind': 'hailo',
+            'uri': 'yolov8m_pose',
+            'params': {'hailo_task': 'pose'},
+        },
+        'stages': [{'type': 'tracker'}],
+        'display': {'show': True},
+    },
 }
 
 
@@ -168,15 +234,13 @@ def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
 
 def monitor_objects_hailo(src=None, demo='detect'):
     """Monitor, count, or just detect objects in a video stream using Hailo."""
-    from abraia.inference.hailo import detect
-    print(f"Available Hailo demos: {', '.join(HAILO_DEMOS.keys())}")
-    selected = HAILO_DEMOS.get(demo) or {}
-    src = src or selected.get('src', 0)
+    print(f"Available Hailo pipelines: {', '.join(HAILO_PIPELINES.keys())}")
+    selected = deepcopy(HAILO_PIPELINES.get(demo, HAILO_PIPELINES['detect']))
+    src = src if src is not None else selected['source']['src']
     if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
         download_url(f"https://api.abraia.me/files/multiple/videos/{src}", src)
-    options = selected.copy()
-    options['input'] = src
-    detect.main(**options)
+    selected['source']['src'] = src
+    Pipeline.from_dict(selected).run()
 
 
 def track_faces(src=None, resolution=(1280, 720)):
