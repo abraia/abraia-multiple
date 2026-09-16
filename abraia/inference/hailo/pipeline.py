@@ -13,8 +13,8 @@ from ...runtime.inference import (
 from .toolbox import (
     HAILO_AVAILABLE,
     ModelInference,
-    default_preprocess,
 )
+from .postprocess import default_preprocess
 
 
 class HailoPipelineModel:

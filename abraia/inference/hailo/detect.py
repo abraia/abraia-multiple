@@ -5,7 +5,8 @@ from types import SimpleNamespace
 from abraia.utils import download_file, load_json
 
 from ...tasks import normalize_config_task, normalize_task
-from .toolbox import HAILO_AVAILABLE, get_labels
+from .models import get_labels
+from .toolbox import HAILO_AVAILABLE
 from ...runtime import Pipeline
 
 logger = logging.getLogger(__name__)
