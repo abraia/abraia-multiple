@@ -42,7 +42,8 @@ class TrainingService:
             dataset.save()
         return dataset, len(dataset.annotations), is_cancelled()
 
-    def train_dataset(self, project, dataset, epochs, training_callback, is_cancelled):
+    def train_dataset(self, project, dataset, epochs, training_callback,
+                      is_cancelled, model_size="small"):
         """Prepare, train, validate, and save a project model."""
         # These orchestration helpers live in the public training package;
         # only annotation primitives live in ``training.dataset``.
@@ -66,12 +67,10 @@ class TrainingService:
             # seconds. Publish the transition before doing that work so the
             # UI does not remain stuck on dataset preparation.
             training_callback({"stage": "Loading model"})
-            trainer = ModelTrainer(
-                project,
-                task,
-                dataset.classes,
-                client=getattr(dataset, "client", None),
-            )
+            trainer_kwargs = {"client": getattr(dataset, "client", None)}
+            if model_size != "small":
+                trainer_kwargs["model_size"] = model_size
+            trainer = ModelTrainer(project, task, dataset.classes, **trainer_kwargs)
 
             def on_epoch(metrics):
                 if is_cancelled():

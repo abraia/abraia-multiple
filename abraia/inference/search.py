@@ -1,8 +1,8 @@
 from tqdm import tqdm
 
 from abraia import Abraia
-from abraia.inference.clip import Clip
-from abraia.inference.ops import search_vector
+from abraia.inference.models.clip import Clip
+from abraia.inference.vectors import search_vector
 from abraia.utils import show_image
 
 

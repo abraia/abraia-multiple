@@ -1,16 +1,40 @@
 import numpy as np
 import pytest
-from abraia.inference import ops, Clip
+from abraia.inference import Clip
+from abraia.inference.session import (
+    OnnxSessionBundle,
+    accelerator_from_providers,
+)
 from abraia.runtime import AsyncInferenceRunner, FrameResult
-from abraia.inference.detect import preprocess
-from abraia.inference.ocr import TextRecognizer
-from abraia.inference.sam import SAM
+from abraia.inference.postprocess.decoders import (
+    postprocess,
+    prepare_input,
+    preprocess,
+    process_output,
+    process_pose_output,
+)
+from abraia.inference.postprocess.common import softmax
+from abraia.inference.postprocess.masks import mask_to_polygon
+from abraia.inference.vectors import search_vectors
+from abraia.inference.models.ocr import TextRecognizer
+from abraia.inference.models.sam import SAM
 from abraia.inference.service import InferenceService
+
+
+@pytest.mark.parametrize("providers, expected", [
+    (("CUDAExecutionProvider", "CPUExecutionProvider"), "GPU"),
+    (("QNNExecutionProvider", "CPUExecutionProvider"), "NPU"),
+    (("HailoExecutionProvider", "CPUExecutionProvider"), "HAILO"),
+    (("CoreMLExecutionProvider", "CPUExecutionProvider"), "GPU/NPU"),
+    (("CPUExecutionProvider",), "CPU"),
+])
+def test_accelerator_from_providers(providers, expected):
+    assert accelerator_from_providers(providers) == expected
 
 
 def test_softmax_values():
     logits = np.array([0, 10, -10])
-    assert np.isclose(np.sum(ops.softmax(logits)), 1)
+    assert np.isclose(np.sum(softmax(logits)), 1)
 
 
 def test_search_vectors_returns_ranked_results_for_multiple_queries():
@@ -19,7 +43,7 @@ def test_search_vectors_returns_ranked_results_for_multiple_queries():
         {"vector": np.array([0.0, 1.0]), "name": "y"},
     ]
 
-    indices, scores = ops.search_vectors(
+    indices, scores = search_vectors(
         np.array([[0.9, 0.1], [0.1, 0.9]]), index
     )
 
@@ -68,7 +92,7 @@ def test_mask_to_polygon_accepts_boolean_masks():
     mask = np.zeros((20, 20), dtype=bool)
     mask[5:15, 6:14] = True
 
-    polygon = ops.mask_to_polygon(mask)
+    polygon = mask_to_polygon(mask)
 
     assert len(polygon) >= 3
 
@@ -122,6 +146,111 @@ def test_classifier_preprocess_returns_fixed_input_shape_for_wide_images():
     image = np.zeros((720, 1280, 3), dtype=np.uint8)
 
     assert preprocess(image, (224, 224)).shape == (1, 3, 224, 224)
+
+
+def test_detection_decoder_reverses_centered_letterbox_transform():
+    image = np.zeros((100, 200, 3), dtype=np.uint8)
+    tensor, scale, padding = prepare_input(
+        image, (1, 3, 100, 100), return_transform=True
+    )
+    assert tensor.shape == (1, 3, 100, 100)
+    assert scale == 0.5
+    assert padding == (0, 25)
+
+    output = np.zeros((1, 5, 1), dtype=np.float32)
+    output[0, :5, 0] = [50, 50, 20, 20, 0.95]
+    result = process_output(
+        [output],
+        size=(200, 100),
+        shape=(1, 3, 100, 100),
+        classes=["object"],
+        conf_threshold=0.5,
+        transform=(scale, padding),
+    )
+    assert result[0]["box"] == [80, 30, 40, 40]
+
+
+def test_classification_decoder_supports_top_k():
+    result = postprocess(
+        [np.array([[0.0, 2.0, 1.0]], dtype=np.float32)],
+        ["a", "b", "c"],
+        top_k=2,
+    )
+    assert [item["label"] for item in result] == ["b", "c"]
+
+
+def test_onnx_session_bundle_closes_all_sessions():
+    from unittest.mock import patch
+
+    class Session:
+        def __init__(self, provider):
+            self.provider = provider
+            self.closed = False
+
+        def get_providers(self):
+            return [self.provider]
+
+        def close(self):
+            self.closed = True
+
+    sessions = [Session("CPUExecutionProvider"), Session("CUDAExecutionProvider")]
+    with patch(
+        "abraia.inference.session.create_onnx_session",
+        side_effect=sessions,
+    ):
+        bundle = OnnxSessionBundle(["a.onnx", "b.onnx"])
+    assert bundle.execution_providers == (
+        "CPUExecutionProvider",
+        "CUDAExecutionProvider",
+    )
+    assert bundle.accelerator == "GPU"
+    bundle.close()
+    assert all(session.closed for session in sessions)
+
+
+def test_sam_cache_uses_image_content_not_object_identity():
+    class FakeSAM:
+        def __init__(self):
+            self.encode_calls = 0
+
+        def encode(self, image):
+            self.encode_calls += 1
+
+        def predict(self, image, prompt):
+            return np.zeros(image.shape[:2], dtype=np.uint8)
+
+        def close(self):
+            pass
+
+    service = InferenceService()
+    service._sam = FakeSAM()
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+    service.sam_predict(image, [[1, 1, 1]])
+    service.sam_predict(image.copy(), [[2, 2, 1]])
+    assert service._sam.encode_calls == 1
+    image[0, 0, 0] = 1
+    service.sam_predict(image, [[2, 2, 1]])
+    assert service._sam.encode_calls == 2
+
+
+def test_pose_output_decodes_boxes_and_keypoints():
+    output = np.zeros((1, 56, 1), dtype=np.float32)
+    output[0, :5, 0] = [50, 60, 20, 30, 0.95]
+    output[0, 5:, 0] = np.tile([10, 20, 0.9], 17)
+
+    results = process_pose_output(
+        [output],
+        size=(100, 100),
+        shape=(1, 3, 100, 100),
+        classes=["person"],
+        conf_threshold=0.5,
+    )
+
+    assert len(results) == 1
+    assert results[0]["box"] == [40, 45, 20, 30]
+    assert results[0]["keypoints"].shape == (17, 2)
+    assert results[0]["joint_scores"].shape == (17,)
+    assert np.allclose(results[0]["keypoints"][0], [10, 20])
 
 
 def test_text_recognizer_processes_all_recognition_batches():

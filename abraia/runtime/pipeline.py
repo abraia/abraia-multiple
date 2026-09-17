@@ -260,8 +260,9 @@ class Pipeline:
             raise ValueError("Pipeline stages must be an array")
 
         from ..inference import Tracker
-        from ..inference.registry import create_model
-        from ..inference.tools import LineCounter, RegionFilter, RegionTimer
+        from ..inference.registry import create_model, get_model_run_kwargs
+        from ..inference.session import get_model_accelerator
+        from .stages import LineCounter, RegionFilter, RegionTimer
         from .video import Video
 
         root = Path(base_dir or os.getcwd())
@@ -287,13 +288,7 @@ class Pipeline:
         if isinstance(destination, str) and not os.path.isabs(destination):
             destination = str(root / destination)
 
-        model_kwargs = {
-            key: model_config[key]
-            for key in ("labels", "conf_threshold", "iou_threshold", "approx")
-            if key in model_config
-        }
-        if model_kind not in ("onnx", "object_detection", "instance_segmentation"):
-            model_kwargs = {}
+        model_kwargs = get_model_run_kwargs(model_config)
         model = create_model(model_config, base_dir=root)
         video = None
         components = {}
@@ -307,6 +302,7 @@ class Pipeline:
             if "video_unpaced" in source_config:
                 video_kwargs["video_unpaced"] = source_config["video_unpaced"]
             video = Video(source, **video_kwargs)
+            video.accelerator = get_model_accelerator(model)
             stages, components = _build_stages(
                 stages_config,
                 source_config,

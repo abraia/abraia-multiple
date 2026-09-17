@@ -8,19 +8,22 @@ from importlib import import_module
 
 
 _LAZY_EXPORTS = {
-    "Model": (".detect", "Model"),
+    "Model": (".models.detection", "Model"),
+    "ResNetClassifier": (".models.classification", "ResNetClassifier"),
+    "GroundingDINOModel": (".models.grounding_dino", "GroundingDINOModel"),
     "Tracker": (".tracker", "Tracker"),
-    "FaceRecognizer": (".faces", "FaceRecognizer"),
-    "FaceAttribute": (".faces", "FaceAttribute"),
-    "PlateDetector": (".plates", "PlateDetector"),
-    "PlateRecognizer": (".plates", "PlateRecognizer"),
-    "TextSystem": (".ocr", "TextSystem"),
+    "FaceRecognizer": (".models.faces", "FaceRecognizer"),
+    "FaceAttribute": (".models.faces", "FaceAttribute"),
+    "PlateDetector": (".models.plates", "PlateDetector"),
+    "PlateRecognizer": (".models.plates", "PlateRecognizer"),
+    "TextSystem": (".models.ocr", "TextSystem"),
     "ImageSearch": (".search", "ImageSearch"),
-    "SAM": (".sam", "SAM"),
-    "InteractiveSAM": (".sam", "InteractiveSAM"),
-    "Clip": (".clip", "Clip"),
+    "SAM": (".models.sam", "SAM"),
+    "InteractiveSAM": (".models.sam", "InteractiveSAM"),
+    "Clip": (".models.clip", "Clip"),
     "InferenceService": (".service", "InferenceService"),
     "ModelSession": (".service", "ModelSession"),
+    "InferenceModel": (".contracts", "InferenceModel"),
     "create_model": (".registry", "create_model"),
 }
 
@@ -41,6 +44,8 @@ def __dir__():
 
 __all__ = [
     "Model",
+    "ResNetClassifier",
+    "GroundingDINOModel",
     "Tracker",
     "FaceRecognizer",
     "FaceAttribute",
@@ -53,5 +58,6 @@ __all__ = [
     "Clip",
     "InferenceService",
     "ModelSession",
+    "InferenceModel",
     "create_model",
 ]

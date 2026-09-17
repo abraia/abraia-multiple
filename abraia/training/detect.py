@@ -1,5 +1,5 @@
 from ..client import Abraia
-from ..tasks import normalize_task
+from ..tasks import normalize_model_size, normalize_task
 
 import os
 import io
@@ -15,6 +15,13 @@ from ultralytics import YOLO
 abraia = Abraia()
 
 
+MODEL_SIZE_TYPES = {
+    "small": "yolov8n",
+    "medium": "yolov8m",
+    "large": "yolov8l",
+}
+
+
 def sorted_folders(dir):
     items = [os.path.join(dir, name) for name in os.listdir(dir)]
     sorted_items = sorted(items, key=os.path.getctime)
@@ -25,23 +32,25 @@ def build_model_name(model_name, task):
     task = normalize_task(task)
     if task == 'segmentation':
         model_name = f"{model_name}-seg"
-    if task == 'classification':
-        model_name = f"{model_name}-cls"
     return model_name
 
 
 class Model:
-    def __init__(self, task, model_type='yolov8n', imgsz=640, client=None):
+    def __init__(self, task, model_type=None, imgsz=640, client=None,
+                 model_size="small"):
         task = normalize_task(task)
         if task not in ("detection", "segmentation"):
             raise ValueError(
                 "Ultralytics detection models support detection or segmentation"
             )
+        model_size = normalize_model_size(model_size)
+        model_type = model_type or MODEL_SIZE_TYPES[model_size]
         model_name = build_model_name(model_type, task)
         self.model = YOLO(f"{model_name}.pt", verbose=False)
         self.model_name = model_name
         self.metrics = {}
         self.task = task
+        self.model_size = model_size
         self.imgsz = imgsz
         self.client = abraia if client is None else client
         self._training_callbacks = {}

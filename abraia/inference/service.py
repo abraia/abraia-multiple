@@ -7,15 +7,36 @@ need to deal with application data and callbacks.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import threading
+from typing import Callable
+
+import numpy as np
 
 from ..utils import as_array
+from .contracts import InferenceModel
+
+
+def _image_signature(image):
+    """Return a stable, mutation-sensitive key for an image array."""
+    image = as_array(image)
+    contiguous = np.ascontiguousarray(image)
+    digest = hashlib.blake2b(
+        contiguous.view(np.uint8), digest_size=16
+    ).digest()
+    return contiguous.shape, contiguous.dtype.str, digest
 
 
 def _create_onnx_model(model_uri):
     """Create the default ONNX backend lazily."""
+    from .model_config import is_resnet_model_uri
+
+    if is_resnet_model_uri(model_uri):
+        from .models.classification import ResNetClassifier
+
+        return ResNetClassifier(model_uri)
     from . import Model
 
     return Model(model_uri)
@@ -29,9 +50,9 @@ class ModelSession:
     available.
     """
 
-    def __init__(self, model_uri, factory):
+    def __init__(self, model_uri, factory: Callable[[str], InferenceModel]):
         self.model_uri = model_uri
-        self._model = factory(model_uri)
+        self._model: InferenceModel = factory(model_uri)
         if not any(
             callable(getattr(self._model, name))
             for name in ("run", "iter_inference")
@@ -56,7 +77,10 @@ class ModelSession:
             iterator = getattr(self._model, "iter_inference", None)
             if not callable(iterator):
                 raise TypeError("This inference backend only supports run")
-        yield from iterator(source, **kwargs)
+            # Keep the operation lock for the whole iterator lifetime. A
+            # backend session is not assumed to be safe for concurrent
+            # streaming and one-shot calls.
+            yield from iterator(source, **kwargs)
 
     def close(self):
         with self._lock:
@@ -88,6 +112,7 @@ class InferenceService:
         self._lock = threading.RLock()
         self._sam = None
         self._sam_image = None
+        self._sam_image_key = None
 
     def get_session(self, model_uri, backend="onnx"):
         """Return a cached model session for ``model_uri`` and ``backend``."""
@@ -141,6 +166,7 @@ class InferenceService:
             self._sessions.clear()
             sam, self._sam = self._sam, None
             self._sam_image = None
+            self._sam_image_key = None
             for resource in [*sessions, sam]:
                 if resource is None:
                     continue
@@ -165,6 +191,7 @@ class InferenceService:
         from . import SAM
 
         image = as_array(image)
+        image_key = _image_signature(image)
         prompt = [
             {
                 "type": "point",
@@ -177,7 +204,8 @@ class InferenceService:
             if self._sam is None:
                 self._sam = SAM()
             sam = self._sam
-            if self._sam_image is not image:
+            if self._sam_image_key != image_key:
                 sam.encode(image)
                 self._sam_image = image
+                self._sam_image_key = image_key
             return sam.predict(image, prompt=json.dumps(prompt))

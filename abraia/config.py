@@ -29,16 +29,27 @@ def base64decode(str):
 def load():
     abraia_id = os.environ.get('ABRAIA_ID')
     abraia_key = os.environ.get('ABRAIA_KEY')
-    if abraia_id and abraia_key:
-        return abraia_id, abraia_key
+    if abraia_key:
+        return _resolve_credentials(abraia_id, abraia_key)
     elif os.path.isfile(CONFIG_FILE):
         config = {}
         with open(CONFIG_FILE, 'r') as f:
             for line in f:
                 key, value = list(map(lambda v: v.strip(), line.split(':')))
                 config[key] = value
-        return config.get('abraia_id', ''), config.get('abraia_key', '')
+        return _resolve_credentials(
+            config.get('abraia_id', ''),
+            config.get('abraia_key', ''),
+        )
     return '', ''
+
+
+def _resolve_credentials(abraia_id, abraia_key):
+    """Resolve the user ID from an encoded key when it is not supplied."""
+    if abraia_id or not abraia_key:
+        return abraia_id or '', abraia_key or ''
+    api_key, _api_secret = load_auth(abraia_key)
+    return api_key, abraia_key
 
 
 def load_auth(abraia_key):

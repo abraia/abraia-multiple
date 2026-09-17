@@ -2,9 +2,9 @@ import cv2
 import json
 import numpy as np
 
-from ..utils import download_file, Sketcher
-from .ops import mask_to_box
-from .session import close_resource, close_session, create_onnx_session
+from ...utils import download_file, Sketcher
+from ..postprocess.masks import mask_to_box
+from ..session import OnnxSessionBundle, close_resource, close_session
 
 
 def get_input_points(prompt):
@@ -31,14 +31,21 @@ class SAM:
         self.input_size = (684, 1024)
         self.encoder = None
         self.decoder = None
+        self._session_bundle = None
         try:
             encoder_src = download_file('multiple/models/mobile_sam.encoder.onnx')
             decoder_src = download_file('multiple/models/mobile_sam.decoder.onnx')
-            self.encoder = create_onnx_session(encoder_src)
-            self.decoder = create_onnx_session(decoder_src)
+            self._session_bundle = OnnxSessionBundle([encoder_src, decoder_src])
+            self.encoder, self.decoder = self._session_bundle.sessions
+            self.execution_providers = self._session_bundle.execution_providers
+            self.accelerator = self._session_bundle.accelerator
         except Exception:
-            close_resource(self.encoder)
-            close_resource(self.decoder)
+            bundle, self._session_bundle = self._session_bundle, None
+            if bundle is not None:
+                close_resource(bundle)
+            else:
+                close_resource(self.encoder)
+                close_resource(self.decoder)
             self.encoder = None
             self.decoder = None
             raise
@@ -112,10 +119,14 @@ class SAM:
         """Release the encoder and decoder sessions."""
         if self._closed:
             return
+        bundle, self._session_bundle = getattr(self, '_session_bundle', None), None
+        if bundle is not None:
+            bundle.close()
         for name in ("encoder", "decoder"):
             session, setattr_target = getattr(self, name, None), name
             setattr(self, setattr_target, None)
-            close_session(session)
+            if bundle is None:
+                close_session(session)
         self.image_embedding = None
         self._closed = True
 

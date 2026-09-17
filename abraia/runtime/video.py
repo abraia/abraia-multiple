@@ -12,11 +12,15 @@ from ..utils.draw import (
     render_status,
 )
 from ..utils.filesystem import make_dirs
+from ..sources import (
+    IMAGE_SUFFIXES,
+    VIDEO_SUFFIXES,
+    infer_source_type as infer_media_source_type,
+)
 
 logger = logging.getLogger(__name__)
 
-VIDEO_SUFFIXES = (".mp4", ".avi", ".mov", ".mkv")
-IMAGE_EXTENSIONS: Tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp")
+IMAGE_EXTENSIONS: Tuple[str, ...] = IMAGE_SUFFIXES
 CAMERA_RESOLUTION_MAP = {
     "sd": (640, 480),
     "hd": (1280, 720),
@@ -58,15 +62,11 @@ def is_camera(src: Any) -> bool:
 
 def infer_source_type(src: Any) -> Optional[str]:
     """Infer the common source type used by all runtime runners."""
-    if is_camera(src):
-        return "camera"
-    if is_stream_url(src):
-        return "stream"
-    if os.path.isdir(str(src)) or is_image(src):
-        return "images"
-    if is_video(src):
-        return "video"
-    return None
+    return infer_media_source_type(
+        src,
+        require_exists=True,
+        image_type="images",
+    )
 
 
 def open_capture(
@@ -507,7 +507,11 @@ class Video(FrameSource):
     def show(self, frame):
         t1 = time.time()
         display_frame = frame.copy()
-        render_status(display_frame, fps=1 / (t1 - self.t0) if t1 > self.t0 else 0)
+        render_status(
+            display_frame,
+            fps=1 / (t1 - self.t0) if t1 > self.t0 else 0,
+            accelerator=getattr(self, "accelerator", None),
+        )
         render_resolution(display_frame)
         self.t0 = t1
         out = cv2.cvtColor(display_frame, cv2.COLOR_RGB2BGR)

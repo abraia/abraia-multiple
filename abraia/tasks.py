@@ -9,6 +9,7 @@ PIPELINE_TASKS = (
     "recognition",
 )
 TRAINING_TASKS = ("classification", "detection", "segmentation")
+MODEL_SIZES = ("small", "medium", "large")
 HAILO_TASKS = ("detection", "segmentation", "pose")
 
 # Accepted input spellings. Callers normalize these immediately and should
@@ -43,6 +44,16 @@ def normalize_task(value, default=None):
     return TASK_ALIASES.get(normalized, normalized)
 
 
+def normalize_model_size(value, default="small"):
+    """Normalize a supported model size and reject unknown values."""
+    size = str(value or default).strip().lower()
+    if size not in MODEL_SIZES:
+        raise ValueError(
+            f"Unsupported model size: {size}. Use {', '.join(MODEL_SIZES)}"
+        )
+    return size
+
+
 def normalize_config_task(value, default=None):
     """Normalize a task read from a config or model metadata file."""
     return normalize_task(value, default=default)
@@ -75,6 +86,7 @@ def to_ultralytics_task(value):
 __all__ = [
     "HAILO_BACKEND_TASKS",
     "HAILO_TASKS",
+    "MODEL_SIZES",
     "CONFIG_TASK_ALIASES",
     "PIPELINE_TASKS",
     "TASK_ALIASES",
@@ -82,6 +94,7 @@ __all__ = [
     "ULTRALYTICS_BACKEND_TASKS",
     "normalize_task",
     "normalize_config_task",
+    "normalize_model_size",
     "to_hailo_task",
     "to_ultralytics_task",
 ]

@@ -2,8 +2,8 @@ import os
 from copy import deepcopy
 
 from abraia.inference import FaceRecognizer, FaceAttribute
-from abraia.inference.faces import find_pose
-from abraia.inference.ops import count_objects
+from abraia.inference.models.faces import find_pose
+from abraia.runtime.stages import count_objects
 from abraia.runtime import Pipeline
 from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
 from abraia.runtime import Video
@@ -143,12 +143,19 @@ HAILO_PIPELINES = {
             'task': 'detection',
             'kind': 'hailo',
             'uri': 'multiple/tomato/yolov8n.hef',
+            'labels': ['tomato'],
             'params': {},
         },
-        'stages': [{'type': 'tracker'}],
+        'stages': [
+            {'type': 'tracker'},
+            {'type': 'line_counter', 'line': [[960, 0], [960, 720]]},
+        ],
         'display': {'show': True},
     },
-    'apple': {
+    # This is the catalog's generic YOLOv5 segmentation model, not an
+    # apple-specific HEF. Keep it separate from the ONNX apple demo until a
+    # compatible custom apple model is available.
+    'segment_v5': {
         'version': 1,
         'source': {
             'type': 'video',

@@ -31,10 +31,14 @@ class Abraia:
     request_timeout = (10, 120)
     request_retries = 3
 
-    def __init__(self):
-        abraia_id, abraia_key = config.load()
+    def __init__(self, abraia_key=None):
+        if abraia_key is None:
+            abraia_id, abraia_key = config.load()
+        else:
+            abraia_id, _api_secret = config.load_auth(abraia_key)
         self.auth = config.load_auth(abraia_key)
         self.userid = abraia_id
+        self.api_key = abraia_key
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
         adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)

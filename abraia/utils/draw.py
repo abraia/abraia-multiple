@@ -326,15 +326,18 @@ def render_region(img, region, text='', color=(255, 0, 0), opacity=0.2, thicknes
     return img
 
 
-def render_status(img, fps=None, thickness=None, text_scale=None):
+def render_status(img, fps=None, thickness=None, text_scale=None, accelerator=None):
     import psutil
     thickness = thickness or calculate_optimal_thickness(img.shape[:2])
     text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
     lines = []
+    cpu_stats = f"CPU: {psutil.cpu_percent()}%"
+    if accelerator:
+        cpu_stats += f" | {accelerator}"
+    lines.append(cpu_stats)
+    lines.append(f"RAM: {round(psutil.virtual_memory().used / (1024**3), 2)} GB")
     if fps is not None:
         lines.append(f"FPS: {round(fps, 1)}")
-    lines.append(f"CPU: {psutil.cpu_percent()}%")
-    lines.append(f"RAM: {round(psutil.virtual_memory().used / (1024**3), 2)} GB")
     return draw_text_multiline(img, lines, (10, 40), background_color=(192, 192, 192), text_scale=text_scale, padding=thickness*3)
 
 

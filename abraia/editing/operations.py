@@ -14,14 +14,14 @@ from ..utils import draw
 
 @lru_cache(maxsize=1)
 def _face_detector():
-    from ..inference.faces import Retinaface
+    from ..inference.models.faces import Retinaface
 
     return Retinaface()
 
 
 @lru_cache(maxsize=1)
 def _plate_detector():
-    from ..inference.plates import PlateDetector
+    from ..inference.models.plates import PlateDetector
 
     return PlateDetector()
 
@@ -126,7 +126,7 @@ def inpaint_image(img, mask):
 
 def clean_image(img):
     """Interactively select and inpaint an image region."""
-    from ..inference.sam import InteractiveSAM
+    from ..inference.models.sam import InteractiveSAM
 
     interactive_sam = InteractiveSAM(img)
     return interactive_sam.interactive_mask(

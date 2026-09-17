@@ -14,6 +14,7 @@ from .toolbox import (
     HAILO_AVAILABLE,
     ModelInference,
 )
+from .models import COCO_LABELS, resolve_model_type
 from .postprocess import default_preprocess
 
 
@@ -47,9 +48,12 @@ class HailoPipelineModel:
 
         task = normalize_task(task)
         self.task = task
+        self.accelerator = "HAILO"
+        # Hailo model-zoo detection and segmentation models use COCO classes
+        # by default. Custom HEFs can still provide their own label list.
+        labels = list(COCO_LABELS) if labels is None else list(labels)
+        self.labels = labels
         if model_type is None:
-            from .detect import resolve_model_type
-
             model_type = resolve_model_type(None, hef_path, task)
         self.inference = ModelInference(
             hef_path,

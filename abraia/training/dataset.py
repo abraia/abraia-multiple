@@ -3,6 +3,7 @@ import sys
 import re
 import io
 import json
+import math
 import urllib
 import requests
 import filetype
@@ -210,7 +211,7 @@ class Annotator:
         self.pipe = pipeline(task="zero-shot-object-detection", model=model)
         self.segment_enabled = segment
         if self.segment_enabled:
-            from abraia.inference.sam import SAM
+            from abraia.inference.models.sam import SAM
             self.sam = SAM()
 
     def detect(self, img, classes, threshold=0.3):
@@ -227,13 +228,20 @@ class Annotator:
         return objects
 
     def segment(self, img, objects):
-        from abraia.inference.ops import mask_to_polygon
+        from abraia.inference.postprocess.masks import mask_to_polygon
 
         self.sam.encode(img)
         for result in objects:
             x, y, w, h = result['box']
             mask = self.sam.predict(img, prompt=json.dumps([{"type": "rectangle", "data": [x, y, x+w, y+h]}]))
-            result['polygon'] = mask_to_polygon(mask[y:y+h, x:x+w], (x, y))
+            height, width = mask.shape[:2]
+            left = max(0, min(width, math.floor(x)))
+            top = max(0, min(height, math.floor(y)))
+            right = max(left, min(width, math.ceil(x + w)))
+            bottom = max(top, min(height, math.ceil(y + h)))
+            result['polygon'] = mask_to_polygon(
+                mask[top:bottom, left:right], (left, top)
+            )
         return objects
 
 def annotate_image(image_data, classes, segment=False, annotator=None,

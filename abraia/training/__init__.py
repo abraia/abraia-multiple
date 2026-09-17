@@ -9,7 +9,22 @@ from ..utils import save_text
 from .ops import train_test_split
 from .dataset import list_datasets, load_dataset, search_images, list_models, download_file, abraia
 from .service import TrainingService
-from ..tasks import TRAINING_TASKS, normalize_task, to_ultralytics_task
+from .annotations import (
+    annotation_counts,
+    canonical_filename,
+    dataset_has_annotations,
+    find_image,
+    image_filename,
+    objects_for_image,
+    upsert_annotation,
+)
+from ..tasks import (
+    MODEL_SIZES,
+    TRAINING_TASKS,
+    normalize_model_size,
+    normalize_task,
+    to_ultralytics_task,
+)
 
 
 def save_annotation(annotation, folder, classes, task):
@@ -130,22 +145,24 @@ def prepare_dataset(dataset, force=False, callback=None):
 class ModelTrainer:
     """High-level trainer orchestrator using models and dataset utilities."""
     def __init__(self, project: str, task: str, classes: list, imgsz: int = None,
-                 client=None):
+                 client=None, model_size="small"):
         task = normalize_task(task)
         if task not in TRAINING_TASKS:
             raise ValueError(f"Unsupported training task: {task}")
         self.project = project
         self.task = task
         self.classes = classes
+        self.model_size = normalize_model_size(model_size)
         self.pbar = None
         imgsz = imgsz or (224 if task == 'classification' else 640)
         if task == 'classification':
             from . import classify
-            self.model = classify.Model(client=client)
+            self.model = classify.Model(client=client, model_size=self.model_size)
         else:
             from . import detect
             self.model = detect.Model(
-                to_ultralytics_task(task), imgsz=imgsz, client=client
+                to_ultralytics_task(task), imgsz=imgsz, client=client,
+                model_size=self.model_size,
             )
 
     def _progress_callback(self, progress):

@@ -86,12 +86,12 @@ def cli():
 
 @cli.command()
 def configure():
-    """Configure the abraia api key."""
-    click.echo('Go to [' + click.style('https://abraia.me/editor/', fg='green') + '] to get your user id and key\n')
+    """Configure the Abraia API key."""
+    click.echo('Go to [' + click.style('https://abraia.me/editor/', fg='green') + '] to get your API key\n')
     try:
-        abraia_id, abraia_key = config.load()
-        abraia_id = click.prompt('Abraia Id', default=abraia_id)
+        _abraia_id, abraia_key = config.load()
         abraia_key = click.prompt('Abraia Key', default=abraia_key)
+        abraia_id, _api_secret = config.load_auth(abraia_key)
         config.save(abraia_id, abraia_key)
     except:
         pass
@@ -301,7 +301,7 @@ def run(project, classes, src):
             search_images(project, query=src or "man with red shirt")
         else:
             from abraia.training import list_models
-            from abraia.inference.detect import Model
+            from abraia.inference.models.detection import Model
             from abraia.utils import render_results
             models = list_models(project)
             if not models:

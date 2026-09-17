@@ -17,8 +17,8 @@ import cv2
 import math
 import numpy as np
 
-from ..utils import download_file
-from .session import OnnxSessionMixin, close_resource
+from ...utils import download_file
+from ..session import OnnxSessionMixin, close_resource
 
 
 def get_char(character_dict_path, use_space_char=False):

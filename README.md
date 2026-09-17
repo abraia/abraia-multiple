@@ -49,6 +49,12 @@ For Vision Studio with ENVI support, install the Studio extra:
 pip install -U abraia[studio]
 ```
 
+Grounding DINO requires the optional tokenizer dependency:
+
+```sh
+pip install -U abraia[grounding-dino]
+```
+
 For supervised HSI analysis or GIS helpers, add the
 corresponding optional extras:
 
@@ -62,6 +68,7 @@ pip install -U abraia[multiple,analysis,gis]
 
 ### 1. Inference & Computer Vision (`abraia.inference`)
 - **Object Detection**: Fast ONNX/YOLO-based object detection (`abraia.inference.Model`).
+- **Open-Vocabulary Detection**: Grounding DINO ONNX inference with text prompts (`abraia.inference.GroundingDINOModel`).
 - **Segmentation (SAM)**: Segment Anything Model integration for precise image masking (`abraia.inference.Sam`).
 - **Object Tracking & People Flow**: Advanced multi-object tracking (`Tracker`), line crossing counters (`LineCounter`), and region duration timers (`RegionTimer`).
 - **Face Recognition**: Identify and match faces in images and streams (`FaceRecognizer`).
@@ -119,9 +126,38 @@ Built-in detectors do not require a model URI. For example:
 }
 ```
 
-The Studio model selector also includes the bundled object-detection and
-instance-segmentation presets. Their model URIs are
-`multiple/models/yolov8n.onnx` and `multiple/models/yolov8n-seg.onnx`.
+The Studio model selector also includes the bundled object-detection,
+instance-segmentation, pose-estimation, and classification presets. Each
+task has small (`n`), medium (`m`), and large (`l`) model URIs, for example
+`multiple/models/yolov8n.onnx`, `multiple/models/yolov8m.onnx`, and
+`multiple/models/yolov8l.onnx` for object detection.
+Pipeline JSON can select a size without spelling out the URI:
+
+```json
+"model": {
+  "task": "pose",
+  "kind": "pose",
+  "size": "small"
+}
+```
+
+Grounding DINO detects labels supplied at inference time. The bundled tiny
+ONNX model uses a fixed 800x800 input:
+
+```json
+{
+  "task": "detection",
+  "kind": "grounding_dino",
+  "uri": "multiple/models/grounding_dino_tiny.onnx",
+  "labels": ["person", "red car"],
+  "conf_threshold": 0.35,
+  "text_threshold": 0.25
+}
+```
+
+The equivalent Python API accepts either `labels=[...]` or a free-form
+`prompt="person. red car."`.
+
 OCR recognition is available as a built-in model:
 
 ```json
@@ -162,7 +198,7 @@ available. The model URI may be a local `.hef` file or a model name resolved
 by the Hailo resource catalog.
 
 ### 3. Multispectral & Hyperspectral Imaging (`multiple`)
-- Specialized tools for hyperspectral and multispectral image analysis, cube processing, spectral indices, radiometric calibration, scene manifests, and spectral signature extraction (`multiple.analysis`). Remote datasets support TIFF cubes, ENVI header/data pairs (`.hdr` with `.raw`, `.img`, or a declared companion file), and IMEC snapshot-mosaic scenes (`.raw` plus their calibration `.xml`). Studio can upload a folder containing the raw scenes and shared calibration file.
+- Specialized tools for hyperspectral and multispectral image analysis, cube processing, spectral indices, radiometric calibration, scene manifests, and spectral signature extraction (`multiple.spectral` and `multiple.manifests`). Remote datasets support TIFF cubes, ENVI header/data pairs (`.hdr` with `.raw`, `.img`, or a declared companion file), and IMEC snapshot-mosaic scenes (`.raw` plus their calibration `.xml`). Studio can upload a folder containing the raw scenes and shared calibration file.
 - The public `multiple` API is grouped into visualization, local I/O, shared band contracts, metadata, manifests, remote datasets and clients, radiometry, analysis, and registration modules. Analysis and GIS integrations expose optional dependency errors only when used.
 
 ### 4. Edge AI & Hardware Acceleration (`abraia.inference.hailo`)
@@ -170,6 +206,8 @@ by the Hailo resource catalog.
 
 ### 5. Training & Dataset Operations (`abraia.training`)
 - Tools for training custom classification, detection, and segmentation models, along with dataset preprocessing utilities (`dataset`, `ops`).
+  Training supports small, medium, and large model sizes; detection and
+  segmentation use YOLOv8n/m/l, while classification uses ResNet18/50/101.
 
 ### 6. Runtime & Video Processing (`abraia.runtime`)
 - Robust video frame iteration and manipulation (`Video`).
@@ -263,7 +301,7 @@ Search images using natural language text queries via CLIP embeddings:
 from tqdm import tqdm
 from glob import glob
 from abraia.utils import load_image
-from abraia.inference.clip import Clip
+from abraia.inference.models.clip import Clip
 from abraia.inference.ops import search_vector
 
 clip_model = Clip()

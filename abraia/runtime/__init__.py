@@ -15,6 +15,7 @@ from .inference import (
     FrameResult,
 )
 from .video import FrameSource, Video
+from .stages import LineCounter, RegionFilter, RegionTimer, count_objects
 
 __all__ = [
     "FrameContext",
@@ -23,10 +24,14 @@ __all__ = [
     "FrameBatch",
     "FrameRecord",
     "FrameResult",
+    "LineCounter",
     "LineCounterStage",
     "Pipeline",
     "RegionFilterStage",
     "RegionTimerStage",
+    "RegionTimer",
+    "RegionFilter",
+    "count_objects",
     "TrackerStage",
     "Video",
 ]

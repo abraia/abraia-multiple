@@ -10,9 +10,17 @@ from torchvision import models, transforms, datasets
 
 from ..client import Abraia
 from ..utils import temporal_src
+from ..tasks import normalize_model_size
 
 
 abraia = Abraia()
+
+
+CLASSIFICATION_BACKBONES = {
+    "small": ("resnet18", models.resnet18, models.ResNet18_Weights),
+    "medium": ("resnet50", models.resnet50, models.ResNet50_Weights),
+    "large": ("resnet101", models.resnet101, models.ResNet101_Weights),
+}
 
 
 def default_device():
@@ -20,9 +28,13 @@ def default_device():
     return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def create_model(class_names, pretrained=True, device=None):
+def create_model(class_names, pretrained=True, device=None, model_size="small"):
     device = device or default_device()
-    model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
+    model_size = normalize_model_size(model_size)
+    _name, model_factory, weights_enum = CLASSIFICATION_BACKBONES[model_size]
+    model = model_factory(
+        weights=weights_enum.IMAGENET1K_V1 if pretrained else None
+    )
     for param in model.parameters():
         param.requires_grad = False
     num_ftrs = model.fc.in_features
@@ -93,9 +105,10 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
 
 
 class Model:
-    def __init__(self, client=None):
+    def __init__(self, client=None, model_size="small"):
+        self.model_size = normalize_model_size(model_size)
         self.input_shape = [1, 3, 224, 224]
-        self.model_name = 'resnet18'
+        self.model_name = CLASSIFICATION_BACKBONES[self.model_size][0]
         self.metrics = {}
         self.device = default_device()
         self.client = abraia if client is None else client
@@ -132,7 +145,11 @@ class Model:
 
     def train(self, dataset, epochs=25, batch=8, callback=None, is_cancelled=None):
         dataloaders, classes = self.create_dataset(dataset, batch=batch)
-        model_conv = create_model(classes, device=self.device)
+        model_conv = create_model(
+            classes,
+            device=self.device,
+            model_size=self.model_size,
+        )
         self.dataloaders = dataloaders
         self.classes = classes
         since = time.time()
@@ -183,6 +200,8 @@ class Model:
             f"{dataset}/{self.model_name}.json",
             {
                 'task': 'classification',
+                'kind': 'resnet',
+                'backbone': self.model_name,
                 'inputShape': self.input_shape,
                 'classes': classes,
                 'metrics': self.metrics,

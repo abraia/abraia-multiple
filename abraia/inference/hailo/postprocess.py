@@ -14,7 +14,8 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from ..ops import nms, sigmoid, softmax
+from ..postprocess.boxes import nms
+from ..postprocess.common import sigmoid, softmax
 
 
 logger = logging.getLogger(__name__)

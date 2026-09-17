@@ -1,11 +1,11 @@
 import cv2
 import numpy as np
 
-from ..utils import download_file
-from .detect import Model
+from ...utils import download_file
+from .detection import Model
 from .ocr import TextSystem
-from .ops import non_maximum_suppression
-from .session import OnnxSessionMixin, close_resource
+from ..postprocess.boxes import non_maximum_suppression
+from ..session import OnnxSessionMixin, close_resource
 
 
 class LicensePlateDetector(OnnxSessionMixin):

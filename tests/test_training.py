@@ -1,4 +1,5 @@
 from abraia.training.dataset import Dataset
+from abraia.training.dataset import Annotator
 from abraia.training.core import DatasetBase
 from abraia.training.ops import resample, train_test_split
 from unittest.mock import patch
@@ -67,6 +68,29 @@ def test_dataset_annotate_filter(
     assert events == [{'current': 1, 'total': 1, 'filename': 'new.jpg'}]
     mock_annotator_cls.assert_called_once_with(segment=False)
     mock_save.assert_called_once_with()
+
+
+def test_segmentation_annotation_converts_float_boxes_to_polygons():
+    annotator = object.__new__(Annotator)
+
+    class FakeSam:
+        def encode(self, _image):
+            return None
+
+        def predict(self, image, prompt):
+            mask = np.zeros(image.shape[:2], dtype=np.uint8)
+            mask[2:8, 3:10] = 255
+            return mask
+
+    annotator.sam = FakeSam()
+    objects = [{"label": "car", "box": [3.2, 2.4, 6.5, 5.8]}]
+    image = np.zeros((12, 16, 3), dtype=np.uint8)
+
+    result = annotator.segment(image, objects)
+
+    assert len(result[0]["polygon"]) >= 3
+    assert min(point[0] for point in result[0]["polygon"]) >= 3
+    assert min(point[1] for point in result[0]["polygon"]) >= 2
 
 
 def test_dataset_annotated_status():
@@ -181,6 +205,38 @@ def test_model_trainer_test(mock_classify_model_cls):
     
     assert metrics['acc'] == 0.95
     mock_model.test.assert_called_once_with(split='val')
+
+
+@patch('abraia.training.detect.Model')
+def test_model_trainer_passes_large_size_to_detection_training(mock_detect_model_cls):
+    ModelTrainer(
+        'test_proj',
+        'segmentation',
+        ['cat'],
+        model_size='large',
+    )
+
+    mock_detect_model_cls.assert_called_once_with(
+        'segment',
+        imgsz=640,
+        client=None,
+        model_size='large',
+    )
+
+
+@patch('abraia.training.classify.Model')
+def test_model_trainer_passes_medium_size_to_classification_training(mock_classify_model_cls):
+    ModelTrainer(
+        'test_proj',
+        'classification',
+        ['cat'],
+        model_size='medium',
+    )
+
+    mock_classify_model_cls.assert_called_once_with(
+        client=None,
+        model_size='medium',
+    )
 
 
 @patch('abraia.training.prepare_dataset')

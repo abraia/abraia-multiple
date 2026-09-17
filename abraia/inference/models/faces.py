@@ -3,9 +3,11 @@ import cv2
 import math
 import numpy as np
 
-from .session import OnnxSessionMixin, close_resource
-from ..utils import download_file, load_json
-from .ops import non_maximum_suppression, softmax, search_vectors
+from ..session import OnnxSessionMixin, close_resource
+from ...utils import download_file, load_json
+from ..postprocess.boxes import non_maximum_suppression
+from ..postprocess.common import softmax
+from ..vectors import search_vectors
 
 
 REFERENCE_FACIAL_POINTS = [[38.2946, 51.6963],

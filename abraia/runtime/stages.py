@@ -1,5 +1,14 @@
 
-from abraia.inference.ops import count_objects, segments_intersect, point_in_polygon
+from abraia.inference.geometry import point_in_polygon, segments_intersect
+
+
+def count_objects(results):
+    """Count object occurrences across detection results."""
+    counts = {}
+    for result in results:
+        label = result["label"]
+        counts[label] = counts.get(label, 0) + 1
+    return [{"label": label, "count": count} for label, count in counts.items()]
 
 
 class LineCounter:

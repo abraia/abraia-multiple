@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from ...tasks import normalize_task
 from ...utils import download_url, get_remote_file_size
 from .device import HAILO8L_ARCH, detect_hailo_arch
 
@@ -31,6 +32,23 @@ COCO_LABELS = [
     "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
     "hair drier", "toothbrush",
 ]
+
+
+def resolve_model_type(model_type, hef_path, task):
+    """Resolve the postprocessor architecture for a Hailo model."""
+    if model_type:
+        return model_type
+    normalized_task = normalize_task(task)
+    if normalized_task not in ("detection", "segmentation", "pose"):
+        raise ValueError(
+            f"Unsupported Hailo task: {normalized_task}. "
+            "Use detection, segmentation, or pose"
+        )
+    if normalized_task == "pose":
+        return "v8"
+    if normalized_task == "segmentation" and "yolov8" in str(hef_path).lower():
+        return "v8"
+    return "v5"
 
 RESOURCES_CONFIG = {
     "detect": {
@@ -204,6 +222,7 @@ __all__ = [
     "RESOURCES_MODELS_DIR_NAME",
     "COCO_LABELS",
     "RESOURCES_CONFIG",
+    "resolve_model_type",
     "get_model_url",
     "execute_download",
     "get_resource_path",

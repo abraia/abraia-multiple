@@ -5,12 +5,34 @@ from pathlib import Path
 from typing import Any, Dict
 
 from ..tasks import HAILO_TASKS, normalize_config_task
+from .model_config import (
+    DEFAULT_MODEL_URIS,
+    GROUNDING_DINO_MODEL_KINDS,
+    HAILO_MODEL_KINDS,
+    MODEL_RUN_OPTIONS,
+    MODEL_SIZE_URIS,
+    ONNX_MODEL_KINDS,
+    RESNET_MODEL_KINDS,
+)
 
 
-DEFAULT_MODEL_URIS = {
-    "object_detection": "multiple/models/yolov8n.onnx",
-    "instance_segmentation": "multiple/models/yolov8n-seg.onnx",
-}
+def supports_runtime_options(kind):
+    """Return whether a model kind accepts generic run-time options."""
+    normalized = str(kind or "onnx").strip().lower()
+    return normalized in ONNX_MODEL_KINDS | GROUNDING_DINO_MODEL_KINDS | RESNET_MODEL_KINDS
+
+
+def get_model_run_kwargs(config):
+    """Extract run-time options accepted by the configured model kind."""
+    if not isinstance(config, dict) or not supports_runtime_options(
+        config.get("kind", "onnx")
+    ):
+        return {}
+    return {
+        key: config[key]
+        for key in MODEL_RUN_OPTIONS
+        if key in config
+    }
 
 
 def _resolve_model_uri(uri, base_dir=None):
@@ -39,19 +61,73 @@ def create_model(config: Dict[str, Any], base_dir=None):
     params = dict(raw_params)
     task = raw_task
 
-    if kind in ("onnx", "object_detection", "instance_segmentation"):
-        from .detect import Model
+    if kind in RESNET_MODEL_KINDS or (kind == "onnx" and task == "classification"):
+        if "task" not in config:
+            task = "classification"
+        if task != "classification":
+            raise ValueError("ResNet models require the classification task")
+        if params:
+            raise ValueError("ResNet classifier options belong directly in 'model'")
+        uri = config.get("uri")
+        if not uri:
+            raise ValueError("A ResNet classifier requires a model 'uri'")
+        from .models.classification import ResNetClassifier
 
-        uri = config.get("uri") or DEFAULT_MODEL_URIS.get(kind)
+        return ResNetClassifier(_resolve_model_uri(uri, base_dir=base_dir))
+
+    if kind in GROUNDING_DINO_MODEL_KINDS:
+        if task != "detection":
+            raise ValueError("Grounding DINO models require the detection task")
+        from .models.grounding_dino import GroundingDINOModel
+
+        uri = _resolve_model_uri(
+            config.get("uri", "multiple/models/grounding_dino_tiny.onnx"),
+            base_dir=base_dir,
+        )
+        return GroundingDINOModel(uri, **params)
+
+    if kind in ONNX_MODEL_KINDS:
+        from .models.detection import Model
+
+        if kind == "pose" and "task" not in config:
+            task = "pose"
+        configured_uri = config.get("uri")
+        if configured_uri:
+            uri = configured_uri
+        else:
+            size = str(config.get("size", "small")).strip().lower()
+            size_kind = kind
+            if kind == "onnx":
+                size_kind = {
+                    "detection": "object_detection",
+                    "segmentation": "instance_segmentation",
+                    "pose": "pose",
+                }.get(task)
+            if size_kind in MODEL_SIZE_URIS:
+                try:
+                    uri = MODEL_SIZE_URIS[size_kind][size]
+                except KeyError as error:
+                    available_sizes = ", ".join(MODEL_SIZE_URIS[size_kind])
+                    raise ValueError(
+                        f"Unsupported model size '{size}'. Use: {available_sizes}"
+                    ) from error
+            else:
+                uri = DEFAULT_MODEL_URIS.get(kind)
         if not uri:
             raise ValueError("An ONNX detector requires a model 'uri'")
         if params:
             raise ValueError("ONNX detector options belong directly in 'model'")
-        if task != "detection":
-            raise ValueError("ONNX pipeline models only support the detection task")
+        if kind == "pose" and task != "pose":
+            raise ValueError("Pose ONNX models require the pose task")
+        if kind == "onnx" and task not in ("detection", "pose"):
+            raise ValueError(
+                "Generic ONNX pipeline models only support detection or pose"
+            )
+        if kind in ("object_detection", "instance_segmentation") and task != "detection":
+            raise ValueError("This ONNX model kind only supports the detection task")
         return Model(_resolve_model_uri(uri, base_dir=base_dir))
 
-    if kind in ("hailo", "hailo_detection", "hailo_segmentation"):
+    if kind in HAILO_MODEL_KINDS:
         from .hailo.pipeline import HailoPipelineModel
 
         uri = _resolve_model_uri(config.get("uri"), base_dir=base_dir)
@@ -74,10 +150,10 @@ def create_model(config: Dict[str, Any], base_dir=None):
 
     if kind in ("face", "face_detector"):
         if task == "detection":
-            from .faces import Retinaface
+            from .models.faces import Retinaface
 
             return Retinaface(**params)
-        from .faces import FaceRecognizer
+        from .models.faces import FaceRecognizer
 
         index = params.pop("index", None)
         if isinstance(index, (str, os.PathLike)) and base_dir is not None:
@@ -88,13 +164,13 @@ def create_model(config: Dict[str, Any], base_dir=None):
 
     if kind in ("license_plate", "license_plate_detector", "plate"):
         if task == "detection":
-            from .plates import LicensePlateDetector
+            from .models.plates import LicensePlateDetector
 
             params.setdefault("threshold", 0.5)
             params.setdefault("iou_threshold", 0.1)
             params.setdefault("out_size", 300)
             return LicensePlateDetector(**params)
-        from .plates import PlateRecognizer
+        from .models.plates import PlateRecognizer
 
         params.setdefault("threshold", 0.85)
         params.setdefault("iou_threshold", 0.15)
@@ -104,12 +180,23 @@ def create_model(config: Dict[str, Any], base_dir=None):
     if kind in ("ocr", "text", "text_recognition"):
         if task != "recognition":
             raise ValueError("OCR models only support the recognition task")
-        from .ocr import TextSystem
+        from .models.ocr import TextSystem
 
         return TextSystem(**params)
 
-    available = "onnx, object_detection, instance_segmentation, hailo, face, license_plate, ocr"
+    available = "onnx, object_detection, instance_segmentation, pose, classification, resnet, grounding_dino, hailo, face, license_plate, ocr"
     raise ValueError(f"Unknown detector kind '{kind}'. Available detectors: {available}")
 
 
-__all__ = ["DEFAULT_MODEL_URIS", "create_model"]
+__all__ = [
+    "DEFAULT_MODEL_URIS",
+    "GROUNDING_DINO_MODEL_KINDS",
+    "HAILO_MODEL_KINDS",
+    "MODEL_RUN_OPTIONS",
+    "MODEL_SIZE_URIS",
+    "ONNX_MODEL_KINDS",
+    "RESNET_MODEL_KINDS",
+    "create_model",
+    "get_model_run_kwargs",
+    "supports_runtime_options",
+]
