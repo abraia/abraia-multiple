@@ -50,7 +50,7 @@ def preprocess_resnet(img, input_shape=(1, 3, 224, 224), resize_size=256):
 class ResNetClassifier(OnnxSessionMixin):
     """Run ResNet18/50/101 ONNX models exported by classification training."""
 
-    def __init__(self, model_uri):
+    def __init__(self, model_uri, providers=None, accelerator=None):
         model_uri = os.fspath(model_uri)
         if os.path.isabs(model_uri) and not os.path.isfile(model_uri):
             raise FileNotFoundError(f"Model file not found: {model_uri}")
@@ -61,7 +61,11 @@ class ResNetClassifier(OnnxSessionMixin):
         self.task, self.input_shape, self.classes = validate_model_config(self.config)
         if self.task != "classification":
             raise ValueError("ResNet models require the classification task")
-        self._init_onnx_session(model_path)
+        self._init_onnx_session(
+            model_path,
+            providers=providers,
+            accelerator=accelerator,
+        )
         self.input_name = self.session.get_inputs()[0].name
 
     def run(self, img, top_k=1, score_threshold=None, labels=None,

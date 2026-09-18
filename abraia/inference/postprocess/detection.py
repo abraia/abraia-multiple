@@ -7,14 +7,14 @@ import numpy as np
 
 from .boxes import non_maximum_suppression
 from .common import sigmoid
-from ...tasks import normalize_config_task
+from ...tasks import normalize_task
 
 
 def validate_model_config(config):
     """Validate and normalize metadata required by an ONNX model."""
     if not isinstance(config, dict):
         raise ValueError("ONNX model metadata must be an object")
-    task = normalize_config_task(config.get("task"), default="detection")
+    task = normalize_task(config.get("task"), default="detection")
     classes = config.get("classes")
     if not isinstance(classes, (list, tuple)) or not classes:
         raise ValueError("ONNX model metadata must define a non-empty classes list")

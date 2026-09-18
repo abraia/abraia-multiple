@@ -14,8 +14,7 @@ from PIL import Image
 from ...utils import download_url, download_file
 from ..session import (
     OnnxSessionBundle,
-    close_resource,
-    close_session,
+    ResourceGroup,
 )
 
 
@@ -26,7 +25,13 @@ class Clip:
     `torch` or `torchvision`.
     """
 
-    def __init__(self, batch_size: Optional[int] = None, cache_dir: Optional[str] = 'models'):
+    def __init__(
+        self,
+        batch_size: Optional[int] = None,
+        cache_dir: Optional[str] = 'models',
+        providers=None,
+        accelerator=None,
+    ):
         """
         Instantiates the model and required encoding classes.
 
@@ -42,14 +47,18 @@ class Clip:
         self.image_model = None
         self.text_model = None
         self._session_bundle = None
+        self._resources = ResourceGroup()
         try:
             image_model_path = download_file('multiple/models/clip/clip_image_model_vitb32.onnx')
             text_model_path = download_file('multiple/models/clip/clip_text_model_vitb32.onnx')
             image_model_path = Clip._resolve_model_path(image_model_path)
             text_model_path = Clip._resolve_model_path(text_model_path)
             self._session_bundle = OnnxSessionBundle(
-                [image_model_path, text_model_path]
+                [image_model_path, text_model_path],
+                providers=providers,
+                accelerator=accelerator,
             )
+            self._resources.add(self._session_bundle)
             self.image_model, self.text_model = self._session_bundle.sessions
             self.execution_providers = self._session_bundle.execution_providers
             self.accelerator = self._session_bundle.accelerator
@@ -59,12 +68,8 @@ class Clip:
             self._preprocessor = Preprocessor()
             self._batch_size = batch_size
         except Exception:
-            bundle, self._session_bundle = self._session_bundle, None
-            if bundle is not None:
-                close_resource(bundle)
-            else:
-                close_resource(self.image_model)
-                close_resource(self.text_model)
+            self._resources.close(suppress_errors=True)
+            self._session_bundle = None
             self.image_model = None
             self.text_model = None
             raise
@@ -125,14 +130,12 @@ class Clip:
 
     def close(self):
         """Release the image and text ONNX sessions."""
-        bundle, self._session_bundle = getattr(self, '_session_bundle', None), None
-        if bundle is not None:
-            bundle.close()
-        for name in ("image_model", "text_model"):
-            session = getattr(self, name, None)
-            setattr(self, name, None)
-            if bundle is None:
-                close_session(session)
+        resources, self._resources = getattr(self, '_resources', None), None
+        if resources is not None:
+            resources.close()
+        self._session_bundle = None
+        self.image_model = None
+        self.text_model = None
 
     def __enter__(self):
         return self

@@ -10,7 +10,7 @@ from ...utils import download_file, load_json
 
 
 class Model(OnnxSessionMixin):
-    def __init__(self, model_uri):
+    def __init__(self, model_uri, providers=None, accelerator=None):
         model_uri = os.fspath(model_uri)
         if os.path.isabs(model_uri) and not os.path.isfile(model_uri):
             raise FileNotFoundError(f"Model file not found: {model_uri}")
@@ -33,7 +33,11 @@ class Model(OnnxSessionMixin):
                 "Detection ONNX models support detection, segmentation, or pose"
             )
         self.decoder = create_decoder(self.task, self.classes)
-        self._init_onnx_session(model_path)
+        self._init_onnx_session(
+            model_path,
+            providers=providers,
+            accelerator=accelerator,
+        )
         self.input_name = self.session.get_inputs()[0].name
 
     def run(

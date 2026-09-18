@@ -5,16 +5,21 @@ from ...utils import download_file
 from .detection import Model
 from .ocr import TextSystem
 from ..postprocess.boxes import non_maximum_suppression
-from ..session import OnnxSessionMixin, close_resource
+from ..session import OnnxSessionMixin, ResourceGroup
 
 
 class LicensePlateDetector(OnnxSessionMixin):
-    def __init__(self, threshold = 0.5, iou_threshold = 0.1, out_size = 300):
+    def __init__(self, threshold=0.5, iou_threshold=0.1, out_size=300,
+                 providers=None, accelerator=None):
         self.out_size = out_size
         self.threshold = threshold
         self.iou_threshold = iou_threshold
         lpd_src = download_file('multiple/models/lpd.onnx')
-        self._init_onnx_session(lpd_src)
+        self._init_onnx_session(
+            lpd_src,
+            providers=providers,
+            accelerator=accelerator,
+        )
     
     def detect(self, img, net_stride = 2**4):
         height, width = img.shape[:2]
@@ -59,9 +64,13 @@ class LicensePlateDetector(OnnxSessionMixin):
         return results
 
 class PlateDetector():
-    def __init__(self):
+    def __init__(self, providers=None, accelerator=None):
         model_uri = 'multiple/models/alpd-seg.onnx'
-        self.detection = Model(model_uri)
+        self.detection = Model(
+            model_uri,
+            providers=providers,
+            accelerator=accelerator,
+        )
 
     def detect(self, img):
         return self.detection.run(img, approx=0.02)
@@ -70,6 +79,12 @@ class PlateDetector():
         close = getattr(self.detection, "close", None)
         if callable(close):
             close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
 
 def extract_plate(img, points, out_size, offset=30):
@@ -89,19 +104,25 @@ def extract_plate(img, points, out_size, offset=30):
 
 
 class PlateRecognizer():
-    def __init__(self, threshold=0.85, iou_threshold=0.15, out_size=300):
+    def __init__(self, threshold=0.85, iou_threshold=0.15, out_size=300,
+                 providers=None, accelerator=None):
         self.license_plate = None
         self.text_system = None
+        self._resources = ResourceGroup()
         try:
-            self.license_plate = LicensePlateDetector(
+            self.license_plate = self._resources.add(LicensePlateDetector(
                 threshold=threshold,
                 iou_threshold=iou_threshold,
-            )
-            self.text_system = TextSystem()
+                providers=providers,
+                accelerator=accelerator,
+            ))
+            self.text_system = self._resources.add(TextSystem(
+                providers=providers,
+                accelerator=accelerator,
+            ))
             self.out_size = out_size
         except Exception:
-            close_resource(self.license_plate)
-            close_resource(self.text_system)
+            self._resources.close(suppress_errors=True)
             raise
 
     def recognize(self, img):
@@ -127,7 +148,12 @@ class PlateRecognizer():
 
     def close(self):
         """Release the detector and OCR sessions."""
-        for component in (self.license_plate, self.text_system):
-            close = getattr(component, "close", None)
-            if callable(close):
-                close()
+        resources, self._resources = getattr(self, "_resources", None), None
+        if resources is not None:
+            resources.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()

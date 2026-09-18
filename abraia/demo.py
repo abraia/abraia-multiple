@@ -1,3 +1,5 @@
+"""Interactive demo runners backed by the shared pipeline catalog."""
+
 import os
 from copy import deepcopy
 
@@ -8,6 +10,12 @@ from abraia.runtime import Pipeline
 from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
 from abraia.runtime import Video
 from abraia.utils import download_url, load_image
+from abraia.inference.accelerators import (
+    hailo_device_arch as _hailo_device_arch,
+    hailo_model_available as _hailo_model_available,
+    normalize_accelerator,
+    onnx_providers,
+)
 
 
 PIPELINES = {
@@ -62,7 +70,10 @@ PIPELINES = {
         'source': {'type': 'video', 'src': '853889-hd_1920_1080_25fps.mp4'},
         'model': {'uri': 'multiple/models/yolov8n.onnx', 'labels': ['person']},
         'stages': [
-            {'type': 'region_filter', 'polygon': [[0, 600], [1920, 600], [1920, 700], [0, 700]]},
+            {
+                'type': 'region_filter',
+                'polygon': [[0, 600], [1920, 600], [1920, 700], [0, 700]],
+            },
             {'type': 'tracker'},
             {'type': 'line_counter', 'line': [[0, 650], [1920, 650]]},
         ],
@@ -74,7 +85,10 @@ PIPELINES = {
         'model': {'uri': 'multiple/models/yolov8n.onnx', 'labels': ['person']},
         'stages': [
             {'type': 'tracker'},
-            {'type': 'region_timer', 'polygon': [[10, 600], [1690, 600], [1690, 700], [10, 700]]},
+            {
+                'type': 'region_timer',
+                'polygon': [[10, 600], [1690, 600], [1690, 700], [10, 700]],
+            },
         ],
         'display': {'show': True},
     },
@@ -83,10 +97,20 @@ PIPELINES = {
         'source': {'type': 'video', 'src': '14393755-hd_1920_1080_30fps.mp4'},
         'model': {'uri': 'multiple/models/yolov8n.onnx', 'labels': ['person']},
         'stages': [
-            {'type': 'region_filter', 'polygon': [[0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0]]},
+            {
+                'type': 'region_filter',
+                'polygon': [
+                    [0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0],
+                ],
+            },
             {'type': 'tracker'},
             {'type': 'line_counter', 'line': [[950, 670], [270, 895]]},
-            {'type': 'region_timer', 'polygon': [[0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0]]},
+            {
+                'type': 'region_timer',
+                'polygon': [
+                    [0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0],
+                ],
+            },
         ],
         'display': {'show': True},
     },
@@ -113,111 +137,228 @@ DEFAULT_PIPELINE = {
 }
 
 
-HAILO_PIPELINES = {
+PIPELINE_ACCELERATOR_VARIANTS = {
     'detect': {
-        'version': 1,
-        'source': {
-            'type': 'camera',
-            'src': 0,
-            'resolution': [1280, 720],
-            'fps': 30,
+        'onnx': DEFAULT_PIPELINE,
+        'hailo': {
+            'version': 1,
+            'source': {
+                'type': 'camera',
+                'src': 0,
+                'resolution': [1280, 720],
+                'fps': 30,
+            },
+            'model': {
+                'task': 'detection',
+                'kind': 'hailo',
+                'uri': 'yolov8n',
+                'params': {},
+            },
+            'stages': [{'type': 'tracker'}],
+            'display': {'show': True},
         },
-        'model': {
-            'task': 'detection',
-            'kind': 'hailo',
-            'uri': 'yolov8n',
-            'params': {},
-        },
-        'stages': [{'type': 'tracker'}],
-        'display': {'show': True},
     },
     'tomato': {
-        'version': 1,
-        'source': {
-            'type': 'video',
-            'src': '10179855-hd_1280_720_30fps.mp4',
-            'resolution': [1280, 720],
-            'fps': 30,
+        'hailo': {
+            'version': 1,
+            'source': {
+                'type': 'video',
+                'src': '10179855-hd_1280_720_30fps.mp4',
+            },
+            'model': {
+                'task': 'detection',
+                'kind': 'hailo',
+                'uri': 'multiple/tomato/yolov8n.hef',
+                'labels': ['tomato'],
+                'params': {},
+            },
+            'stages': [
+                {'type': 'tracker'},
+                {'type': 'line_counter', 'line': [[960, 0], [960, 720]]},
+            ],
+            'display': {'show': True},
         },
-        'model': {
-            'task': 'detection',
-            'kind': 'hailo',
-            'uri': 'multiple/tomato/yolov8n.hef',
-            'labels': ['tomato'],
-            'params': {},
-        },
-        'stages': [
-            {'type': 'tracker'},
-            {'type': 'line_counter', 'line': [[960, 0], [960, 720]]},
-        ],
-        'display': {'show': True},
     },
-    # This is the catalog's generic YOLOv5 segmentation model, not an
-    # apple-specific HEF. Keep it separate from the ONNX apple demo until a
-    # compatible custom apple model is available.
-    'segment_v5': {
-        'version': 1,
-        'source': {
-            'type': 'video',
-            'src': '5479199-hd_1280_720_25fps.mp4',
-            'resolution': [1280, 720],
-            'fps': 25,
+    # This is a generic COCO segmentation HEF, not an apple-specific model.
+    'apple': {
+        'hailo': {
+            'version': 1,
+            'source': {
+                'type': 'video',
+                'src': '5479199-hd_1280_720_25fps.mp4',
+            },
+            'model': {
+                'task': 'segmentation',
+                'kind': 'hailo',
+                'uri': 'yolov5m_seg_with_nms',
+                'params': {'model_type': 'v5'},
+            },
+            'stages': [{'type': 'tracker'}],
+            'display': {'show': True},
         },
-        'model': {
-            'task': 'segmentation',
-            'kind': 'hailo',
-            'uri': 'yolov5m_seg_with_nms',
-            'params': {'model_type': 'v5'},
-        },
-        'stages': [{'type': 'tracker'}],
-        'display': {'show': True},
     },
     'segment': {
-        'version': 1,
-        'source': {
-            'type': 'video',
-            'src': '853889-hd_1920_1080_25fps.mp4',
-            'resolution': [1280, 720],
-            'fps': 25,
+        'onnx': {
+            'version': 1,
+            'source': {
+                'type': 'video',
+                'src': '853889-hd_1920_1080_25fps.mp4',
+            },
+            'model': {
+                'kind': 'instance_segmentation',
+                'uri': 'multiple/models/yolov8n-seg.onnx',
+            },
+            'stages': [{'type': 'tracker'}],
+            'display': {'show': True},
         },
-        'model': {
-            'task': 'segmentation',
-            'kind': 'hailo',
-            'uri': 'yolov8n_seg',
-            'params': {'model_type': 'v8'},
+        'hailo': {
+            'version': 1,
+            'source': {
+                'type': 'video',
+                'src': '853889-hd_1920_1080_25fps.mp4',
+            },
+            'model': {
+                'task': 'segmentation',
+                'kind': 'hailo',
+                'uri': 'yolov8n_seg',
+                'params': {'model_type': 'v8'},
+            },
+            'stages': [{'type': 'tracker'}],
+            'display': {'show': True},
         },
-        'stages': [{'type': 'tracker'}],
-        'display': {'show': True},
     },
     'pose': {
-        'version': 1,
-        'source': {
-            'type': 'camera',
-            'src': 0,
-            'resolution': [1280, 720],
-            'fps': 30,
+        'onnx': {
+            'version': 1,
+            'source': {
+                'type': 'camera',
+                'src': 0,
+                'resolution': [1280, 720],
+                'fps': 30,
+            },
+            'model': {
+                'task': 'pose',
+                'kind': 'pose',
+                'uri': 'multiple/models/yolov8n_pose.onnx',
+            },
+            'stages': [{'type': 'tracker'}],
+            'display': {'show': True},
         },
-        'model': {
-            'task': 'pose',
-            'kind': 'hailo',
-            'uri': 'yolov8m_pose',
-            'params': {},
+        'hailo': {
+            'version': 1,
+            'source': {
+                'type': 'camera',
+                'src': 0,
+                'resolution': [1280, 720],
+                'fps': 30,
+            },
+            'model': {
+                'task': 'pose',
+                'kind': 'hailo',
+                'uri': 'yolov8m_pose',
+                'params': {},
+            },
+            'stages': [{'type': 'tracker'}],
+            'display': {'show': True},
         },
-        'stages': [{'type': 'tracker'}],
-        'display': {'show': True},
     },
 }
 
 
-def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
-    """Monitor, count, or just detect objects in a video stream."""
-    print(f"Available demos: {', '.join(PIPELINES.keys())}")
-    selected = deepcopy(PIPELINES.get(demo, DEFAULT_PIPELINE))
-    src = src if src is not None else selected['source']['src']
+def build_pipeline_devices():
+    """Index pipeline definitions by logical demo and accelerator."""
+    devices = {}
+    for name, config in PIPELINES.items():
+        devices.setdefault(name, {})['onnx'] = config
+    for name, variants in PIPELINE_ACCELERATOR_VARIANTS.items():
+        devices.setdefault(name, {}).update(variants)
+    return devices
+
+
+PIPELINE_DEVICES = build_pipeline_devices()
+
+
+# The current Hailo apple entry uses a generic COCO segmentation HEF. Keep it
+# available for explicit ``accelerator='hailo'`` runs, but do not select it
+# automatically as an apple-equivalent model.
+HAILO_AUTO_EXCLUSIONS = frozenset({'apple'})
+VIDEO_URL = 'https://api.abraia.me/files/multiple/videos/{}'
+
+
+def _prepare_source(config, src=None, resolution=None):
+    """Apply runtime source overrides without adding camera settings to video."""
+    source = config['source']
+    source['src'] = source['src'] if src is None else src
+    if resolution is not None and source.get('type') == 'camera':
+        source['resolution'] = list(resolution)
+    return source['src']
+
+
+def _ensure_video_available(src):
+    """Download a catalog video when it is not present locally."""
     if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
-        download_url(f"https://api.abraia.me/files/multiple/videos/{src}", src)
-    selected['source']['src'] = src
-    selected['source']['resolution'] = list(resolution)
+        download_url(VIDEO_URL.format(src), src)
+
+
+def resolve_pipeline(demo='detect', accelerator='auto'):
+    """Resolve a logical demo to its unchanged runtime pipeline config.
+
+    ``hailo`` is treated as an accelerator selection.  CPU, GPU, and ONNX
+    selections use the regular ONNX pipeline definition; ONNX Runtime chooses
+    the available provider for that model.  ``auto`` prefers Hailo only when a
+    compatible device and model are available, then falls back to ONNX.
+    """
+    accelerator = normalize_accelerator(accelerator)
+
+    variants = PIPELINE_DEVICES.get(demo)
+    if variants is None:
+        if accelerator == 'hailo':
+            raise KeyError(f"Unknown Hailo pipeline demo: {demo}")
+        return deepcopy(DEFAULT_PIPELINE)
+
+    hailo_config = variants.get('hailo')
+    if accelerator == 'hailo':
+        architecture = _hailo_device_arch() if hailo_config else None
+        if (
+            architecture
+            and _hailo_model_available(hailo_config, architecture)
+        ):
+            return deepcopy(hailo_config)
+        accelerator = 'cpu'
+
+    if (
+        accelerator == 'auto'
+        and hailo_config is not None
+        and demo not in HAILO_AUTO_EXCLUSIONS
+    ):
+        architecture = _hailo_device_arch()
+        if architecture and _hailo_model_available(hailo_config, architecture):
+            return deepcopy(hailo_config)
+
+    if 'onnx' in variants:
+        return deepcopy(variants['onnx'])
+    if demo == 'detect':
+        # ``monitor_objects`` historically used its generic ONNX default when
+        # called with its default demo name and no Hailo device was present.
+        return deepcopy(DEFAULT_PIPELINE)
+    if hailo_config is not None:
+        raise RuntimeError(
+            f"Demo '{demo}' requires Hailo, but the accelerator is unavailable"
+        )
+    raise RuntimeError(f"Demo '{demo}' has no usable pipeline")
+
+
+def monitor_objects(
+    src=None,
+    demo='detect',
+    resolution=(1280, 720),
+    accelerator='auto',
+):
+    """Monitor, count, or just detect objects in a video stream."""
+    print(f"Available demos: {', '.join(PIPELINE_DEVICES.keys())}")
+    selected = resolve_pipeline(demo, accelerator=accelerator)
+    src = _prepare_source(selected, src, resolution)
+    _ensure_video_available(src)
 
     def report(context, elapsed_ms):
         print(
@@ -225,10 +366,14 @@ def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
             f"{count_objects(context.results)}"
         )
 
-    pipeline = Pipeline.from_dict(
-        selected,
-        on_frame=report,
-    )
+    pipeline_options = {'on_frame': report}
+    requested_accelerator = normalize_accelerator(accelerator)
+    if (
+        requested_accelerator != 'auto'
+        and selected.get('model', {}).get('kind') != 'hailo'
+    ):
+        pipeline_options['accelerator'] = requested_accelerator
+    pipeline = Pipeline.from_dict(selected, **pipeline_options)
     pipeline.run()
 
     line_counter = pipeline.components.get("line_counter")
@@ -239,21 +384,11 @@ def monitor_objects(src=None, demo='detect', resolution=(1280, 720)):
         )
 
 
-def monitor_objects_hailo(src=None, demo='detect'):
-    """Monitor, count, or just detect objects in a video stream using Hailo."""
-    print(f"Available Hailo pipelines: {', '.join(HAILO_PIPELINES.keys())}")
-    selected = deepcopy(HAILO_PIPELINES.get(demo, HAILO_PIPELINES['detect']))
-    src = src if src is not None else selected['source']['src']
-    if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
-        download_url(f"https://api.abraia.me/files/multiple/videos/{src}", src)
-    selected['source']['src'] = src
-    Pipeline.from_dict(selected).run()
-
-
-def track_faces(src=None, resolution=(1280, 720)):
+def track_faces(src=None, resolution=(1280, 720), accelerator='auto'):
     """Track faces in a video stream from a file or webcam."""
-    recognition = FaceRecognizer()
-    attribute = FaceAttribute()
+    providers = onnx_providers(accelerator)
+    recognition = FaceRecognizer(providers=providers)
+    attribute = FaceAttribute(providers=providers)
     index = []
     src = src or 0
     video = Video(src, resolution=resolution)

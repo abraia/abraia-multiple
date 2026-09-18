@@ -1,10 +1,13 @@
 import numpy as np
 import pytest
+from unittest.mock import patch
 from abraia.inference import Clip
 from abraia.inference.session import (
     OnnxSessionBundle,
+    ResourceGroup,
     accelerator_from_providers,
 )
+from abraia.inference.accelerators import onnx_providers
 from abraia.runtime import AsyncInferenceRunner, FrameResult
 from abraia.inference.postprocess.decoders import (
     postprocess,
@@ -30,6 +33,25 @@ from abraia.inference.service import InferenceService
 ])
 def test_accelerator_from_providers(providers, expected):
     assert accelerator_from_providers(providers) == expected
+
+
+def test_gpu_accelerator_falls_back_to_cpu_provider():
+    with patch(
+        "abraia.inference.accelerators.get_providers",
+        return_value=["CPUExecutionProvider"],
+    ):
+        assert onnx_providers("gpu") == ["CPUExecutionProvider"]
+
+
+def test_gpu_accelerator_keeps_gpu_and_cpu_providers_when_available():
+    with patch(
+        "abraia.inference.accelerators.get_providers",
+        return_value=["CUDAExecutionProvider", "CPUExecutionProvider"],
+    ):
+        assert onnx_providers("gpu") == [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
 
 
 def test_softmax_values():
@@ -206,6 +228,29 @@ def test_onnx_session_bundle_closes_all_sessions():
     assert bundle.accelerator == "GPU"
     bundle.close()
     assert all(session.closed for session in sessions)
+
+
+def test_resource_group_closes_in_reverse_order_and_only_once():
+    closed = []
+
+    class Resource:
+        def __init__(self, name):
+            self.name = name
+
+        def close(self):
+            closed.append(self.name)
+
+    first = Resource("first")
+    second = Resource("second")
+    group = ResourceGroup()
+    assert group.add(first) is first
+    assert group.add(second) is second
+    group.add(first)
+
+    group.close()
+    group.close()
+
+    assert closed == ["second", "first"]
 
 
 def test_sam_cache_uses_image_content_not_object_identity():

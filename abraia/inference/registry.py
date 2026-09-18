@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-from ..tasks import HAILO_TASKS, normalize_config_task
+from ..tasks import HAILO_TASKS, normalize_task
 from .model_config import (
     DEFAULT_MODEL_URIS,
     GROUNDING_DINO_MODEL_KINDS,
@@ -13,6 +13,12 @@ from .model_config import (
     MODEL_SIZE_URIS,
     ONNX_MODEL_KINDS,
     RESNET_MODEL_KINDS,
+)
+from .accelerators import (
+    hailo_device_arch,
+    hailo_model_available,
+    onnx_providers,
+    paired_hailo_uri,
 )
 
 
@@ -48,18 +54,63 @@ def _resolve_model_uri(uri, base_dir=None):
     return str(candidate) if candidate.is_file() else uri
 
 
-def create_model(config: Dict[str, Any], base_dir=None):
-    """Create a configured built-in model from a pipeline model config."""
+def _hailo_pair_task(kind, task, uri):
+    """Return the Hailo task represented by an ONNX model definition."""
+    if kind == "instance_segmentation" or "-seg" in str(uri).lower():
+        return "segmentation"
+    if kind == "pose" or "_pose" in str(uri).lower():
+        return "pose"
+    return task
+
+
+def _select_hailo_pair(config, kind, task, uri, accelerator):
+    """Build a paired Hailo config when the requested hardware can use it."""
+    if accelerator not in ("auto", "hailo") or kind not in ONNX_MODEL_KINDS:
+        return None
+
+    hailo_task = _hailo_pair_task(kind, task, uri)
+    if hailo_task not in HAILO_TASKS:
+        return None
+    hailo_uri = paired_hailo_uri(uri, hailo_task)
+    if not hailo_uri:
+        return None
+    architecture = hailo_device_arch()
+    candidate = {
+        "model": {
+            "kind": "hailo",
+            "task": hailo_task,
+            "uri": hailo_uri,
+        }
+    }
+    if not architecture or not hailo_model_available(candidate, architecture):
+        return None
+
+    paired = dict(config)
+    paired["kind"] = "hailo"
+    paired["task"] = hailo_task
+    paired["uri"] = hailo_uri
+    paired["params"] = {}
+    return paired
+
+
+def create_model(config: Dict[str, Any], base_dir=None, accelerator=None):
+    """Create a configured model using the requested accelerator policy.
+
+    ONNX-backed models receive the resolved provider list. If a requested
+    accelerator is unavailable, that policy supplies CPU providers instead.
+    """
     if not isinstance(config, dict):
         raise ValueError("Pipeline model must be an object")
 
-    raw_task = normalize_config_task(config.get("task"), default="detection")
+    raw_task = normalize_task(config.get("task"), default="detection")
     kind = str(config.get("kind", "onnx")).strip().lower()
     raw_params = config.get("params", {}) or {}
     if not isinstance(raw_params, dict):
         raise ValueError("Pipeline model 'params' must be an object")
     params = dict(raw_params)
     task = raw_task
+    providers = onnx_providers(accelerator)
+    session_options = {} if providers is None else {"providers": providers}
 
     if kind in RESNET_MODEL_KINDS or (kind == "onnx" and task == "classification"):
         if "task" not in config:
@@ -73,7 +124,10 @@ def create_model(config: Dict[str, Any], base_dir=None):
             raise ValueError("A ResNet classifier requires a model 'uri'")
         from .models.classification import ResNetClassifier
 
-        return ResNetClassifier(_resolve_model_uri(uri, base_dir=base_dir))
+        return ResNetClassifier(
+            _resolve_model_uri(uri, base_dir=base_dir),
+            **session_options,
+        )
 
     if kind in GROUNDING_DINO_MODEL_KINDS:
         if task != "detection":
@@ -84,7 +138,7 @@ def create_model(config: Dict[str, Any], base_dir=None):
             config.get("uri", "multiple/models/grounding_dino_tiny.onnx"),
             base_dir=base_dir,
         )
-        return GroundingDINOModel(uri, **params)
+        return GroundingDINOModel(uri, providers=providers, **params)
 
     if kind in ONNX_MODEL_KINDS:
         from .models.detection import Model
@@ -125,7 +179,23 @@ def create_model(config: Dict[str, Any], base_dir=None):
             )
         if kind in ("object_detection", "instance_segmentation") and task != "detection":
             raise ValueError("This ONNX model kind only supports the detection task")
-        return Model(_resolve_model_uri(uri, base_dir=base_dir))
+        paired = _select_hailo_pair(
+            config,
+            kind,
+            task,
+            _resolve_model_uri(uri, base_dir=base_dir),
+            accelerator,
+        )
+        if paired is not None:
+            return create_model(
+                paired,
+                base_dir=base_dir,
+                accelerator="hailo",
+            )
+        return Model(
+            _resolve_model_uri(uri, base_dir=base_dir),
+            **session_options,
+        )
 
     if kind in HAILO_MODEL_KINDS:
         from .hailo.pipeline import HailoPipelineModel
@@ -133,12 +203,6 @@ def create_model(config: Dict[str, Any], base_dir=None):
         uri = _resolve_model_uri(config.get("uri"), base_dir=base_dir)
         if not uri:
             raise ValueError("A Hailo pipeline model requires a model 'uri'")
-        if "hailo_task" in params:
-            raise ValueError(
-                "Hailo model tasks belong directly in the model 'task' field"
-            )
-        if "task" not in config and kind == "hailo_segmentation":
-            raw_task = "segmentation"
         if raw_task not in HAILO_TASKS:
             raise ValueError(f"Unsupported Hailo pipeline task: {raw_task}")
         params.setdefault("labels", config.get("labels"))
@@ -152,7 +216,7 @@ def create_model(config: Dict[str, Any], base_dir=None):
         if task == "detection":
             from .models.faces import Retinaface
 
-            return Retinaface(**params)
+            return Retinaface(**params, **session_options)
         from .models.faces import FaceRecognizer
 
         index = params.pop("index", None)
@@ -160,7 +224,7 @@ def create_model(config: Dict[str, Any], base_dir=None):
             index_path = Path(index)
             if not index_path.is_absolute():
                 index = str(Path(base_dir) / index_path)
-        return FaceRecognizer(index=index, **params)
+        return FaceRecognizer(index=index, **params, **session_options)
 
     if kind in ("license_plate", "license_plate_detector", "plate"):
         if task == "detection":
@@ -169,20 +233,20 @@ def create_model(config: Dict[str, Any], base_dir=None):
             params.setdefault("threshold", 0.5)
             params.setdefault("iou_threshold", 0.1)
             params.setdefault("out_size", 300)
-            return LicensePlateDetector(**params)
+            return LicensePlateDetector(**params, **session_options)
         from .models.plates import PlateRecognizer
 
         params.setdefault("threshold", 0.85)
         params.setdefault("iou_threshold", 0.15)
         params.setdefault("out_size", 300)
-        return PlateRecognizer(**params)
+        return PlateRecognizer(**params, **session_options)
 
     if kind in ("ocr", "text", "text_recognition"):
         if task != "recognition":
             raise ValueError("OCR models only support the recognition task")
         from .models.ocr import TextSystem
 
-        return TextSystem(**params)
+        return TextSystem(**params, **session_options)
 
     available = "onnx, object_detection, instance_segmentation, pose, classification, resnet, grounding_dino, hailo, face, license_plate, ocr"
     raise ValueError(f"Unknown detector kind '{kind}'. Available detectors: {available}")

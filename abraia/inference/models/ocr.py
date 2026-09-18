@@ -18,7 +18,7 @@ import math
 import numpy as np
 
 from ...utils import download_file
-from ..session import OnnxSessionMixin, close_resource
+from ..session import OnnxSessionMixin, ResourceGroup
 
 
 def get_char(character_dict_path, use_space_char=False):
@@ -198,10 +198,14 @@ def sorted_boxes(dt_boxes):
 
 
 class TextDetector(OnnxSessionMixin):
-    def __init__(self):
+    def __init__(self, providers=None, accelerator=None):
         self.postprocess_op = DBPostProcess(thresh=0.3, box_thresh=0.5, max_candidates=1000, unclip_ratio=1.6)
         det_src = download_file('multiple/models/ocr_det.onnx')
-        self._init_onnx_session(det_src)
+        self._init_onnx_session(
+            det_src,
+            providers=providers,
+            accelerator=accelerator,
+        )
         self.input_name = self.session.get_inputs()[0].name
     
     def order_points_clockwise(self, pts):
@@ -254,7 +258,7 @@ class TextDetector(OnnxSessionMixin):
         return dt_boxes
 
 class TextRecognizer(OnnxSessionMixin):
-    def __init__(self):
+    def __init__(self, providers=None, accelerator=None):
         self.rec_image_shape = [3, 32, 320]
         self.rec_batch_num = 6
         self.max_text_length = 25
@@ -265,7 +269,11 @@ class TextRecognizer(OnnxSessionMixin):
         self.postprocess_op = BaseRecLabelDecode(char_dict_src, use_space_char=True)
 
         rec_src = download_file('multiple/models/ocr_rec.onnx')
-        self._init_onnx_session(rec_src)
+        self._init_onnx_session(
+            rec_src,
+            providers=providers,
+            accelerator=accelerator,
+        )
        
     def resize_norm_img(self, img, max_wh_ratio):
         imgC, imgH, imgW = self.rec_image_shape
@@ -317,16 +325,22 @@ class TextRecognizer(OnnxSessionMixin):
         return rec_res
 
 class TextSystem():
-    def __init__(self, drop_score=0.5):
+    def __init__(self, drop_score=0.5, providers=None, accelerator=None):
         self.text_detector = None
         self.text_recognizer = None
+        self._resources = ResourceGroup()
         try:
-            self.text_detector = TextDetector()
-            self.text_recognizer = TextRecognizer()
+            self.text_detector = self._resources.add(TextDetector(
+                providers=providers,
+                accelerator=accelerator,
+            ))
+            self.text_recognizer = self._resources.add(TextRecognizer(
+                providers=providers,
+                accelerator=accelerator,
+            ))
             self.drop_score = float(drop_score)
         except Exception:
-            close_resource(self.text_detector)
-            close_resource(self.text_recognizer)
+            self._resources.close(suppress_errors=True)
             raise
 
     def get_rotate_crop_image(self, img, points):
@@ -372,7 +386,12 @@ class TextSystem():
 
     def close(self):
         """Release text detection and recognition sessions."""
-        for component in (self.text_detector, self.text_recognizer):
-            close = getattr(component, "close", None)
-            if callable(close):
-                close()
+        resources, self._resources = getattr(self, "_resources", None), None
+        if resources is not None:
+            resources.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()

@@ -4,6 +4,10 @@ import logging
 import os
 
 from ..utils import get_providers
+from .accelerators import (
+    available_accelerators,
+    onnx_providers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +50,15 @@ def get_model_accelerator(model):
     return accelerator_from_providers(providers)
 
 
-def create_onnx_session(path, providers=None):
+def create_onnx_session(path, providers=None, accelerator=None):
     """Create an ONNX Runtime session with the SDK provider policy."""
     import onnxruntime as ort
 
-    providers = list(providers or get_providers())
+    if providers is None:
+        providers = onnx_providers(accelerator)
+    if providers is None:
+        providers = get_providers()
+    providers = list(providers or ["CPUExecutionProvider"])
     try:
         return ort.InferenceSession(os.fspath(path), providers=providers)
     except Exception as exc:
@@ -99,20 +107,78 @@ def close_resource(resource):
         close_session(resource)
 
 
+class ResourceGroup:
+    """Own a set of closeable resources and release them in reverse order.
+
+    Composite models use this helper while they are being constructed so a
+    failure in a later component cannot leak sessions created earlier. The
+    group is intentionally backend-agnostic; resources only need a ``close``
+    method or to be raw ONNX Runtime sessions.
+    """
+
+    def __init__(self, resources=()):
+        self._resources = []
+        self._closed = False
+        for resource in resources:
+            self.add(resource)
+
+    def add(self, resource):
+        """Register and return ``resource`` for convenient construction."""
+        if resource is None:
+            return None
+        if self._closed:
+            close_resource(resource)
+            raise RuntimeError("Resource group has already been closed")
+        if not any(existing is resource for existing in self._resources):
+            self._resources.append(resource)
+        return resource
+
+    def close(self, suppress_errors=False):
+        """Close all resources once, optionally suppressing cleanup errors."""
+        if self._closed:
+            return
+        self._closed = True
+        resources, self._resources = self._resources, []
+        first_error = None
+        for resource in reversed(resources):
+            try:
+                close_resource(resource)
+            except Exception as error:
+                if first_error is None:
+                    first_error = error
+        if first_error is not None and not suppress_errors:
+            raise first_error
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close(suppress_errors=exc_type is not None)
+
+
 class OnnxSessionBundle:
     """Own multiple ONNX Runtime sessions with shared provider policy."""
 
-    def __init__(self, paths, providers=None):
+    def __init__(self, paths, providers=None, accelerator=None):
+        self._resources = ResourceGroup()
         self.sessions = []
         try:
             self.sessions = [
-                create_onnx_session(path, providers=providers)
+                self._resources.add(
+                    create_onnx_session(
+                        path,
+                        providers=providers,
+                        accelerator=accelerator,
+                    )
+                )
                 for path in paths
             ]
         except Exception:
-            for session in self.sessions:
-                close_session(session)
+            self._resources.close(suppress_errors=True)
             raise
+        self._session_map = {}
+        if hasattr(paths, "keys"):
+            self._session_map = dict(zip(paths.keys(), self.sessions))
         provider_names = []
         for session in self.sessions:
             for provider in session.get_providers():
@@ -122,13 +188,21 @@ class OnnxSessionBundle:
         self.accelerator = accelerator_from_providers(self.execution_providers)
         self._closed = False
 
+    def __getitem__(self, key):
+        """Return a session by index or by name when named paths were used."""
+        if isinstance(key, int):
+            return self.sessions[key]
+        return self._session_map[key]
+
     def close(self):
         if self._closed:
             return
         self._closed = True
-        sessions, self.sessions = self.sessions, []
-        for session in sessions:
-            close_session(session)
+        try:
+            self._resources.close()
+        finally:
+            self.sessions = []
+            self._session_map = {}
 
     def __enter__(self):
         return self
@@ -140,10 +214,24 @@ class OnnxSessionBundle:
 class OnnxSessionMixin:
     """Common lifecycle implementation for inference classes with one session."""
 
-    def _init_onnx_session(self, path, providers=None):
-        self.session = create_onnx_session(path, providers=providers)
-        self.execution_providers = tuple(self.session.get_providers())
-        self.accelerator = accelerator_from_providers(self.execution_providers)
+    def _init_onnx_session(self, path, providers=None, accelerator=None):
+        resources = ResourceGroup()
+        try:
+            self.session = resources.add(
+                create_onnx_session(
+                    path,
+                    providers=providers,
+                    accelerator=accelerator,
+                )
+            )
+            self.execution_providers = tuple(self.session.get_providers())
+            self.accelerator = accelerator_from_providers(
+                self.execution_providers
+            )
+        except Exception:
+            resources.close(suppress_errors=True)
+            raise
+        self._resources = resources
         self._closed = False
 
     def _ensure_open(self):
@@ -153,14 +241,26 @@ class OnnxSessionMixin:
     def close(self):
         if getattr(self, "_closed", False):
             return
-        session, self.session = getattr(self, "session", None), None
+        resources = getattr(self, "_resources", None)
+        self._resources = None
+        self.session = None
         self._closed = True
-        close_session(session)
+        if resources is not None:
+            resources.close()
+
+    def __enter__(self):
+        self._ensure_open()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
 
 __all__ = [
     "OnnxSessionBundle",
     "OnnxSessionMixin",
+    "ResourceGroup",
+    "available_accelerators",
     "accelerator_from_providers",
     "close_resource",
     "close_session",

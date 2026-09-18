@@ -3,7 +3,7 @@ import cv2
 import math
 import numpy as np
 
-from ..session import OnnxSessionMixin, close_resource
+from ..session import OnnxSessionMixin, ResourceGroup
 from ...utils import download_file, load_json
 from ..postprocess.boxes import non_maximum_suppression
 from ..postprocess.common import softmax
@@ -94,13 +94,18 @@ def process_stride(results, prob_threshold, stride, scales, scale):
 
 
 class Retinaface(OnnxSessionMixin):
-    def __init__(self, prob_threshold=0.75, iou_threshold=0.5):
+    def __init__(self, prob_threshold=0.75, iou_threshold=0.5,
+                 providers=None, accelerator=None):
         self.image_size = (640, 640)
         self.landmarksScale = 0.18181818
         self.prob_threshold = float(prob_threshold)
         self.iou_threshold = float(iou_threshold)
         model_src = download_file('multiple/models/retinaface_mnet25_v2.simplified.onnx')
-        self._init_onnx_session(model_src)
+        self._init_onnx_session(
+            model_src,
+            providers=providers,
+            accelerator=accelerator,
+        )
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [out.name for out in self.session.get_outputs()]
 
@@ -146,10 +151,14 @@ class Retinaface(OnnxSessionMixin):
         return results
 
 class FaceAttribute(OnnxSessionMixin):
-    def __init__(self):
+    def __init__(self, providers=None, accelerator=None):
         """Age and Gender Prediction"""
         model_src = download_file('multiple/models/faces/genderage.simplified.onnx')
-        self._init_onnx_session(model_src)
+        self._init_onnx_session(
+            model_src,
+            providers=providers,
+            accelerator=accelerator,
+        )
         inputs = self.session.get_inputs()
         self.input_size = tuple(inputs[0].shape[2:][::-1])
         self.input_names = [x.name for x in self.session.get_inputs()]
@@ -171,9 +180,13 @@ class FaceAttribute(OnnxSessionMixin):
         return gender, age, score
 
 class ArcFace(OnnxSessionMixin):
-    def __init__(self):
+    def __init__(self, providers=None, accelerator=None):
         model_src = download_file('multiple/models/mobilefacenet-res2-6-10-2-dim512.simplified.onnx')
-        self._init_onnx_session(model_src)
+        self._init_onnx_session(
+            model_src,
+            providers=providers,
+            accelerator=accelerator,
+        )
         inputs = self.session.get_inputs()
         self.input_name = inputs[0].name
         self.image_size = tuple(inputs[0].shape[2:])
@@ -193,17 +206,24 @@ class ArcFace(OnnxSessionMixin):
         return np.asarray(out).reshape(len(images), -1)
 
 class FaceRecognizer:
-    def __init__(self, index=None, threshold=0.45):
+    def __init__(self, index=None, threshold=0.45, providers=None,
+                 accelerator=None):
         self.detector = None
         self.arcface = None
+        self._resources = ResourceGroup()
         try:
-            self.detector = Retinaface()
-            self.arcface = ArcFace()
+            self.detector = self._resources.add(Retinaface(
+                providers=providers,
+                accelerator=accelerator,
+            ))
+            self.arcface = self._resources.add(ArcFace(
+                providers=providers,
+                accelerator=accelerator,
+            ))
             self.index = _load_face_index(index)
             self.threshold = float(threshold)
         except Exception:
-            close_resource(self.detector)
-            close_resource(self.arcface)
+            self._resources.close(suppress_errors=True)
             raise
 
     def detect_faces(self, img):
@@ -242,10 +262,15 @@ class FaceRecognizer:
 
     def close(self):
         """Release the detector and face-embedding sessions."""
-        for component in (self.detector, self.arcface):
-            close = getattr(component, "close", None)
-            if callable(close):
-                close()
+        resources, self._resources = getattr(self, "_resources", None), None
+        if resources is not None:
+            resources.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
 
 def _load_face_index(index):

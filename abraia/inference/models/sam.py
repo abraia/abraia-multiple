@@ -4,7 +4,7 @@ import numpy as np
 
 from ...utils import download_file, Sketcher
 from ..postprocess.masks import mask_to_box
-from ..session import OnnxSessionBundle, close_resource, close_session
+from ..session import OnnxSessionBundle, ResourceGroup
 
 
 def get_input_points(prompt):
@@ -24,7 +24,7 @@ def get_input_points(prompt):
 
 class SAM:
 
-    def __init__(self):
+    def __init__(self, providers=None, accelerator=None):
         self.image_embedding = None
         self._closed = False
         self.target_size = 1024
@@ -32,20 +32,23 @@ class SAM:
         self.encoder = None
         self.decoder = None
         self._session_bundle = None
+        self._resources = ResourceGroup()
         try:
             encoder_src = download_file('multiple/models/mobile_sam.encoder.onnx')
             decoder_src = download_file('multiple/models/mobile_sam.decoder.onnx')
-            self._session_bundle = OnnxSessionBundle([encoder_src, decoder_src])
+            self._session_bundle = self._resources.add(
+                OnnxSessionBundle(
+                    [encoder_src, decoder_src],
+                    providers=providers,
+                    accelerator=accelerator,
+                )
+            )
             self.encoder, self.decoder = self._session_bundle.sessions
             self.execution_providers = self._session_bundle.execution_providers
             self.accelerator = self._session_bundle.accelerator
         except Exception:
-            bundle, self._session_bundle = self._session_bundle, None
-            if bundle is not None:
-                close_resource(bundle)
-            else:
-                close_resource(self.encoder)
-                close_resource(self.decoder)
+            self._resources.close(suppress_errors=True)
+            self._session_bundle = None
             self.encoder = None
             self.decoder = None
             raise
@@ -119,14 +122,12 @@ class SAM:
         """Release the encoder and decoder sessions."""
         if self._closed:
             return
-        bundle, self._session_bundle = getattr(self, '_session_bundle', None), None
-        if bundle is not None:
-            bundle.close()
-        for name in ("encoder", "decoder"):
-            session, setattr_target = getattr(self, name, None), name
-            setattr(self, setattr_target, None)
-            if bundle is None:
-                close_session(session)
+        resources, self._resources = getattr(self, '_resources', None), None
+        if resources is not None:
+            resources.close()
+        self._session_bundle = None
+        self.encoder = None
+        self.decoder = None
         self.image_embedding = None
         self._closed = True
 
@@ -139,8 +140,8 @@ class SAM:
 
 class InteractiveSAM(Sketcher, SAM):
 
-    def __init__(self, img, radius=7):
-        SAM.__init__(self)
+    def __init__(self, img, radius=7, providers=None, accelerator=None):
+        SAM.__init__(self, providers=providers, accelerator=accelerator)
         self.image_embedding = None
         self.encode(img)
         self.cropped_img = None

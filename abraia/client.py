@@ -4,13 +4,15 @@ import requests
 import time
 from requests.adapters import HTTPAdapter
 
-from PIL import Image
 from io import BytesIO
 from fnmatch import fnmatch
 from datetime import datetime
 
 from . import config
 from .utils import API_URL, HEADERS, md5sum, get_type, temporal_src, save_data, load_image, save_image
+
+
+_NO_DELEGATE = object()
 
 
 def file_path(source, userid):
@@ -31,7 +33,22 @@ class Abraia:
     request_timeout = (10, 120)
     request_retries = 3
 
-    def __init__(self, abraia_key=None):
+    def __init__(self, abraia_key=None, client=None):
+        """Create an API client, optionally backed by another client.
+
+        The injected-client form keeps wrappers and tests on the same public
+        method surface without copying session internals into subclasses.
+        """
+        if client is not None:
+            self._client = client
+            self.client = client
+            self.auth = getattr(client, 'auth', None)
+            self.userid = client.userid
+            self.api_key = getattr(client, 'api_key', None)
+            self.session = getattr(client, 'session', None)
+            return
+
+        self._client = None
         if abraia_key is None:
             abraia_id, abraia_key = config.load()
         else:
@@ -44,6 +61,12 @@ class Abraia:
         adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)
         self.session.mount('https://', adapter)
         self.session.mount('http://', adapter)
+
+    def _delegate(self, method, *args, **kwargs):
+        client = getattr(self, '_client', None)
+        if client is None:
+            return _NO_DELEGATE
+        return getattr(client, method)(*args, **kwargs)
 
     def _request(self, method, url, **kwargs):
         """Perform a resilient API request, including retryable resets."""
@@ -64,12 +87,18 @@ class Abraia:
         raise last_error
 
     def get_api(self, url, params):
+        delegated = self._delegate('get_api', url, params)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         resp = self._request('GET', url, params=params, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         return resp.json()
 
     def list_files(self, path=''):
+        delegated = self._delegate('list_files', path)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         dirname, basename = os.path.dirname(path), os.path.basename(path)
         folder = dirname + '/' if dirname else dirname
         url = f"{API_URL}/files/{self.userid}/{folder}"
@@ -85,6 +114,9 @@ class Abraia:
         return files, folders
 
     def upload_file(self, src, path=''):
+        delegated = self._delegate('upload_file', src, path)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         if path == '' or path.endswith('/'):
             path = path + os.path.basename(src)
         name, type = os.path.basename(path), get_type(path)
@@ -108,6 +140,9 @@ class Abraia:
         return file_path(resp['file']['source'], self.userid)
 
     def check_file(self, path):
+        delegated = self._delegate('check_file', path)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         url = f"{API_URL}/files/{self.userid}/{path}"
         resp = self._request('HEAD', url, auth=self.auth)
         if resp.status_code == 404:
@@ -117,6 +152,9 @@ class Abraia:
         raise APIError(resp.text, resp.status_code)
 
     def move_file(self, old_path, new_path):
+        delegated = self._delegate('move_file', old_path, new_path)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         json = {'store': f"{self.userid}/{old_path}"}
         url = f"{API_URL}/files/{self.userid}/{new_path}"
         resp = self._request('POST', url, json=json, auth=self.auth)
@@ -126,6 +164,9 @@ class Abraia:
         return file_path(resp['file']['source'], self.userid)
 
     def download_file(self, path, dest, cache=False):
+        delegated = self._delegate('download_file', path, dest, cache=cache)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         url = f"{API_URL}/files/{self.userid}/{path}"
         if cache and os.path.exists(dest):
             return dest
@@ -136,6 +177,9 @@ class Abraia:
         return dest
     
     def remove_file(self, path):
+        delegated = self._delegate('remove_file', path)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         url = f"{API_URL}/files/{self.userid}/{path}"
         resp = self._request('DELETE', url, auth=self.auth)
         if resp.status_code != 200:
@@ -144,6 +188,9 @@ class Abraia:
         return file_path(resp['file']['source'], self.userid)
 
     def load_metadata(self, path):
+        delegated = self._delegate('load_metadata', path)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         url = f"{API_URL}/metadata/{self.userid}/{path}"
         resp = self._request('GET', url, auth=self.auth)
         if resp.status_code != 200:
@@ -151,6 +198,9 @@ class Abraia:
         return resp.json()
 
     def remove_metadata(self, path):
+        delegated = self._delegate('remove_metadata', path)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         url = f"{API_URL}/metadata/{self.userid}/{path}"
         resp = self._request('DELETE', url, auth=self.auth)
         if resp.status_code != 200:
@@ -158,6 +208,9 @@ class Abraia:
         return resp.json()
 
     def transform_image(self, path, dest, params={'quality': 'auto'}):
+        delegated = self._delegate('transform_image', path, dest, params=params)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         ext = dest.split('.').pop().lower()
         params['format'] = params.get('format') or ext
         if params.get('action'):
@@ -172,6 +225,9 @@ class Abraia:
         save_data(dest, resp.content)
 
     def load_file(self, path, cache=False):
+        delegated = self._delegate('load_file', path, cache=cache)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         dest = temporal_src(path)
         self.download_file(path, dest, cache=cache)
         try:
@@ -182,10 +238,16 @@ class Abraia:
                 return BytesIO(f.read())
 
     def save_file(self, path, stream):
+        delegated = self._delegate('save_file', path, stream)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         stream =  BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
         return self.upload_file(stream, path)
 
     def load_json(self, path):
+        delegated = self._delegate('load_json', path)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         url = f"{API_URL}/files/{self.userid}/{path}"
         resp = self._request('GET', url, auth=self.auth)
         if resp.status_code != 200:
@@ -193,14 +255,38 @@ class Abraia:
         return resp.json()
 
     def save_json(self, path, values):
+        delegated = self._delegate('save_json', path, values)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         return self.save_file(path, json.dumps(values))
 
     def load_image(self, path):
+        delegated = self._delegate('load_image', path)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         dest = temporal_src(path)
         self.download_file(path, dest, cache=True)
         return load_image(dest)
 
+    def load_image_details(self, path):
+        """Load a standard remote image and its metadata."""
+        image = self.load_image(path)
+        return image, self.load_metadata(path)
+
+    def load_image_preview(self, path, size=144, bands=(0, 1, 2)):
+        """Return a generic preview through the shared source contract.
+
+        Standard Abraia images do not have spectral band selection, so the
+        size and bands hints are accepted for API compatibility and the normal
+        image loader supplies the preview-sized representation.
+        """
+        del size, bands
+        return self.load_image_details(path)
+
     def save_image(self, path, im):
+        delegated = self._delegate('save_image', path, im)
+        if delegated is not _NO_DELEGATE:
+            return delegated
         src = temporal_src(path)
         save_image(im, src)
         return self.upload_file(src, path)

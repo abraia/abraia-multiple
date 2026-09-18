@@ -283,18 +283,30 @@ def compile(project, device):
 @click.argument('project')
 @click.argument('classes', required=False, default='')
 @click.argument('src', required=False, default=None)
-def run(project, classes, src):
-    """Run a demo (demo, hailo) or a custom trained model (project name)."""
+@click.option(
+    '--accelerator',
+    type=click.Choice(['auto', 'onnx', 'cpu', 'gpu', 'hailo']),
+    default='auto',
+    show_default=True,
+    help='Accelerator for demos; auto prefers a compatible Hailo device.',
+)
+def run(project, classes, src, accelerator):
+    """Run a demo or a custom trained model.
+
+    Use ``run demo <name> --accelerator hailo`` to explicitly select Hailo.
+    """
     if project == 'demo':
         if classes == 'faces':
             from abraia.demo import track_faces
-            track_faces(src)
+            track_faces(src, accelerator=accelerator)
         else:
             from abraia.demo import monitor_objects
-            monitor_objects(src, classes)
+            monitor_objects(src, classes or 'detect', accelerator=accelerator)
     elif project == 'hailo':
-        from abraia.demo import monitor_objects_hailo
-        monitor_objects_hailo(src, classes)
+        raise click.UsageError(
+            'The separate Hailo demo mode was removed; use '
+            '`run demo <name> --accelerator hailo`.'
+        )
     else:
         if classes == 'search':
             from abraia.demo import search_images

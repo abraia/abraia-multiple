@@ -1,5 +1,5 @@
-from ..client import Abraia
 from ..tasks import normalize_model_size, normalize_task
+from .core import _resolve_client
 
 import os
 import io
@@ -11,9 +11,6 @@ import numpy as np
 os.environ['YOLO_VERBOSE'] = 'False'
 
 from ultralytics import YOLO
-
-abraia = Abraia()
-
 
 MODEL_SIZE_TYPES = {
     "small": "yolov8n",
@@ -52,7 +49,7 @@ class Model:
         self.task = task
         self.model_size = model_size
         self.imgsz = imgsz
-        self.client = abraia if client is None else client
+        self.client = _resolve_client(client)
         self._training_callbacks = {}
 
     def _remove_training_callbacks(self):

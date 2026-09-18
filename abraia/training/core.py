@@ -1,6 +1,13 @@
-"""Dependency-free dataset state and annotation metadata helpers."""
+"""Shared dataset state and remote dataset helpers."""
 
+from ..client import Abraia
 from ..tasks import normalize_task
+from ..utils import url_path
+
+
+def _resolve_client(client=None):
+    """Return an injected client or create one lazily for this operation."""
+    return client if client is not None else Abraia()
 
 
 class DatasetBase:
@@ -58,3 +65,38 @@ class DatasetBase:
             else ""
         )
         return list(labels), normalize_task(task)
+
+
+class RemoteDataset(DatasetBase):
+    """Common remote dataset behavior for standard and spectral datasets.
+
+    Subclasses only need to decide which files represent displayable images.
+    Format-specific scene grouping and metadata inspection remain in the
+    multispectral package.
+    """
+
+    def __init__(self, project, client):
+        super().__init__(project)
+        if client is None:
+            raise ValueError("A remote dataset requires a client")
+        self.client = client
+
+    def _load_annotations(self, project):
+        annotations = self.client.load_json(f"{project}/annotations.json")
+        for annotation in annotations:
+            filename = annotation.get("filename", "")
+            path = f"{project}/{filename}"
+            annotation["path"] = path
+            annotation["url"] = url_path(f"{self.client.userid}/{path}")
+        return annotations
+
+    def _select_images(self, files):
+        """Return displayable image records from a remote file listing."""
+        return files
+
+    def _list_images(self, project):
+        files = self.client.list_files(f"{project}/")[0]
+        images = self._select_images(files)
+        for image in images:
+            image["url"] = url_path(f"{self.client.userid}/{image['path']}")
+        return images

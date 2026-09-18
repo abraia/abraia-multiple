@@ -12,7 +12,7 @@ TRAINING_TASKS = ("classification", "detection", "segmentation")
 MODEL_SIZES = ("small", "medium", "large")
 HAILO_TASKS = ("detection", "segmentation", "pose")
 
-# Accepted input spellings. Callers normalize these immediately and should
+# Accepted input spellings. Callers normalize these at API boundaries and
 # serialize only the canonical values above.
 TASK_ALIASES = {
     "classify": "classification",
@@ -20,7 +20,6 @@ TASK_ALIASES = {
     "segment": "segmentation",
     "recognize": "recognition",
 }
-CONFIG_TASK_ALIASES = TASK_ALIASES
 
 HAILO_BACKEND_TASKS = {
     "detection": "detect",
@@ -35,7 +34,7 @@ ULTRALYTICS_BACKEND_TASKS = {
 
 
 def normalize_task(value, default=None):
-    """Normalize canonical and legacy task spellings to one task value."""
+    """Normalize accepted task spellings to one canonical task value."""
     if value is None:
         value = default
     if value is None:
@@ -52,11 +51,6 @@ def normalize_model_size(value, default="small"):
             f"Unsupported model size: {size}. Use {', '.join(MODEL_SIZES)}"
         )
     return size
-
-
-def normalize_config_task(value, default=None):
-    """Normalize a task read from a config or model metadata file."""
-    return normalize_task(value, default=default)
 
 
 def to_hailo_task(value):
@@ -87,13 +81,11 @@ __all__ = [
     "HAILO_BACKEND_TASKS",
     "HAILO_TASKS",
     "MODEL_SIZES",
-    "CONFIG_TASK_ALIASES",
     "PIPELINE_TASKS",
     "TASK_ALIASES",
     "TRAINING_TASKS",
     "ULTRALYTICS_BACKEND_TASKS",
     "normalize_task",
-    "normalize_config_task",
     "normalize_model_size",
     "to_hailo_task",
     "to_ultralytics_task",

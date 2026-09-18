@@ -8,12 +8,9 @@ import numpy as np
 
 from torchvision import models, transforms, datasets
 
-from ..client import Abraia
 from ..utils import temporal_src
 from ..tasks import normalize_model_size
-
-
-abraia = Abraia()
+from .core import _resolve_client
 
 
 CLASSIFICATION_BACKBONES = {
@@ -111,7 +108,7 @@ class Model:
         self.model_name = CLASSIFICATION_BACKBONES[self.model_size][0]
         self.metrics = {}
         self.device = default_device()
-        self.client = abraia if client is None else client
+        self.client = _resolve_client(client)
         self.transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),

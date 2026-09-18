@@ -11,7 +11,7 @@ ONNX_MODEL_KINDS = frozenset({
     "pose",
 })
 GROUNDING_DINO_MODEL_KINDS = frozenset({"grounding_dino", "groundingdino"})
-HAILO_MODEL_KINDS = frozenset({"hailo", "hailo_detection", "hailo_segmentation"})
+HAILO_MODEL_KINDS = frozenset({"hailo"})
 RESNET_MODEL_KINDS = frozenset({"classification", "resnet", "resnet_classifier"})
 MODEL_RUN_OPTIONS = (
     "labels",

@@ -2,11 +2,33 @@
 
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, runtime_checkable
 
 
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".bmp")
 VIDEO_SUFFIXES = (".mp4", ".avi", ".mov", ".mkv")
+
+
+@runtime_checkable
+class ImageSource(Protocol):
+    """Minimal image-loading surface shared by local and remote clients."""
+
+    def load_image(self, path: str):
+        """Load an image or image cube from ``path``."""
+        ...
+
+    def load_metadata(self, path: str):
+        """Load source metadata when available."""
+        ...
+
+
+@runtime_checkable
+class PreviewSource(ImageSource, Protocol):
+    """Image source that can produce a display-sized image preview."""
+
+    def load_image_preview(self, path: str, size=144, bands=(0, 1, 2)):
+        """Return ``(preview, metadata)`` for a source path."""
+        ...
 
 
 def infer_source_type(
@@ -39,4 +61,10 @@ def infer_source_type(
     return fallback
 
 
-__all__ = ["IMAGE_SUFFIXES", "VIDEO_SUFFIXES", "infer_source_type"]
+__all__ = [
+    "IMAGE_SUFFIXES",
+    "VIDEO_SUFFIXES",
+    "ImageSource",
+    "PreviewSource",
+    "infer_source_type",
+]

@@ -8,6 +8,9 @@ from importlib import import_module
 
 
 _LAZY_EXPORTS = {
+    "available_accelerators": (".accelerators", "available_accelerators"),
+    "normalize_accelerator": (".accelerators", "normalize_accelerator"),
+    "onnx_providers": (".accelerators", "onnx_providers"),
     "Model": (".models.detection", "Model"),
     "ResNetClassifier": (".models.classification", "ResNetClassifier"),
     "GroundingDINOModel": (".models.grounding_dino", "GroundingDINOModel"),
@@ -43,6 +46,9 @@ def __dir__():
 
 
 __all__ = [
+    "available_accelerators",
+    "normalize_accelerator",
+    "onnx_providers",
     "Model",
     "ResNetClassifier",
     "GroundingDINOModel",

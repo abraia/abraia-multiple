@@ -2,6 +2,7 @@
 
 from .pipeline import (
     FrameContext,
+    CancellableSource,
     LineCounterStage,
     Pipeline,
     RegionFilterStage,
@@ -19,6 +20,7 @@ from .stages import LineCounter, RegionFilter, RegionTimer, count_objects
 
 __all__ = [
     "FrameContext",
+    "CancellableSource",
     "FrameSource",
     "AsyncInferenceRunner",
     "FrameBatch",

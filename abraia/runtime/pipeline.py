@@ -5,11 +5,60 @@ import json
 import logging
 import os
 from pathlib import Path
+import threading
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 
 logger = logging.getLogger(__name__)
+
+
+class CancellableSource:
+    """Compatibility wrapper that stops a blocking source on cancellation."""
+
+    def __init__(self, source, is_cancelled):
+        self.source = source
+        self.frame_rate = getattr(source, "frame_rate", 0)
+        self._is_cancelled = is_cancelled
+        self._watch_stop = threading.Event()
+
+    def stop(self):
+        self._watch_stop.set()
+        stop = getattr(self.source, "stop", None)
+        close = getattr(self.source, "close", None)
+        if callable(stop):
+            stop()
+        elif callable(close):
+            close()
+        else:
+            # Preserve compatibility with older capture objects while new
+            # sources migrate to the public stop/close protocol.
+            if hasattr(self.source, "quit"):
+                self.source.quit = True
+            capture = getattr(self.source, "cap", None)
+            if capture is not None and hasattr(capture, "release"):
+                try:
+                    capture.release()
+                except Exception:
+                    logger.debug("Failed to release cancellable source", exc_info=True)
+
+    def _watch_cancellation(self):
+        while not self._watch_stop.wait(0.05):
+            if self._is_cancelled():
+                self.stop()
+                return
+
+    def __iter__(self):
+        watcher = threading.Thread(target=self._watch_cancellation, daemon=True)
+        watcher.start()
+        try:
+            for frame in self.source:
+                if self._is_cancelled():
+                    break
+                yield frame
+        finally:
+            self.stop()
+            watcher.join(timeout=0.2)
 
 
 def _close_resources(resources):
@@ -140,6 +189,8 @@ class Pipeline:
         self.on_frame = on_frame
         self.components = components or {}
         self._closed = False
+        self._stop_requested = threading.Event()
+        self._is_cancelled = lambda: False
 
         frame_rate = getattr(source, "frame_rate", None)
         self.frame_rate = float(frame_rate or 0)
@@ -166,6 +217,9 @@ class Pipeline:
             return
 
         for frame_index, frame in enumerate(self.source):
+            if self._stop_requested.is_set() or self._is_cancelled():
+                self.stop()
+                break
             started = time.perf_counter()
             yield FrameResult(
                 FrameRecord(frame_index, frame, started),
@@ -173,7 +227,23 @@ class Pipeline:
                 (time.perf_counter() - started) * 1000,
             )
 
-    def run(self) -> Optional[FrameContext]:
+    def stop(self):
+        """Request cancellation and release a blocking source if possible."""
+        self._stop_requested.set()
+        stop = getattr(self.source, "stop", None)
+        close = getattr(self.source, "close", None)
+        if callable(stop):
+            stop()
+        elif callable(close):
+            close()
+
+    def _watch_cancellation(self, is_cancelled):
+        while not self._stop_requested.wait(0.05):
+            if is_cancelled():
+                self.stop()
+                return
+
+    def run(self, is_cancelled=None) -> Optional[FrameContext]:
         """Process all source frames and return the last frame context.
 
         Models with an ``iter_inference(source)`` method may process frames
@@ -182,9 +252,23 @@ class Pipeline:
         """
         if self._closed:
             raise RuntimeError("Pipeline has already been closed")
+        watcher = None
+        if is_cancelled is None:
+            self._is_cancelled = lambda: False
+        else:
+            self._is_cancelled = is_cancelled
+            watcher = threading.Thread(
+                target=self._watch_cancellation,
+                args=(is_cancelled,),
+                daemon=True,
+            )
+            watcher.start()
         last_context = None
         try:
             for result in self._iter_inference():
+                if self._stop_requested.is_set() or self._is_cancelled():
+                    self.stop()
+                    break
                 frame_index = result.record.index
                 frame = result.record.frame
                 results = result.results
@@ -212,6 +296,9 @@ class Pipeline:
 
             return last_context
         finally:
+            self._stop_requested.set()
+            if watcher is not None:
+                watcher.join(timeout=0.2)
             self.close()
 
     @classmethod
@@ -219,12 +306,18 @@ class Pipeline:
         cls,
         path: str,
         on_frame: Optional[Callable[[FrameContext, float], None]] = None,
+        accelerator: Optional[str] = "auto",
     ) -> "Pipeline":
         """Build a pipeline from a JSON configuration file."""
         config_path = Path(path)
         with config_path.open("r") as config_file:
             config = json.load(config_file)
-        return cls.from_dict(config, base_dir=config_path.parent, on_frame=on_frame)
+        return cls.from_dict(
+            config,
+            base_dir=config_path.parent,
+            on_frame=on_frame,
+            accelerator=accelerator,
+        )
 
     @classmethod
     def from_dict(
@@ -232,11 +325,14 @@ class Pipeline:
         config: Dict[str, Any],
         base_dir: Optional[str] = None,
         on_frame: Optional[Callable[[FrameContext, float], None]] = None,
+        accelerator: Optional[str] = "auto",
     ) -> "Pipeline":
         """Build a pipeline from the small version-1 JSON schema.
 
         The loader intentionally creates the existing SDK components rather
         than importing arbitrary classes named by a configuration file.
+        ``accelerator`` selects a paired accelerator implementation when
+        available and falls back to ONNX/CPU when it is not.
         """
         if not isinstance(config, dict):
             raise ValueError("Pipeline configuration must be a JSON object")
@@ -289,7 +385,11 @@ class Pipeline:
             destination = str(root / destination)
 
         model_kwargs = get_model_run_kwargs(model_config)
-        model = create_model(model_config, base_dir=root)
+        model = create_model(
+            model_config,
+            base_dir=root,
+            accelerator=accelerator,
+        )
         video = None
         components = {}
         try:

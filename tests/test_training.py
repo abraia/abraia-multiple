@@ -14,7 +14,7 @@ def test_dataset_load(mock_list_datasets, mock_list_images, mock_load_annotation
     mock_load_annotations.return_value = [{'filename': 'test.jpg', 'objects': [{'label': 'cat'}]}]
     mock_list_images.return_value = [{'name': 'test.jpg'}]
     
-    ds = Dataset('test_project')
+    ds = Dataset('test_project', client=object())
     ds.load()
     
     assert ds.project == 'test_project'
@@ -23,19 +23,26 @@ def test_dataset_load(mock_list_datasets, mock_list_images, mock_load_annotation
     assert ds.task == 'classification'
     assert ds.images == [{'name': 'test.jpg'}]
     
-    mock_list_datasets.assert_called_once()
+    mock_list_datasets.assert_called_once_with(ds.client)
     mock_load_annotations.assert_called_once_with('test_project')
     mock_list_images.assert_called_once_with('test_project')
 
 
-@patch('abraia.training.dataset.abraia.save_json')
-def test_dataset_save(mock_save_json):
-    ds = Dataset('test_project')
+def test_dataset_save():
+    class FakeClient:
+        def __init__(self):
+            self.saved = None
+
+        def save_json(self, path, value):
+            self.saved = (path, value)
+
+    client = FakeClient()
+    ds = Dataset('test_project', client=client)
     ds.annotations = [{'filename': 'test.jpg', 'objects': []}]
-    
+
     ds.save()
-    
-    mock_save_json.assert_called_once_with('test_project/annotations.json', ds.annotations)
+
+    assert client.saved == ('test_project/annotations.json', ds.annotations)
 
 
 @patch('abraia.training.dataset.Dataset.save')
@@ -45,7 +52,7 @@ def test_dataset_save(mock_save_json):
 def test_dataset_annotate_filter(
     mock_annotator_cls, mock_load_image, mock_load_url, mock_save
 ):
-    ds = Dataset('test_project')
+    ds = Dataset('test_project', client=object())
     ds.images = [
         {'name': 'old.jpg', 'url': 'old-url'},
         {'name': 'new.jpg', 'url': 'new-url'},
@@ -94,7 +101,7 @@ def test_segmentation_annotation_converts_float_boxes_to_polygons():
 
 
 def test_dataset_annotated_status():
-    ds = Dataset('test_project')
+    ds = Dataset('test_project', client=object())
     # Empty dataset
     assert ds.annotated is False
 
@@ -112,12 +119,18 @@ def test_dataset_annotated_status():
 
 def test_prepare_dataset_reports_download_progress(monkeypatch):
     import abraia.training as training
+    import abraia.training.orchestration as orchestration
 
     annotations = [
         {"filename": "one.jpg"},
         {"filename": "two.jpg"},
         {"filename": "three.jpg"},
     ]
+    client = type(
+        "Client",
+        (),
+        {"check_file": lambda self, _path: False},
+    )()
     dataset = type(
         "Dataset",
         (),
@@ -126,16 +139,16 @@ def test_prepare_dataset_reports_download_progress(monkeypatch):
             "annotations": annotations,
             "classes": ["cat"],
             "task": "classification",
+            "client": client,
         },
     )()
-    monkeypatch.setattr(training.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(training.abraia, "check_file", lambda _path: False)
+    monkeypatch.setattr(orchestration.os.path, "exists", lambda _path: False)
     monkeypatch.setattr(
-        training,
+        orchestration,
         "split_dataset",
         lambda values: (values[:1], values[1:2], values[2:]),
     )
-    monkeypatch.setattr(training, "save_data", lambda *args: None)
+    monkeypatch.setattr(orchestration, "save_data", lambda *args: None)
     events = []
 
     training.prepare_dataset(dataset, callback=events.append)
