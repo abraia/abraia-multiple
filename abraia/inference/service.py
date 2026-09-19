@@ -113,6 +113,7 @@ class InferenceService:
         self._sam = None
         self._sam_image = None
         self._sam_image_key = None
+        self._grounding_dino = None
 
     def get_session(self, model_uri, backend="onnx"):
         """Return a cached model session for ``model_uri`` and ``backend``."""
@@ -165,9 +166,10 @@ class InferenceService:
             sessions = list(self._sessions.values())
             self._sessions.clear()
             sam, self._sam = self._sam, None
+            grounding_dino, self._grounding_dino = self._grounding_dino, None
             self._sam_image = None
             self._sam_image_key = None
-            for resource in [*sessions, sam]:
+            for resource in [*sessions, sam, grounding_dino]:
                 if resource is None:
                     continue
                 try:
@@ -209,3 +211,16 @@ class InferenceService:
                 self._sam_image = image
                 self._sam_image_key = image_key
             return sam.predict(image, prompt=json.dumps(prompt))
+
+    def grounding_dino_predict(self, image, prompt):
+        """Detect objects described by a text prompt using Grounding DINO."""
+        if not str(prompt or "").strip():
+            raise ValueError("Grounding DINO requires a text prompt")
+
+        from . import GroundingDINOModel
+
+        image = as_array(image)
+        with self._lock:
+            if self._grounding_dino is None:
+                self._grounding_dino = GroundingDINOModel()
+            return self._grounding_dino.run(image, prompt=str(prompt).strip())

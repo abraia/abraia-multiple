@@ -1,6 +1,7 @@
 """Dataset preparation and model-training orchestration."""
 
 import os
+import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict
 
@@ -8,15 +9,24 @@ from PIL import Image
 from tqdm import tqdm
 
 from ..tasks import (
+    DEFAULT_TRAINING_EPOCHS,
     TRAINING_TASKS,
     normalize_model_size,
     normalize_task,
     to_ultralytics_task,
 )
 from ..utils import save_text
+from .annotations import prune_orphaned_annotations
 from .core import _resolve_client
 from .dataset import download_file
-from .ops import train_test_split
+from .splitting import (
+    DATASET_SPLITS,
+    DEFAULT_EVALUATION_SPLIT,
+    DEFAULT_SPLIT_OPTIONS,
+    SPLIT_RATIO_KEYS,
+    split_annotation_records,
+    summarize_split_records,
+)
 
 
 def save_annotation(annotation, folder, classes, task):
@@ -83,25 +93,38 @@ def save_config(dataset, classes):
     save_text(os.path.join(dataset, "data.yaml"), yaml_content)
 
 
-def split_dataset(annotations):
-    """Split annotated records while retaining background images in training."""
-    backgrounds = [annotation for annotation in annotations if not annotation.get("objects")]
-    annotated = [annotation for annotation in annotations if annotation.get("objects")]
-    if not annotated:
-        return backgrounds, [], []
-    train, test = train_test_split(annotated, test_size=0.3, random_state=42)
-    if test:
-        validation, test = train_test_split(test, test_size=0.5, random_state=42)
-    else:
-        validation, test = [], []
-    train.extend(backgrounds)
-    return train, validation, test
+def split_dataset(annotations, split_options=None):
+    """Split records with a deterministic, class-balanced policy."""
+    options = dict(DEFAULT_SPLIT_OPTIONS)
+    options.update(split_options or {})
+    return split_annotation_records(annotations, **options)
 
 
-def prepare_dataset(dataset, force=False, callback=None):
+def dataset_split_summary(dataset, split_options=None):
+    """Return the split preview data used by Studio and training clients."""
+    options = dict(DEFAULT_SPLIT_OPTIONS)
+    options.update(split_options or {})
+    splits = split_dataset(dataset.annotations, options)
+    return summarize_split_records(
+        splits,
+        classes=getattr(dataset, "classes", None),
+        ratios={key: options[key] for key in SPLIT_RATIO_KEYS},
+    )
+
+
+def prepare_dataset(dataset, force=False, callback=None, split_options=None):
     """Download and split a dataset, optionally reporting each file."""
+    prune_orphaned_annotations(dataset)
     client = _resolve_client(getattr(dataset, "client", None))
     if force or not os.path.exists(dataset.project):
+        if force:
+            # These are generated training artifacts. Remove only their
+            # explicit split directories so a changed UI split cannot retain
+            # files from a previous partition.
+            for split_name in DATASET_SPLITS:
+                split_path = os.path.join(dataset.project, split_name)
+                if os.path.isdir(split_path):
+                    shutil.rmtree(split_path)
         annotations = dataset.annotations
         dataset_path = f"{dataset.project}/dataset.json"
         if client.check_file(dataset_path):
@@ -111,7 +134,11 @@ def prepare_dataset(dataset, force=False, callback=None):
                 for annotation in annotations
                 if annotation.get("filename") in filenames
             ]
-        splits = list(zip(("train", "val", "test"), split_dataset(annotations)))
+        if split_options is None:
+            split_values = split_dataset(annotations)
+        else:
+            split_values = split_dataset(annotations, split_options)
+        splits = list(zip(DATASET_SPLITS, split_values))
         all_annotations, all_folders = [], []
         for split_name, split_annotations in splits:
             folder = os.path.join(dataset.project, split_name)
@@ -201,7 +228,7 @@ class ModelTrainer:
 
     def train(self, epochs: int = None, batch: int = 32, callback=None,
               is_cancelled=None) -> None:
-        epochs = epochs or (30 if self.task == "classification" else 300)
+        epochs = epochs or DEFAULT_TRAINING_EPOCHS[self.task]
         callback = self._progress_callback if callback is None else callback
         try:
             self.model.train(
@@ -216,27 +243,33 @@ class ModelTrainer:
                 self.pbar.close()
                 self.pbar = None
 
-    def test(self, split: str = "val", is_cancelled=None) -> Dict[str, Any]:
+    def test(self, split: str = DEFAULT_EVALUATION_SPLIT, is_cancelled=None) -> Dict[str, Any]:
         if is_cancelled is None:
             return self.model.test(split=split)
         return self.model.test(split=split, is_cancelled=is_cancelled)
 
-    def save(self, device="cpu") -> None:
-        self.model.save(self.project, self.classes, device=device)
+    def save(self, device="cpu") -> Dict[str, Any]:
+        return self.model.save(self.project, self.classes, device=device)
 
     def run(self, img):
         return self.model.run(img)
 
-    def compile(self, device="hailo8"):
+    def compile(self, device="hailo8", version=None):
         if self.task != "detection":
             raise NotImplementedError(
                 "Model compilation is only implemented for detection models."
             )
-        self.model.compile(self.project, self.classes, device=device)
+        return self.model.compile(
+            self.project,
+            self.classes,
+            device=device,
+            version=version,
+        )
 
 
 __all__ = [
     "ModelTrainer",
+    "dataset_split_summary",
     "prepare_dataset",
     "save_annotation",
     "save_config",

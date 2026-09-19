@@ -12,15 +12,38 @@ import cv2
 import numpy as np
 
 from ..session import OnnxSessionMixin
-from ...utils import download_file, load_json
+from ...utils import download_file, get_providers, load_json
 
 
 DEFAULT_MODEL_URI = "multiple/models/grounding_dino_tiny.onnx"
 DEFAULT_TOKENIZER_URI = "multiple/models/grounding_dino_vocab.txt"
 DEFAULT_INPUT_SHAPE = (1, 3, 800, 800)
 DEFAULT_MAX_TEXT_LENGTH = 256
+COREML_PROVIDER = "CoreMLExecutionProvider"
+CPU_PROVIDER = "CPUExecutionProvider"
 IMAGE_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGE_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+
+def _grounding_dino_providers(providers):
+    """Return providers that do not route this graph through CoreML.
+
+    ONNX Runtime's CoreML provider can hang Grounding DINO on macOS while
+    repeatedly reporting ``Context leak detected``.  Keep CUDA when it is
+    explicitly available, but never leave CoreML in the provider chain,
+    including as a partial-execution fallback.
+    """
+    if providers is None:
+        providers = get_providers()
+    safe_providers = [
+        provider for provider in providers
+        if str(provider) != COREML_PROVIDER
+    ]
+    if not safe_providers:
+        return [CPU_PROVIDER]
+    if CPU_PROVIDER not in safe_providers:
+        safe_providers.append(CPU_PROVIDER)
+    return safe_providers
 
 
 def _resolve_file(uri):
@@ -301,8 +324,20 @@ class GroundingDINOModel(OnnxSessionMixin):
         self.tokenizer = self._load_tokenizer(
             tokenizer_uri or self.config.get("tokenizer", DEFAULT_TOKENIZER_URI)
         )
-        self._init_onnx_session(model_path, providers=providers)
-        self._inputs = {item.name: item for item in self.session.get_inputs()}
+        try:
+            self._init_onnx_session(
+                model_path,
+                providers=_grounding_dino_providers(providers),
+            )
+            self._inputs = {
+                item.name: item for item in self.session.get_inputs()
+            }
+        except Exception:
+            # ``get_inputs`` may fail after the native session is created.
+            # Release it here because a partially constructed model cannot be
+            # closed by the caller.
+            self.close()
+            raise
 
     @staticmethod
     def _load_tokenizer(tokenizer_uri):
@@ -391,6 +426,13 @@ class GroundingDINOModel(OnnxSessionMixin):
             prompt = ". ".join(str(label).strip().strip(".") for label in labels) + "."
         elif not isinstance(prompt, str):
             prompt = ". ".join(str(label).strip().strip(".") for label in prompt) + "."
+        else:
+            # The bundled ONNX graph was exported with a period-separated
+            # prompt. Its traced special-token handling expects the period
+            # token between the text and [SEP], even for one label.
+            prompt = prompt.strip()
+            if not prompt.endswith((".", "?")):
+                prompt += "."
         if conf_threshold is not None:
             box_threshold = conf_threshold
 

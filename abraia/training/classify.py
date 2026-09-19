@@ -10,7 +10,8 @@ from torchvision import models, transforms, datasets
 
 from ..utils import temporal_src
 from ..tasks import normalize_model_size
-from .core import _resolve_client
+from .core import _resolve_client, save_versioned_model
+from .splitting import DATASET_SPLITS, DEFAULT_EVALUATION_SPLIT
 
 
 CLASSIFICATION_BACKBONES = {
@@ -54,7 +55,7 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
     for epoch in range(num_epochs):
         if is_cancelled and is_cancelled():
             raise RuntimeError("Training canceled")
-        for phase in ['train', 'val']:
+        for phase in DATASET_SPLITS[:2]:
             if phase == 'train':
                 model.train()  # Set model to training mode
             else:
@@ -109,6 +110,7 @@ class Model:
         self.metrics = {}
         self.device = default_device()
         self.client = _resolve_client(client)
+        self.model_version = None
         self.transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
@@ -130,13 +132,28 @@ class Model:
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ]),
             'val': self.transform,
+            'test': self.transform,
         }
-        image_datasets = {x: datasets.ImageFolder(os.path.join(dataset, x), transform=data_transforms[x]) for x in ['train', 'val']}
+        image_datasets = {
+            x: datasets.ImageFolder(
+                os.path.join(dataset, x),
+                transform=data_transforms[x],
+            )
+            for x in DATASET_SPLITS
+        }
         # Multiprocessing DataLoader workers started from Studio's background
         # thread can leave native locks behind on macOS. Keep the GUI path
         # single-process there; other platforms retain the faster loaders.
         num_workers = 0 if sys.platform == 'darwin' else 4
-        dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=batch, shuffle=True, num_workers=num_workers) for x in ['train', 'val']}
+        dataloaders = {
+            x: torch.utils.data.DataLoader(
+                image_datasets[x],
+                batch_size=batch,
+                shuffle=x == 'train',
+                num_workers=num_workers,
+            )
+            for x in DATASET_SPLITS
+        }
         classes = image_datasets['train'].classes
         return dataloaders, classes
 
@@ -162,7 +179,7 @@ class Model:
         if not callback:
             print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
 
-    def test(self, split='val', is_cancelled=None):
+    def test(self, split=DEFAULT_EVALUATION_SPLIT, is_cancelled=None):
         self.model.eval()
         model_device = next(self.model.parameters()).device
         running_corrects = 0
@@ -187,23 +204,33 @@ class Model:
         self.model.to(target_device)
         self.device = target_device
         model_src = temporal_src(f"{dataset}/{self.model_name}.onnx")
-        dummy_input = torch.randn(1, 3, 224, 224, device=target_device)
-        torch.onnx.export(self.model, dummy_input, model_src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
-        onnx_model = onnx.load(model_src)
-        onnx.checker.check_model(onnx_model)
-        onnx.save(onnx_model, model_src)
-        self.client.upload_file(model_src, f"{dataset}/{self.model_name}.onnx")
-        self.client.save_json(
-            f"{dataset}/{self.model_name}.json",
-            {
-                'task': 'classification',
-                'kind': 'resnet',
-                'backbone': self.model_name,
-                'inputShape': self.input_shape,
-                'classes': classes,
-                'metrics': self.metrics,
-            },
-        )
+        try:
+            dummy_input = torch.randn(1, 3, 224, 224, device=target_device)
+            torch.onnx.export(self.model, dummy_input, model_src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
+            onnx_model = onnx.load(model_src)
+            onnx.checker.check_model(onnx_model)
+            onnx.save(onnx_model, model_src)
+            result = save_versioned_model(
+                self.client,
+                dataset,
+                self.model_name,
+                model_src,
+                {
+                    'task': 'classification',
+                    'kind': 'resnet',
+                    'inputShape': self.input_shape,
+                    'classes': classes,
+                    'metrics': self.metrics,
+                },
+            )
+            self.model_version = result["version"]
+            return result
+        finally:
+            if os.path.isfile(model_src):
+                try:
+                    os.remove(model_src)
+                except OSError:
+                    pass
 
     def run(self, img):
         self.model.eval()

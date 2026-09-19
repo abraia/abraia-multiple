@@ -4,17 +4,6 @@ import base64
 
 CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.abraia')
 
-MIME_TYPES = {'jpg': 'image/jpeg',
-              'jpeg': 'image/jpeg',
-              'png': 'image/png',
-              'gif': 'image/gif',
-              'svg': 'image/svg+xml',
-              'webp': 'image/webp',
-              'bmp': 'image/bmp',
-              'pdf': 'application/pdf',
-              'psd': 'image/vnd.adobe.photoshop'}
-
-
 def base64encode(str):
     str = str.encode('utf-8') if sys.version_info[0] == 3 else str
     str = base64.b64encode(str)

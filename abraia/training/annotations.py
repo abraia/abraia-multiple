@@ -54,6 +54,33 @@ def dataset_has_annotations(dataset):
     return bool(dataset and dataset.images and dataset.annotations)
 
 
+def prune_orphaned_annotations(dataset):
+    """Remove annotations whose image is no longer in the dataset.
+
+    The dataset image listing is the source of truth. When records are
+    removed, persist the cleaned annotation list so future training runs do
+    not encounter the same missing file.
+    """
+    images = getattr(dataset, "images", None) or []
+    annotations = getattr(dataset, "annotations", None) or []
+    image_names = {image_filename(image) for image in images}
+    remaining = [
+        annotation
+        for annotation in annotations
+        if (
+            isinstance(annotation, dict)
+            and canonical_filename(annotation.get("filename")) in image_names
+        )
+    ]
+    removed = len(annotations) - len(remaining)
+    if removed:
+        dataset.annotations = remaining
+        save = getattr(dataset, "save", None)
+        if callable(save):
+            save()
+    return removed
+
+
 def upsert_annotation(dataset, filename, objects):
     """Update an image annotation or append a new annotation record."""
     key = canonical_filename(filename)
@@ -82,5 +109,6 @@ __all__ = [
     "find_image",
     "image_filename",
     "objects_for_image",
+    "prune_orphaned_annotations",
     "upsert_annotation",
 ]

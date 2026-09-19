@@ -4,7 +4,7 @@ import numpy as np
 from ...utils import download_file
 from .detection import Model
 from .ocr import TextSystem
-from ..postprocess.boxes import non_maximum_suppression
+from ..postprocess.common import non_maximum_suppression
 from ..session import OnnxSessionMixin, ResourceGroup
 
 

@@ -1,8 +1,8 @@
 """Shared dataset state and remote dataset helpers."""
 
+import re
+
 from ..client import Abraia
-from ..tasks import normalize_task
-from ..utils import url_path
 
 
 def _resolve_client(client=None):
@@ -10,93 +10,68 @@ def _resolve_client(client=None):
     return client if client is not None else Abraia()
 
 
-class DatasetBase:
-    """Common dataset state shared by remote dataset adapters."""
-
-    def __init__(self, project):
-        self.project = project
-        self.annotations = []
-        self.classes = []
-        self.task = ""
-        self.images = []
-        self.annotated = False
-
-    def _update_annotated(self):
-        annotated_filenames = {
-            annotation.get("filename")
-            for annotation in self.annotations
-            if isinstance(annotation, dict)
-        }
-        self.annotated = bool(self.images) and all(
-            image.get("name") in annotated_filenames
-            for image in self.images
-            if isinstance(image, dict)
-        )
-
-    @staticmethod
-    def _process_annotations(annotations):
-        # Preserve the first-seen order because this list is also the class-ID
-        # mapping written into detection labels and model metadata.
-        labels = {}
-        has_class_labels = False
-        has_boxes = False
-        has_polygons = False
-        for annotation in annotations or []:
-            if not isinstance(annotation, dict):
-                continue
-            for obj in annotation.get("objects", []) or []:
-                if not isinstance(obj, dict):
-                    continue
-                label = obj.get("label")
-                if label:
-                    labels.setdefault(label, None)
-                    has_class_labels = True
-                if obj.get("polygon") is not None:
-                    has_polygons = True
-                elif obj.get("box") is not None:
-                    has_boxes = True
-        task = (
-            "segmentation"
-            if has_polygons
-            else "detection"
-            if has_boxes
-            else "classification"
-            if has_class_labels
-            else ""
-        )
-        return list(labels), normalize_task(task)
+def next_model_version(client, project, model_name):
+    """Return the next version in the flat model filename sequence."""
+    pattern = re.compile(rf"^{re.escape(model_name)}_v(\d+)\.onnx$")
+    files, _ = client.list_files(f"{project}/")
+    versions = []
+    for file_data in files or []:
+        match = pattern.fullmatch(file_data.get("name", ""))
+        if match:
+            versions.append(int(match.group(1)))
+    return max(versions, default=0) + 1
 
 
-class RemoteDataset(DatasetBase):
-    """Common remote dataset behavior for standard and spectral datasets.
+def versioned_model_paths(client, project, model_name):
+    """Return collision-checked paths for the next versioned model."""
+    version = next_model_version(client, project, model_name)
+    while True:
+        versioned_name = f"{model_name}_v{version}"
+        model_path = f"{project}/{versioned_name}.onnx"
+        metadata_path = f"{project}/{versioned_name}.json"
+        check_file = getattr(client, "check_file", None)
+        if not callable(check_file):
+            break
+        if not check_file(model_path) and not check_file(metadata_path):
+            break
+        version += 1
+    return {
+        "version": version,
+        "name": f"{versioned_name}.onnx",
+        "onnx": model_path,
+        "metadata": metadata_path,
+    }
 
-    Subclasses only need to decide which files represent displayable images.
-    Format-specific scene grouping and metadata inspection remain in the
-    multispectral package.
-    """
 
-    def __init__(self, project, client):
-        super().__init__(project)
-        if client is None:
-            raise ValueError("A remote dataset requires a client")
-        self.client = client
+def save_versioned_model(client, project, model_name, source, metadata):
+    """Upload an ONNX file and matching metadata using a safe version name."""
+    check_file = getattr(client, "check_file", None)
+    for _attempt in range(3):
+        paths = versioned_model_paths(client, project, model_name)
+        try:
+            client.upload_file(source, paths["onnx"])
+        except Exception:
+            # A concurrent save may win the preflight check between version
+            # allocation and upload. Retry only when the target now exists.
+            if not callable(check_file) or not check_file(paths["onnx"]):
+                raise
+            continue
+        try:
+            client.save_json(paths["metadata"], metadata)
+        except Exception:
+            remove_file = getattr(client, "remove_file", None)
+            if callable(remove_file):
+                try:
+                    remove_file(paths["onnx"])
+                except Exception:
+                    pass
+            raise
+        return paths
+    raise RuntimeError("Could not allocate a unique model version")
 
-    def _load_annotations(self, project):
-        annotations = self.client.load_json(f"{project}/annotations.json")
-        for annotation in annotations:
-            filename = annotation.get("filename", "")
-            path = f"{project}/{filename}"
-            annotation["path"] = path
-            annotation["url"] = url_path(f"{self.client.userid}/{path}")
-        return annotations
 
-    def _select_images(self, files):
-        """Return displayable image records from a remote file listing."""
-        return files
-
-    def _list_images(self, project):
-        files = self.client.list_files(f"{project}/")[0]
-        images = self._select_images(files)
-        for image in images:
-            image["url"] = url_path(f"{self.client.userid}/{image['path']}")
-        return images
+__all__ = [
+    "next_model_version",
+    "save_versioned_model",
+    "versioned_model_paths",
+]

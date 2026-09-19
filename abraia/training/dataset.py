@@ -6,8 +6,10 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 
 from ..utils import load_image, load_url
+from ..tasks import normalize_task
+from ..datasets import RemoteDataset
 from .auto_annotation import Annotator, annotate_image as _annotate_image
-from .core import RemoteDataset, _resolve_client
+from .core import _resolve_client
 from .image_search import (
     convert_to_jpg,
     dhash,
@@ -76,6 +78,28 @@ def list_models(project, client=None):
     client = _resolve_client(client)
     files = client.list_files(f"{project}/")[0]
     return [file_data["name"] for file_data in files if file_data["name"].endswith(".onnx")]
+
+
+def list_model_records(project, client=None):
+    """Return model names with optional persisted evaluation metadata."""
+    client = _resolve_client(client)
+    records = []
+    for name in list_models(project, client=client):
+        record = {"name": name, "metrics": {}}
+        if hasattr(client, "load_json"):
+            stem = os.path.splitext(str(name))[0]
+            try:
+                metadata = client.load_json(f"{project}/{stem}.json")
+            except Exception:
+                metadata = None
+            if isinstance(metadata, dict):
+                record.update({
+                    "metrics": metadata.get("metrics") or {},
+                    "classes": metadata.get("classes") or [],
+                    "task": normalize_task(metadata.get("task")),
+                })
+        records.append(record)
+    return records
 
 
 class Dataset(RemoteDataset):
@@ -162,6 +186,7 @@ __all__ = [
     "download_page",
     "list_datasets",
     "list_models",
+    "list_model_records",
     "load_dataset",
     "save_image_file",
     "scan_bing_page",

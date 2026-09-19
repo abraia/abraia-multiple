@@ -1,7 +1,7 @@
 from abraia.training.dataset import Dataset
 from abraia.training.dataset import Annotator
-from abraia.training.core import DatasetBase
-from abraia.training.ops import resample, train_test_split
+from abraia.datasets import DatasetBase
+from abraia.training.orchestration import split_dataset
 from unittest.mock import patch
 import numpy as np
 
@@ -117,6 +117,28 @@ def test_dataset_annotated_status():
     assert ds.annotated is False
 
 
+def test_prune_orphaned_annotations_removes_missing_images_and_saves():
+    from abraia.training import prune_orphaned_annotations
+
+    saved = []
+    dataset = type(
+        "Dataset",
+        (),
+        {
+            "images": [{"name": "present.jpg"}],
+            "annotations": [
+                {"filename": "present.jpg", "objects": []},
+                {"filename": "deleted.jpg", "objects": []},
+            ],
+            "save": lambda self: saved.append(list(self.annotations)),
+        },
+    )()
+
+    assert prune_orphaned_annotations(dataset) == 1
+    assert dataset.annotations == [{"filename": "present.jpg", "objects": []}]
+    assert saved == [dataset.annotations]
+
+
 def test_prepare_dataset_reports_download_progress(monkeypatch):
     import abraia.training as training
     import abraia.training.orchestration as orchestration
@@ -136,6 +158,11 @@ def test_prepare_dataset_reports_download_progress(monkeypatch):
         (),
         {
             "project": "progress-test",
+            "images": [
+                {"name": "one.jpg"},
+                {"name": "two.jpg"},
+                {"name": "three.jpg"},
+            ],
             "annotations": annotations,
             "classes": ["cat"],
             "task": "classification",
@@ -193,16 +220,63 @@ def test_dataset_uses_injected_client_without_global_client_calls():
     assert dataset.images[0]["url"]
 
 
-def test_split_helpers_do_not_change_numpy_global_rng_state():
+def test_split_dataset_does_not_change_numpy_global_rng_state():
     values = [{"objects": [{"label": "cat"}]} for _ in range(8)]
     np.random.seed(7)
     expected = np.random.random()
     np.random.seed(7)
 
-    train_test_split(values, test_size=0.25, random_state=42)
-    resample(values, n_samples=3, random_state=42)
+    split_dataset(values)
 
     assert np.random.random() == expected
+
+
+def test_split_dataset_balances_each_class_using_requested_ratios():
+    annotations = [
+        {"filename": f"cat-{index}.jpg", "objects": [{"label": "cat"}]}
+        for index in range(10)
+    ] + [
+        {"filename": f"dog-{index}.jpg", "objects": [{"label": "dog"}]}
+        for index in range(10)
+    ]
+
+    train, validation, test = split_dataset(
+        annotations,
+        {
+            "train_ratio": 0.6,
+            "validation_ratio": 0.2,
+            "test_ratio": 0.2,
+            "random_state": 9,
+        },
+    )
+
+    for split in (train, validation, test):
+        assert len({item["filename"] for item in split}) == len(split)
+    for label, expected in (
+        ("cat", (6, 2, 2)),
+        ("dog", (6, 2, 2)),
+    ):
+        counts = tuple(
+            sum(
+                any(obj.get("label") == label for obj in item.get("objects", []))
+                for item in split
+            )
+            for split in (train, validation, test)
+        )
+        assert counts == expected
+
+
+def test_split_dataset_is_reproducible_and_keeps_background_in_train():
+    annotations = [
+        {"filename": f"cat-{index}.jpg", "objects": [{"label": "cat"}]}
+        for index in range(8)
+    ] + [{"filename": "background.jpg", "objects": []}]
+
+    first = split_dataset(annotations)
+    second = split_dataset(annotations)
+
+    assert first == second
+    assert any(item["filename"] == "background.jpg" for item in first[0])
 
 
 from abraia.training import ModelTrainer
@@ -259,19 +333,25 @@ def test_training_service_reports_stage_transitions_before_backend_work(
 ):
     trainer = mock_trainer_cls.return_value
     trainer.test.return_value = {"acc": 1.0}
+    trainer.save.return_value = {
+        "onnx": "project/yolov8n_v1.onnx",
+        "metadata": "project/yolov8n_v1.json",
+        "version": 1,
+    }
     dataset = type(
         "Dataset",
         (),
         {"task": "classification", "classes": ["cat"], "client": object()},
     )()
     events = []
+    is_cancelled = lambda: False
 
-    TrainingService().train_dataset(
+    result = TrainingService().train_dataset(
         "project",
         dataset,
         epochs=2,
         training_callback=events.append,
-        is_cancelled=lambda: False,
+        is_cancelled=is_cancelled,
     )
 
     assert [event["stage"] for event in events] == [
@@ -281,9 +361,14 @@ def test_training_service_reports_stage_transitions_before_backend_work(
         "Validating model",
         "Exporting model",
     ]
+    trainer.test.assert_called_once_with(
+        split="test",
+        is_cancelled=is_cancelled,
+    )
     mock_trainer_cls.assert_called_once_with(
         "project", "classification", ["cat"], client=dataset.client
     )
+    assert result["saved_model"]["onnx"] == "project/yolov8n_v1.onnx"
 
 
 def test_train_model_honors_cancellation_between_batches():
@@ -345,3 +430,31 @@ def test_train_model_epochs():
     for i, call in enumerate(callback_calls):
         assert call['epoch'] == i
         assert call['epochs'] == num_epochs
+
+
+def test_classification_dataset_includes_held_out_test_split(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from abraia.training.classify import Model
+
+    image_folder = SimpleNamespace(classes=["cat", "dog"])
+    model = object.__new__(Model)
+    model.transform = object()
+
+    with patch(
+        "abraia.training.classify.datasets.ImageFolder",
+        return_value=image_folder,
+    ) as image_folder_cls, patch(
+        "abraia.training.classify.torch.utils.data.DataLoader",
+        side_effect=lambda dataset, **_kwargs: dataset,
+    ):
+        dataloaders, classes = model.create_dataset(str(tmp_path), batch=4)
+
+    assert set(dataloaders) == {"train", "val", "test"}
+    assert classes == ["cat", "dog"]
+    assert [call.args[0] for call in image_folder_cls.call_args_list] == [
+        str(tmp_path / "train"),
+        str(tmp_path / "val"),
+        str(tmp_path / "test"),
+    ]

@@ -1,18 +1,51 @@
 import os
 import json
-import requests
-import time
-from requests.adapters import HTTPAdapter
 
 from io import BytesIO
 from fnmatch import fnmatch
 from datetime import datetime
 
 from . import config
-from .utils import API_URL, HEADERS, md5sum, get_type, temporal_src, save_data, load_image, save_image
+from .utils.remote import (
+    API_URL,
+    HEADERS,
+    create_session,
+    request_with_retries,
+    temporal_src,
+)
 
 
 _NO_DELEGATE = object()
+
+
+def md5sum(*args, **kwargs):
+    from .utils.filesystem import md5sum as _md5sum
+
+    return _md5sum(*args, **kwargs)
+
+
+def get_type(*args, **kwargs):
+    from .utils.filesystem import get_type as _get_type
+
+    return _get_type(*args, **kwargs)
+
+
+def save_data(*args, **kwargs):
+    from .utils.filesystem import save_data as _save_data
+
+    return _save_data(*args, **kwargs)
+
+
+def load_image(*args, **kwargs):
+    from .utils.image import load_image as _load_image
+
+    return _load_image(*args, **kwargs)
+
+
+def save_image(*args, **kwargs):
+    from .utils.image import save_image as _save_image
+
+    return _save_image(*args, **kwargs)
 
 
 def file_path(source, userid):
@@ -56,11 +89,7 @@ class Abraia:
         self.auth = config.load_auth(abraia_key)
         self.userid = abraia_id
         self.api_key = abraia_key
-        self.session = requests.Session()
-        self.session.headers.update(HEADERS)
-        adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)
-        self.session.mount('https://', adapter)
-        self.session.mount('http://', adapter)
+        self.session = create_session(HEADERS)
 
     def _delegate(self, method, *args, **kwargs):
         client = getattr(self, '_client', None)
@@ -71,20 +100,13 @@ class Abraia:
     def _request(self, method, url, **kwargs):
         """Perform a resilient API request, including retryable resets."""
         kwargs.setdefault('timeout', self.request_timeout)
-        data = kwargs.get('data')
-        position = data.tell() if hasattr(data, 'tell') else None
-        last_error = None
-        for attempt in range(self.request_retries):
-            if position is not None and hasattr(data, 'seek'):
-                data.seek(position)
-            try:
-                return self.session.request(method, url, **kwargs)
-            except (requests.ConnectionError, requests.Timeout) as error:
-                last_error = error
-                if attempt + 1 == self.request_retries:
-                    raise
-                time.sleep(0.5 * (2 ** attempt))
-        raise last_error
+        return request_with_retries(
+            self.session,
+            method,
+            url,
+            retries=self.request_retries,
+            **kwargs,
+        )
 
     def get_api(self, url, params):
         delegated = self._delegate('get_api', url, params)
@@ -175,6 +197,16 @@ class Abraia:
             raise APIError(resp.text, resp.status_code)
         save_data(dest, resp.content)
         return dest
+
+    def _download_cached(self, path):
+        """Download a remote file into the shared process cache."""
+        destination = self._cached_destination(path)
+        return self.download_file(path, destination, cache=True)
+
+    @staticmethod
+    def _cached_destination(path):
+        """Return the shared process-cache destination for a remote path."""
+        return temporal_src(str(path))
     
     def remove_file(self, path):
         delegated = self._delegate('remove_file', path)
@@ -264,8 +296,7 @@ class Abraia:
         delegated = self._delegate('load_image', path)
         if delegated is not _NO_DELEGATE:
             return delegated
-        dest = temporal_src(path)
-        self.download_file(path, dest, cache=True)
+        dest = self._download_cached(path)
         return load_image(dest)
 
     def load_image_details(self, path):

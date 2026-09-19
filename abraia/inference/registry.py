@@ -138,7 +138,7 @@ def create_model(config: Dict[str, Any], base_dir=None, accelerator=None):
             config.get("uri", "multiple/models/grounding_dino_tiny.onnx"),
             base_dir=base_dir,
         )
-        return GroundingDINOModel(uri, providers=providers, **params)
+        return GroundingDINOModel(uri, **session_options, **params)
 
     if kind in ONNX_MODEL_KINDS:
         from .models.detection import Model
@@ -209,6 +209,31 @@ def create_model(config: Dict[str, Any], base_dir=None, accelerator=None):
         params.setdefault("score_threshold", config.get("conf_threshold", 0.25))
         return HailoPipelineModel(uri, task=raw_task, **params)
 
+    supported_kinds = (
+        ONNX_MODEL_KINDS
+        | GROUNDING_DINO_MODEL_KINDS
+        | HAILO_MODEL_KINDS
+        | RESNET_MODEL_KINDS
+        | {
+            "face",
+            "face_detector",
+            "license_plate",
+            "license_plate_detector",
+            "plate",
+            "ocr",
+            "text",
+            "text_recognition",
+        }
+    )
+    if kind not in supported_kinds:
+        available = (
+            "onnx, object_detection, instance_segmentation, pose, "
+            "classification, resnet, grounding_dino, hailo, face, "
+            "license_plate, ocr"
+        )
+        raise ValueError(
+            f"Unknown detector kind '{kind}'. Available detectors: {available}"
+        )
     if task not in ("detection", "recognition"):
         raise ValueError(f"Unsupported pipeline model task: {task}")
 
@@ -248,8 +273,7 @@ def create_model(config: Dict[str, Any], base_dir=None, accelerator=None):
 
         return TextSystem(**params, **session_options)
 
-    available = "onnx, object_detection, instance_segmentation, pose, classification, resnet, grounding_dino, hailo, face, license_plate, ocr"
-    raise ValueError(f"Unknown detector kind '{kind}'. Available detectors: {available}")
+    raise AssertionError(f"Unhandled supported detector kind '{kind}'")
 
 
 __all__ = [

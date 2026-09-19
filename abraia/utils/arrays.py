@@ -34,6 +34,11 @@ def array_copy(value):
     return np.asarray(value).copy()
 
 
+def copy_mask(value):
+    """Return an owned boolean mask independent of the input buffer."""
+    return np.asarray(value).copy() > 0
+
+
 def array_squeeze(value):
     return np.squeeze(value)
 
@@ -76,6 +81,21 @@ def compose_mask_layers(layers, shape, alpha=96):
     return combined, encode_image(rgba, format="PNG")
 
 
+def combined_mask(layers, shape):
+    """Combine shape-compatible masks from colored mask layers."""
+    combined = np.zeros(tuple(shape), dtype=bool)
+    for mask, _color in layers or []:
+        mask = mask_array(mask)
+        if mask.shape == combined.shape:
+            np.logical_or(combined, mask, out=combined)
+    return combined
+
+
+def mask_matches_image(mask, image):
+    """Return whether a mask matches the first two image dimensions."""
+    return np.asarray(mask).shape == np.asarray(image).shape[:2]
+
+
 def resize_mask(mask, size):
     mask_image = Image.fromarray((np.asarray(mask) > 0).astype(np.uint8) * 255)
     resized = mask_image.resize(
@@ -93,9 +113,12 @@ __all__ = [
     "array_squeeze",
     "array_to_list",
     "as_array",
+    "combined_mask",
     "compose_mask_layers",
+    "copy_mask",
     "encode_mask_overlay",
     "mask_array",
+    "mask_matches_image",
     "merge_masks",
     "resize_mask",
     "zeros_array",

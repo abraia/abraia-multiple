@@ -24,17 +24,48 @@ tempdir = tempfile.gettempdir()
 _url_sessions = threading.local()
 
 
+def create_session(headers=None):
+    """Create a connection-pooled HTTP session for SDK requests."""
+    session = requests.Session()
+    session.headers.update(headers or HEADERS)
+    adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
 def _get_url_session():
     """Return a connection-pooled session local to the current thread."""
     session = getattr(_url_sessions, "session", None)
     if session is None:
-        session = requests.Session()
-        session.headers.update(HEADERS)
-        adapter = HTTPAdapter(pool_connections=8, pool_maxsize=16)
-        session.mount("https://", adapter)
-        session.mount("http://", adapter)
+        session = create_session()
         _url_sessions.session = session
     return session
+
+
+def request_with_retries(
+    session,
+    method,
+    url,
+    retries=3,
+    backoff=0.5,
+    **kwargs,
+):
+    """Perform a request with retry-safe handling for rewindable bodies."""
+    data = kwargs.get("data")
+    position = data.tell() if hasattr(data, "tell") else None
+    last_error = None
+    for attempt in range(retries):
+        if position is not None and hasattr(data, "seek"):
+            data.seek(position)
+        try:
+            return session.request(method, url, **kwargs)
+        except (requests.ConnectionError, requests.Timeout) as error:
+            last_error = error
+            if attempt + 1 == retries:
+                raise
+            time.sleep(backoff * (2 ** attempt))
+    raise last_error
 
 
 def is_url(url):
@@ -132,8 +163,15 @@ def load_url(url, timeout=(10, 120)):
     """
     for attempt in range(3):
         try:
-            response = _get_url_session().get(
-                url, stream=True, allow_redirects=True, timeout=timeout
+            response = request_with_retries(
+                _get_url_session(),
+                "GET",
+                url,
+                retries=3,
+                backoff=0.25,
+                stream=True,
+                allow_redirects=True,
+                timeout=timeout,
             )
             if response.status_code == 200:
                 return response.raw
@@ -165,12 +203,14 @@ def load_url_bytes(url, timeout=(10, 120)):
 __all__ = [
     "API_URL",
     "HEADERS",
+    "create_session",
     "download_file",
     "download_url",
     "get_remote_file_size",
     "is_url",
     "load_url",
     "load_url_bytes",
+    "request_with_retries",
     "temporal_src",
     "url_path",
 ]

@@ -1,10 +1,10 @@
 from ..tasks import normalize_model_size, normalize_task
-from .core import _resolve_client
+from .core import _resolve_client, save_versioned_model
+from .splitting import DEFAULT_EVALUATION_SPLIT
 
 import os
 import io
 import sys
-import shutil
 import contextlib
 import numpy as np
 
@@ -17,12 +17,6 @@ MODEL_SIZE_TYPES = {
     "medium": "yolov8m",
     "large": "yolov8l",
 }
-
-
-def sorted_folders(dir):
-    items = [os.path.join(dir, name) for name in os.listdir(dir)]
-    sorted_items = sorted(items, key=os.path.getctime)
-    return sorted_items
 
 
 def build_model_name(model_name, task):
@@ -51,6 +45,7 @@ class Model:
         self.imgsz = imgsz
         self.client = _resolve_client(client)
         self._training_callbacks = {}
+        self.model_version = None
 
     def _remove_training_callbacks(self):
         for event, callback in self._training_callbacks.items():
@@ -92,7 +87,7 @@ class Model:
         finally:
             self._remove_training_callbacks()
 
-    def test(self, split='val', is_cancelled=None):
+    def test(self, split=DEFAULT_EVALUATION_SPLIT, is_cancelled=None):
         out = io.StringIO()
         validation_callback = None
         if is_cancelled:
@@ -112,15 +107,33 @@ class Model:
         return self.metrics
 
     def save(self, project, classes, device='cpu', half=False):
-        # TODO: Add model name versioning
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            model_src = self.model.export(format="onnx", device=device, opset=11, half=half)
-            shutil.copy(model_src, f"{self.model_name}.onnx")
-        self.client.upload_file(f"{self.model_name}.onnx", f"{project}/{self.model_name}.onnx")
-        self.client.save_json(f"{project}/{self.model_name}.json",
-                         {'task': self.task, 'inputShape': [1, 3, self.imgsz, self.imgsz], 
-                          'classes': classes, 'metrics': self.metrics})
+        model_src = None
+        try:
+            with contextlib.redirect_stdout(out):
+                model_src = self.model.export(
+                    format="onnx", device=device, opset=11, half=half
+                )
+            result = save_versioned_model(
+                self.client,
+                project,
+                self.model_name,
+                model_src,
+                {
+                    'task': self.task,
+                    'inputShape': [1, 3, self.imgsz, self.imgsz],
+                    'classes': classes,
+                    'metrics': self.metrics,
+                },
+            )
+            self.model_version = result["version"]
+            return result
+        finally:
+            if model_src and os.path.isfile(model_src):
+                try:
+                    os.remove(model_src)
+                except OSError:
+                    pass
 
     def run(self, img):
         objects = []
@@ -138,7 +151,14 @@ class Model:
                 objects.append(object)
         return objects
     
-    def compile(self, project, classes, device='hailo8'):
-        self.client.download_file(f"{project}/{self.model_name}.onnx", f"{self.model_name}.onnx")
+    def compile(self, project, classes, device='hailo8', version=None):
+        version = self.model_version if version is None else version
+        model_name = (
+            self.model_name
+            if version is None
+            else f"{self.model_name}_v{version}"
+        )
+        local_model = f"{model_name}.onnx"
+        self.client.download_file(f"{project}/{local_model}", local_model)
         print("Compile model for edge deployment to hailo hef format...")
-        print(f"hailomz compile yolov8n --ckpt yolov8n.onnx --calib-path {project}/train/images --classes {len(classes)} --hw-arch {device} --performance")
+        print(f"hailomz compile yolov8n --ckpt {local_model} --calib-path {project}/train/images --classes {len(classes)} --hw-arch {device} --performance")

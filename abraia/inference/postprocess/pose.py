@@ -2,8 +2,7 @@
 
 import numpy as np
 
-from .boxes import non_maximum_suppression
-from .common import sigmoid
+from .common import non_maximum_suppression, sigmoid
 from .detection import _box_from_model_coordinates, _transform_for_output
 
 

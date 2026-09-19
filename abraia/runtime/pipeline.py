@@ -290,9 +290,21 @@ class Pipeline:
                     self.on_frame(context, elapsed_ms)
 
                 output = self.render(context) if self.render else context.frame
-                if self.display is not None:
-                    self.display.show(output)
                 last_context = context
+                if self.display is not None:
+                    display_result = self.display.show(output)
+                    # Display backends may report that their window was
+                    # closed either through the return value or a persistent
+                    # ``quit`` flag.  Propagate that request to the source
+                    # and asynchronous model immediately; otherwise a
+                    # preview key such as ``q`` is ignored until the input
+                    # stream ends.
+                    if (
+                        display_result is False
+                        or getattr(self.display, "quit", False)
+                    ):
+                        self.stop()
+                        break
 
             return last_context
         finally:

@@ -52,8 +52,12 @@ setup(
     include_package_data=True,
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0'],
-    scripts=['scripts/abraia', 'scripts/abraia.bat'],
     install_requires=install_requires,
     extras_require=extras_require,
-    entry_points={'console_scripts': ['abraia-studio=studio.app:main']},
+    entry_points={
+        'console_scripts': [
+            'abraia=abraia.cli:main',
+            'abraia-studio=studio.app:main',
+        ],
+    },
 )

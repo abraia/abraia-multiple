@@ -9,6 +9,11 @@ PIPELINE_TASKS = (
     "recognition",
 )
 TRAINING_TASKS = ("classification", "detection", "segmentation")
+DEFAULT_TRAINING_EPOCHS = {
+    "classification": 30,
+    "detection": 300,
+    "segmentation": 300,
+}
 MODEL_SIZES = ("small", "medium", "large")
 HAILO_TASKS = ("detection", "segmentation", "pose")
 
@@ -80,6 +85,7 @@ def to_ultralytics_task(value):
 __all__ = [
     "HAILO_BACKEND_TASKS",
     "HAILO_TASKS",
+    "DEFAULT_TRAINING_EPOCHS",
     "MODEL_SIZES",
     "PIPELINE_TASKS",
     "TASK_ALIASES",

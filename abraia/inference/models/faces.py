@@ -5,8 +5,7 @@ import numpy as np
 
 from ..session import OnnxSessionMixin, ResourceGroup
 from ...utils import download_file, load_json
-from ..postprocess.boxes import non_maximum_suppression
-from ..postprocess.common import softmax
+from ..postprocess.common import non_maximum_suppression, softmax
 from ..vectors import search_vectors
 
 

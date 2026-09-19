@@ -5,8 +5,7 @@ import math
 import cv2
 import numpy as np
 
-from .boxes import non_maximum_suppression
-from .common import sigmoid
+from .common import non_maximum_suppression, sigmoid
 from ...tasks import normalize_task
 
 

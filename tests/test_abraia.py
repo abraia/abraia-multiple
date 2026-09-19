@@ -1,11 +1,17 @@
 import os
 import numpy as np
+import pytest
 
 from io import BytesIO
 from abraia import Abraia
 from PIL import Image
 
 abraia = Abraia()
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("ABRAIA_RUN_LIVE_TESTS") != "1",
+    reason="Live Abraia API tests are disabled; set ABRAIA_RUN_LIVE_TESTS=1",
+)
 
 
 def test_list_files():
