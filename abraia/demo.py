@@ -38,7 +38,7 @@ PIPELINES = {
         'model': {
             'task': 'detection',
             'kind': 'yolov8',
-            'uri': 'multiple/tomato/yolov8n_v6.onnx',
+            'uri': 'multiple/tomato/yolov8n.onnx',
             'labels': ['tomato'],
         },
         'stages': [

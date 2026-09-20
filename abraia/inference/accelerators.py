@@ -19,11 +19,6 @@ GPU_PROVIDER_MARKERS = (
     "COREML",
 )
 
-REMOTE_HAILO_URI_OVERRIDES = {
-    "multiple/tomato/yolov8n_v6.onnx": "multiple/tomato/yolov8n.hef",
-}
-
-
 def normalize_accelerator(value):
     """Normalize a requested accelerator name without selecting hardware."""
     value = str(value or "auto").strip().lower()
@@ -132,10 +127,8 @@ def paired_hailo_uri(onnx_uri, task, architecture=None):
         if sibling.is_file():
             return str(sibling)
     normalized_value = value.replace("\\", "/")
-    if normalized_value in REMOTE_HAILO_URI_OVERRIDES:
-        return REMOTE_HAILO_URI_OVERRIDES[normalized_value]
-    if architecture and normalized_value.startswith("multiple/models/"):
-        return f"multiple/models/{stem}_{architecture}.hef"
+    if architecture and normalized_value.startswith("multiple/"):
+        return f"{path.parent.as_posix()}/{stem}_{architecture}.hef"
     return None
 
 

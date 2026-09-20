@@ -401,7 +401,10 @@ class FrameSource:
                     next_keep_timestamp = time.monotonic() + keep_period
                 yield frame
         finally:
-            self.close()
+            # Frame decoding may run on the Hailo producer thread. Release
+            # the capture here, but leave display/writer ownership to the
+            # pipeline thread, which created and presents the window.
+            self._close_capture()
 
     def __iter__(self):
         yield from self._generate_frames()
@@ -422,6 +425,10 @@ class FrameSource:
         return frame if ret else None
 
     def close(self):
+        self._close_capture()
+
+    def _close_capture(self):
+        """Release only the input capture used by the frame iterator."""
         capture, self.cap = self.cap, None
         if capture is not None:
             try:
