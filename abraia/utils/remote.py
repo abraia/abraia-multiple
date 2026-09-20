@@ -219,12 +219,28 @@ class ArtifactResolver:
         return replace(reference, source="missing")
 
     def remote_available(self, path) -> bool:
-        """Return whether a remote artifact responds successfully to HEAD."""
+        """Return whether a remote artifact responds to a lightweight probe."""
         remote_path = os.fspath(path).replace("\\", "/").lstrip("/")
+        url = url_path(remote_path)
         try:
             with _get_url_session().head(
-                url_path(remote_path),
+                url,
                 timeout=30,
+                allow_redirects=True,
+            ) as response:
+                if response.ok:
+                    return True
+        except (OSError, requests.RequestException):
+            pass
+
+        # Some file servers reject HEAD or omit useful headers.  Probe the
+        # actual download endpoint without buffering the artifact.
+        try:
+            with _get_url_session().get(
+                url,
+                headers={"Range": "bytes=0-0"},
+                stream=True,
+                timeout=(10, 30),
                 allow_redirects=True,
             ) as response:
                 return response.ok
