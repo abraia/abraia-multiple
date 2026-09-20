@@ -8,6 +8,7 @@ architecture-specific resource resolution.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from typing import Optional
 
@@ -55,7 +56,9 @@ def detect_hailo_arch() -> Optional[str]:
         )
         return None
 
-    output = result.stdout.upper()
+    # hailortcli versions format this as either ``HAILO8`` or ``HAILO-8``.
+    # Compare a compact representation so both forms select the same target.
+    output = re.sub(r"[^A-Z0-9]", "", result.stdout.upper())
     for marker, architecture in HAILO_ARCHS.items():
         if marker in output:
             return architecture

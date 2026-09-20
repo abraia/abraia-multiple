@@ -15,8 +15,8 @@ from .toolbox import (
     ModelInference,
 )
 from .models import (
-    COCO_LABELS,
-    labels_from_metadata,
+    labels_from_model_config,
+    load_hailo_model_config,
     load_hailo_metadata,
     resolve_model_type,
 )
@@ -37,7 +37,6 @@ class HailoPipelineModel:
         self,
         hef_path: str,
         task: str = "detection",
-        labels: Optional[list] = None,
         batch_size: int = 1,
         score_threshold: float = 0.25,
         mask_threshold: float = 0.45,
@@ -51,23 +50,17 @@ class HailoPipelineModel:
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
 
+        model_config = load_hailo_model_config(hef_path)
+        labels = labels_from_model_config(model_config)
         metadata = load_hailo_metadata(hef_path)
-        metadata_task = normalize_task(metadata.get("task"))
+        metadata_task = normalize_task(
+            model_config.get("task") or metadata.get("task")
+        )
         task = normalize_task(task)
         if task == "detection" and metadata_task in ("detection", "segmentation", "pose"):
             task = metadata_task
         self.task = task
         self.accelerator = "HAILO"
-        # Hailo model-zoo detection and segmentation models use COCO classes
-        # by default. Custom HEFs can still provide their own label list.
-        metadata_labels = labels_from_metadata(metadata)
-        labels = (
-            metadata_labels
-            if labels is None and metadata_labels
-            else COCO_LABELS
-            if labels is None
-            else list(labels)
-        )
         self.labels = labels
         if model_type is None:
             model_type = resolve_model_type(None, hef_path, task)

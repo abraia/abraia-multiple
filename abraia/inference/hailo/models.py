@@ -17,6 +17,7 @@ from ...utils.remote import (
 logger = logging.getLogger(__name__)
 
 HAILO_FILE_EXTENSION = ".hef"
+HAILO_TARGETS = ("hailo8l", "hailo8", "hailo10h", "hailo15h", "hailo15l")
 
 COCO_LABELS = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
@@ -121,6 +122,50 @@ def labels_from_metadata(metadata):
     return None
 
 
+def _model_json_candidates(hef_path):
+    """Return JSON sidecar candidates for a local or remote HEF path."""
+    path = Path(hef_path)
+    if path.is_dir():
+        return (path / "abraia.json", path / "model.json")
+
+    stems = [path.stem]
+    for target in HAILO_TARGETS:
+        suffix = f"_{target}"
+        if path.stem.endswith(suffix):
+            stems.append(path.stem[: -len(suffix)])
+            break
+    variants = []
+    for stem in stems:
+        for variant in (stem, stem.replace("_seg", "-seg")):
+            if variant not in variants:
+                variants.append(variant)
+    return tuple(path.with_name(f"{stem}.json") for stem in variants)
+
+
+def load_hailo_model_config(hef_path):
+    """Load the JSON sidecar used to configure the corresponding ONNX model."""
+    from ...utils import load_json, resolve_model_file
+
+    for candidate in _model_json_candidates(hef_path):
+        try:
+            config = load_json(resolve_model_file(candidate))
+        except Exception:
+            continue
+        if isinstance(config, dict):
+            return config
+    return {}
+
+
+def labels_from_model_config(config):
+    """Return the required class labels from ONNX-compatible model JSON."""
+    classes = config.get("classes") if isinstance(config, dict) else None
+    if not isinstance(classes, (list, tuple)) or not classes:
+        raise ValueError(
+            "Hailo model metadata must define a non-empty classes list"
+        )
+    return [str(label) for label in classes]
+
+
 def _download_artifact(path) -> Path:
     """Resolve a local or remote artifact through the shared resolver."""
     from ...utils import download_file
@@ -179,6 +224,8 @@ __all__ = [
     "HAILO_FILE_EXTENSION",
     "COCO_LABELS",
     "labels_from_metadata",
+    "labels_from_model_config",
+    "load_hailo_model_config",
     "load_hailo_metadata",
     "resolve_model_type",
     "model_type_from_onnx_uri",

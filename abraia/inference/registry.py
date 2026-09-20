@@ -127,7 +127,9 @@ def _create_hailo_model(spec, config, base_dir, session_options):
     if not uri:
         raise ValueError("A Hailo pipeline model requires a model 'uri'")
     params = spec.params_copy()
-    params.setdefault("labels", config.get("labels"))
+    # Class names are authoritative in the model JSON sidecar, matching the
+    # ONNX adapter. Ignore the former runtime labels override if present.
+    params.pop("labels", None)
     params.setdefault("score_threshold", config.get("conf_threshold", 0.25))
     return HailoPipelineModel(uri, task=spec.task, **params)
 

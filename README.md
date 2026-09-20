@@ -213,7 +213,6 @@ stages:
   "task": "detection",
   "kind": "yolov8",
   "uri": "multiple/models/yolov8n_hailo8.hef",
-  "labels": ["person", "car"],
   "conf_threshold": 0.25,
   "params": {"batch_size": 1}
 }
@@ -376,7 +375,6 @@ pipeline = Pipeline.from_dict({
         "kind": "yolov8",
         "uri": "multiple/models/yolov8n_hailo8.hef",
         "params": {
-            "labels": ["person", "car"],
             "batch_size": 1,
             "score_threshold": 0.3,
         },

@@ -272,17 +272,23 @@ def resolve_pipeline(demo='detect', accelerator='auto'):
 
     if accelerator == 'hailo':
         architecture = _hailo_device_arch()
-        resolved_hailo_config = (
-            _resolve_hailo_config(config, architecture)
-            if architecture
-            else None
-        )
-        if (
-            resolved_hailo_config
-            and _hailo_model_available(resolved_hailo_config, architecture)
-        ):
-            return resolved_hailo_config
-        accelerator = 'cpu'
+        if not architecture:
+            raise RuntimeError(
+                "Hailo accelerator requested, but no compatible Hailo device "
+                "was detected"
+            )
+        resolved_hailo_config = _resolve_hailo_config(config, architecture)
+        if resolved_hailo_config is None:
+            raise RuntimeError(
+                f"No Hailo model is configured for the '{demo}' demo on "
+                f"{architecture}"
+            )
+        if not _hailo_model_available(resolved_hailo_config, architecture):
+            raise RuntimeError(
+                f"The Hailo model for the '{demo}' demo is not available "
+                f"for {architecture}"
+            )
+        return resolved_hailo_config
 
     if (
         accelerator == 'auto'

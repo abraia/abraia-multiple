@@ -219,9 +219,17 @@ class ArtifactResolver:
         return replace(reference, source="missing")
 
     def remote_available(self, path) -> bool:
-        """Return whether a remote artifact responds with a file size."""
+        """Return whether a remote artifact responds successfully to HEAD."""
         remote_path = os.fspath(path).replace("\\", "/").lstrip("/")
-        return get_remote_file_size(url_path(remote_path)) is not None
+        try:
+            with _get_url_session().head(
+                url_path(remote_path),
+                timeout=30,
+                allow_redirects=True,
+            ) as response:
+                return response.ok
+        except (OSError, requests.RequestException):
+            return False
 
     def resolve(
         self,
