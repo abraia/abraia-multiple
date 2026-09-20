@@ -54,12 +54,23 @@ def file_path(source, userid):
 
 class APIError(Exception):
     def __init__(self, message, code=0):
-        super(APIError, self).__init__(message, code)
         self.code = code
-        try:
-            self.message = message.json()['message']
-        except:
-            self.message = ''
+        detail = None
+        if isinstance(message, str):
+            detail = message
+        elif isinstance(message, dict):
+            detail = message.get('message') or message.get('error')
+        else:
+            try:
+                payload = message.json()
+            except (AttributeError, TypeError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                detail = payload.get('message') or payload.get('error')
+            if not detail:
+                detail = getattr(message, 'text', None)
+        self.message = str(detail or message)
+        super(APIError, self).__init__(self.message)
 
 
 class Abraia:
@@ -239,7 +250,8 @@ class Abraia:
             raise APIError(resp.text, resp.status_code)
         return resp.json()
 
-    def transform_image(self, path, dest, params={'quality': 'auto'}):
+    def transform_image(self, path, dest, params=None):
+        params = {'quality': 'auto'} if params is None else dict(params)
         delegated = self._delegate('transform_image', path, dest, params=params)
         if delegated is not _NO_DELEGATE:
             return delegated

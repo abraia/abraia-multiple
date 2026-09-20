@@ -14,9 +14,23 @@ logger = logging.getLogger(__name__)
 
 MAX_ASYNC_INFER_JOBS = 20
 
+
+def format_order_name(order):
+    """Normalize HailoRT format-order values across SDK versions."""
+    return str(getattr(order, "name", order)).rsplit(".", 1)[-1].upper()
+
+
+def is_nms_format_order(order):
+    """Return whether a HailoRT output uses a host-readable NMS format."""
+    return format_order_name(order) in {
+        "HAILO_NMS",
+        "HAILO_NMS_BY_CLASS",
+        "HAILO_NMS_BY_SCORE",
+        "HAILO_NMS_WITH_BYTE_MASK",
+    }
+
 try:
     from hailo_platform import (HEF, VDevice, FormatType, HailoSchedulingAlgorithm)
-    from hailo_platform.pyhailort.pyhailort import FormatOrder
     HAILO_AVAILABLE = True
 except ImportError:
     HAILO_AVAILABLE = False
@@ -95,11 +109,26 @@ if HAILO_AVAILABLE:
 
             self.nms_postprocess_enabled = False
 
-            # If the model uses HAILO_NMS_WITH_BYTE_MASK format (e.g.,instance segmentation),
-            if self.infer_model.outputs[0].format.order == FormatOrder.HAILO_NMS_WITH_BYTE_MASK:
+            output_orders = [
+                format_order_name(output.format.order)
+                for output in self.infer_model.outputs
+            ]
+
+            # NMS outputs are transformed by HailoRT when the completed
+            # binding buffer is read. Keep their native output order instead
+            # of forcing every layer through the raw tensor path.
+            if any(
+                order in {"HAILO_NMS_WITH_BYTE_MASK", "HAILO_NMS_BY_SCORE"}
+                for order in output_orders
+            ):
                 # Use UINT8 and skip setting output formats
                 self.nms_postprocess_enabled = True
                 self.output_type = self._output_data_type2dict("UINT8")
+                return
+
+            if any(is_nms_format_order(order) for order in output_orders):
+                self.nms_postprocess_enabled = True
+                self.output_type = self._output_data_type2dict("FLOAT32")
                 return
 
             # Otherwise, set the format type based on the provided output_type argument
@@ -308,30 +337,70 @@ if HAILO_AVAILABLE:
             return {name: np.expand_dims(bindings.output(name).get_buffer(), axis=0) for name in bindings._output_names}
 
         def _process_nms_results(self, result, image):
-            infer_results = result if isinstance(result, list) else [result]
+            if isinstance(result, np.ndarray):
+                # Standard Hailo NMS buffers are either one [N, 5] array or
+                # one [N, 5] array per class.  HailoRT may return either form
+                # depending on the runtime version and output binding.
+                infer_results = (
+                    list(result)
+                    if result.ndim >= 3
+                    else [result]
+                )
+            else:
+                infer_results = (
+                    list(result)
+                    if isinstance(result, (list, tuple))
+                    else [result]
+                )
             img_height, img_width = image.shape[:2]
             model_height, model_width, _ = self.get_input_shape()
             detections = []
-            for det in infer_results:
-                if det.score < self.score_threshold:
-                    continue
-                box_on_input_image, box_on_padded_image = postprocess.convert_nms_box_from_normalized(
-                    [det.x_min, det.y_min, det.x_max, det.y_max],
-                    (model_height, model_width),
-                    (img_height, img_width),
-                )
-                xmin, ymin, xmax, ymax = box_on_input_image
-                if xmax <= xmin or ymax <= ymin:
-                    continue
-                detection = {'label': self._label(det.class_id),
-                    'score': float(det.score), 'box': [xmin, ymin, xmax - xmin, ymax - ymin], 'class_id': det.class_id}
-                if self.task == 'segment':
-                    mask = postprocess.resize_mask_to_unpadded_box(
-                        det.mask, box_on_input_image, box_on_padded_image
+            for class_id, det_group in enumerate(infer_results):
+                if hasattr(det_group, "score"):
+                    candidates = [det_group]
+                else:
+                    candidates = np.asarray(det_group)
+                    if candidates.ndim == 1:
+                        candidates = candidates.reshape(1, -1)
+                    if candidates.ndim != 2:
+                        continue
+
+                for det in candidates:
+                    if hasattr(det, "score"):
+                        score = float(det.score)
+                        class_value = int(det.class_id)
+                        box = [det.x_min, det.y_min, det.x_max, det.y_max]
+                        mask_value = getattr(det, "mask", None)
+                    else:
+                        if len(det) < 5:
+                            continue
+                        score = float(det[4])
+                        class_value = class_id
+                        box = [det[1], det[0], det[3], det[2]]
+                        mask_value = None
+                    if score < self.score_threshold:
+                        continue
+                    box_on_input_image, box_on_padded_image = postprocess.convert_nms_box_from_normalized(
+                        box,
+                        (model_height, model_width),
+                        (img_height, img_width),
                     )
-                    if mask is not None:
-                        detection['mask'] = mask
-                detections.append(detection)
+                    xmin, ymin, xmax, ymax = box_on_input_image
+                    if xmax <= xmin or ymax <= ymin:
+                        continue
+                    detection = {
+                        'label': self._label(class_value),
+                        'score': score,
+                        'box': [xmin, ymin, xmax - xmin, ymax - ymin],
+                        'class_id': class_value,
+                    }
+                    if self.task == 'segment' and mask_value is not None:
+                        mask = postprocess.resize_mask_to_unpadded_box(
+                            mask_value, box_on_input_image, box_on_padded_image
+                        )
+                        if mask is not None:
+                            detection['mask'] = mask
+                    detections.append(detection)
             return detections
 
         def _process_detect_results(self, result, image):

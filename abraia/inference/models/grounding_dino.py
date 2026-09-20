@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from ..session import OnnxSessionMixin
-from ...utils import download_file, get_providers, load_json
+from ...utils import get_providers, load_json, resolve_model_file
 
 
 DEFAULT_MODEL_URI = "multiple/models/grounding_dino_tiny.onnx"
@@ -48,8 +48,7 @@ def _grounding_dino_providers(providers):
 
 def _resolve_file(uri):
     """Resolve a local path or fetch an SDK-managed remote asset."""
-    uri = os.fspath(uri)
-    return uri if os.path.isfile(uri) else download_file(uri)
+    return resolve_model_file(uri)
 
 
 def _dtype_for_input(type_name):

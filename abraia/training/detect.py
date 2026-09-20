@@ -1,5 +1,4 @@
 from ..tasks import normalize_model_size, normalize_task
-from .core import _resolve_client, save_versioned_model
 from .splitting import DEFAULT_EVALUATION_SPLIT
 
 import os
@@ -7,10 +6,18 @@ import io
 import sys
 import contextlib
 import numpy as np
+from pathlib import Path
 
 os.environ['YOLO_VERBOSE'] = 'False'
 
 from ultralytics import YOLO
+
+from .core import (
+    HAILO_EXPORT_TARGETS,
+    _resolve_client,
+    save_hailo_bundle,
+    save_versioned_model,
+)
 
 MODEL_SIZE_TYPES = {
     "small": "yolov8n",
@@ -28,16 +35,20 @@ def build_model_name(model_name, task):
 
 class Model:
     def __init__(self, task, model_type=None, imgsz=640, client=None,
-                 model_size="small"):
+                 model_size="small", checkpoint=None):
         task = normalize_task(task)
         if task not in ("detection", "segmentation"):
             raise ValueError(
                 "Ultralytics detection models support detection or segmentation"
             )
         model_size = normalize_model_size(model_size)
+        if checkpoint and model_type is None:
+            model_type = Path(checkpoint).stem
+            if task == "segmentation" and model_type.endswith("-seg"):
+                model_type = model_type[:-4]
         model_type = model_type or MODEL_SIZE_TYPES[model_size]
         model_name = build_model_name(model_type, task)
-        self.model = YOLO(f"{model_name}.pt", verbose=False)
+        self.model = YOLO(checkpoint or f"{model_name}.pt", verbose=False)
         self.model_name = model_name
         self.metrics = {}
         self.task = task
@@ -151,14 +162,116 @@ class Model:
                 objects.append(object)
         return objects
     
-    def compile(self, project, classes, device='hailo8', version=None):
+    def compile(
+        self,
+        project,
+        classes,
+        device="hailo8",
+        version=None,
+        calibration_data=None,
+        fraction=None,
+        imgsz=None,
+        conf=None,
+        iou=None,
+    ):
+        """Export the trained YOLO model to a versioned Hailo bundle.
+
+        Ultralytics performs the ONNX conversion, INT8 calibration, Hailo
+        parsing, and HEF compilation in one export operation. This method
+        must be called on the trained model instance; it deliberately does
+        not download an ONNX file and construct a fresh base model.
+        """
+        target = str(device or "hailo8").strip().lower()
+        if target not in HAILO_EXPORT_TARGETS:
+            choices = ", ".join(HAILO_EXPORT_TARGETS)
+            raise ValueError(f"Unsupported Hailo target '{target}'. Use: {choices}")
+
+        if calibration_data is None:
+            default_data = os.path.join(project, "data.yaml")
+            calibration_data = default_data if os.path.isfile(default_data) else None
+        elif not os.path.exists(calibration_data):
+            raise FileNotFoundError(
+                f"Hailo calibration data does not exist: {calibration_data}"
+            )
+
+        compile_imgsz = self.imgsz if imgsz is None else imgsz
+        export_options = {
+            "format": "hailo",
+            "name": target,
+            "quantize": 8,
+            "imgsz": compile_imgsz,
+        }
+        if calibration_data is not None:
+            export_options["data"] = os.fspath(calibration_data)
+        if fraction is not None:
+            export_options["fraction"] = fraction
+        if conf is not None:
+            export_options["conf"] = conf
+        if iou is not None:
+            export_options["iou"] = iou
+
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                exported = self.model.export(**export_options)
+        except AssertionError as error:
+            message = str(error).lower()
+            if "linux x86_64" in message:
+                raise RuntimeError(
+                    "Hailo compilation requires a Linux x86_64 host with the "
+                    "matching Hailo Dataflow Compiler installed."
+                ) from error
+            if "format" in message or "hailo" in message:
+                raise RuntimeError(
+                    "Install ultralytics>=8.4.97 and the matching Hailo "
+                    "Dataflow Compiler to enable native Hailo export."
+                ) from error
+            raise
+        except ImportError as error:
+            if "hailo" in str(error).lower():
+                raise RuntimeError(
+                    "Install the matching Hailo Dataflow Compiler wheel to "
+                    "enable native Hailo export."
+                ) from error
+            raise
+        except ValueError as error:
+            if "hailo" in str(error).lower() and "format" in str(error).lower():
+                raise RuntimeError(
+                    "Install ultralytics>=8.4.97 and the matching Hailo "
+                    "Dataflow Compiler to enable native Hailo export."
+                ) from error
+            raise
+
+        if isinstance(exported, (tuple, list)):
+            exported = exported[0]
+        bundle_path = Path(exported)
+        if bundle_path.is_file():
+            bundle_path = bundle_path.parent
+
         version = self.model_version if version is None else version
-        model_name = (
-            self.model_name
-            if version is None
-            else f"{self.model_name}_v{version}"
+        if isinstance(compile_imgsz, (list, tuple)):
+            input_shape = [1, 3, *compile_imgsz]
+        else:
+            input_shape = [1, 3, compile_imgsz, compile_imgsz]
+        manifest = {
+            "format": "hailo",
+            "target": target,
+            "task": self.task,
+            "inputShape": input_shape,
+            "classes": classes,
+            "metrics": self.metrics,
+            "calibrationData": os.fspath(calibration_data) if calibration_data else None,
+            "fraction": fraction,
+            "quantize": 8,
+        }
+        result = save_hailo_bundle(
+            self.client,
+            project,
+            self.model_name,
+            bundle_path,
+            target,
+            version=version,
+            metadata=manifest,
         )
-        local_model = f"{model_name}.onnx"
-        self.client.download_file(f"{project}/{local_model}", local_model)
-        print("Compile model for edge deployment to hailo hef format...")
-        print(f"hailomz compile yolov8n --ckpt {local_model} --calib-path {project}/train/images --classes {len(classes)} --hw-arch {device} --performance")
+        result["localBundle"] = str(bundle_path)
+        self.hailo_model = result
+        return result

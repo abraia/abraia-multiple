@@ -16,7 +16,10 @@ extras_require = {
     'multiple': ['spectral>=0.23.1', 'scipy>=1.14.1', 'tifffile>=2024.8.30'],
     'analysis': ['scikit-learn>=1.3.0', 'joblib>=1.3.0'],
     'gis': ['folium>=0.14.0', 'shapely>=2.0.0'],
-    'dev': ['tifffile>=2024.8.30', 'ultralytics==8.3.230', 'onnx>=1.16.0', 'transformers>=4.57.1'],
+    'dev': ['tifffile>=2024.8.30', 'ultralytics>=8.4.97,<9', 'onnx>=1.16.0', 'transformers>=4.57.1'],
+    # The Hailo Dataflow Compiler is distributed separately by Hailo and
+    # cannot be declared as a normal PyPI dependency.
+    'hailo': ['ultralytics>=8.4.97,<9', 'PyYAML>=6.0'],
     'grounding-dino': ['transformers>=4.57.1'],
     'studio': [
         'PySide6>=6.5',
@@ -40,13 +43,7 @@ setup(
     zip_safe=False,
     packages=find_packages(exclude=['tests', 'tests.*', 'miscode', 'miscode.*']),
     package_data={
-        '': ['*.jpg', '*.gz'],
-        'multiple': [
-            'models/*.onnx',
-            'models/*.json',
-            'models/*.txt',
-            'models/clip/*.gz',
-        ],
+        '': ['*.jpg'],
         'studio': ['assets/mdi/*.svg', 'assets/mdi/README.md'],
     },
     include_package_data=True,

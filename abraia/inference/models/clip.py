@@ -1,8 +1,5 @@
-import os
-import logging
 import gzip
 import html
-from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Union
 
 import ftfy
@@ -11,11 +8,14 @@ import regex as re
 
 from PIL import Image
 
-from ...utils import download_url, download_file
+from ...utils import download_file
 from ..session import (
     OnnxSessionBundle,
     ResourceGroup,
 )
+
+
+DEFAULT_BPE_URI = "multiple/models/clip/bpe_simple_vocab_16e6.txt.gz"
 
 
 class Clip:
@@ -51,8 +51,6 @@ class Clip:
         try:
             image_model_path = download_file('multiple/models/clip/clip_image_model_vitb32.onnx')
             text_model_path = download_file('multiple/models/clip/clip_text_model_vitb32.onnx')
-            image_model_path = Clip._resolve_model_path(image_model_path)
-            text_model_path = Clip._resolve_model_path(text_model_path)
             self._session_bundle = OnnxSessionBundle(
                 [image_model_path, text_model_path],
                 providers=providers,
@@ -73,15 +71,6 @@ class Clip:
             self.image_model = None
             self.text_model = None
             raise
-
-    @staticmethod
-    def _resolve_model_path(path: str):
-        if not os.path.exists(path):
-            s3_url = f"https://lakera-clip.s3.eu-west-1.amazonaws.com/{os.path.basename(path)}"
-            logging.info(f"The model file ({path}) doesn't exist or it is invalid. "
-                f"Downloading it from the public S3 bucket: {s3_url}.")
-            download_url(s3_url, path)
-        return path
 
     def get_image_embeddings(self, images: Iterable[Union[Image.Image, np.ndarray]]) -> np.ndarray:
         """Compute the embeddings for a list of images.
@@ -208,14 +197,8 @@ class Preprocessor:
 
 
 def default_bpe():
-    """Return the path to the CLIP vocabulary distributed with Multiple."""
-    return str(
-        Path(__file__).resolve().parents[3]
-        / "multiple"
-        / "models"
-        / "clip"
-        / "bpe_simple_vocab_16e6.txt.gz"
-    )
+    """Return the global Multiple URI for the CLIP vocabulary."""
+    return DEFAULT_BPE_URI
 
 
 def bytes_to_unicode() -> Dict[int, str]:
@@ -258,7 +241,9 @@ def whitespace_clean(text) -> str:
 class Tokenizer:
     """Byte-pair tokenizer compatible with the original CLIP model."""
 
-    def __init__(self, bpe_path: str = default_bpe()):
+    def __init__(self, bpe_path: Optional[str] = None):
+        if bpe_path is None:
+            bpe_path = download_file(default_bpe())
         self.byte_encoder = bytes_to_unicode()
         self.byte_decoder = {value: key for key, value in self.byte_encoder.items()}
         with gzip.open(bpe_path) as bpe_file:

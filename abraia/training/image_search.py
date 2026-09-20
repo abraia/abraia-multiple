@@ -100,7 +100,8 @@ def search_bing(query, limit=50):
             yield link
 
 
-def scan_google_page(html, extensions={".jpg", ".jpeg", ".webp"}, timer=5000):
+def scan_google_page(html, extensions=None, timer=5000):
+    extensions = extensions or {".jpg", ".jpeg", ".webp"}
     """Yield supported image URLs embedded in a Google response."""
     scanner_counter = -1
     scanner = html.find

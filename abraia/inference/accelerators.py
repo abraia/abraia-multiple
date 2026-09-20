@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from ..utils import get_providers
+from ..utils.remote import ARTIFACT_RESOLVER, is_managed_model_path
 
 
 CPU_PROVIDER = "CPUExecutionProvider"
@@ -17,6 +18,10 @@ GPU_PROVIDER_MARKERS = (
     "MIGRAPHX",
     "COREML",
 )
+
+REMOTE_HAILO_URI_OVERRIDES = {
+    "multiple/tomato/yolov8n_v6.onnx": "multiple/tomato/yolov8n.hef",
+}
 
 
 def normalize_accelerator(value):
@@ -82,34 +87,31 @@ def hailo_device_arch():
 
 
 def hailo_model_available(config, architecture):
-    """Return whether a Hailo model is local or supported by the catalog."""
+    """Return whether an explicit Hailo model artifact is available."""
     model = config.get("model", {})
     uri = model.get("uri")
     if not uri:
         return False
 
     path = os.fspath(uri)
-    if os.path.isfile(path):
+    if (os.path.isfile(path) or os.path.isdir(path)) and not is_managed_model_path(path):
         return True
-    if os.path.dirname(path) or path.lower().endswith(".hef"):
+    if path.lower().startswith(("http://", "https://")):
         return False
+    if os.path.dirname(path):
+        return ARTIFACT_RESOLVER.probe(path).available
 
-    from .hailo.models import get_model_url
-
-    task = {
-        "detection": "detect",
-        "segmentation": "segment",
-        "pose": "pose",
-    }.get(str(model.get("task", "")).strip().lower())
-    return bool(task and architecture and get_model_url(task, path, architecture)[0])
+    if not architecture or not path.lower().endswith(".hef"):
+        return False
+    return ARTIFACT_RESOLVER.probe(path).available
 
 
-def paired_hailo_uri(onnx_uri, task):
-    """Return the Hailo model name paired with an ONNX model URI.
+def paired_hailo_uri(onnx_uri, task, architecture=None):
+    """Return the Hailo URI paired with an ONNX model URI.
 
-    Catalog Hailo models are addressed by their name and resolved to a HEF at
-    runtime.  When a sibling HEF exists beside a local ONNX model, preserve
-    that explicit local path instead.
+    Abraia-managed Hailo models are addressed by their remote path and
+    resolved to a cached HEF at runtime. When a sibling HEF exists beside a
+    local ONNX model, preserve that explicit local path instead.
     """
     if not onnx_uri:
         return None
@@ -122,10 +124,19 @@ def paired_hailo_uri(onnx_uri, task):
     if str(task).strip().lower() == "segmentation":
         stem = stem.replace("-seg", "_seg")
 
-    sibling = path.with_name(f"{stem}.hef")
-    if sibling.is_file():
-        return str(sibling)
-    return stem
+    siblings = []
+    if architecture:
+        siblings.append(path.with_name(f"{stem}_{architecture}.hef"))
+    siblings.append(path.with_name(f"{stem}.hef"))
+    for sibling in siblings:
+        if sibling.is_file():
+            return str(sibling)
+    normalized_value = value.replace("\\", "/")
+    if normalized_value in REMOTE_HAILO_URI_OVERRIDES:
+        return REMOTE_HAILO_URI_OVERRIDES[normalized_value]
+    if architecture and normalized_value.startswith("multiple/models/"):
+        return f"multiple/models/{stem}_{architecture}.hef"
+    return None
 
 
 def available_accelerators():

@@ -18,11 +18,26 @@ from abraia.inference.accelerators import (
 )
 
 
+DEFAULT_PIPELINE = {
+    'version': 1,
+    'source': {'type': 'camera', 'src': 0},
+    'model': {
+        'task': 'detection',
+        'kind': 'yolov8',
+        'uri': 'multiple/models/yolov8n.onnx',
+    },
+    'stages': [{'type': 'tracker'}],
+    'display': {'show': True},
+}
+
+
 PIPELINES = {
     'tomato': {
         'version': 1,
         'source': {'type': 'video', 'src': '10179855-hd_1280_720_30fps.mp4'},
         'model': {
+            'task': 'detection',
+            'kind': 'yolov8',
             'uri': 'multiple/tomato/yolov8n_v6.onnx',
             'labels': ['tomato'],
         },
@@ -36,6 +51,8 @@ PIPELINES = {
         'version': 1,
         'source': {'type': 'video', 'src': '5479199-hd_1280_720_25fps.mp4'},
         'model': {
+            'task': 'segmentation',
+            'kind': 'yolov8',
             'uri': 'multiple/models/yolov8n-seg.onnx',
             'labels': ['apple'],
         },
@@ -49,6 +66,8 @@ PIPELINES = {
         'version': 1,
         'source': {'type': 'video', 'src': '9710983-hd_1920_1080_30fps.mp4'},
         'model': {
+            'task': 'detection',
+            'kind': 'yolov8',
             'uri': 'multiple/strawberry/yolov8n.onnx',
             'labels': ['strawberry'],
         },
@@ -59,6 +78,8 @@ PIPELINES = {
         'version': 1,
         'source': {'type': 'video', 'src': '5658544-hd_1366_720_24fps.mp4'},
         'model': {
+            'task': 'detection',
+            'kind': 'yolov8',
             'uri': 'multiple/grapes/yolov8n.onnx',
             'labels': ['grapes'],
         },
@@ -68,7 +89,12 @@ PIPELINES = {
     'people': {
         'version': 1,
         'source': {'type': 'video', 'src': '853889-hd_1920_1080_25fps.mp4'},
-        'model': {'uri': 'multiple/models/yolov8n.onnx', 'labels': ['person']},
+        'model': {
+            'task': 'detection',
+            'kind': 'yolov8',
+            'uri': 'multiple/models/yolov8n.onnx',
+            'labels': ['person'],
+        },
         'stages': [
             {
                 'type': 'region_filter',
@@ -82,7 +108,12 @@ PIPELINES = {
     'queue': {
         'version': 1,
         'source': {'type': 'video', 'src': '4775505-hd_1920_1080_30fps.mp4'},
-        'model': {'uri': 'multiple/models/yolov8n.onnx', 'labels': ['person']},
+        'model': {
+            'task': 'detection',
+            'kind': 'yolov8',
+            'uri': 'multiple/models/yolov8n.onnx',
+            'labels': ['person'],
+        },
         'stages': [
             {'type': 'tracker'},
             {
@@ -95,7 +126,12 @@ PIPELINES = {
     'escalator': {
         'version': 1,
         'source': {'type': 'video', 'src': '14393755-hd_1920_1080_30fps.mp4'},
-        'model': {'uri': 'multiple/models/yolov8n.onnx', 'labels': ['person']},
+        'model': {
+            'task': 'detection',
+            'kind': 'yolov8',
+            'uri': 'multiple/models/yolov8n.onnx',
+            'labels': ['person'],
+        },
         'stages': [
             {
                 'type': 'region_filter',
@@ -125,157 +161,43 @@ PIPELINES = {
         'stages': [],
         'display': {'show': True},
     },
-}
-
-
-DEFAULT_PIPELINE = {
-    'version': 1,
-    'source': {'type': 'video', 'src': 0},
-    'model': {'uri': 'multiple/models/yolov8n.onnx'},
-    'stages': [{'type': 'tracker'}],
-    'display': {'show': True},
-}
-
-
-PIPELINE_ACCELERATOR_VARIANTS = {
     'detect': {
-        'onnx': DEFAULT_PIPELINE,
-        'hailo': {
-            'version': 1,
-            'source': {
-                'type': 'camera',
-                'src': 0,
-                'resolution': [1280, 720],
-                'fps': 30,
-            },
-            'model': {
-                'task': 'detection',
-                'kind': 'hailo',
-                'uri': 'yolov8n',
-                'params': {},
-            },
-            'stages': [{'type': 'tracker'}],
-            'display': {'show': True},
-        },
-    },
-    'tomato': {
-        'hailo': {
-            'version': 1,
-            'source': {
-                'type': 'video',
-                'src': '10179855-hd_1280_720_30fps.mp4',
-            },
-            'model': {
-                'task': 'detection',
-                'kind': 'hailo',
-                'uri': 'multiple/tomato/yolov8n.hef',
-                'labels': ['tomato'],
-                'params': {},
-            },
-            'stages': [
-                {'type': 'tracker'},
-                {'type': 'line_counter', 'line': [[960, 0], [960, 720]]},
-            ],
-            'display': {'show': True},
-        },
-    },
-    # This is a generic COCO segmentation HEF, not an apple-specific model.
-    'apple': {
-        'hailo': {
-            'version': 1,
-            'source': {
-                'type': 'video',
-                'src': '5479199-hd_1280_720_25fps.mp4',
-            },
-            'model': {
-                'task': 'segmentation',
-                'kind': 'hailo',
-                'uri': 'yolov5m_seg_with_nms',
-                'params': {'model_type': 'v5'},
-            },
-            'stages': [{'type': 'tracker'}],
-            'display': {'show': True},
-        },
+        **deepcopy(DEFAULT_PIPELINE),
     },
     'segment': {
-        'onnx': {
-            'version': 1,
-            'source': {
-                'type': 'video',
-                'src': '853889-hd_1920_1080_25fps.mp4',
-            },
-            'model': {
-                'kind': 'instance_segmentation',
-                'uri': 'multiple/models/yolov8n-seg.onnx',
-            },
-            'stages': [{'type': 'tracker'}],
-            'display': {'show': True},
+        'version': 1,
+        'source': {
+            'type': 'video',
+            'src': '853889-hd_1920_1080_25fps.mp4',
         },
-        'hailo': {
-            'version': 1,
-            'source': {
-                'type': 'video',
-                'src': '853889-hd_1920_1080_25fps.mp4',
-            },
-            'model': {
-                'task': 'segmentation',
-                'kind': 'hailo',
-                'uri': 'yolov8n_seg',
-                'params': {'model_type': 'v8'},
-            },
-            'stages': [{'type': 'tracker'}],
-            'display': {'show': True},
+        'model': {
+            'task': 'segmentation',
+            'kind': 'yolov8',
+            'uri': 'multiple/models/yolov8n-seg.onnx',
         },
+        'stages': [{'type': 'tracker'}],
+        'display': {'show': True},
     },
     'pose': {
-        'onnx': {
-            'version': 1,
-            'source': {
-                'type': 'camera',
-                'src': 0,
-                'resolution': [1280, 720],
-                'fps': 30,
-            },
-            'model': {
-                'task': 'pose',
-                'kind': 'pose',
-                'uri': 'multiple/models/yolov8n_pose.onnx',
-            },
-            'stages': [{'type': 'tracker'}],
-            'display': {'show': True},
+        'version': 1,
+        'source': {
+            'type': 'camera',
+            'src': 0,
+            'resolution': [1280, 720],
+            'fps': 30,
         },
-        'hailo': {
-            'version': 1,
-            'source': {
-                'type': 'camera',
-                'src': 0,
-                'resolution': [1280, 720],
-                'fps': 30,
-            },
-            'model': {
-                'task': 'pose',
-                'kind': 'hailo',
-                'uri': 'yolov8m_pose',
-                'params': {},
-            },
-            'stages': [{'type': 'tracker'}],
-            'display': {'show': True},
+        'model': {
+            'task': 'pose',
+            'kind': 'yolov8',
+            'uri': 'multiple/models/yolov8m_pose.onnx',
         },
+        'stages': [{'type': 'tracker'}],
+        'display': {'show': True},
     },
 }
 
 
-def build_pipeline_devices():
-    """Index pipeline definitions by logical demo and accelerator."""
-    devices = {}
-    for name, config in PIPELINES.items():
-        devices.setdefault(name, {})['onnx'] = config
-    for name, variants in PIPELINE_ACCELERATOR_VARIANTS.items():
-        devices.setdefault(name, {}).update(variants)
-    return devices
-
-
-PIPELINE_DEVICES = build_pipeline_devices()
+PIPELINE_DEVICES = PIPELINES
 
 
 # The current Hailo apple entry uses a generic COCO segmentation HEF. Keep it
@@ -283,6 +205,38 @@ PIPELINE_DEVICES = build_pipeline_devices()
 # automatically as an apple-equivalent model.
 HAILO_AUTO_EXCLUSIONS = frozenset({'apple'})
 VIDEO_URL = 'https://api.abraia.me/files/multiple/videos/{}'
+
+
+def _resolve_hailo_config(config, architecture):
+    """Pair a canonical demo ONNX URI with an architecture-specific HEF."""
+    selected = deepcopy(config)
+    model = selected.get('model', {})
+    from abraia.inference.accelerators import paired_hailo_uri
+    from abraia.inference.hailo.models import model_type_from_onnx_uri
+    from abraia.tasks import normalize_task
+
+    onnx_uri = model.get('uri')
+    kind = str(model.get('kind', '')).strip().lower()
+    task = normalize_task(model.get('task'))
+    if kind not in ('yolov5', 'yolov8', 'yolo11') or not task:
+        return None
+    hef_uri = paired_hailo_uri(
+        onnx_uri,
+        task,
+        architecture,
+    )
+    if not hef_uri:
+        return None
+    model['task'] = task
+    model['kind'] = kind
+    model['uri'] = hef_uri
+    params = model.setdefault('params', {})
+    if not isinstance(params, dict):
+        return None
+    model_type = model_type_from_onnx_uri(onnx_uri)
+    if model_type:
+        params.setdefault('model_type', model_type)
+    return selected
 
 
 def _prepare_source(config, src=None, resolution=None):
@@ -310,42 +264,43 @@ def resolve_pipeline(demo='detect', accelerator='auto'):
     """
     accelerator = normalize_accelerator(accelerator)
 
-    variants = PIPELINE_DEVICES.get(demo)
-    if variants is None:
+    config = PIPELINE_DEVICES.get(demo)
+    if config is None:
         if accelerator == 'hailo':
             raise KeyError(f"Unknown Hailo pipeline demo: {demo}")
         return deepcopy(DEFAULT_PIPELINE)
 
-    hailo_config = variants.get('hailo')
     if accelerator == 'hailo':
-        architecture = _hailo_device_arch() if hailo_config else None
+        architecture = _hailo_device_arch()
+        resolved_hailo_config = (
+            _resolve_hailo_config(config, architecture)
+            if architecture
+            else None
+        )
         if (
-            architecture
-            and _hailo_model_available(hailo_config, architecture)
+            resolved_hailo_config
+            and _hailo_model_available(resolved_hailo_config, architecture)
         ):
-            return deepcopy(hailo_config)
+            return resolved_hailo_config
         accelerator = 'cpu'
 
     if (
         accelerator == 'auto'
-        and hailo_config is not None
         and demo not in HAILO_AUTO_EXCLUSIONS
     ):
         architecture = _hailo_device_arch()
-        if architecture and _hailo_model_available(hailo_config, architecture):
-            return deepcopy(hailo_config)
-
-    if 'onnx' in variants:
-        return deepcopy(variants['onnx'])
-    if demo == 'detect':
-        # ``monitor_objects`` historically used its generic ONNX default when
-        # called with its default demo name and no Hailo device was present.
-        return deepcopy(DEFAULT_PIPELINE)
-    if hailo_config is not None:
-        raise RuntimeError(
-            f"Demo '{demo}' requires Hailo, but the accelerator is unavailable"
+        resolved_hailo_config = (
+            _resolve_hailo_config(config, architecture)
+            if architecture
+            else None
         )
-    raise RuntimeError(f"Demo '{demo}' has no usable pipeline")
+        if (
+            resolved_hailo_config
+            and _hailo_model_available(resolved_hailo_config, architecture)
+        ):
+            return resolved_hailo_config
+
+    return deepcopy(config)
 
 
 def monitor_objects(
@@ -370,7 +325,7 @@ def monitor_objects(
     requested_accelerator = normalize_accelerator(accelerator)
     if (
         requested_accelerator != 'auto'
-        and selected.get('model', {}).get('kind') != 'hailo'
+        and not str(selected.get('model', {}).get('uri', '')).lower().endswith('.hef')
     ):
         pipeline_options['accelerator'] = requested_accelerator
     pipeline = Pipeline.from_dict(selected, **pipeline_options)

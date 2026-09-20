@@ -326,6 +326,69 @@ def test_model_trainer_passes_medium_size_to_classification_training(mock_classi
     )
 
 
+def test_ultralytics_model_compiles_native_hailo_bundle(tmp_path):
+    from abraia.training.detect import Model
+
+    calibration_data = tmp_path / "data.yaml"
+    calibration_data.write_text("train: images\n")
+    bundle = tmp_path / "yolov8n_hailo_model"
+    bundle.mkdir()
+    (bundle / "yolov8n.hef").write_bytes(b"hef")
+    (bundle / "metadata.yaml").write_text("task: detect\n")
+
+    class FakeUltralyticsModel:
+        def __init__(self):
+            self.options = None
+
+        def export(self, **options):
+            self.options = options
+            return str(bundle)
+
+    class FakeClient:
+        def __init__(self):
+            self.uploads = []
+            self.manifests = []
+
+        def upload_file(self, source, path):
+            self.uploads.append((source, path))
+
+        def save_json(self, path, value):
+            self.manifests.append((path, value))
+
+    model = object.__new__(Model)
+    model.model = FakeUltralyticsModel()
+    model.model_name = "yolov8n"
+    model.task = "detection"
+    model.imgsz = 640
+    model.client = FakeClient()
+    model.metrics = {"mAP": 0.8}
+    model.model_version = 2
+
+    result = model.compile(
+        "project",
+        ["cat"],
+        device="hailo8l",
+        calibration_data=calibration_data,
+        fraction=0.5,
+        conf=0.3,
+        iou=0.6,
+    )
+
+    assert model.model.options == {
+        "format": "hailo",
+        "name": "hailo8l",
+        "quantize": 8,
+        "imgsz": 640,
+        "data": str(calibration_data),
+        "fraction": 0.5,
+        "conf": 0.3,
+        "iou": 0.6,
+    }
+    assert result["hef"] == "project/yolov8n_v2_hailo8l.hef"
+    assert result["target"] == "hailo8l"
+    assert model.hailo_model == result
+
+
 @patch('abraia.training.prepare_dataset')
 @patch('abraia.training.ModelTrainer')
 def test_training_service_reports_stage_transitions_before_backend_work(

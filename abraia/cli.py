@@ -325,9 +325,42 @@ def train(project, epochs):
 
 @cli.command("compile")
 @click.argument("project")
-@click.option("--device", help="Compilation device (e.g. hailo8)", default="hailo8")
-def compile_model_command(project, device):
-    """Compile a model for edge deployment."""
+@click.option(
+    "--device",
+    type=click.Choice(["hailo8", "hailo8l", "hailo10h", "hailo15h", "hailo15l"]),
+    help="Hailo target architecture.",
+    default="hailo8",
+    show_default=True,
+)
+@click.option(
+    "--checkpoint",
+    type=click.Path(exists=True, dir_okay=False),
+    required=True,
+    help="The trained Ultralytics .pt checkpoint to compile.",
+)
+@click.option(
+    "--calibration-data",
+    type=click.Path(exists=True),
+    default=None,
+    help="Representative dataset YAML or directory for INT8 calibration.",
+)
+@click.option("--fraction", type=float, default=None, help="Calibration data fraction.")
+@click.option("--imgsz", type=int, default=None, help="Fixed Hailo input size.")
+@click.option("--conf", type=float, default=None, help="Hailo NMS confidence threshold.")
+@click.option("--iou", type=float, default=None, help="Hailo NMS IoU threshold.")
+@click.option("--version", type=int, default=None, help="Existing Abraia model version.")
+def compile_model_command(
+    project,
+    device,
+    checkpoint,
+    calibration_data,
+    fraction,
+    imgsz,
+    conf,
+    iou,
+    version,
+):
+    """Compile a trained Ultralytics model to a Hailo HEF bundle."""
     from .training import ModelTrainer, load_dataset, prepare_dataset
 
     def operation():
@@ -335,7 +368,21 @@ def compile_model_command(project, device):
         dataset = load_dataset(project)
         prepare_dataset(dataset)
         click.echo("Compiling model...")
-        ModelTrainer(project, dataset.task, dataset.classes).compile(device=device)
+        result = ModelTrainer(
+            project,
+            dataset.task,
+            dataset.classes,
+            checkpoint=checkpoint,
+        ).compile(
+            device=device,
+            version=version,
+            calibration_data=calibration_data,
+            fraction=fraction,
+            imgsz=imgsz,
+            conf=conf,
+            iou=iou,
+        )
+        click.echo(json.dumps(result, indent=2))
 
     _run_remote(operation)
 

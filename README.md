@@ -43,6 +43,26 @@ For training and development run the installation with optional extras (`dev`, `
 pip install -U abraia[dev,multiple]
 ```
 
+To export Ultralytics detection or segmentation models to Hailo HEF, install
+the Hailo extra and the matching Hailo Dataflow Compiler wheel separately:
+
+```sh
+pip install -U abraia[hailo]
+pip install /path/to/hailo_dataflow_compiler-*.whl
+```
+
+Hailo compilation runs on Linux x86_64. After preparing a dataset, compile a
+trained checkpoint with:
+
+```sh
+abraia compile PROJECT --checkpoint path/to/best.pt --device hailo8l \
+  --calibration-data PROJECT/data.yaml
+```
+
+The command uploads the HEF and the complete Ultralytics Hailo sidecar bundle
+to the project. Hailo-8/8L and Hailo-10H/15 use different compiler generations;
+select the target matching the deployment accelerator.
+
 For Vision Studio with ENVI support, install the Studio extra:
 
 ```sh
@@ -104,7 +124,7 @@ Hailo model, or one of the built-in face and license-plate detectors:
   "source": {"type": "video", "src": "people.mp4"},
   "model": {
     "task": "detection",
-    "kind": "onnx",
+    "kind": "yolov8",
     "uri": "multiple/models/yolov8n.onnx",
     "labels": ["person"]
   },
@@ -116,6 +136,12 @@ Hailo model, or one of the built-in face and license-plate detectors:
 }
 ```
 
+For model-backed entries, `kind` identifies the model architecture or family
+(`yolov8`, `yolov5`, `yolo11`, and so on), while `task` identifies the
+operation (`detection`, `segmentation`, or `pose`). The runtime selects ONNX
+or Hailo from the model URI (`.onnx` or `.hef`), so the same architecture and
+task schema works for both backends.
+
 Built-in detectors do not require a model URI. For example:
 
 ```json
@@ -126,7 +152,7 @@ Built-in detectors do not require a model URI. For example:
 }
 ```
 
-The Studio model selector also includes the bundled object-detection,
+The Studio model selector also includes the Abraia-managed object-detection,
 instance-segmentation, pose-estimation, and classification presets. Each
 task has small (`n`), medium (`m`), and large (`l`) model URIs, for example
 `multiple/models/yolov8n.onnx`, `multiple/models/yolov8m.onnx`, and
@@ -136,13 +162,13 @@ Pipeline JSON can select a size without spelling out the URI:
 ```json
 "model": {
   "task": "pose",
-  "kind": "pose",
+  "kind": "yolov8",
   "size": "small"
 }
 ```
 
-Grounding DINO detects labels supplied at inference time. The bundled tiny
-ONNX model uses a fixed 800x800 input:
+Grounding DINO detects labels supplied at inference time. The Abraia-managed
+tiny ONNX model uses a fixed 800x800 input:
 
 ```json
 {
@@ -185,8 +211,8 @@ stages:
 ```json
 "model": {
   "task": "detection",
-  "kind": "hailo",
-  "uri": "yolov8n",
+  "kind": "yolov8",
+  "uri": "multiple/models/yolov8n_hailo8.hef",
   "labels": ["person", "car"],
   "conf_threshold": 0.25,
   "params": {"batch_size": 1}
@@ -194,8 +220,14 @@ stages:
 ```
 
 The Hailo platform runtime must be installed and a compatible device must be
-available. The model URI may be a local `.hef` file or a model name resolved
-by the Hailo resource catalog.
+available. The model URI may be a local `.hef` file, a native Ultralytics Hailo
+export directory, or an uploaded Abraia `.hef` path. Native bundle metadata
+supplies the task and class labels automatically; explicit `task` or `labels`
+values still override it. Uploaded assets under `multiple/models/` are fetched
+from the global Multiple model cache. Demo pipelines derive the
+architecture-specific HEF URI from the canonical ONNX URI; explicit local
+paths remain supported. Hailo no longer resolves external Model Zoo downloads
+or bare logical model names.
 
 ### 3. Multispectral & Hyperspectral Imaging (`multiple`)
 - Specialized tools for hyperspectral and multispectral image analysis, cube processing, spectral indices, radiometric calibration, scene manifests, and spectral signature extraction (`multiple.spectral` and `multiple.manifests`). Remote datasets support TIFF cubes, ENVI header/data pairs (`.hdr` with `.raw`, `.img`, or a declared companion file), and IMEC snapshot-mosaic scenes (`.raw` plus their calibration `.xml`). Studio can upload a folder containing the raw scenes and shared calibration file.
@@ -208,6 +240,8 @@ by the Hailo resource catalog.
 - Tools for training custom classification, detection, and segmentation models, along with dataset preprocessing utilities (`dataset`, `ops`).
   Training supports small, medium, and large model sizes; detection and
   segmentation use YOLOv8n/m/l, while classification uses ResNet18/50/101.
+  Ultralytics detection and segmentation models can be exported to Hailo HEF
+  through `ModelTrainer.compile()` or the `abraia compile` command.
 
 ### 6. Runtime & Video Processing (`abraia.runtime`)
 - Robust video frame iteration and manipulation (`Video`).
@@ -339,8 +373,8 @@ pipeline = Pipeline.from_dict({
     },
     "model": {
         "task": "detection",
-        "kind": "hailo",
-        "uri": "yolov8n.hef",
+        "kind": "yolov8",
+        "uri": "multiple/models/yolov8n_hailo8.hef",
         "params": {
             "labels": ["person", "car"],
             "batch_size": 1,

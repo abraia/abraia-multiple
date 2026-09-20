@@ -6,7 +6,7 @@ from ..postprocess.decoders import (
     validate_model_config,
 )
 from ..session import OnnxSessionMixin
-from ...utils import download_file, load_json
+from ...utils import load_json, resolve_model_file
 
 
 class Model(OnnxSessionMixin):
@@ -15,11 +15,8 @@ class Model(OnnxSessionMixin):
         if os.path.isabs(model_uri) and not os.path.isfile(model_uri):
             raise FileNotFoundError(f"Model file not found: {model_uri}")
         config_uri = f"{os.path.splitext(model_uri)[0]}.json"
-        model_path = model_uri if os.path.isfile(model_uri) else download_file(model_uri)
-        if os.path.isfile(config_uri):
-            config_path = config_uri
-        else:
-            config_path = download_file(config_uri)
+        model_path = resolve_model_file(model_uri)
+        config_path = resolve_model_file(config_uri)
         self.config = load_json(config_path)
         self.task, self.input_shape, self.classes = validate_model_config(
             self.config

@@ -10,7 +10,12 @@ from .annotations import (
     prune_orphaned_annotations,
     upsert_annotation,
 )
-from .core import save_versioned_model, versioned_model_paths
+from .core import (
+    HAILO_EXPORT_TARGETS,
+    save_hailo_bundle,
+    save_versioned_model,
+    versioned_model_paths,
+)
 from .dataset import (
     download_file,
     list_datasets,
@@ -46,6 +51,7 @@ from .service import DatasetProjectService, TrainingService
 __all__ = [
     "ModelTrainer",
     "DEFAULT_RANDOM_STATE",
+    "HAILO_EXPORT_TARGETS",
     "DATASET_SPLITS",
     "DEFAULT_EVALUATION_SPLIT",
     "DEFAULT_SPLIT_RATIOS",
@@ -71,6 +77,7 @@ __all__ = [
     "save_annotation",
     "save_config",
     "save_data",
+    "save_hailo_bundle",
     "search_images",
     "save_versioned_model",
     "split_dataset",

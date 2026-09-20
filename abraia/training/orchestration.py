@@ -194,6 +194,7 @@ class ModelTrainer:
         imgsz: int = None,
         client=None,
         model_size="small",
+        checkpoint=None,
     ):
         task = normalize_task(task)
         if task not in TRAINING_TASKS:
@@ -211,11 +212,16 @@ class ModelTrainer:
         else:
             from . import detect
 
+            detect_kwargs = {
+                "imgsz": imgsz,
+                "client": client,
+                "model_size": self.model_size,
+            }
+            if checkpoint is not None:
+                detect_kwargs["checkpoint"] = checkpoint
             self.model = detect.Model(
                 to_ultralytics_task(task),
-                imgsz=imgsz,
-                client=client,
-                model_size=self.model_size,
+                **detect_kwargs,
             )
 
     def _progress_callback(self, progress):
@@ -254,16 +260,31 @@ class ModelTrainer:
     def run(self, img):
         return self.model.run(img)
 
-    def compile(self, device="hailo8", version=None):
-        if self.task != "detection":
+    def compile(
+        self,
+        device="hailo8",
+        version=None,
+        calibration_data=None,
+        fraction=None,
+        imgsz=None,
+        conf=None,
+        iou=None,
+    ):
+        if self.task not in ("detection", "segmentation"):
             raise NotImplementedError(
-                "Model compilation is only implemented for detection models."
+                "Hailo compilation is only implemented for Ultralytics "
+                "detection and segmentation models."
             )
         return self.model.compile(
             self.project,
             self.classes,
             device=device,
             version=version,
+            calibration_data=calibration_data,
+            fraction=fraction,
+            imgsz=imgsz,
+            conf=conf,
+            iou=iou,
         )
 
 

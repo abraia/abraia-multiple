@@ -7,7 +7,7 @@ import numpy as np
 from ..postprocess.classification import postprocess
 from ..postprocess.detection import validate_model_config
 from ..session import OnnxSessionMixin
-from ...utils import download_file, load_json
+from ...utils import load_json, resolve_model_file
 
 
 def preprocess_resnet(img, input_shape=(1, 3, 224, 224), resize_size=256):
@@ -55,8 +55,8 @@ class ResNetClassifier(OnnxSessionMixin):
         if os.path.isabs(model_uri) and not os.path.isfile(model_uri):
             raise FileNotFoundError(f"Model file not found: {model_uri}")
         config_uri = f"{os.path.splitext(model_uri)[0]}.json"
-        model_path = model_uri if os.path.isfile(model_uri) else download_file(model_uri)
-        config_path = config_uri if os.path.isfile(config_uri) else download_file(config_uri)
+        model_path = resolve_model_file(model_uri)
+        config_path = resolve_model_file(config_uri)
         self.config = load_json(config_path)
         self.task, self.input_shape, self.classes = validate_model_config(self.config)
         if self.task != "classification":

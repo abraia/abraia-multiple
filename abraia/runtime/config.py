@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from abraia.sources import infer_source_type
-from abraia.tasks import normalize_task
 from abraia.inference.model_config import (
     DEFAULT_MODEL_URIS as SUPPORTED_MODEL_DEFAULT_URIS,
+    ModelSpec,
     PIPELINE_HAILO_TASKS as SUPPORTED_HAILO_TASKS,
     PIPELINE_MODEL_KINDS as SUPPORTED_MODEL_KINDS,
     PIPELINE_MODEL_OPTIONS as SUPPORTED_MODEL_OPTIONS,
@@ -34,7 +34,7 @@ class PipelineDraft:
     resolution: List[int] = field(default_factory=lambda: [1920, 1080])
     fps: int = 30
     model_uri: str = ""
-    model_kind: str = "object_detection"
+    model_kind: str = "yolov8"
     model_task: str = "detection"
     model_index: str = ""
     labels: List[str] = field(default_factory=list)
@@ -131,17 +131,10 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
     labels_value = model.get("labels", [])
     if isinstance(labels_value, str):
         labels_value = labels_value.split(",")
-    model_kind = str(model.get("kind", "object_detection")).strip().lower()
-    model_kind = {
-        "classification": "resnet",
-        "face_detector": "face",
-        "license_plate_detector": "license_plate",
-        "plate": "license_plate",
-    }.get(model_kind, model_kind)
-    model_task = normalize_task(model.get("task"), default="detection")
-    params = model.get("params") or {}
-    if not isinstance(params, dict):
-        params = {}
+    model_spec = ModelSpec.from_config(model)
+    model_kind = model_spec.kind
+    model_task = model_spec.task
+    params = model_spec.params
     if model_kind == "face":
         conf_threshold = params.get("prob_threshold", model.get("conf_threshold"))
         iou_threshold = params.get("iou_threshold", model.get("iou_threshold"))
@@ -172,7 +165,8 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
         resolution=[_number(v, 0, int) for v in resolution],
         fps=_number(source.get("fps", 30), 30, int),
         model_uri=str(
-            model.get("uri", "") or SUPPORTED_MODEL_DEFAULT_URIS.get(model_kind, "")
+            model.get("uri", "")
+            or model_spec.resolved_uri
         ),
         model_kind=model_kind,
         model_task=model_task,
@@ -201,23 +195,25 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
         "resolution": [int(v) for v in (draft.resolution or [1920, 1080])[:2]],
         "fps": int(draft.fps),
     }
-    model_kind = (draft.model_kind or "object_detection").strip().lower()
-    model_task = normalize_task(draft.model_task, default="detection")
+    model_spec = ModelSpec.from_config({
+        "kind": draft.model_kind,
+        "task": draft.model_task,
+        "uri": draft.model_uri,
+    })
+    model_kind = model_spec.kind
+    model_task = model_spec.task
     if model_task not in SUPPORTED_MODEL_TASKS:
         raise ValueError(f"Unsupported pipeline model task: {model_task}")
     model = {"task": model_task, "kind": model_kind}
-    if model_kind in (
-        "onnx", "object_detection", "instance_segmentation", "pose",
-        "classification", "resnet", "hailo",
-    ) and (model_kind == "hailo" or model_task in ("detection", "pose", "classification")):
-        model["uri"] = draft.model_uri.strip() or SUPPORTED_MODEL_DEFAULT_URIS.get(model_kind, "")
+    if model_spec.uses_uri and model_task in model_spec.allowed_tasks:
+        model["uri"] = model_spec.resolved_uri
         if draft.labels:
             model["labels"] = list(draft.labels)
         if draft.conf_threshold is not None:
             model["conf_threshold"] = float(draft.conf_threshold)
         if draft.iou_threshold is not None:
             model["iou_threshold"] = float(draft.iou_threshold)
-        if draft.approx is not None and model_kind == "instance_segmentation":
+        if draft.approx is not None and model_task == "segmentation":
             model["approx"] = bool(draft.approx)
     else:
         model["params"] = {}
@@ -271,28 +267,13 @@ def validate_pipeline_draft(draft):
         errors.append("Choose a source file, camera, or stream.")
     elif source_type == "camera" and not source_value.isdigit():
         errors.append("Camera source must be a numeric camera index.")
-    model_kind = (draft.model_kind or "object_detection").strip().lower()
-    model_task = normalize_task(draft.model_task, default="detection")
-    if model_kind not in SUPPORTED_MODEL_KINDS:
-        errors.append("Choose a supported detector kind.")
-    elif model_kind == "hailo" and model_task not in SUPPORTED_HAILO_TASKS:
-        errors.append("Hailo models support detection, segmentation, or pose tasks.")
-    elif model_kind != "hailo" and model_task not in (
-        "detection", "pose", "classification", "recognition"
-    ):
-        errors.append("Choose a supported detector task.")
-    elif model_kind in ("object_detection", "instance_segmentation") and model_task != "detection":
-        errors.append("This ONNX model kind only supports the detection task.")
-    elif model_kind == "onnx" and model_task not in ("detection", "pose", "classification"):
-        errors.append("Generic ONNX models support detection, pose, or classification.")
-    elif model_kind == "pose" and model_task != "pose":
-        errors.append("Pose models require the pose task.")
-    elif model_kind in ("classification", "resnet") and model_task != "classification":
-        errors.append("Classification models require the classification task.")
-    elif model_kind in ("onnx", "classification", "resnet", "hailo") and not draft.model_uri.strip():
-        errors.append("Enter a model URI or local model path.")
-    elif model_kind == "face" and model_task == "recognition" and not draft.model_index.strip():
-        errors.append("Face recognition requires an index JSON file.")
+    model_spec = ModelSpec.from_config({
+        "kind": draft.model_kind,
+        "task": draft.model_task,
+        "uri": draft.model_uri,
+        "params": {"index": draft.model_index},
+    })
+    errors.extend(model_spec.pipeline_errors())
     try:
         resolution_valid = len(draft.resolution) == 2 and all(int(value) > 0 for value in draft.resolution)
     except (TypeError, ValueError):

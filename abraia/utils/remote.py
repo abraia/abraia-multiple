@@ -1,10 +1,12 @@
 """HTTP and SDK cache helpers."""
 
 import os
+from dataclasses import dataclass, replace
 from pathlib import Path
 import tempfile
 import threading
 import time
+from typing import Callable, Optional
 from urllib.parse import quote
 
 import requests
@@ -13,6 +15,9 @@ from tqdm import tqdm
 
 
 API_URL = "https://api.abraia.me"
+# Built-in assets live in the global Multiple namespace.  This is intentionally
+# independent from the Abraia account used to authenticate API operations.
+REMOTE_MODEL_ROOT = "multiple/models/"
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -156,6 +161,105 @@ def download_file(path):
     return dest
 
 
+def is_managed_model_path(path):
+    """Return whether ``path`` refers to an Abraia-managed model asset."""
+    normalized = os.fspath(path).replace("\\", "/").lstrip("/")
+    root = REMOTE_MODEL_ROOT.rstrip("/")
+    return normalized == root or normalized.startswith(f"{root}/")
+
+
+@dataclass(frozen=True)
+class ArtifactReference:
+    """Describe where an artifact can be loaded from."""
+
+    requested: str
+    local_path: Optional[Path] = None
+    remote_path: Optional[str] = None
+    source: str = "missing"
+
+    @property
+    def available(self) -> bool:
+        """Return whether this reference points to an available artifact."""
+        return self.local_path is not None or self.source == "remote"
+
+
+class ArtifactResolver:
+    """Resolve local and Abraia-managed artifacts through one policy."""
+
+    def reference(self, path) -> ArtifactReference:
+        """Classify a path without downloading or performing network I/O."""
+        requested = os.fspath(path)
+        if is_url(requested):
+            return ArtifactReference(requested=requested, source="url")
+
+        local = Path(requested)
+        managed = is_managed_model_path(requested)
+        if local.exists() and not managed:
+            return ArtifactReference(
+                requested=requested,
+                local_path=local,
+                source="local",
+            )
+        if local.is_absolute():
+            return ArtifactReference(requested=requested)
+
+        return ArtifactReference(
+            requested=requested,
+            remote_path=requested.replace("\\", "/").lstrip("/"),
+            source="managed" if managed else "remote",
+        )
+
+    def probe(self, path) -> ArtifactReference:
+        """Resolve a path and check remote availability without downloading."""
+        reference = self.reference(path)
+        if reference.local_path is not None or not reference.remote_path:
+            return reference
+        if self.remote_available(reference.remote_path):
+            return replace(reference, source="remote")
+        return replace(reference, source="missing")
+
+    def remote_available(self, path) -> bool:
+        """Return whether a remote artifact responds with a file size."""
+        remote_path = os.fspath(path).replace("\\", "/").lstrip("/")
+        return get_remote_file_size(url_path(remote_path)) is not None
+
+    def resolve(
+        self,
+        path,
+        *,
+        downloader: Optional[Callable[[str], str]] = None,
+    ) -> str:
+        """Return a local path, downloading a remote artifact when needed."""
+        reference = self.reference(path)
+        if reference.local_path is not None:
+            return str(reference.local_path)
+        if reference.source == "url":
+            raise ValueError("URL artifacts require an explicit download destination")
+        if not reference.remote_path:
+            raise FileNotFoundError(f"Artifact not found: {path}")
+
+        fetch = downloader or download_file
+        downloaded = Path(fetch(reference.remote_path))
+        if not downloaded.is_file():
+            raise FileNotFoundError(
+                f"Downloaded artifact is not a file: {reference.remote_path}"
+            )
+        return str(downloaded.resolve())
+
+
+ARTIFACT_RESOLVER = ArtifactResolver()
+
+
+def resolve_model_file(path):
+    """Resolve a model path, preferring Abraia assets for managed URIs.
+
+    Explicit filesystem paths remain local. Built-in assets under
+    ``multiple/models/`` are fetched through the Abraia model cache even when
+    a copy is present in the source tree or installed package.
+    """
+    return ARTIFACT_RESOLVER.resolve(path)
+
+
 def load_url(url, timeout=(10, 120)):
     """Return a readable response body for a URL.
 
@@ -202,15 +306,20 @@ def load_url_bytes(url, timeout=(10, 120)):
 
 __all__ = [
     "API_URL",
+    "ARTIFACT_RESOLVER",
+    "ArtifactReference",
+    "ArtifactResolver",
     "HEADERS",
     "create_session",
     "download_file",
     "download_url",
     "get_remote_file_size",
+    "is_managed_model_path",
     "is_url",
     "load_url",
     "load_url_bytes",
     "request_with_retries",
+    "resolve_model_file",
     "temporal_src",
     "url_path",
 ]
