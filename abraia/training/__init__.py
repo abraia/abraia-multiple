@@ -46,6 +46,7 @@ from .splitting import (
     summarize_split_records,
 )
 from .service import DatasetProjectService, TrainingService
+from .metrics import metric_average, normalize_model_record
 
 
 __all__ = [
@@ -71,6 +72,8 @@ __all__ = [
     "list_models",
     "list_model_records",
     "load_dataset",
+    "metric_average",
+    "normalize_model_record",
     "objects_for_image",
     "prune_orphaned_annotations",
     "prepare_dataset",

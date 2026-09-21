@@ -209,13 +209,13 @@ class Abraia:
         save_data(dest, resp.content)
         return dest
 
-    def _download_cached(self, path):
+    def download_cached(self, path):
         """Download a remote file into the shared process cache."""
-        destination = self._cached_destination(path)
+        destination = self.cached_destination(path)
         return self.download_file(path, destination, cache=True)
 
     @staticmethod
-    def _cached_destination(path):
+    def cached_destination(path):
         """Return the shared process-cache destination for a remote path."""
         return temporal_src(str(path))
     
@@ -277,7 +277,7 @@ class Abraia:
         try:
             with open(dest, 'r') as f:
                 return f.read()
-        except:
+        except (OSError, UnicodeError):
             with open(dest, 'rb') as f:
                 return BytesIO(f.read())
 
@@ -308,7 +308,7 @@ class Abraia:
         delegated = self._delegate('load_image', path)
         if delegated is not _NO_DELEGATE:
             return delegated
-        dest = self._download_cached(path)
+        dest = self.download_cached(path)
         return load_image(dest)
 
     def load_image_details(self, path):

@@ -29,6 +29,7 @@ def annotate_image(
     segment=False,
     annotator=None,
     include_empty=False,
+    classification=False,
 ):
     """Compatibility wrapper preserving patchable dataset-level loaders."""
     return _annotate_image(
@@ -37,6 +38,7 @@ def annotate_image(
         segment=segment,
         annotator=annotator,
         include_empty=include_empty,
+        classification=classification,
         image_loader=load_image,
         url_loader=load_url,
     )
@@ -110,21 +112,8 @@ class Dataset(RemoteDataset):
 
     def load(self, validate=True):
         if validate and self.project not in list_datasets(self.client):
-            self.annotations = []
-            self.images = []
-            self.classes = []
-            self.task = ""
-            self._update_annotated()
-            return self
-
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            annotations_future = executor.submit(self._load_annotations, self.project)
-            images_future = executor.submit(self._list_images, self.project)
-            self.annotations = annotations_future.result()
-            self.images = images_future.result()
-        self.classes, self.task = self._process_annotations(self.annotations)
-        self._update_annotated()
-        return self
+            return self.clear_contents()
+        return self.load_contents(parallel=True)
 
     def _select_images(self, files):
         return [
@@ -141,35 +130,35 @@ class Dataset(RemoteDataset):
             if image["name"] not in annotated_filenames
         ]
         annotator = Annotator(segment=segment)
+        classification = normalize_task(self.task) == "classification"
         progress = tqdm(images) if callback is None else None
         iterable = progress if progress else images
-        for index, row in enumerate(iterable):
+        try:
+            for index, row in enumerate(iterable):
+                if progress:
+                    progress.set_description(f"Annotating {row['name']}")
+                annotation = annotate_image(
+                    row,
+                    [label],
+                    segment=segment,
+                    annotator=annotator,
+                    include_empty=True,
+                    classification=classification,
+                )
+                self.annotations.append(annotation)
+                self.save()
+                if callback:
+                    callback({
+                        "current": index + 1,
+                        "total": len(images),
+                        "filename": row["name"],
+                    })
+        finally:
             if progress:
-                progress.set_description(f"Annotating {row['name']}")
-            annotation = annotate_image(
-                row,
-                [label],
-                segment=segment,
-                annotator=annotator,
-                include_empty=True,
-            )
-            self.annotations.append(annotation)
-            self.save()
-            if callback:
-                callback({
-                    "current": index + 1,
-                    "total": len(images),
-                    "filename": row["name"],
-                })
-        if progress:
-            progress.close()
+                progress.close()
+            annotator.close()
         self._update_annotated()
         return self.annotations
-
-    def save(self):
-        self.client.save_json(f"{self.project}/annotations.json", self.annotations)
-        self._update_annotated()
-
 
 def load_dataset(project, validate=True, client=None):
     """Load a remote standard-image dataset."""

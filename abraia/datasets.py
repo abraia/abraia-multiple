@@ -6,6 +6,8 @@ belong to :mod:`abraia.training`: datasets are also consumed by Studio and
 the ``multiple`` package before any training operation is involved.
 """
 
+from concurrent.futures import ThreadPoolExecutor
+
 from .tasks import normalize_task
 from .utils import url_path
 
@@ -96,6 +98,37 @@ class RemoteDataset(DatasetBase):
         for image in images:
             image["url"] = url_path(f"{self.client.userid}/{image['path']}")
         return images
+
+    def load_contents(self, *, parallel=False):
+        """Populate annotations, images, classes, and task in one place."""
+        if parallel:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                annotations_future = executor.submit(
+                    self._load_annotations, self.project
+                )
+                images_future = executor.submit(self._list_images, self.project)
+                self.annotations = annotations_future.result()
+                self.images = images_future.result()
+        else:
+            self.annotations = self._load_annotations(self.project)
+            self.images = self._list_images(self.project)
+        self.classes, self.task = self._process_annotations(self.annotations)
+        self._update_annotated()
+        return self
+
+    def clear_contents(self):
+        """Reset a dataset when its remote project is not available."""
+        self.annotations = []
+        self.images = []
+        self.classes = []
+        self.task = ""
+        self._update_annotated()
+        return self
+
+    def save(self):
+        """Persist the dataset annotations through the injected client."""
+        self.client.save_json(f"{self.project}/annotations.json", self.annotations)
+        self._update_annotated()
 
 
 __all__ = ["DatasetBase", "RemoteDataset"]

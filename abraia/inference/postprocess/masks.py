@@ -2,8 +2,25 @@
 
 import cv2
 import numpy as np
+import zlib
 
 from ..geometry import approx_contour, merge_with_parent
+from ...utils.draw import get_color, hex_to_rgb
+
+
+def annotation_color_rgb(annotation):
+    """Return the stable Abraia palette color for an annotation class."""
+    annotation = annotation if isinstance(annotation, dict) else {}
+    label = annotation.get("label")
+    if label is not None and str(label).strip():
+        class_id = zlib.crc32(str(label).encode("utf-8"))
+    else:
+        class_id = annotation.get("class_id")
+        try:
+            class_id = int(class_id)
+        except (TypeError, ValueError):
+            class_id = zlib.crc32(b"object")
+    return hex_to_rgb(get_color(class_id))
 
 
 def mask_to_polygon(mask, origin=(0, 0), approx=0.001):
@@ -21,6 +38,10 @@ def mask_to_polygon(mask, origin=(0, 0), approx=0.001):
     )
     if not contours or hierarchies is None:
         return []
+    outer_areas = [
+        cv2.contourArea(contour) if hierarchy[3] < 0 else 0.0
+        for contour, hierarchy in zip(contours, hierarchies[0])
+    ]
     contours = [approx_contour(contour, approx) for contour in contours]
     parent_indexes = [int(hierarchy[3]) for hierarchy in hierarchies[0]]
     parents = [
@@ -30,10 +51,12 @@ def mask_to_polygon(mask, origin=(0, 0), approx=0.001):
     for contour, parent in zip(contours, parent_indexes):
         if parent >= 0 and len(contour) >= 3 and len(parents[parent]):
             parents[parent] = merge_with_parent(parents[parent], contour)
-    lengths = [len(contour) for contour in parents]
-    if not lengths or max(lengths) == 0:
+    if not outer_areas or max(outer_areas) <= 0:
         return []
-    return (parents[np.argmax(lengths)] + np.array(origin)).tolist()
+    selected = int(np.argmax(outer_areas))
+    if len(parents[selected]) < 3:
+        return []
+    return (parents[selected] + np.array(origin)).tolist()
 
 
 def mask_to_box(mask):
@@ -115,6 +138,7 @@ def compare_mask_layers(reference_layers, prediction_layers, image_shape):
 
 
 __all__ = [
+    "annotation_color_rgb",
     "colored_prediction_layers",
     "compare_mask_layers",
     "mask_to_box",

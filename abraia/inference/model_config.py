@@ -4,9 +4,19 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Dict, Mapping, Tuple
+from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
 
 from ..tasks import HAILO_TASKS, PIPELINE_TASKS, normalize_task
+
+
+@dataclass(frozen=True)
+class ModelDescriptor:
+    """Static capabilities shared by editors, validation, and factories."""
+
+    tasks: FrozenSet[str]
+    uri_based: bool = False
+    explicit_uri: bool = False
+    runtime_options: bool = False
 
 
 MODEL_ARCHITECTURES = frozenset({"yolov5", "yolov8", "yolo11"})
@@ -76,18 +86,34 @@ PIPELINE_MODEL_KINDS = (
 )
 PIPELINE_MODEL_TASKS = PIPELINE_TASKS
 PIPELINE_HAILO_TASKS = HAILO_TASKS
-MODEL_TASKS_BY_KIND = {
+MODEL_DESCRIPTORS = MappingProxyType({
     **{
-        kind: frozenset({"detection", "segmentation", "pose"})
+        kind: ModelDescriptor(
+            frozenset({"detection", "segmentation", "pose"}),
+            uri_based=True,
+            runtime_options=True,
+        )
         for kind in MODEL_ARCHITECTURES
     },
-    "resnet": frozenset({"classification"}),
-    "grounding_dino": frozenset({"detection"}),
-    "face": frozenset({"detection", "recognition"}),
-    "license_plate": frozenset({"detection", "recognition"}),
-    "ocr": frozenset({"recognition"}),
+    "resnet": ModelDescriptor(
+        frozenset({"classification"}),
+        uri_based=True,
+        explicit_uri=True,
+        runtime_options=True,
+    ),
+    "grounding_dino": ModelDescriptor(
+        frozenset({"detection"}), uri_based=True, runtime_options=True
+    ),
+    "face": ModelDescriptor(frozenset({"detection", "recognition"})),
+    "license_plate": ModelDescriptor(frozenset({"detection", "recognition"})),
+    "ocr": ModelDescriptor(frozenset({"recognition"})),
+})
+MODEL_TASKS_BY_KIND = {
+    kind: descriptor.tasks for kind, descriptor in MODEL_DESCRIPTORS.items()
 }
-URI_MODEL_KINDS = frozenset((*MODEL_ARCHITECTURES, "resnet", "grounding_dino"))
+URI_MODEL_KINDS = frozenset(
+    kind for kind, descriptor in MODEL_DESCRIPTORS.items() if descriptor.uri_based
+)
 GROUNDING_DINO_DEFAULT_URI = "multiple/models/grounding_dino_tiny.onnx"
 MODEL_DEFAULT_THRESHOLDS = {
     ("yolov8", "detection"): (0.25, 0.45),
@@ -160,12 +186,14 @@ class ModelSpec:
     @property
     def allowed_tasks(self):
         """Return canonical tasks supported by this model kind."""
-        return MODEL_TASKS_BY_KIND.get(self.kind, frozenset())
+        descriptor = MODEL_DESCRIPTORS.get(self.kind)
+        return descriptor.tasks if descriptor else frozenset()
 
     @property
     def uses_uri(self) -> bool:
         """Return whether the model is selected through a model URI."""
-        return self.kind in URI_MODEL_KINDS
+        descriptor = MODEL_DESCRIPTORS.get(self.kind)
+        return bool(descriptor and descriptor.uri_based)
 
     @property
     def default_uri(self) -> str:
@@ -181,11 +209,27 @@ class ModelSpec:
 
     def pipeline_errors(self) -> Tuple[str, ...]:
         """Return user-facing validation errors for pipeline editors."""
+        return self._validation_messages(runtime=False)
+
+    def _validation_messages(self, runtime: bool) -> Tuple[str, ...]:
+        """Return validation messages for either editor or runtime callers."""
+        if runtime and not self.kind:
+            return ("Pipeline model must define a model 'kind'",)
         if self.kind not in PIPELINE_MODEL_KINDS:
+            if runtime:
+                available = ", ".join(PIPELINE_MODEL_KINDS)
+                return (
+                    f"Unknown detector kind '{self.kind}'. Available detectors: {available}",
+                )
             return ("Choose a supported detector kind.",)
-        if self.task not in PIPELINE_MODEL_TASKS:
+        if not runtime and self.task not in PIPELINE_MODEL_TASKS:
             return ("Choose a supported detector task.",)
-        if self.task not in self.allowed_tasks:
+        if runtime and self.backend == "hailo":
+            if self.kind not in MODEL_ARCHITECTURES:
+                return ("Hailo models require a supported model architecture kind",)
+            if self.task not in HAILO_TASKS:
+                return (f"Unsupported Hailo pipeline task: {self.task}",)
+        elif self.task not in self.allowed_tasks:
             if self.kind in MODEL_ARCHITECTURES:
                 return (
                     f"{self.kind} models support detection, segmentation, or pose.",
@@ -197,54 +241,116 @@ class ModelSpec:
             if self.kind == "ocr":
                 return ("OCR models only support the recognition task.",)
             return (f"{self.kind} models do not support the {self.task} task.",)
-        if self.kind in ("resnet", *MODEL_ARCHITECTURES) and not self.uri:
-            return ("Enter a model URI or local model path.",)
-        if (
-            self.kind == "face"
-            and self.task == "recognition"
-            and not self.params.get("index")
-        ):
-            return ("Face recognition requires an index JSON file.",)
+
+        if runtime:
+            if self.kind == "resnet" and not self.uri:
+                return ("A ResNet classifier requires a model 'uri'",)
+            if self.kind in MODEL_ARCHITECTURES and not self.uri:
+                if self.kind not in MODEL_SIZE_URIS:
+                    return (f"A {self.kind} model requires a model 'uri'",)
+                available_sizes = MODEL_SIZE_URIS[self.kind].get(self.task, {})
+                if self.size not in available_sizes:
+                    options = ", ".join(available_sizes)
+                    return (f"Unsupported model size '{self.size}'. Use: {options}",)
+        else:
+            descriptor = self.descriptor()
+            if descriptor and descriptor.explicit_uri and not self.uri:
+                return ("Enter a model URI or local model path.",)
+            if (
+                self.kind == "face"
+                and self.task == "recognition"
+                and not self.params.get("index")
+            ):
+                return ("Face recognition requires an index JSON file.",)
         return ()
 
     def require_runtime_valid(self) -> None:
         """Validate configuration using runtime-facing error messages."""
-        if not self.kind:
-            raise ValueError("Pipeline model must define a model 'kind'")
-        if self.kind not in PIPELINE_MODEL_KINDS:
-            available = ", ".join(PIPELINE_MODEL_KINDS)
-            raise ValueError(
-                f"Unknown detector kind '{self.kind}'. Available detectors: {available}"
-            )
-        if self.backend == "hailo":
-            if self.kind not in MODEL_ARCHITECTURES:
-                raise ValueError("Hailo models require a supported model architecture kind")
-            if self.task not in HAILO_TASKS:
-                raise ValueError(f"Unsupported Hailo pipeline task: {self.task}")
-        elif self.task not in self.allowed_tasks:
-            if self.kind == "resnet":
-                raise ValueError("ResNet models require the classification task")
-            if self.kind == "grounding_dino":
-                raise ValueError("Grounding DINO models require the detection task")
-            if self.kind == "ocr":
-                raise ValueError("OCR models only support the recognition task")
-            raise ValueError(f"Unsupported pipeline model task: {self.task}")
+        errors = self._validation_messages(runtime=True)
+        if errors:
+            raise ValueError(errors[0])
 
-        if self.kind == "resnet" and not self.uri:
-            raise ValueError("A ResNet classifier requires a model 'uri'")
-        if self.kind in MODEL_ARCHITECTURES and not self.uri:
-            if self.kind not in MODEL_SIZE_URIS:
-                raise ValueError(f"A {self.kind} model requires a model 'uri'")
-            available_sizes = MODEL_SIZE_URIS[self.kind].get(self.task, {})
-            if self.size not in available_sizes:
-                options = ", ".join(available_sizes)
-                raise ValueError(
-                    f"Unsupported model size '{self.size}'. Use: {options}"
-                )
+    def descriptor(self) -> Optional[ModelDescriptor]:
+        """Return the immutable capability descriptor for this model kind."""
+        return MODEL_DESCRIPTORS.get(self.kind)
 
     def params_copy(self) -> Dict[str, Any]:
         """Return a mutable copy of backend parameters."""
         return dict(self.params)
+
+    def editor_values(self, config: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+        """Return the editor-facing thresholds and index for this model.
+
+        Pipeline documents historically store built-in model parameters under
+        ``params`` and URI-backed model parameters at the model level. Keeping
+        that compatibility mapping here prevents each editor or serializer
+        from growing another model-kind conditional.
+        """
+        config = config or {}
+        if not isinstance(config, Mapping):
+            config = {}
+        params = self.params
+
+        def value(name, fallback=None):
+            return params.get(name, config.get(name, fallback))
+
+        if self.kind == "face":
+            confidence = value("prob_threshold", config.get("conf_threshold"))
+            if self.task == "recognition":
+                confidence = value("threshold", confidence)
+            iou = value("iou_threshold", config.get("iou_threshold"))
+        elif self.kind == "license_plate":
+            confidence = value("threshold", config.get("conf_threshold"))
+            iou = value("iou_threshold", config.get("iou_threshold"))
+        elif self.kind == "ocr":
+            confidence = value("drop_score", config.get("conf_threshold"))
+            iou = None
+        else:
+            confidence = config.get("conf_threshold")
+            iou = config.get("iou_threshold")
+
+        return {
+            "conf_threshold": confidence,
+            "iou_threshold": iou,
+            "model_index": str(params.get("index", "")),
+        }
+
+    def to_pipeline_config(
+        self,
+        *,
+        labels=(),
+        conf_threshold=None,
+        iou_threshold=None,
+        approx=None,
+        model_index="",
+    ) -> Dict[str, Any]:
+        """Serialize editor values into the stable pipeline model section."""
+        model = {"task": self.task, "kind": self.kind}
+        if self.uses_uri:
+            model["uri"] = self.resolved_uri
+            if labels:
+                model["labels"] = list(labels)
+            if conf_threshold is not None:
+                model["conf_threshold"] = float(conf_threshold)
+            if iou_threshold is not None:
+                model["iou_threshold"] = float(iou_threshold)
+            if approx is not None and self.task == "segmentation":
+                model["approx"] = bool(approx)
+            return model
+
+        params = {}
+        if conf_threshold is not None:
+            if self.task == "recognition":
+                parameter = "drop_score" if self.kind == "ocr" else "threshold"
+            else:
+                parameter = "prob_threshold" if self.kind == "face" else "threshold"
+            params[parameter] = float(conf_threshold)
+        if iou_threshold is not None:
+            params["iou_threshold"] = float(iou_threshold)
+        if self.kind == "face" and self.task == "recognition" and str(model_index).strip():
+            params["index"] = str(model_index).strip()
+        model["params"] = params
+        return model
 
 
 def model_defaults(kind, task):
@@ -325,6 +431,7 @@ __all__ = [
     "MODEL_SIZE_URIS",
     "MODEL_ARCHITECTURES",
     "MODEL_DEFAULT_THRESHOLDS",
+    "MODEL_DESCRIPTORS",
     "MODEL_TASKS_BY_KIND",
     "PIPELINE_HAILO_TASKS",
     "PIPELINE_MODEL_KINDS",
@@ -332,6 +439,7 @@ __all__ = [
     "PIPELINE_MODEL_TASKS",
     "RESNET_MODEL_KINDS",
     "ModelSpec",
+    "ModelDescriptor",
     "is_resnet_model_uri",
     "model_default_uri",
     "model_control_visibility",

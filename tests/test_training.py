@@ -4,6 +4,84 @@ from abraia.datasets import DatasetBase
 from abraia.training.orchestration import split_dataset
 from unittest.mock import patch
 import numpy as np
+import sys
+
+from abraia.training import metric_average, normalize_model_record
+
+
+def test_annotator_uses_the_transformers_grounding_dino_model(monkeypatch):
+    calls = []
+
+    class FakePipeline:
+        def __call__(self, image, candidate_labels, threshold):
+            calls.append((image, candidate_labels, threshold))
+            return [{
+                "label": "cat",
+                "score": 0.8,
+                "box": {"xmin": 1, "ymin": 2, "xmax": 4, "ymax": 6},
+            }]
+
+        def close(self):
+            calls.append("closed")
+
+    class FakeTransformers:
+        @staticmethod
+        def pipeline(task, model):
+            assert task == "zero-shot-object-detection"
+            assert model == "IDEA-Research/grounding-dino-tiny"
+            return FakePipeline()
+
+    monkeypatch.setitem(sys.modules, "transformers", FakeTransformers)
+
+    annotator = Annotator()
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+    assert annotator.detect(image, [" Cat ", "dog."], threshold=0.4) == [{
+        "label": "cat",
+        "score": 0.8,
+        "box": [1, 2, 3, 4],
+    }]
+    annotator.close()
+
+    assert calls[0][0].size == (8, 8)
+    assert calls[0][0].mode == "RGB"
+    assert calls[0][1] == ["cat.", "dog."]
+    assert calls[0][2] == 0.4
+    assert calls[-1] == "closed"
+
+
+def test_annotator_classifies_from_the_highest_scoring_detected_box(monkeypatch):
+    annotator = object.__new__(Annotator)
+    annotator.detect = lambda image, classes, threshold=0.3: [
+        {"label": "dog", "score": 0.61, "box": [1, 2, 3, 4]},
+        {"label": "cat", "score": 0.92, "box": [5, 6, 7, 8]},
+    ]
+
+    assert annotator.classify(np.zeros((8, 8, 3), dtype=np.uint8), ["cat", "dog"]) == [{
+        "label": "cat",
+        "score": 0.92,
+    }]
+
+
+def test_annotate_image_classification_keeps_only_the_detected_label():
+    class FakeAnnotator:
+        def classify(self, image, classes):
+            return [{"label": "cat", "score": 0.9}]
+
+        def detect(self, image, classes):
+            raise AssertionError("classification should not call detect directly")
+
+    from abraia.training.auto_annotation import annotate_image
+
+    result = annotate_image(
+        {"url": "image.jpg", "name": "image.jpg"},
+        ["cat"],
+        annotator=FakeAnnotator(),
+        classification=True,
+        image_loader=lambda value: np.zeros((8, 8, 3), dtype=np.uint8),
+        url_loader=lambda value: value,
+    )
+
+    assert result["objects"] == [{"label": "cat", "score": 0.9}]
 
 
 @patch('abraia.training.dataset.Dataset._load_annotations')
@@ -22,12 +100,29 @@ def test_dataset_load(mock_list_datasets, mock_list_images, mock_load_annotation
     assert ds.classes == ['cat']
     assert ds.task == 'classification'
     assert ds.images == [{'name': 'test.jpg'}]
-    
     mock_list_datasets.assert_called_once_with(ds.client)
     mock_load_annotations.assert_called_once_with('test_project')
     mock_list_images.assert_called_once_with('test_project')
 
 
+def test_model_metric_helpers_normalize_catalog_payloads():
+    assert metric_average([0.8, 1.0]) == 0.9
+    assert metric_average([]) is None
+    assert normalize_model_record("model.onnx") == {
+        "name": "model.onnx",
+        "metrics": {},
+    }
+    assert normalize_model_record({
+        "model": "model.onnx",
+        "metrics": {"acc": [0.8, 1.0]},
+        "classes": ["cat"],
+        "task": "classify",
+    }) == {
+        "name": "model.onnx",
+        "metrics": {"acc": [0.8, 1.0]},
+        "classes": ["cat"],
+        "task": "classification",
+    }
 def test_dataset_save():
     class FakeClient:
         def __init__(self):
@@ -281,6 +376,40 @@ def test_split_dataset_is_reproducible_and_keeps_background_in_train():
 
 from abraia.training import ModelTrainer
 from abraia.training.service import TrainingService
+
+
+@patch("abraia.training.dataset.annotate_image")
+@patch("abraia.training.dataset.Annotator")
+def test_auto_annotate_uses_explicit_classification_task(
+    mock_annotator_cls, mock_annotate_image
+):
+    from types import SimpleNamespace
+
+    dataset = SimpleNamespace(
+        task="",
+        annotations=[],
+        images=[{"name": "cat.jpg", "url": "cat-url"}],
+        save= lambda: None,
+    )
+    mock_annotate_image.return_value = {
+        "filename": "cat.jpg",
+        "objects": [{"label": "cat"}],
+    }
+    progress = []
+
+    TrainingService().auto_annotate(
+        dataset,
+        "cat",
+        lambda *event: progress.append(event),
+        lambda: False,
+        task="classification",
+    )
+
+    assert mock_annotate_image.call_args.kwargs["classification"] is True
+    assert mock_annotate_image.call_args.kwargs["segment"] is False
+    mock_annotator_cls.return_value.close.assert_called_once_with()
+    assert progress == [(1, 1, "cat.jpg", 1)]
+
 
 @patch('abraia.training.classify.Model')
 def test_model_trainer_test(mock_classify_model_cls):

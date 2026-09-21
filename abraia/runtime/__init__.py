@@ -15,6 +15,7 @@ from .inference import (
     FrameRecord,
     FrameResult,
 )
+from .output import VideoOutput
 from .video import FrameSource, Video
 from .stages import LineCounter, RegionFilter, RegionTimer, count_objects
 from .config import (
@@ -26,8 +27,12 @@ from .config import (
     SUPPORTED_MODEL_TASKS,
     SUPPORTED_STAGE_TYPES,
     default_stage,
+    format_points,
+    load_pipeline_document,
     model_control_visibility,
     model_defaults,
+    parse_points,
+    save_pipeline_document,
 )
 from .runner import run_pipeline
 
@@ -49,6 +54,7 @@ __all__ = [
     "count_objects",
     "TrackerStage",
     "Video",
+    "VideoOutput",
     "PipelineDraft",
     "SUPPORTED_HAILO_TASKS",
     "SUPPORTED_MODEL_DEFAULT_URIS",
@@ -57,7 +63,11 @@ __all__ = [
     "SUPPORTED_MODEL_TASKS",
     "SUPPORTED_STAGE_TYPES",
     "default_stage",
+    "format_points",
+    "load_pipeline_document",
     "model_control_visibility",
     "model_defaults",
+    "parse_points",
     "run_pipeline",
+    "save_pipeline_document",
 ]

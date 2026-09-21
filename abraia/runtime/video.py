@@ -10,12 +10,12 @@ from typing import Any, Generator, List, Optional, Tuple
 import cv2
 
 from ..utils.draw import render_resolution, render_status
-from ..utils.filesystem import make_dirs
 from ..sources import (
     IMAGE_SUFFIXES,
     VIDEO_SUFFIXES,
     infer_source_type as infer_media_source_type,
 )
+from .output import VideoOutput
 
 logger = logging.getLogger(__name__)
 
@@ -437,70 +437,6 @@ class FrameSource:
                 logger.debug("Failed to release frame source", exc_info=True)
 
 
-class VideoOutput:
-    """Own a video writer and an optional OpenCV preview window."""
-
-    def __init__(self, dest=None, fps=30, size=(0, 0)):
-        self.out = None
-        self.win_name = ""
-        self.display_enabled = True
-        self.quit = False
-        if dest:
-            make_dirs(dest)
-            fourcc = cv2.VideoWriter_fourcc(*"XVID")
-            self.out = cv2.VideoWriter(dest, fourcc, fps, size)
-            if not self.out.isOpened():
-                self.out.release()
-                self.out = None
-                raise RuntimeError(f"Unable to open video destination: {dest}")
-
-    def show(self, frame):
-        """Write an RGB frame and, when enabled, display it in a window."""
-        output = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        if self.out:
-            self.out.write(output)
-        if not self.display_enabled:
-            return
-        try:
-            if not self.win_name:
-                self.win_name = "Video"
-                cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)
-            cv2.imshow(self.win_name, output)
-            key = cv2.waitKey(1) & 0xFF
-            if (
-                key in (27, ord("q"))
-                or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1
-            ):
-                self.quit = True
-        except cv2.error as error:
-            logger.warning("OpenCV display unavailable: %s", error)
-            self.display_enabled = False
-            if self.win_name:
-                try:
-                    cv2.destroyWindow(self.win_name)
-                except cv2.error:
-                    pass
-                self.win_name = ""
-
-    def close(self):
-        """Release the writer and preview window; safe to call repeatedly."""
-        if self.out is not None:
-            try:
-                self.out.release()
-            except Exception:
-                logger.debug("Failed to release video writer", exc_info=True)
-            finally:
-                self.out = None
-        if self.win_name:
-            try:
-                cv2.destroyWindow(self.win_name)
-                cv2.waitKey(1)
-            except cv2.error:
-                pass
-            finally:
-                self.win_name = ""
-
-
 class Video(FrameSource):
     """Frame source with optional file output and OpenCV preview."""
 
@@ -563,20 +499,6 @@ class Video(FrameSource):
             output.close()
             self.out = None
             self.win_name = ""
-            return
-        # Keep close compatible with lightweight test doubles and subclasses
-        # constructed without calling __init__.
-        if self.out is not None:
-            self.out.release()
-            self.out = None
-        if self.win_name:
-            try:
-                cv2.destroyWindow(self.win_name)
-                cv2.waitKey(1)
-            except cv2.error:
-                pass
-            finally:
-                self.win_name = ""
 
     def get_frame(self, frame_num):
         if self.cap is None:
@@ -586,6 +508,12 @@ class Video(FrameSource):
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
         ret, frame = read_rgb(self.cap)
         return frame if ret else None
+
+    def set_display_enabled(self, enabled: bool):
+        """Configure preview visibility without exposing sink internals."""
+        self._display_enabled = bool(enabled)
+        if self._output is not None:
+            self._output.set_display_enabled(enabled)
 
     def show(self, frame):
         """Render runtime overlays, then write and/or display the frame."""

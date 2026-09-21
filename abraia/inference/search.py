@@ -1,6 +1,7 @@
 from tqdm import tqdm
 
 from abraia import Abraia
+from abraia.client import APIError
 from abraia.inference.models.clip import Clip
 from abraia.inference.vectors import search_vector
 from abraia.utils import show_image
@@ -18,7 +19,7 @@ class ImageSearch:
     def _load_index(self):
         try:
             return self.abraia.load_json(f"{self.project}/index.json")
-        except:
+        except (APIError, OSError, TypeError, ValueError):
             return []
 
     def create_index(self):

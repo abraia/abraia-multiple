@@ -5,7 +5,7 @@
 
 # Abraia Vision SDK
 
-The **Abraia Vision SDK** is a high-performance, edge-ready Python library and toolkit for computer vision, image processing, model training, and advanced inference. It unifies state-of-the-art vision models (such as YOLO, SAM, CLIP, and custom recognition pipelines) into a seamless API for production-ready applications, real-time video analysis, object tracking, hyperspectral imaging, and edge hardware deployment.
+The **Abraia Vision SDK** is a high-performance, edge-ready Python library and toolkit for computer vision, image processing, model training, and advanced inference. It unifies state-of-the-art vision models (such as YOLO, SAM, CLIP, and custom recognition pipelines) into a seamless API for production-ready applications, real-time video analysis, object tracking, and edge hardware deployment.
 
 ---
 
@@ -15,10 +15,9 @@ The **Abraia Vision SDK** is a high-performance, edge-ready Python library and t
 - [Core Modules & Features](#-core-modules--features)
   - [1. Inference & Computer Vision](#1-inference--computer-vision)
   - [2. Image Editing & Enhancement](#2-image-editing--enhancement)
-  - [3. Multispectral & Hyperspectral Imaging (HSI)](#3-multispectral--hyperspectral-imaging-hsi)
-  - [4. Edge AI & Hardware Acceleration (Hailo)](#4-edge-ai--hardware-acceleration-hailo)
-  - [5. Training & Dataset Operations](#5-training--dataset-operations)
-  - [6. Utilities & Video Processing](#6-utilities--video-processing)
+  - [3. Edge AI & Hardware Acceleration (Hailo)](#3-edge-ai--hardware-acceleration-hailo)
+  - [4. Training & Dataset Operations](#4-training--dataset-operations)
+  - [5. Runtime & Video Processing](#5-runtime--video-processing)
 - [Examples & Usage Guides](#-examples--usage-guides)
   - [People Monitoring & Tracking](#people-monitoring--tracking)
   - [Face Recognition](#face-recognition)
@@ -37,10 +36,10 @@ Install the Abraia SDK from PyPI:
 pip install -U abraia
 ```
 
-For training and development run the installation with optional extras (`dev`, `multiple`):
+For training and development, install the optional development extras:
 
 ```sh
-pip install -U abraia[dev,multiple]
+pip install -U abraia[dev]
 ```
 
 To export Ultralytics detection or segmentation models to Hailo HEF, install
@@ -63,23 +62,10 @@ The command uploads the HEF and the complete Ultralytics Hailo sidecar bundle
 to the project. Hailo-8/8L and Hailo-10H/15 use different compiler generations;
 select the target matching the deployment accelerator.
 
-For Vision Studio with ENVI support, install the Studio extra:
-
-```sh
-pip install -U abraia[studio]
-```
-
 Grounding DINO requires the optional tokenizer dependency:
 
 ```sh
 pip install -U abraia[grounding-dino]
-```
-
-For supervised HSI analysis or GIS helpers, add the
-corresponding optional extras:
-
-```sh
-pip install -U abraia[multiple,analysis,gis]
 ```
 
 ---
@@ -152,9 +138,9 @@ Built-in detectors do not require a model URI. For example:
 }
 ```
 
-The Studio model selector also includes the Abraia-managed object-detection,
-instance-segmentation, pose-estimation, and classification presets. Each
-task has small (`n`), medium (`m`), and large (`l`) model URIs, for example
+The runtime also includes Abraia-managed object-detection,
+instance-segmentation, pose-estimation, and classification presets. Each task
+has small (`n`), medium (`m`), and large (`l`) model URIs, for example
 `multiple/models/yolov8n.onnx`, `multiple/models/yolov8m.onnx`, and
 `multiple/models/yolov8l.onnx` for object detection.
 Pipeline JSON can select a size without spelling out the URI:
@@ -223,26 +209,22 @@ available. The model URI may be a local `.hef` file, a native Ultralytics Hailo
 export directory, or an uploaded Abraia `.hef` path. Native bundle metadata
 supplies the task and class labels automatically; explicit `task` or `labels`
 values still override it. Uploaded assets under `multiple/models/` are fetched
-from the global Multiple model cache. Demo pipelines derive the
+from the managed model cache. Demo pipelines derive the
 architecture-specific HEF URI from the canonical ONNX URI; explicit local
 paths remain supported. Hailo no longer resolves external Model Zoo downloads
 or bare logical model names.
 
-### 3. Multispectral & Hyperspectral Imaging (`multiple`)
-- Specialized tools for hyperspectral and multispectral image analysis, cube processing, spectral indices, radiometric calibration, scene manifests, and spectral signature extraction (`multiple.spectral` and `multiple.manifests`). Remote datasets support TIFF cubes, ENVI header/data pairs (`.hdr` with `.raw`, `.img`, or a declared companion file), and IMEC snapshot-mosaic scenes (`.raw` plus their calibration `.xml`). Studio can upload a folder containing the raw scenes and shared calibration file.
-- The public `multiple` API is grouped into visualization, local I/O, shared band contracts, metadata, manifests, remote datasets and clients, radiometry, analysis, and registration modules. Analysis and GIS integrations expose optional dependency errors only when used.
-
-### 4. Edge AI & Hardware Acceleration (`abraia.inference.hailo`)
+### 3. Edge AI & Hardware Acceleration (`abraia.inference.hailo`)
 - Optimized runtime support and toolboxes for Hailo NPU hardware acceleration (`abraia.inference.hailo`).
 
-### 5. Training & Dataset Operations (`abraia.training`)
+### 4. Training & Dataset Operations (`abraia.training`)
 - Tools for training custom classification, detection, and segmentation models, along with dataset preprocessing utilities (`dataset`, `ops`).
   Training supports small, medium, and large model sizes; detection and
   segmentation use YOLOv8n/m/l, while classification uses ResNet18/50/101.
   Ultralytics detection and segmentation models can be exported to Hailo HEF
   through `ModelTrainer.compile()` or the `abraia compile` command.
 
-### 6. Runtime & Video Processing (`abraia.runtime`)
+### 5. Runtime & Video Processing (`abraia.runtime`)
 - Robust video frame iteration and manipulation (`Video`).
 - Annotation and rendering tools (`render_results`, `render_counter`, `render_region`).
 - Compression and sketch generation utilities.

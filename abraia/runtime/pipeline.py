@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass, field
 import json
-import logging
 from pathlib import Path
 import threading
 import time
@@ -14,51 +13,28 @@ from .factories import (
     RegionTimerStage,
     LineCounterStage,
     TrackerStage,
-    _close_resources,
 )
-
-
-logger = logging.getLogger(__name__)
+from .lifecycle import CancellationWatcher, close_resources, stop_resource
 
 
 class CancellableSource:
-    """Compatibility wrapper that stops a blocking source on cancellation."""
+    """Wrap a blocking source with cooperative cancellation."""
 
     def __init__(self, source, is_cancelled):
         self.source = source
         self.frame_rate = getattr(source, "frame_rate", 0)
         self._is_cancelled = is_cancelled
-        self._watch_stop = threading.Event()
+        self._watcher = CancellationWatcher(
+            is_cancelled,
+            lambda: stop_resource(self.source),
+        )
 
     def stop(self):
-        self._watch_stop.set()
-        stop = getattr(self.source, "stop", None)
-        close = getattr(self.source, "close", None)
-        if callable(stop):
-            stop()
-        elif callable(close):
-            close()
-        else:
-            # Preserve compatibility with older capture objects while new
-            # sources migrate to the public stop/close protocol.
-            if hasattr(self.source, "quit"):
-                self.source.quit = True
-            capture = getattr(self.source, "cap", None)
-            if capture is not None and hasattr(capture, "release"):
-                try:
-                    capture.release()
-                except Exception:
-                    logger.debug("Failed to release cancellable source", exc_info=True)
-
-    def _watch_cancellation(self):
-        while not self._watch_stop.wait(0.05):
-            if self._is_cancelled():
-                self.stop()
-                return
+        self._watcher.stop_event.set()
+        stop_resource(self.source)
 
     def __iter__(self):
-        watcher = threading.Thread(target=self._watch_cancellation, daemon=True)
-        watcher.start()
+        self._watcher.start()
         try:
             for frame in self.source:
                 if self._is_cancelled():
@@ -66,7 +42,7 @@ class CancellableSource:
                 yield frame
         finally:
             self.stop()
-            watcher.join(timeout=0.2)
+            self._watcher.close()
 
 
 @dataclass
@@ -151,18 +127,7 @@ class Pipeline:
     def stop(self):
         """Request cancellation and release a blocking source if possible."""
         self._stop_requested.set()
-        stop = getattr(self.source, "stop", None)
-        close = getattr(self.source, "close", None)
-        if callable(stop):
-            stop()
-        elif callable(close):
-            close()
-
-    def _watch_cancellation(self, is_cancelled):
-        while not self._stop_requested.wait(0.05):
-            if is_cancelled():
-                self.stop()
-                return
+        stop_resource(self.source)
 
     def run(self, is_cancelled=None) -> Optional[FrameContext]:
         """Process all source frames and return the last frame context.
@@ -178,10 +143,10 @@ class Pipeline:
             self._is_cancelled = lambda: False
         else:
             self._is_cancelled = is_cancelled
-            watcher = threading.Thread(
-                target=self._watch_cancellation,
-                args=(is_cancelled,),
-                daemon=True,
+            watcher = CancellationWatcher(
+                is_cancelled,
+                self.stop,
+                stop_event=self._stop_requested,
             )
             watcher.start()
         last_context = None
@@ -231,7 +196,7 @@ class Pipeline:
         finally:
             self._stop_requested.set()
             if watcher is not None:
-                watcher.join(timeout=0.2)
+                watcher.close()
             self.close()
 
     @classmethod
@@ -279,7 +244,7 @@ class Pipeline:
         if self._closed:
             return
         self._closed = True
-        _close_resources([
+        close_resources([
             self.display,
             self.source,
             self.model,

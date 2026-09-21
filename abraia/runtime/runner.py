@@ -1,7 +1,6 @@
 """Reusable background execution adapter for Abraia pipelines."""
 
 import copy
-import inspect
 import time
 from collections import deque
 
@@ -68,12 +67,7 @@ def run_pipeline(
             frame_callback(event)
 
     pipeline = Pipeline.from_dict(runtime_config, on_frame=on_frame)
-    run = pipeline.run
-    if "is_cancelled" in inspect.signature(run).parameters:
-        run(is_cancelled=is_cancelled)
-    else:
-        # Keep compatibility with lightweight test/dummy pipeline adapters.
-        run()
+    pipeline.run(is_cancelled=is_cancelled)
     return {"events": list(events), "stopped": bool(is_cancelled())}
 
 

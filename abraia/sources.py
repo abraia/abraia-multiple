@@ -7,6 +7,17 @@ from typing import Any, Optional, Protocol, runtime_checkable
 
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".bmp")
 VIDEO_SUFFIXES = (".mp4", ".avi", ".mov", ".mkv")
+SOURCE_TYPE_ALIASES = {
+    "images": "image",
+    "usb_camera": "camera",
+    "rpi_camera": "camera",
+}
+
+
+def normalize_source_type(source_type: Any) -> str:
+    """Return the canonical editor/runtime name for a source type."""
+    normalized = str(source_type or "").strip().lower()
+    return SOURCE_TYPE_ALIASES.get(normalized, normalized)
 
 
 @runtime_checkable
@@ -63,8 +74,10 @@ def infer_source_type(
 
 __all__ = [
     "IMAGE_SUFFIXES",
+    "SOURCE_TYPE_ALIASES",
     "VIDEO_SUFFIXES",
     "ImageSource",
     "PreviewSource",
     "infer_source_type",
+    "normalize_source_type",
 ]

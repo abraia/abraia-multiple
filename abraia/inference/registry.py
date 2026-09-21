@@ -10,6 +10,7 @@ from .model_config import (
     MODEL_ARCHITECTURES,
     MODEL_RUN_OPTIONS,
     MODEL_SIZE_URIS,
+    MODEL_DESCRIPTORS,
     ModelSpec,
     PIPELINE_MODEL_KINDS,
     RESNET_MODEL_KINDS,
@@ -25,9 +26,8 @@ from .accelerators import (
 def supports_runtime_options(kind):
     """Return whether a model kind accepts generic run-time options."""
     normalized = str(kind or "").strip().lower()
-    return normalized in (
-        MODEL_ARCHITECTURES | GROUNDING_DINO_MODEL_KINDS | RESNET_MODEL_KINDS
-    )
+    descriptor = MODEL_DESCRIPTORS.get(normalized)
+    return bool(descriptor and descriptor.runtime_options)
 
 
 def model_backend(config):

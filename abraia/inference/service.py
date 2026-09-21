@@ -185,24 +185,13 @@ class InferenceService:
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def sam_predict(self, image, points):
-        """Predict a mask from point prompts, reusing the image embedding."""
-        if not points:
-            raise ValueError("MobileSAM requires at least one point")
-
-        from . import SAM
-
+    def _sam_predict(self, image, prompt):
+        """Predict a mask from a serialized MobileSAM prompt."""
         image = as_array(image)
         image_key = _image_signature(image)
-        prompt = [
-            {
-                "type": "point",
-                "data": [float(point[0]), float(point[1])],
-                "label": int(point[2]),
-            }
-            for point in points
-        ]
         with self._lock:
+            from . import SAM
+
             if self._sam is None:
                 self._sam = SAM()
             sam = self._sam
@@ -211,6 +200,33 @@ class InferenceService:
                 self._sam_image = image
                 self._sam_image_key = image_key
             return sam.predict(image, prompt=json.dumps(prompt))
+
+    def sam_predict(self, image, points):
+        """Predict a mask from point prompts, reusing the image embedding."""
+        if not points:
+            raise ValueError("MobileSAM requires at least one point")
+        prompt = [
+            {
+                "type": "point",
+                "data": [float(point[0]), float(point[1])],
+                "label": int(point[2]),
+            }
+            for point in points
+        ]
+        return self._sam_predict(image, prompt)
+
+    def sam_predict_box(self, image, box):
+        """Predict a MobileSAM mask from an ``xywh`` box prompt."""
+        if box is None or len(box) != 4:
+            raise ValueError("MobileSAM box prompts require [x, y, width, height]")
+        x, y, width, height = (float(value) for value in box)
+        if width <= 0 or height <= 0:
+            raise ValueError("MobileSAM box prompts require positive dimensions")
+        prompt = [{
+            "type": "rectangle",
+            "data": [x, y, x + width, y + height],
+        }]
+        return self._sam_predict(image, prompt)
 
     def grounding_dino_predict(self, image, prompt):
         """Detect objects described by a text prompt using Grounding DINO."""
@@ -224,3 +240,21 @@ class InferenceService:
             if self._grounding_dino is None:
                 self._grounding_dino = GroundingDINOModel()
             return self._grounding_dino.run(image, prompt=str(prompt).strip())
+
+    def grounding_dino_sam_predict(self, image, prompt):
+        """Detect prompted objects and refine each box with MobileSAM."""
+        from .postprocess.masks import mask_to_polygon
+
+        detections = self.grounding_dino_predict(image, prompt)
+        segmented = []
+        for detection in detections:
+            polygon = mask_to_polygon(
+                self.sam_predict_box(image, detection.get("box"))
+            )
+            if not polygon:
+                continue
+            annotation = dict(detection)
+            annotation["polygon"] = polygon
+            annotation.pop("box", None)
+            segmented.append(annotation)
+        return segmented

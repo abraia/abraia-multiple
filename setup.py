@@ -13,21 +13,11 @@ with pathlib.Path('requirements.txt').open() as requirements_txt:
         in pkg_resources.parse_requirements(requirements_txt)]
     
 extras_require = {
-    'multiple': ['spectral>=0.23.1', 'scipy>=1.14.1', 'tifffile>=2024.8.30'],
-    'analysis': ['scikit-learn>=1.3.0', 'joblib>=1.3.0'],
-    'gis': ['folium>=0.14.0', 'shapely>=2.0.0'],
-    'dev': ['tifffile>=2024.8.30', 'ultralytics>=8.4.97,<9', 'onnx>=1.16.0', 'transformers>=4.57.1'],
+    'dev': ['ultralytics>=8.4.97,<9', 'onnx>=1.16.0', 'transformers>=4.57.1'],
     # The Hailo Dataflow Compiler is distributed separately by Hailo and
     # cannot be declared as a normal PyPI dependency.
     'hailo': ['ultralytics>=8.4.97,<9', 'PyYAML>=6.0'],
     'grounding-dino': ['transformers>=4.57.1'],
-    'studio': [
-        'PySide6>=6.5',
-        'spectral>=0.23.1',
-        'tifffile>=2024.8.30',
-        'scikit-learn>=1.3.0',
-        'joblib>=1.3.0',
-    ],
 }
 
 setup(
@@ -44,7 +34,6 @@ setup(
     packages=find_packages(exclude=['tests', 'tests.*', 'miscode', 'miscode.*']),
     package_data={
         '': ['*.jpg'],
-        'studio': ['assets/mdi/*.svg', 'assets/mdi/README.md'],
     },
     include_package_data=True,
     tests_require=['pytest'],
@@ -54,7 +43,6 @@ setup(
     entry_points={
         'console_scripts': [
             'abraia=abraia.cli:main',
-            'abraia-studio=studio.app:main',
         ],
     },
 )

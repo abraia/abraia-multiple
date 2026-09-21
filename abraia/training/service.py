@@ -15,11 +15,15 @@ from .dataset import search_images
 class TrainingService:
     """Own annotation and training model lifecycles for application clients."""
 
-    def auto_annotate(self, dataset, label, progress_callback, is_cancelled):
+    def auto_annotate(
+        self, dataset, label, progress_callback, is_cancelled, task=None
+    ):
         """Annotate unannotated dataset images and persist each result."""
         from .dataset import Annotator, annotate_image
 
-        segment = normalize_task(dataset.task) == "segmentation"
+        task = normalize_task(task or dataset.task)
+        segment = task == "segmentation"
+        classification = task == "classification"
         completed = {annotation["filename"] for annotation in dataset.annotations}
         images = [image for image in dataset.images if image["name"] not in completed]
         total = len(images)
@@ -33,6 +37,7 @@ class TrainingService:
                     [label],
                     segment=segment,
                     annotator=annotator,
+                    classification=classification,
                 )
                 image_annotations = [annotation] if annotation else []
                 if image_annotations:
@@ -44,7 +49,11 @@ class TrainingService:
                 )
                 progress_callback(index, total, image_data["name"], annotation_count)
         finally:
-            dataset.save()
+            try:
+                dataset.save()
+            finally:
+                if annotator is not None:
+                    annotator.close()
         return dataset, len(dataset.annotations), is_cancelled()
 
     def train_dataset(self, project, dataset, epochs, training_callback,
@@ -229,12 +238,14 @@ class DatasetProjectService:
         dataset.save()
         return self.dataset_loader(project, validate=False)
 
-    def auto_annotate(self, project, label, progress_callback, is_cancelled):
+    def auto_annotate(
+        self, project, label, progress_callback, is_cancelled, task=None
+    ):
         dataset = self.dataset_loader(project)
         if self.training is None:
             raise RuntimeError("A training service is required for auto-annotation")
         return self.training.auto_annotate(
-            dataset, label, progress_callback, is_cancelled
+            dataset, label, progress_callback, is_cancelled, task=task
         )
 
 

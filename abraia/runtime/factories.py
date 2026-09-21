@@ -1,28 +1,11 @@
 """Factories used to assemble runtime inference pipelines."""
 
 from dataclasses import dataclass
-import logging
 import os
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-
-logger = logging.getLogger(__name__)
-
-
-def _close_resources(resources):
-    """Close unique resources without masking the original pipeline error."""
-    seen = set()
-    for resource in resources:
-        if resource is None or id(resource) in seen:
-            continue
-        seen.add(id(resource))
-        close = getattr(resource, "close", None)
-        if callable(close):
-            try:
-                close()
-            except Exception:
-                logger.warning("Failed to close pipeline resource", exc_info=True)
+from .lifecycle import close_resources
 
 
 def _is_remote_source(source: str) -> bool:
@@ -188,9 +171,7 @@ class StageFactory:
             if stage_config.get("enabled") is False and stage_type in (
                 "tracker",
                 "line_counter",
-                "counter",
                 "region_filter",
-                "region",
                 "region_timer",
             ):
                 continue
@@ -209,22 +190,22 @@ class StageFactory:
                 )
                 stage = TrackerStage(tracker)
                 components["tracker"] = tracker
-            elif stage_type in ("line_counter", "counter"):
+            elif stage_type == "line_counter":
                 line = stage_config.get("line")
                 if not line or len(line) != 2:
                     raise ValueError("line_counter requires a two-point 'line'")
                 counter = self.line_counter_cls(line)
                 stage = LineCounterStage(counter)
                 components["line_counter"] = counter
-            elif stage_type in ("region_filter", "region"):
-                polygon = stage_config.get("polygon", stage_config.get("region"))
+            elif stage_type == "region_filter":
+                polygon = stage_config.get("polygon")
                 if not polygon:
                     raise ValueError("region_filter requires a 'polygon'")
                 region_filter = self.region_filter_cls(polygon)
                 stage = RegionFilterStage(region_filter)
                 components["region_filter"] = region_filter
             elif stage_type == "region_timer":
-                polygon = stage_config.get("polygon", stage_config.get("region"))
+                polygon = stage_config.get("polygon")
                 if not polygon:
                     raise ValueError("region_timer requires a 'polygon'")
                 region_timer = self.region_timer_cls(polygon)
@@ -335,7 +316,7 @@ class PipelineBuilder:
                 video,
             )
         except Exception:
-            _close_resources([model, video, *components.values()])
+            close_resources([model, video, *components.values()])
             raise
 
         renderer = PipelineRenderer(
@@ -347,7 +328,7 @@ class PipelineBuilder:
         if not show_display:
             # Keep the sink alive when a destination was configured, but do
             # not open an OpenCV preview window in headless runs.
-            video._display_enabled = False
+            video.set_display_enabled(False)
         display = video if show_display or source_plan.video_kwargs.get("dest") else None
         return self.pipeline_cls(
             source=video,
@@ -371,7 +352,6 @@ __all__ = [
     "SourcePlan",
     "StageFactory",
     "TrackerStage",
-    "_close_resources",
     "_is_remote_source",
     "_is_temporal_source",
 ]

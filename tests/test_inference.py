@@ -1,3 +1,6 @@
+import json
+
+import cv2
 import numpy as np
 import pytest
 from unittest.mock import patch
@@ -119,8 +122,20 @@ def test_mask_to_polygon_accepts_boolean_masks():
     assert len(polygon) >= 3
 
 
+def test_mask_to_polygon_selects_largest_outer_component_by_area():
+    mask = np.zeros((128, 128), dtype=np.uint8)
+    mask[10:100, 10:100] = 1
+    mask[40:60, 40:60] = 0
+    cv2.circle(mask, (112, 112), 6, 1, -1)
+
+    polygon = mask_to_polygon(mask)
+    xs, ys = zip(*polygon)
+
+    assert (min(xs), max(xs), min(ys), max(ys)) == (10, 99, 10, 99)
+    assert len(polygon) > 4
+
+
 from abraia.runtime.video import load_images
-import cv2
 
 def test_load_images(tmp_path):
     d = tmp_path / "sub"
@@ -276,6 +291,49 @@ def test_sam_cache_uses_image_content_not_object_identity():
     image[0, 0, 0] = 1
     service.sam_predict(image, [[2, 2, 1]])
     assert service._sam.encode_calls == 2
+
+
+def test_sam_box_prompt_uses_xywh_coordinates():
+    class FakeSAM:
+        def encode(self, image):
+            pass
+
+        def predict(self, image, prompt):
+            self.prompt = json.loads(prompt)
+            return np.zeros(image.shape[:2], dtype=np.uint8)
+
+        def close(self):
+            pass
+
+    service = InferenceService()
+    service._sam = FakeSAM()
+    image = np.zeros((8, 10, 3), dtype=np.uint8)
+
+    service.sam_predict_box(image, [2, 3, 4, 5])
+
+    assert service._sam.prompt == [{
+        "type": "rectangle",
+        "data": [2.0, 3.0, 6.0, 8.0],
+    }]
+
+
+def test_grounding_dino_sam_prediction_returns_polygons():
+    service = InferenceService()
+    image = np.zeros((12, 16, 3), dtype=np.uint8)
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    mask[2:8, 4:11] = 1
+    service.grounding_dino_predict = lambda _image, _prompt: [
+        {"label": "cat", "box": [4, 2, 7, 6], "score": 0.9},
+    ]
+    service.sam_predict_box = lambda _image, _box: mask
+
+    result = service.grounding_dino_sam_predict(image, "cat")
+
+    assert len(result) == 1
+    assert result[0]["label"] == "cat"
+    assert result[0]["score"] == 0.9
+    assert result[0]["polygon"]
+    assert "box" not in result[0]
 
 
 def test_pose_output_decodes_boxes_and_keypoints():
