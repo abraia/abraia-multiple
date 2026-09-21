@@ -105,12 +105,79 @@ def configure():
     try:
         _abraia_id, abraia_key = config.load()
         abraia_key = click.prompt("Abraia Key", default=abraia_key)
-        abraia_id, _api_secret = config.load_auth(abraia_key)
-        config.save(abraia_id, abraia_key)
+        config.load_auth(abraia_key)
+        config.save(abraia_key)
     except (OSError, ValueError) as error:
         raise click.ClickException(
             f"Unable to save Abraia credentials: {error}"
         ) from error
+
+
+@cli.command()
+@click.argument("project")
+@click.option(
+    "--work-dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help="Keep FastDup's intermediate files in this directory.",
+)
+@click.option(
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    help="Delete recommended remote files and update annotations.",
+)
+@click.option(
+    "--apply-outliers",
+    is_flag=True,
+    help="Also delete outliers; review them carefully first.",
+)
+@click.option(
+    "--duplicate-threshold",
+    type=click.FloatRange(0.0, 1.0),
+    default=0.96,
+    show_default=True,
+)
+@click.option(
+    "--blur-threshold",
+    type=float,
+    default=None,
+    help="Absolute FastDup blur score threshold; lower scores are blurrier.",
+)
+@click.option(
+    "--blur-percentile",
+    type=click.FloatRange(0.0, 1.0, min_open=True),
+    default=0.05,
+    show_default=True,
+    help="Flag the lowest fraction of blur scores.",
+)
+def curate(
+    project,
+    work_dir,
+    apply_changes,
+    apply_outliers,
+    duplicate_threshold,
+    blur_threshold,
+    blur_percentile,
+):
+    """Analyze and optionally prune an image dataset with FastDup."""
+    from .training import FastdupAnalyzer, curate_dataset
+
+    def operation():
+        report = curate_dataset(
+            project,
+            work_dir=work_dir,
+            apply=apply_changes,
+            analyzer=FastdupAnalyzer(
+                duplicate_threshold=duplicate_threshold,
+                blur_threshold=blur_threshold,
+                blur_percentile=blur_percentile,
+                remove_outliers=apply_outliers,
+            ),
+        )
+        click.echo(json.dumps(report.to_dict(), indent=2))
+
+    _run_remote(operation)
 
 
 @cli.group("files")

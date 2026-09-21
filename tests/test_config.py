@@ -35,6 +35,18 @@ def test_load_resolves_key_only_config_file(monkeypatch, tmp_path):
     assert config.load() == ("file-user", encoded_key)
 
 
+def test_save_writes_only_the_api_key(monkeypatch, tmp_path):
+    config_path = tmp_path / "abraia"
+    monkeypatch.setattr(config, "CONFIG_FILE", str(config_path))
+    encoded_key = config.base64encode("saved-user:secret")
+
+    config.save(encoded_key)
+
+    assert config_path.read_text(encoding="utf-8") == (
+        f"abraia_key: {encoded_key}\n"
+    )
+
+
 def test_pipeline_point_helpers_round_trip_editor_text():
     points = parse_points("0, 1; 2.5, -3")
 

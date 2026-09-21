@@ -12,17 +12,18 @@ The **Abraia Vision SDK** is a high-performance, edge-ready Python library and t
 ## 📚 Table of Contents
 
 - [Installation](#-installation)
+- [Command-Line Interface](#-command-line-interface)
 - [Core Modules & Features](#-core-modules--features)
   - [1. Inference & Computer Vision](#1-inference--computer-vision)
   - [2. Image Editing & Enhancement](#2-image-editing--enhancement)
+  - [Object Processing Pipelines](#object-processing-pipelines)
   - [3. Edge AI & Hardware Acceleration (Hailo)](#3-edge-ai--hardware-acceleration-hailo)
   - [4. Training & Dataset Operations](#4-training--dataset-operations)
   - [5. Runtime & Video Processing](#5-runtime--video-processing)
 - [Examples & Usage Guides](#-examples--usage-guides)
-  - [People Monitoring & Tracking](#people-monitoring--tracking)
-  - [Face Recognition](#face-recognition)
-  - [License Plate Recognition (ALPR)](#license-plate-recognition-alpr)
+  - [Pipeline-Based Monitoring, Face, and Plate Workflows](#pipeline-based-monitoring-face-and-plate-workflows)
   - [Semantic Search with CLIP](#semantic-search-with-clip)
+  - [Real-Time Edge Object Counter](#real-time-edge-object-counter-on-raspberry-pi-with-hailo-npu)
 - [Development & Testing](#-development--testing)
 - [License](#-license)
 
@@ -43,12 +44,17 @@ pip install -U abraia[dev]
 ```
 
 To export Ultralytics detection or segmentation models to Hailo HEF, install
-the Hailo extra and the matching Hailo Dataflow Compiler wheel separately:
+the Hailo extra:
 
 ```sh
 pip install -U abraia[hailo]
-pip install /path/to/hailo_dataflow_compiler-*.whl
 ```
+
+On a Linux x86_64 host, the compile command automatically downloads and
+installs the matching DFC wheel from the global `multiple` namespace when the
+required `hailo_sdk_client` package is missing or belongs to another compiler
+generation. Hailo-8/8L use DFC 3.33.1; Hailo-10H/15H/15L use DFC 5.2.0.
+Compilation on other hosts still requires a compatible external environment.
 
 Hailo compilation runs on Linux x86_64. After preparing a dataset, compile a
 trained checkpoint with:
@@ -59,13 +65,120 @@ abraia compile PROJECT --checkpoint path/to/best.pt --device hailo8l \
 ```
 
 The command uploads the HEF and the complete Ultralytics Hailo sidecar bundle
-to the project. Hailo-8/8L and Hailo-10H/15 use different compiler generations;
-select the target matching the deployment accelerator.
+to the project. Hailo-8/8L use DFC 3.33.1, while Hailo-10H/15H/15L use DFC
+5.2.0; select the target matching the deployment accelerator.
 
 Grounding DINO requires the optional tokenizer dependency:
 
 ```sh
 pip install -U abraia[grounding-dino]
+```
+
+Dataset curation with FastDup is optional:
+
+```sh
+pip install -U abraia[curation]
+```
+
+---
+
+## 🖥️ Command-Line Interface
+
+Installing the package also installs the `abraia` command. Use
+`abraia --help` or `abraia COMMAND --help` for the complete option list.
+
+### Authentication and file management
+
+Configure the SDK with the Abraia API key. The command only prompts for the
+API key and stores it for subsequent commands:
+
+```sh
+abraia configure
+```
+
+Manage remote files and inspect available datasets:
+
+```sh
+abraia files list [FOLDER]
+abraia files upload LOCAL_PATH [REMOTE_FOLDER]
+abraia files download REMOTE_PATH [LOCAL_FOLDER]
+abraia files remove REMOTE_PATH
+abraia files metadata [--remove] REMOTE_PATH
+abraia list
+```
+
+`files upload` accepts a file or directory. Removing files asks for
+confirmation before making changes.
+
+### Dataset creation and annotation
+
+Create or update a dataset from uploaded files, optionally adding images from
+a search query and preprocessing them:
+
+```sh
+abraia create PROJECT [QUERY] [--anonymize] [--upscale PIXELS]
+```
+
+`--anonymize` blurs faces and license plates, while `--upscale` enlarges
+images below the selected size threshold. Annotate a dataset with
+Grounding DINO using a text label, optionally generating segmentation masks:
+
+```sh
+abraia annotate PROJECT LABEL [--segment]
+```
+
+### Training and Hailo compilation
+
+Prepare and train a model on a dataset, then compile a trained Ultralytics
+checkpoint to a Hailo HEF bundle:
+
+```sh
+abraia train PROJECT [EPOCHS]
+
+abraia compile PROJECT --checkpoint path/to/best.pt \
+  --device hailo8l --calibration-data PROJECT/data.yaml
+```
+
+Compilation supports `hailo8`, `hailo8l`, `hailo10h`, `hailo15h`, and
+`hailo15l`. Optional compilation controls include `--fraction`, `--imgsz`,
+`--conf`, `--iou`, and `--version`. On Linux x86_64, the matching Hailo DFC
+wheel is installed automatically when it is required and available.
+
+### Dataset curation and pruning
+
+Analyze an image dataset for duplicate images, outliers, blurry images, and
+invalid files with FastDup:
+
+```sh
+abraia curate PROJECT --work-dir ./fastdup-work
+```
+
+The command is a dry run by default and prints a JSON report. Apply duplicate,
+blur, and invalid-image recommendations with `--apply`; include outlier
+removals only after review with `--apply-outliers`. Use
+`--duplicate-threshold`, `--blur-threshold`, or `--blur-percentile` to adjust
+the analysis.
+
+### Demos and inference
+
+Run a built-in, pipeline-backed demo or a trained project. Built-in object
+demos include `detect`, `segment`, `pose`, `people`, `queue`, `escalator`,
+`tomato`, `apple`, `strawberry`, `grapes`, and `plates`; `faces` selects the
+face-tracking demo:
+
+```sh
+abraia run demo DEMO_NAME [SOURCE] [--accelerator auto]
+abraia run demo faces [SOURCE] [--accelerator auto]
+abraia run PROJECT [CLASSES] [SOURCE] [--accelerator auto]
+```
+
+The `--accelerator` option applies to demos and can be `auto`, `onnx`, `cpu`,
+`gpu`, or `hailo`. Custom trained-project inference currently uses the
+standard ONNX model path. Use the special `search` class to search a project
+with a text query:
+
+```sh
+abraia run PROJECT search "person with a red shirt"
 ```
 
 ---
@@ -75,18 +188,18 @@ pip install -U abraia[grounding-dino]
 ### 1. Inference & Computer Vision (`abraia.inference`)
 - **Object Detection**: Fast ONNX/YOLO-based object detection (`abraia.inference.Model`).
 - **Open-Vocabulary Detection**: Grounding DINO ONNX inference with text prompts (`abraia.inference.GroundingDINOModel`).
-- **Segmentation (SAM)**: Segment Anything Model integration for precise image masking (`abraia.inference.Sam`).
+- **Segmentation (SAM)**: Segment Anything Model integration for precise image masking (`abraia.inference.SAM`).
 - **Object Tracking & People Flow**: Advanced multi-object tracking (`Tracker`), line crossing counters (`LineCounter`), and region duration timers (`RegionTimer`).
 - **Face Recognition**: Identify and match faces in images and streams (`FaceRecognizer`).
 - **License Plate Recognition (ALPR)**: Automatic license plate detection and text recognition (`PlateRecognizer`).
-- **OCR**: Extract text from images (`Ocr`).
+- **OCR**: Extract text from images (`TextSystem`).
 - **Semantic Search (CLIP)**: Vector embeddings and similarity search for text-to-image and image-to-image retrieval (`Clip`).
 
 ### 2. Image Editing & Enhancement (`abraia.editing`)
-- **Upscaling**: Super-resolution image enhancement (`upscale`).
-- **Smart Cropping**: Intelligent content-aware cropping (`smartcrop`).
-- **Background Removal**: Foreground segmentation and background removal (`removebg`).
-- **Inpainting**: Image restoration and object removal (`inpaint`).
+- **Upscaling**: Super-resolution image enhancement (`upscale_image`).
+- **Smart Cropping**: Intelligent content-aware cropping (`smartcrop_image`).
+- **Background Removal**: Foreground segmentation and background removal (`remove_background`).
+- **Inpainting**: Image restoration and object removal (`inpaint_image`).
 
 ### Object Processing Pipelines
 
@@ -99,10 +212,10 @@ from abraia.runtime import Pipeline
 Pipeline.from_file("pipeline.json").run()
 ```
 
-The first pipeline format supports a source, detector, tracker, line counter,
-region filter or timer, and display output. Stages run in the order listed.
-The detector can be an ONNX model (the default for existing configurations), a
-Hailo model, or one of the built-in face and license-plate detectors:
+The version-one pipeline format supports a source, model, tracker, line
+counter, region filter or timer, and display output. Stages run in the order
+listed. The model can be an ONNX model, a Hailo model, or one of the built-in
+face and license-plate detectors:
 
 ```json
 {
@@ -123,10 +236,10 @@ Hailo model, or one of the built-in face and license-plate detectors:
 ```
 
 For model-backed entries, `kind` identifies the model architecture or family
-(`yolov8`, `yolov5`, `yolo11`, and so on), while `task` identifies the
-operation (`detection`, `segmentation`, or `pose`). The runtime selects ONNX
-or Hailo from the model URI (`.onnx` or `.hef`), so the same architecture and
-task schema works for both backends.
+(`yolov8`, `yolov5`, or `yolo11`), while `task` identifies the operation
+(`detection`, `segmentation`, `pose`, or `classification`). The runtime selects
+ONNX or Hailo from the model URI (`.onnx` or `.hef`); Hailo is available for
+the supported detection, segmentation, and pose targets.
 
 Built-in detectors do not require a model URI. For example:
 
@@ -223,6 +336,8 @@ or bare logical model names.
   segmentation use YOLOv8n/m/l, while classification uses ResNet18/50/101.
   Ultralytics detection and segmentation models can be exported to Hailo HEF
   through `ModelTrainer.compile()` or the `abraia compile` command.
+- Dataset curation and pruning are available through the optional FastDup
+  integration documented in the CLI section above.
 
 ### 5. Runtime & Video Processing (`abraia.runtime`)
 - Robust video frame iteration and manipulation (`Video`).
@@ -233,78 +348,42 @@ or bare logical model names.
 
 ## 💡 Examples & Usage Guides
 
-### People Monitoring & Tracking
+### Pipeline-Based Monitoring, Face, and Plate Workflows
 
-Monitor people flow, count crossings, and track dwell times in public spaces or commercial areas:
+Object tracking, people flow, face recognition, and license-plate recognition
+are configured as pipeline model and stage options in the
+[pipeline section above](#object-processing-pipelines). Save the JSON
+configuration as `pipeline.json` and run it with:
 
 ```python
-from abraia.inference import Model, Tracker
-from abraia.inference.tools import LineCounter, RegionTimer
-from abraia.runtime import Video
-from abraia.utils import render_results, render_counter, render_region
+from abraia.runtime import Pipeline
 
-model = Model("multiple/models/yolov8n.onnx")
-video = Video('people-walking.mp4')
-tracker = Tracker(frame_rate=video.frame_rate)
-line_counter = LineCounter([(0, 650), (1920, 650)])
-region_timer = RegionTimer([(10, 600), (1690, 600), (1690, 700), (10, 700)])
+Pipeline.from_file("pipeline.json").run()
+```
 
-for k, frame in enumerate(video):
-    results = model.run(frame, labels=['person'])
-    results = tracker.update(results)
-    in_count, out_count = line_counter.update(results)
-    in_objects, out_objects = region_timer.update(results, k / video.frame_rate)
-    frame = render_counter(frame, line_counter.line, f"In: {in_count} | Out: {out_count}")
-    frame = render_region(frame, region_timer.region, f"Count: {len(in_objects)}")
-    frame = render_results(frame, in_objects)
-    video.show(frame)
+#### People monitoring
+
+For the built-in people-monitoring pipeline, the CLI provides the same
+pipeline-backed workflow:
+
+```sh
+abraia run demo people people-walking.mp4 --accelerator auto
 ```
 
 ![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.jpg)
 
-### Face Recognition
+#### Face recognition
 
-Identify and recognize people in images:
-
-```python
-import os
-
-from abraia.inference import FaceRecognizer
-from abraia.utils import load_image, save_image, render_results
-
-img = load_image('images/rolling-stones.jpg')
-out = img.copy()
-
-recognition = FaceRecognizer()
-
-index = []
-for src in ['mick-jagger.jpg', 'keith-richards.jpg', 'ronnie-wood.jpg', 'charlie-watts.jpg']:
-    img = load_image(f"images/{src}")
-    rslt = recognition.identify_faces(img)[0]
-    index.append({'name': os.path.splitext(src)[0], 'vector': rslt['vector']})
-
-results = recognition.identify_faces(results, index)
-render_results(out, results)
-save_image(out, 'images/rolling-stones-identified.jpg')
-```
+Use `kind: "face"` in the pipeline model to select the built-in face
+recognition workflow. This keeps the source, model, index, stages, display,
+and accelerator selection in one configuration.
 
 ![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
 
-### License Plate Recognition (ALPR)
+#### License-plate recognition
 
-Automatically detect and recognize car license plates in images and video streams:
-
-```python
-from abraia.inference import PlateRecognizer
-from abraia.utils import load_image, show_image, render_results
-
-alpr = PlateRecognizer()
-
-img = load_image('images/car.jpg')
-results = alpr.recognize(img)
-frame = render_results(img, results)
-show_image(img)
-```
+Use `kind: "license_plate"` in the pipeline model to select the built-in
+license-plate recognition workflow.
 
 ![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
@@ -339,47 +418,85 @@ Deploy high-performance real-time object detection and counting on a Raspberry P
 
 ### Implementation Guide
 
-Create a script (e.g., `edge_counter.py`) ready for deployment on your Raspberry Pi:
+Save this configuration as `edge_counter.json` and adjust the source,
+coordinates, and model URI for the target installation:
+
+```json
+{
+  "version": 1,
+  "source": {
+    "type": "camera",
+    "src": 0,
+    "resolution": [1920, 1080],
+    "fps": 30,
+    "video_unpaced": false
+  },
+  "model": {
+    "task": "detection",
+    "kind": "yolov8",
+    "uri": "multiple/models/yolov8n_hailo8.hef",
+    "params": {
+      "batch_size": 1,
+      "score_threshold": 0.3
+    }
+  },
+  "stages": [
+    {"type": "tracker", "enabled": true},
+    {"type": "line_counter", "line": [[100, 540], [1820, 540]]},
+    {
+      "type": "region_timer",
+      "polygon": [[300, 200], [1620, 200], [1620, 900], [300, 900]]
+    }
+  ],
+  "display": {"show": true}
+}
+```
+
+Run the saved pipeline from Python:
 
 ```python
 from abraia.runtime import Pipeline
 
-pipeline = Pipeline.from_dict({
-    "version": 1,
-    "source": {
-        "src": 0,
-        "resolution": [1920, 1080],
-        "fps": 30,
-        "video_unpaced": False,
-    },
-    "model": {
-        "task": "detection",
-        "kind": "yolov8",
-        "uri": "multiple/models/yolov8n_hailo8.hef",
-        "params": {
-            "batch_size": 1,
-            "score_threshold": 0.3,
-        },
-    },
-    "stages": [
-        {"type": "tracker", "enabled": True},
-        {"type": "line_counter", "line": [[100, 540], [1820, 540]]},
-        {
-            "type": "region_timer",
-            "polygon": [[300, 200], [1620, 200], [1620, 900], [300, 900]],
-        },
-    ],
-    "display": {"show": True},
-})
-pipeline.run()
+Pipeline.from_file("edge_counter.json").run()
 ```
 
 ### Deployment on Raspberry Pi
 
-Execute the script directly on the Raspberry Pi:
+Execute the pipeline directly on the Raspberry Pi:
 
 ```sh
-python3 edge_counter.py
+python3 -c 'from abraia.runtime import Pipeline; Pipeline.from_file("edge_counter.json").run()'
+```
+
+---
+
+## 🛠️ Development & Testing
+
+Create an isolated environment and install the development dependencies:
+
+```sh
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install -e '.[dev]'
+```
+
+Run the test suite with coverage:
+
+```sh
+pytest -v tests/ --cov=abraia
+```
+
+Run a focused test file while iterating:
+
+```sh
+pytest -q tests/test_inference.py
+```
+
+Build source and wheel distributions with:
+
+```sh
+python setup.py sdist bdist_wheel
 ```
 
 ---

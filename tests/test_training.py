@@ -493,15 +493,18 @@ def test_ultralytics_model_compiles_native_hailo_bundle(tmp_path):
     model.metrics = {"mAP": 0.8}
     model.model_version = 2
 
-    result = model.compile(
-        "project",
-        ["cat"],
-        device="hailo8l",
-        calibration_data=calibration_data,
-        fraction=0.5,
-        conf=0.3,
-        iou=0.6,
-    )
+    with patch("abraia.training.detect.ensure_hailo_dfc") as ensure_dfc:
+        result = model.compile(
+            "project",
+            ["cat"],
+            device="hailo8l",
+            calibration_data=calibration_data,
+            fraction=0.5,
+            conf=0.3,
+            iou=0.6,
+        )
+
+    ensure_dfc.assert_called_once_with("hailo8l")
 
     assert model.model.options == {
         "format": "hailo",

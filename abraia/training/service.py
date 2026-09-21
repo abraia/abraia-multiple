@@ -148,11 +148,11 @@ class DatasetProjectService:
 
     def delete_image(self, project, path):
         folder, name = os.path.split(path)
-        for target in (path, os.path.join(folder, f"tb_{name}")):
-            try:
-                self.client.remove_file(target)
-            except Exception:
-                pass
+        self.client.remove_file(path)
+        try:
+            self.client.remove_file(os.path.join(folder, f"tb_{name}"))
+        except Exception:
+            pass
         dataset = self.dataset_loader(project)
         filename = canonical_filename(name or path)
         annotations = dataset.annotations or []
@@ -164,6 +164,68 @@ class DatasetProjectService:
         if len(remaining) != len(annotations):
             dataset.annotations = remaining
             dataset.save()
+        self._remove_images_from_dataset(dataset, [path])
+        return dataset
+
+    @staticmethod
+    def _remove_images_from_dataset(dataset, paths):
+        """Keep an already-loaded dataset consistent with deleted files."""
+        images = getattr(dataset, "images", None)
+        if images is None:
+            return
+
+        removed_paths = {str(path).strip("/") for path in paths if path}
+        removed_names = {os.path.basename(path) for path in removed_paths}
+        remaining = []
+        for image in images:
+            image_path = str(image.get("path") or "").strip("/")
+            image_name = str(image.get("name") or "").strip("/")
+            matches_path = image_path in removed_paths
+            matches_name = not image_path and image_name in removed_names
+            if not matches_path and not matches_name:
+                remaining.append(image)
+        dataset.images = remaining
+
+        update_annotated = getattr(dataset, "_update_annotated", None)
+        if callable(update_annotated):
+            update_annotated()
+
+    def delete_images(self, project, paths, progress_callback=None, is_cancelled=None):
+        """Remove several images with one dataset reload and annotation save."""
+        paths = list(dict.fromkeys(path for path in paths if path))
+        is_cancelled = is_cancelled or (lambda: False)
+        if progress_callback:
+            progress_callback(0, len(paths), "Preparing image deletion", False)
+        if not paths:
+            return None
+
+        dataset = self.dataset_loader(project)
+        removed_filenames = set()
+        for index, path in enumerate(paths, start=1):
+            if is_cancelled():
+                raise RuntimeError("Operation canceled")
+            if progress_callback:
+                progress_callback(index - 1, len(paths), path, False)
+            folder, name = os.path.split(path)
+            self.client.remove_file(path)
+            try:
+                self.client.remove_file(os.path.join(folder, f"tb_{name}"))
+            except Exception:
+                pass
+            removed_filenames.add(canonical_filename(name or path))
+            if progress_callback:
+                progress_callback(index, len(paths), path, True)
+
+        annotations = dataset.annotations or []
+        remaining = [
+            annotation
+            for annotation in annotations
+            if canonical_filename(annotation.get("filename")) not in removed_filenames
+        ]
+        if len(remaining) != len(annotations):
+            dataset.annotations = remaining
+            dataset.save()
+        self._remove_images_from_dataset(dataset, paths)
         return dataset
 
     def delete_dataset(self, project, progress_callback=None, is_cancelled=None):
@@ -205,6 +267,8 @@ class DatasetProjectService:
         for index, path in enumerate(files, start=1):
             if is_cancelled():
                 raise RuntimeError("Operation canceled")
+            if progress_callback:
+                progress_callback(index - 1, len(files), path, False)
             self.client.remove_file(path)
             if progress_callback:
                 progress_callback(index, len(files), path, True)

@@ -48,7 +48,12 @@ def load_auth(abraia_key):
     return '', ''
 
 
-def save(abraia_id, abraia_key):
-    content = ('abraia_id: {}\nabraia_key: {}\n').format(abraia_id, abraia_key)
+def save(abraia_key):
+    """Save the API key used to authenticate the client.
+
+    The user ID is encoded in the API key and is resolved by :func:`load`, so
+    it does not need to be configured separately.
+    """
+    content = 'abraia_key: {}\n'.format(abraia_key)
     with open(CONFIG_FILE, 'w') as f:
         f.write(content)

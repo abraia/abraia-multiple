@@ -46,7 +46,15 @@ from .splitting import (
     summarize_split_records,
 )
 from .service import DatasetProjectService, TrainingService
+from .pruning import analyze_rgb_images, is_rgb_dataset
 from .metrics import metric_average, normalize_model_record
+from .fastdup import (
+    CurationFinding,
+    CurationReport,
+    FastdupAnalyzer,
+    FastdupUnavailable,
+    curate_dataset,
+)
 
 
 __all__ = [
@@ -59,10 +67,17 @@ __all__ = [
     "DEFAULT_SPLIT_OPTIONS",
     "TrainingService",
     "DatasetProjectService",
+    "analyze_rgb_images",
+    "is_rgb_dataset",
     "SPLIT_NAMES",
     "SPLIT_RATIO_KEYS",
     "annotation_counts",
     "canonical_filename",
+    "CurationFinding",
+    "CurationReport",
+    "FastdupAnalyzer",
+    "FastdupUnavailable",
+    "curate_dataset",
     "dataset_has_annotations",
     "download_file",
     "dataset_split_summary",

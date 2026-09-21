@@ -1,7 +1,12 @@
 """Shared dataset state and remote dataset helpers."""
 
+import importlib
+from importlib import metadata
 import re
+import platform
 from pathlib import Path
+import subprocess
+import sys
 
 from ..client import Abraia
 
@@ -14,10 +19,118 @@ HAILO_EXPORT_TARGETS = (
     "hailo15l",
 )
 
+HAILO_DFC_WHEELS = {
+    "hailo8": (
+        "multiple/hailo8/"
+        "hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl"
+    ),
+    "hailo8l": (
+        "multiple/hailo8/"
+        "hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl"
+    ),
+    "hailo10h": (
+        "multiple/hailo15/"
+        "hailo_dataflow_compiler-5.2.0-py3-none-linux_x86_64.whl"
+    ),
+    "hailo15h": (
+        "multiple/hailo15/"
+        "hailo_dataflow_compiler-5.2.0-py3-none-linux_x86_64.whl"
+    ),
+    "hailo15l": (
+        "multiple/hailo15/"
+        "hailo_dataflow_compiler-5.2.0-py3-none-linux_x86_64.whl"
+    ),
+}
+
+HAILO_DFC_VERSIONS = {
+    "hailo8": "3.33.1",
+    "hailo8l": "3.33.1",
+    "hailo10h": "5.2.0",
+    "hailo15h": "5.2.0",
+    "hailo15l": "5.2.0",
+}
+
 
 def _resolve_client(client=None):
     """Return an injected client or create one lazily for this operation."""
     return client if client is not None else Abraia()
+
+
+def ensure_hailo_dfc(target):
+    """Install the matching DFC wheel when local compilation needs it.
+
+    Hailo compilation is supported only on Linux x86_64. On other hosts this
+    function leaves the existing exporter error path untouched. The wheel is
+    fetched from the global ``multiple`` namespace and installed into the
+    interpreter running the SDK.
+    """
+    target = str(target or "").strip().lower()
+    if target not in HAILO_DFC_WHEELS:
+        raise ValueError(f"Unsupported Hailo target: {target}")
+    if not _supports_hailo_dfc():
+        return False
+
+    expected_version = HAILO_DFC_VERSIONS[target]
+    installed_version = _installed_dfc_version()
+    if installed_version is None:
+        needs_install = not _dfc_import_available()
+    else:
+        needs_install = installed_version != expected_version
+    if not needs_install:
+        return False
+
+    from ..utils.remote import download_file
+
+    wheel_path = download_file(HAILO_DFC_WHEELS[target])
+    command = [sys.executable, "-m", "pip", "install"]
+    if installed_version is not None:
+        command.append("--force-reinstall")
+    command.append(wheel_path)
+    completed = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(
+            "Unable to install the Hailo Dataflow Compiler {} for {}. {}"
+            .format(expected_version, target, detail)
+        )
+
+    importlib.invalidate_caches()
+    if not _dfc_import_available():
+        raise RuntimeError(
+            "The Hailo Dataflow Compiler installation completed, but "
+            "hailo_sdk_client is still unavailable."
+        )
+    return True
+
+
+def _supports_hailo_dfc():
+    return (
+        sys.platform.startswith("linux")
+        and platform.machine().lower() in ("x86_64", "amd64")
+    )
+
+
+def _dfc_import_available():
+    try:
+        return importlib.util.find_spec("hailo_sdk_client") is not None
+    except (ImportError, ModuleNotFoundError):
+        return False
+
+
+def _installed_dfc_version():
+    if not _dfc_import_available():
+        return None
+    for package_name in ("hailo-dataflow-compiler", "hailo_dataflow_compiler"):
+        try:
+            return metadata.version(package_name)
+        except metadata.PackageNotFoundError:
+            continue
+    return None
 
 
 def next_model_version(client, project, model_name):
@@ -147,6 +260,9 @@ def save_hailo_bundle(
 __all__ = [
     "next_model_version",
     "HAILO_EXPORT_TARGETS",
+    "HAILO_DFC_WHEELS",
+    "HAILO_DFC_VERSIONS",
+    "ensure_hailo_dfc",
     "save_hailo_bundle",
     "save_versioned_model",
     "versioned_model_paths",

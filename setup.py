@@ -14,6 +14,7 @@ with pathlib.Path('requirements.txt').open() as requirements_txt:
     
 extras_require = {
     'dev': ['ultralytics>=8.4.97,<9', 'onnx>=1.16.0', 'transformers>=4.57.1'],
+    'curation': ['fastdup'],
     # The Hailo Dataflow Compiler is distributed separately by Hailo and
     # cannot be declared as a normal PyPI dependency.
     'hailo': ['ultralytics>=8.4.97,<9', 'PyYAML>=6.0'],

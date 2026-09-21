@@ -15,6 +15,7 @@ from ultralytics import YOLO
 from .core import (
     HAILO_EXPORT_TARGETS,
     _resolve_client,
+    ensure_hailo_dfc,
     save_hailo_bundle,
     save_versioned_model,
 )
@@ -24,6 +25,37 @@ MODEL_SIZE_TYPES = {
     "medium": "yolov8m",
     "large": "yolov8l",
 }
+
+
+def _numeric_values(value):
+    """Normalize Ultralytics tensor, scalar, and mapping metrics."""
+    if isinstance(value, dict):
+        values = value.values()
+    elif isinstance(value, (list, tuple)):
+        values = value
+    else:
+        values = (value,)
+    numeric = []
+    for item in values:
+        if hasattr(item, "detach"):
+            item = item.detach()
+        if hasattr(item, "cpu"):
+            item = item.cpu()
+        if hasattr(item, "numpy"):
+            item = item.numpy()
+        numeric.extend(np.asarray(item, dtype=float).reshape(-1).tolist())
+    return numeric
+
+
+def _metric_value(metrics, key, default=0.0):
+    """Read a metric from old and new Ultralytics metric containers."""
+    if isinstance(metrics, dict):
+        value = metrics.get(key, default)
+    else:
+        values = getattr(metrics, "results_dict", {}) or {}
+        value = values.get(key, default)
+    numeric = _numeric_values(value)
+    return float(numeric[0]) if numeric else float(default)
 
 
 def build_model_name(model_name, task):
@@ -75,10 +107,16 @@ class Model:
         self._remove_training_callbacks()
         if callback:
             def on_train_epoch_end(trainer):
-                loss_items = trainer.loss_items.cpu().detach().numpy()
-                loss = float(np.sum(loss_items)) / len(loss_items)
-                acc = trainer.metrics.get('metrics/mAP50(B)', 0) if hasattr(trainer, 'metrics') else 0
-                callback({'epoch': trainer.epoch, 'epochs': trainer.epochs, 'loss': loss, 'acc': float(acc)})
+                loss_values = _numeric_values(getattr(trainer, "loss_items", 0.0))
+                loss = float(np.mean(loss_values)) if loss_values else 0.0
+                metrics = getattr(trainer, "metrics", {})
+                acc = _metric_value(metrics, "metrics/mAP50(B)")
+                callback({
+                    "epoch": trainer.epoch,
+                    "epochs": trainer.epochs,
+                    "loss": loss,
+                    "acc": acc,
+                })
             self._training_callbacks['on_train_epoch_end'] = on_train_epoch_end
             self.model.add_callback('on_train_epoch_end', on_train_epoch_end)
         if is_cancelled:
@@ -210,6 +248,7 @@ class Model:
         if iou is not None:
             export_options["iou"] = iou
 
+        ensure_hailo_dfc(target)
         try:
             with contextlib.redirect_stdout(io.StringIO()):
                 exported = self.model.export(**export_options)
