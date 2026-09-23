@@ -989,7 +989,7 @@ def test_hailo_pipeline_definitions_use_pipeline_schema():
         assert all("type" in stage for stage in config["stages"])
 
 
-def test_cli_routes_search_option_to_search_images():
+def test_cli_search_command_routes_to_search_images():
     from importlib.machinery import SourceFileLoader
     from click.testing import CliRunner
 
@@ -997,7 +997,7 @@ def test_cli_routes_search_option_to_search_images():
     with patch("abraia.demo.search_images") as search:
         result = CliRunner().invoke(
             module.cli,
-            ["run", "my-project", "search", "red car"],
+            ["search", "my-project", "red car"],
         )
 
     assert result.exit_code == 0, result.output

@@ -1,4 +1,4 @@
-"""Public training APIs and compatibility exports."""
+"""Public training APIs."""
 
 from .annotations import (
     annotation_counts,
@@ -46,15 +46,15 @@ from .splitting import (
     summarize_split_records,
 )
 from .service import DatasetProjectService, TrainingService
-from .pruning import analyze_rgb_images, is_rgb_dataset
-from .metrics import metric_average, normalize_model_record
-from .fastdup import (
+from .curation import (
+    DEFAULT_NEAREST_NEIGHBORS,
+    CurationAnalyzer,
     CurationFinding,
     CurationReport,
-    FastdupAnalyzer,
-    FastdupUnavailable,
     curate_dataset,
+    is_rgb_dataset,
 )
+from .metrics import metric_average, normalize_model_record
 
 
 __all__ = [
@@ -67,7 +67,7 @@ __all__ = [
     "DEFAULT_SPLIT_OPTIONS",
     "TrainingService",
     "DatasetProjectService",
-    "analyze_rgb_images",
+    "DEFAULT_NEAREST_NEIGHBORS",
     "is_rgb_dataset",
     "SPLIT_NAMES",
     "SPLIT_RATIO_KEYS",
@@ -75,8 +75,7 @@ __all__ = [
     "canonical_filename",
     "CurationFinding",
     "CurationReport",
-    "FastdupAnalyzer",
-    "FastdupUnavailable",
+    "CurationAnalyzer",
     "curate_dataset",
     "dataset_has_annotations",
     "download_file",

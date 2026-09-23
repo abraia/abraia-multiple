@@ -14,17 +14,13 @@ The **Abraia Vision SDK** is a high-performance, edge-ready Python library and t
 - [Installation](#-installation)
 - [Command-Line Interface](#-command-line-interface)
 - [Core Modules & Features](#-core-modules--features)
-  - [1. Inference & Computer Vision](#1-inference--computer-vision)
-  - [2. Image Editing & Enhancement](#2-image-editing--enhancement)
-  - [Object Processing Pipelines](#object-processing-pipelines)
-  - [3. Edge AI & Hardware Acceleration (Hailo)](#3-edge-ai--hardware-acceleration-hailo)
-  - [4. Training & Dataset Operations](#4-training--dataset-operations)
-  - [5. Runtime & Video Processing](#5-runtime--video-processing)
-- [Examples & Usage Guides](#-examples--usage-guides)
-  - [Pipeline-Based Monitoring, Face, and Plate Workflows](#pipeline-based-monitoring-face-and-plate-workflows)
-  - [Semantic Search with CLIP](#semantic-search-with-clip)
-  - [Real-Time Edge Object Counter](#real-time-edge-object-counter-on-raspberry-pi-with-hailo-npu)
-- [Development & Testing](#-development--testing)
+  - [1. Image Editing & Enhancement](#1-image-editing--enhancement-abraia-editing)
+  - [2. Inference & Computer Vision](#2-inference--computer-vision-abraia-inference)
+  - [3. Edge AI & Hardware Acceleration (Hailo)](#3-edge-ai--hardware-acceleration-abraia-inference-hailo)
+  - [4. Training & Dataset Operations](#4-training--dataset-operations-abraia-training)
+  - [5. Runtime & Video Processing](#5-runtime--video-processing-abraia-runtime)
+    - [Object Processing Pipelines](#object-processing-pipelines)
+- [Real-Time Edge Object Counter](#real-time-edge-object-counter-on-raspberry-pi-with-hailo-npu)
 - [License](#-license)
 
 ---
@@ -74,11 +70,8 @@ Grounding DINO requires the optional tokenizer dependency:
 pip install -U abraia[grounding-dino]
 ```
 
-Dataset curation with FastDup is optional:
-
-```sh
-pip install -U abraia[curation]
-```
+Dataset curation is included in the base SDK and does not require an
+additional dependency.
 
 ---
 
@@ -146,18 +139,24 @@ wheel is installed automatically when it is required and available.
 
 ### Dataset curation and pruning
 
-Analyze an image dataset for duplicate images, outliers, blurry images, and
-invalid files with FastDup:
+Analyze an image dataset for exact and similar duplicates, outliers, blurry
+images, exposure issues, and invalid files:
 
 ```sh
-abraia curate PROJECT --work-dir ./fastdup-work
+abraia curate PROJECT
 ```
 
 The command is a dry run by default and prints a JSON report. Apply duplicate,
 blur, and invalid-image recommendations with `--apply`; include outlier
 removals only after review with `--apply-outliers`. Use
 `--duplicate-threshold`, `--blur-threshold`, or `--blur-percentile` to adjust
-the analysis.
+the analysis. The default `--mode fast` uses bounded previews, sampled exact
+duplicate fingerprints, and perceptual hash buckets; it keeps the original
+low-cost quality/outlier checks for regular scans. Use `--mode thorough` for
+exhaustive full-resolution comparisons, NN outlier scoring, and richer image
+statistics. Use `--nearest-neighbors` and `--outlier-mode` to control the
+thorough graph/outlier policy, and `--work-dir` to reuse cached features. Use
+`--yes` with `--apply` to skip the deletion confirmation in automation.
 
 ### Demos and inference
 
@@ -170,22 +169,25 @@ face-tracking demo:
 abraia run demo DEMO_NAME [SOURCE] [--accelerator auto]
 abraia run demo faces [SOURCE] [--accelerator auto]
 abraia run PROJECT [CLASSES] [SOURCE] [--accelerator auto]
+abraia search PROJECT [QUERY]
 ```
 
 The `--accelerator` option applies to demos and can be `auto`, `onnx`, `cpu`,
 `gpu`, or `hailo`. Custom trained-project inference currently uses the
-standard ONNX model path. Use the special `search` class to search a project
-with a text query:
-
-```sh
-abraia run PROJECT search "person with a red shirt"
-```
+standard ONNX model path. `search` accepts a text query or a local image path;
+when omitted, the query defaults to `man with red shirt`.
 
 ---
 
 ## 🚀 Core Modules & Features
 
-### 1. Inference & Computer Vision (`abraia.inference`)
+### 1. Image Editing & Enhancement (`abraia.editing`)
+- **Upscaling**: Super-resolution image enhancement (`upscale_image`).
+- **Smart Cropping**: Intelligent content-aware cropping (`smartcrop_image`).
+- **Background Removal**: Foreground segmentation and background removal (`remove_background`).
+- **Inpainting**: Image restoration and object removal (`inpaint_image`).
+
+### 2. Inference & Computer Vision (`abraia.inference`)
 - **Object Detection**: Fast ONNX/YOLO-based object detection (`abraia.inference.Model`).
 - **Open-Vocabulary Detection**: Grounding DINO ONNX inference with text prompts (`abraia.inference.GroundingDINOModel`).
 - **Segmentation (SAM)**: Segment Anything Model integration for precise image masking (`abraia.inference.SAM`).
@@ -193,15 +195,26 @@ abraia run PROJECT search "person with a red shirt"
 - **Face Recognition**: Identify and match faces in images and streams (`FaceRecognizer`).
 - **License Plate Recognition (ALPR)**: Automatic license plate detection and text recognition (`PlateRecognizer`).
 - **OCR**: Extract text from images (`TextSystem`).
-- **Semantic Search (CLIP)**: Vector embeddings and similarity search for text-to-image and image-to-image retrieval (`Clip`).
+- **Semantic Image Search**: CLIP embeddings and project search for text or image queries (`Clip`, `ImageSearch`).
 
-### 2. Image Editing & Enhancement (`abraia.editing`)
-- **Upscaling**: Super-resolution image enhancement (`upscale_image`).
-- **Smart Cropping**: Intelligent content-aware cropping (`smartcrop_image`).
-- **Background Removal**: Foreground segmentation and background removal (`remove_background`).
-- **Inpainting**: Image restoration and object removal (`inpaint_image`).
+### 3. Edge AI & Hardware Acceleration (`abraia.inference.hailo`)
+- Optimized runtime support and toolboxes for Hailo NPU hardware acceleration (`abraia.inference.hailo`).
 
-### Object Processing Pipelines
+### 4. Training & Dataset Operations (`abraia.training`)
+- Tools for training custom classification, detection, and segmentation models, along with dataset preprocessing utilities (`dataset`, `ops`).
+  Training supports small, medium, and large model sizes; detection and
+  segmentation use YOLOv8n/m/l, while classification uses ResNet18/50/101.
+  Ultralytics detection and segmentation models can be exported to Hailo HEF
+  through `ModelTrainer.compile()` or the `abraia compile` command.
+- Dataset curation and pruning use the SDK's built-in Pillow and NumPy image
+  analysis, with no external curation service required.
+
+### 5. Runtime & Video Processing (`abraia.runtime`)
+- Robust video frame iteration and manipulation (`Video`).
+- Annotation and rendering tools (`render_results`, `render_counter`, `render_region`).
+- Compression and sketch generation utilities.
+
+#### Object Processing Pipelines
 
 Object detection, tracking, and counting workflows can be configured in a
 JSON file and run from Python:
@@ -235,6 +248,17 @@ face and license-plate detectors:
 }
 ```
 
+##### People monitoring
+
+Use this configuration for people tracking and line counting. The CLI provides
+the same pipeline-backed workflow:
+
+```sh
+abraia run demo people people-walking.mp4 --accelerator auto
+```
+
+![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.jpg)
+
 For model-backed entries, `kind` identifies the model architecture or family
 (`yolov8`, `yolov5`, or `yolo11`), while `task` identifies the operation
 (`detection`, `segmentation`, `pose`, or `classification`). The runtime selects
@@ -250,6 +274,13 @@ Built-in detectors do not require a model URI. For example:
   "params": {"threshold": 0.85, "iou_threshold": 0.15}
 }
 ```
+
+##### License-plate recognition
+
+Use `kind: "license_plate"` to select the built-in license-plate recognition
+workflow.
+
+![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
 The runtime also includes Abraia-managed object-detection,
 instance-segmentation, pose-estimation, and classification presets. Each task
@@ -303,6 +334,14 @@ Face recognition uses a JSON index containing `name` and `vector` entries:
 }
 ```
 
+##### Face recognition
+
+Use `kind: "face"` to select the built-in face-recognition workflow. The
+pipeline keeps the source, model, index, stages, display, and accelerator
+selection in one configuration.
+
+![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
+
 Hailo models use the asynchronous producer/consumer runtime internally. The
 pipeline keeps completed frames ordered before applying tracking and counting
 stages:
@@ -326,89 +365,6 @@ from the managed model cache. Demo pipelines derive the
 architecture-specific HEF URI from the canonical ONNX URI; explicit local
 paths remain supported. Hailo no longer resolves external Model Zoo downloads
 or bare logical model names.
-
-### 3. Edge AI & Hardware Acceleration (`abraia.inference.hailo`)
-- Optimized runtime support and toolboxes for Hailo NPU hardware acceleration (`abraia.inference.hailo`).
-
-### 4. Training & Dataset Operations (`abraia.training`)
-- Tools for training custom classification, detection, and segmentation models, along with dataset preprocessing utilities (`dataset`, `ops`).
-  Training supports small, medium, and large model sizes; detection and
-  segmentation use YOLOv8n/m/l, while classification uses ResNet18/50/101.
-  Ultralytics detection and segmentation models can be exported to Hailo HEF
-  through `ModelTrainer.compile()` or the `abraia compile` command.
-- Dataset curation and pruning are available through the optional FastDup
-  integration documented in the CLI section above.
-
-### 5. Runtime & Video Processing (`abraia.runtime`)
-- Robust video frame iteration and manipulation (`Video`).
-- Annotation and rendering tools (`render_results`, `render_counter`, `render_region`).
-- Compression and sketch generation utilities.
-
----
-
-## 💡 Examples & Usage Guides
-
-### Pipeline-Based Monitoring, Face, and Plate Workflows
-
-Object tracking, people flow, face recognition, and license-plate recognition
-are configured as pipeline model and stage options in the
-[pipeline section above](#object-processing-pipelines). Save the JSON
-configuration as `pipeline.json` and run it with:
-
-```python
-from abraia.runtime import Pipeline
-
-Pipeline.from_file("pipeline.json").run()
-```
-
-#### People monitoring
-
-For the built-in people-monitoring pipeline, the CLI provides the same
-pipeline-backed workflow:
-
-```sh
-abraia run demo people people-walking.mp4 --accelerator auto
-```
-
-![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.jpg)
-
-#### Face recognition
-
-Use `kind: "face"` in the pipeline model to select the built-in face
-recognition workflow. This keeps the source, model, index, stages, display,
-and accelerator selection in one configuration.
-
-![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
-
-#### License-plate recognition
-
-Use `kind: "license_plate"` in the pipeline model to select the built-in
-license-plate recognition workflow.
-
-![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
-
-### Semantic Search with CLIP
-
-Search images using natural language text queries via CLIP embeddings:
-
-```python
-from tqdm import tqdm
-from glob import glob
-from abraia.utils import load_image
-from abraia.inference.models.clip import Clip
-from abraia.inference.ops import search_vector
-
-clip_model = Clip()
-
-image_paths = glob('images/*.jpg')
-image_index = [{'vector': clip_model.get_image_embeddings([load_image(image_path)])[0]} for image_path in tqdm(image_paths)]
-
-text_query = "full body person"
-vector = clip_model.get_text_embeddings([text_query])[0]
-
-idxs, scores = search_vector(vector, image_index)
-print(f"Similarity score is {scores[0]} for image {image_paths[idxs[0]]}")
-```
 
 ---
 
@@ -466,37 +422,6 @@ Execute the pipeline directly on the Raspberry Pi:
 
 ```sh
 python3 -c 'from abraia.runtime import Pipeline; Pipeline.from_file("edge_counter.json").run()'
-```
-
----
-
-## 🛠️ Development & Testing
-
-Create an isolated environment and install the development dependencies:
-
-```sh
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m pip install -e '.[dev]'
-```
-
-Run the test suite with coverage:
-
-```sh
-pytest -v tests/ --cov=abraia
-```
-
-Run a focused test file while iterating:
-
-```sh
-pytest -q tests/test_inference.py
-```
-
-Build source and wheel distributions with:
-
-```sh
-python setup.py sdist bdist_wheel
 ```
 
 ---

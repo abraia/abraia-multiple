@@ -119,13 +119,19 @@ def configure():
     "--work-dir",
     type=click.Path(file_okay=False),
     default=None,
-    help="Keep FastDup's intermediate files in this directory.",
+    help="Cache extracted features and statistics in this directory.",
 )
 @click.option(
     "--apply",
     "apply_changes",
     is_flag=True,
     help="Delete recommended remote files and update annotations.",
+)
+@click.option(
+    "--yes",
+    "assume_yes",
+    is_flag=True,
+    help="Skip confirmation when applying destructive changes.",
 )
 @click.option(
     "--apply-outliers",
@@ -142,7 +148,7 @@ def configure():
     "--blur-threshold",
     type=float,
     default=None,
-    help="Absolute FastDup blur score threshold; lower scores are blurrier.",
+    help="Absolute blur score threshold; lower scores are blurrier.",
 )
 @click.option(
     "--blur-percentile",
@@ -151,29 +157,63 @@ def configure():
     show_default=True,
     help="Flag the lowest fraction of blur scores.",
 )
+@click.option(
+    "--nearest-neighbors",
+    type=click.IntRange(min=1),
+    default=2,
+    show_default=True,
+    help="Number of nearest neighbors used for similarity and outlier checks.",
+)
+@click.option(
+    "--outlier-mode",
+    type=click.Choice(["one", "all"]),
+    default="one",
+    show_default=True,
+    help="Require distance from the closest neighbor or all selected neighbors.",
+)
+@click.option(
+    "--mode",
+    type=click.Choice(["fast", "thorough"]),
+    default="fast",
+    show_default=True,
+    help="Use hash-bucket previews or exhaustive full-resolution analysis.",
+)
 def curate(
     project,
     work_dir,
     apply_changes,
+    assume_yes,
     apply_outliers,
     duplicate_threshold,
     blur_threshold,
     blur_percentile,
+    nearest_neighbors,
+    outlier_mode,
+    mode,
 ):
-    """Analyze and optionally prune an image dataset with FastDup."""
-    from .training import FastdupAnalyzer, curate_dataset
+    """Analyze an image dataset and optionally apply recommendations."""
+    from .training import CurationAnalyzer, curate_dataset
 
     def operation():
+        confirm = None
+        if apply_changes and not assume_yes:
+            confirm = lambda paths: click.confirm(
+                f"Delete {len(paths)} recommended remote file(s)?"
+            )
         report = curate_dataset(
             project,
             work_dir=work_dir,
             apply=apply_changes,
-            analyzer=FastdupAnalyzer(
+            analyzer=CurationAnalyzer(
                 duplicate_threshold=duplicate_threshold,
                 blur_threshold=blur_threshold,
                 blur_percentile=blur_percentile,
+                nearest_neighbors_k=nearest_neighbors,
+                outlier_mode=outlier_mode,
+                mode=mode,
                 remove_outliers=apply_outliers,
             ),
+            confirm=confirm,
         )
         click.echo(json.dumps(report.to_dict(), indent=2))
 
@@ -201,6 +241,8 @@ def format_output(files, folders=None):
 def _run_remote(operation):
     try:
         return operation()
+    except click.ClickException:
+        raise
     except Exception as error:
         echo_error(error)
 
@@ -270,6 +312,8 @@ def metadata(path, remove):
     def operation():
         if remove:
             abraia.remove_metadata(path)
+            click.echo(f"Removed metadata for {path}")
+            return
         click.echo(json.dumps(abraia.load_metadata(path), indent=2))
 
     _run_remote(operation)
@@ -456,6 +500,16 @@ def compile_model_command(
 
 @cli.command()
 @click.argument("project")
+@click.argument("query", required=False, default="man with red shirt")
+def search(project, query):
+    """Search a project using text or an image path."""
+    from .demo import search_images
+
+    _run_remote(lambda: search_images(project, query=query))
+
+
+@cli.command()
+@click.argument("project")
 @click.argument("classes", required=False, default="")
 @click.argument("src", required=False, default=None)
 @click.option(
@@ -482,29 +536,25 @@ def run(project, classes, src, accelerator):
             "The separate Hailo demo mode was removed; use "
             "`run demo <name> --accelerator hailo`."
         )
-    if classes == "search":
-        from .demo import search_images
+    def operation():
+        from .inference.models.detection import Model
+        from .training import list_models
+        from .utils import render_results
 
-        search_images(project, query=src or "man with red shirt")
-        return
+        models = list_models(project)
+        if not models:
+            click.echo(f"No trained model found in project '{project}'")
+            return
+        source = src if src is not None else (
+            classes if classes not in ("", "faces") else 0
+        )
+        with Model(f"{abraia.userid}/{project}/{models[0]}") as model:
+            def callback(image):
+                return render_results(image, model.run(image))
 
-    from .inference.models.detection import Model
-    from .training import list_models
-    from .utils import render_results
+            process_media(source, callback)
 
-    models = list_models(project)
-    if not models:
-        click.echo(f"No trained model found in project '{project}'")
-        return
-    model = Model(f"{abraia.userid}/{project}/{models[0]}")
-
-    def callback(image):
-        return render_results(image, model.run(image))
-
-    source = src if src is not None else (
-        classes if classes not in ("", "faces", "search") else 0
-    )
-    process_media(source, callback)
+    _run_remote(operation)
 
 
 def main():
