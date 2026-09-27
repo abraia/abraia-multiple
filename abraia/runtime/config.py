@@ -1,4 +1,4 @@
-"""Version-one pipeline configuration and validation for runtime clients."""
+"""Versioned pipeline configuration and validation for runtime clients."""
 
 import json
 from copy import deepcopy
@@ -7,19 +7,25 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from abraia.sources import infer_source_type, normalize_source_type
+from .pipeline_schema import (
+    COMPOSITION_STAGE_TYPES,
+    MAX_PIPELINE_MODELS,
+    MAX_PIPELINE_TRACKERS,
+    SUPPORTED_STAGE_TYPES,
+)
+from .validation import validate_pipeline_draft
 from abraia.inference.model_config import (
     DEFAULT_MODEL_URIS as SUPPORTED_MODEL_DEFAULT_URIS,
     ModelSpec,
     PIPELINE_HAILO_TASKS as SUPPORTED_HAILO_TASKS,
     PIPELINE_MODEL_KINDS as SUPPORTED_MODEL_KINDS,
     PIPELINE_MODEL_OPTIONS as SUPPORTED_MODEL_OPTIONS,
+    PIPELINE_SECOND_STAGE_MODEL_OPTIONS as SUPPORTED_SECOND_STAGE_MODEL_OPTIONS,
+    PIPELINE_SECOND_STAGE_MODEL_PAIRS,
     PIPELINE_MODEL_TASKS as SUPPORTED_MODEL_TASKS,
     model_control_visibility,
     model_defaults,
 )
-
-
-SUPPORTED_STAGE_TYPES = ("tracker", "line_counter", "region_filter", "region_timer")
 
 
 @dataclass
@@ -61,13 +67,21 @@ class PipelineDraft:
     def is_valid(self):
         return not self.validation_errors()
 
+
 def default_stage(stage_type):
     """Return a fresh stage config suitable for an editor card."""
     defaults = {
-        "tracker": {"type": "tracker", "enabled": True, "track_thresh": 0.25, "track_buffer": 30, "match_thresh": 0.8},
+        "tracker": {"type": "tracker", "track_thresh": 0.25, "track_buffer": 30, "match_thresh": 0.8},
         "line_counter": {"type": "line_counter", "line": [[0, 0], [100, 100]]},
         "region_filter": {"type": "region_filter", "polygon": [[0, 0], [100, 0], [100, 100]]},
         "region_timer": {"type": "region_timer", "polygon": [[0, 0], [100, 0], [100, 100]]},
+        "filter": {"type": "filter", "id": "filter", "input": "results", "labels": [], "min_confidence": 0.0},
+        "crop": {"type": "crop", "id": "crop", "input": "results", "padding": 0.0},
+        "model": {
+            "type": "model",
+            "id": "read_text",
+            "model": {"kind": "ocr", "task": "recognition"},
+        },
     }
     if stage_type not in defaults:
         raise ValueError(f"Unsupported stage type: {stage_type}")
@@ -118,12 +132,12 @@ def _number(value, default, cast=float):
 
 
 def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
-    """Build a :class:`PipelineDraft` from a version-one document."""
+    """Build a :class:`PipelineDraft` from a version-one or version-two document."""
     draft_class = draft_class or PipelineDraft
 
     if not isinstance(config, dict):
         raise ValueError("Pipeline configuration must be a JSON object")
-    if config.get("version", 1) != 1:
+    if config.get("version", 1) not in (1, 2):
         raise ValueError("Unsupported pipeline configuration version")
     source = config.get("source") or {}
     model = config.get("model") or {}
@@ -142,8 +156,26 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
     resolution = resolution[:2]
     while len(resolution) < 2:
         resolution.append([1920, 1080][len(resolution)])
+    stages_config = config.get("stages", []) or []
+    if config.get("version", 1) == 2:
+        steps = config.get("steps", []) or []
+        if not isinstance(steps, list):
+            raise ValueError("Pipeline steps must be an array")
+        primary = next(
+            (
+                step for step in steps
+                if isinstance(step, dict)
+                and step.get("type") == "model"
+                and step.get("input", "frame") == "frame"
+            ),
+            None,
+        )
+        if primary is None:
+            raise ValueError("A composed pipeline must define a frame model step")
+        model = primary.get("model") or {}
+        stages_config = [dict(step) for step in steps]
     stages = []
-    for stage in config.get("stages", []) or []:
+    for stage in stages_config:
         if isinstance(stage, dict):
             normalized_stage = dict(stage)
             stages.append(normalized_stage)
@@ -171,7 +203,8 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
         fps=_number(source.get("fps", 30), 30, int),
         model_uri=str(
             model.get("uri", "")
-            or model_spec.resolved_uri
+            if "uri" in model
+            else model_spec.resolved_uri
         ),
         model_kind=model_kind,
         model_task=model_task,
@@ -188,7 +221,7 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
 
 
 def serialize_pipeline_draft(draft) -> Dict[str, Any]:
-    """Serialize a pipeline draft into the stable version-one document."""
+    """Serialize a pipeline draft into the appropriate versioned document."""
     source_value = "" if draft.source is None else str(draft.source).strip()
     source_type = infer_source_type(
         source_value,
@@ -215,100 +248,74 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
         approx=draft.approx,
         model_index=draft.model_index,
     )
-    return {
-        "version": 1,
-        "source": source,
-        "model": model,
-        "stages": [dict(stage) for stage in draft.stages],
-        "display": {
-            "show": bool(draft.show),
-            "render_results": bool(draft.render_results),
-            "render_metrics": bool(draft.render_metrics),
-        },
+    stages = [dict(stage) for stage in draft.stages]
+    canonical_stages = bool(
+        stages
+        and isinstance(stages[0], dict)
+        and stages[0].get("type") == "model"
+        and stages[0].get("input", "frame") == "frame"
+    )
+    composed = canonical_stages or any(
+        stage.get("type") in COMPOSITION_STAGE_TYPES
+        for stage in stages
+        if isinstance(stage, dict)
+    )
+    display = {
+        "show": bool(draft.show),
+        "render_results": bool(draft.render_results),
+        "render_metrics": bool(draft.render_metrics),
     }
+    if not composed:
+        return {
+            "version": 1,
+            "source": source,
+            "model": model,
+            "stages": stages,
+            "display": display,
+        }
 
+    if canonical_stages:
+        steps = []
+        for index, stage in enumerate(stages, 1):
+            stage.setdefault("id", "model" if index == 1 else f"step-{index - 1}")
+            steps.append(stage)
+        return {
+            "version": 2,
+            "source": source,
+            "steps": steps,
+            "display": display,
+        }
 
-def _points(value):
-    """Normalize a sequence of coordinate pairs without mutating input."""
-    if not isinstance(value, (list, tuple)):
-        return []
-    points = []
-    for point in value:
-        if not isinstance(point, (list, tuple)) or len(point) != 2:
-            return []
-        try:
-            points.append([float(point[0]), float(point[1])])
-        except (TypeError, ValueError):
-            return []
-    return points
-
-
-def validate_pipeline_draft(draft):
-    """Return user-facing validation messages for a pipeline draft."""
-    errors = []
-    source_value = "" if draft.source is None else str(draft.source).strip()
-    source_type = infer_source_type(
-        source_value,
-        fallback=normalize_source_type(draft.source_type) or "camera",
-    ) or "camera"
-    if not source_value:
-        errors.append("Choose a source file, camera, or stream.")
-    elif source_type == "camera" and not source_value.isdigit():
-        errors.append("Camera source must be a numeric camera index.")
-    model_spec = ModelSpec.from_config({
-        "kind": draft.model_kind,
-        "task": draft.model_task,
-        "uri": draft.model_uri,
-        "params": {"index": draft.model_index},
-    })
-    errors.extend(model_spec.pipeline_errors())
-    try:
-        resolution_valid = len(draft.resolution) == 2 and all(int(value) > 0 for value in draft.resolution)
-    except (TypeError, ValueError):
-        resolution_valid = False
-    if not resolution_valid:
-        errors.append("Resolution must contain two positive values.")
-    try:
-        fps_valid = int(draft.fps) > 0
-    except (TypeError, ValueError):
-        fps_valid = False
-    if not fps_valid:
-        errors.append("FPS must be greater than zero.")
-    for name, value, label in (
-        ("conf_threshold", draft.conf_threshold, "Confidence threshold"),
-        ("iou_threshold", draft.iou_threshold, "IoU threshold"),
+    if any(
+        stage.get("type") not in COMPOSITION_STAGE_TYPES
+        for stage in stages
+        if isinstance(stage, dict)
     ):
-        if value is None:
-            continue
-        try:
-            valid = 0 <= float(value) <= 1
-        except (TypeError, ValueError):
-            valid = False
-        if not valid:
-            errors.append(f"{label} must be between 0 and 1.")
-    for index, stage in enumerate(draft.stages, 1):
-        stage_type = stage.get("type") if isinstance(stage, dict) else None
-        if isinstance(stage, dict) and stage.get("enabled") is False:
-            continue
-        if stage_type not in SUPPORTED_STAGE_TYPES:
-            errors.append(f"Stage {index}: unsupported stage type.")
-            continue
-        if stage_type == "line_counter" and len(_points(stage.get("line"))) != 2:
-            errors.append(f"Stage {index}: line counter needs two points.")
-        if stage_type in ("region_filter", "region_timer"):
-            polygon = stage.get("polygon")
-            if len(_points(polygon)) < 3:
-                errors.append(f"Stage {index}: region needs at least three points.")
-    return errors
-
+        raise ValueError(
+            "Composed pipelines currently support model, filter, crop, and attach steps only."
+        )
+    steps = [{"id": "model", "type": "model", "input": "frame", "model": model}]
+    for index, stage in enumerate(stages, 1):
+        stage.setdefault("id", f"step-{index}")
+        steps.append(stage)
+    return {
+        "version": 2,
+        "source": source,
+        "steps": steps,
+        "display": display,
+    }
 
 __all__ = [
     "PipelineDraft",
     "SUPPORTED_MODEL_KINDS",
     "SUPPORTED_MODEL_DEFAULT_URIS",
     "SUPPORTED_MODEL_OPTIONS",
+    "SUPPORTED_SECOND_STAGE_MODEL_OPTIONS",
     "SUPPORTED_MODEL_TASKS",
     "SUPPORTED_STAGE_TYPES",
+    "COMPOSITION_STAGE_TYPES",
+    "MAX_PIPELINE_TRACKERS",
+    "MAX_PIPELINE_MODELS",
     "default_stage",
     "format_points",
     "infer_source_type",

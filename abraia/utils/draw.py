@@ -1,17 +1,11 @@
 import cv2
 import numpy as np
 
-
-def get_color(idx):
-    colors = ['#D0021B', '#F5A623', '#F8E71C', '#8B572A', '#7ED321',
-              '#417505', '#BD10E0', '#9013FE', '#4A90E2', '#50E3C2', '#B8E986',
-              '#000000', '#545454', '#737373', '#A6A6A6', '#D9D9D9', '#FFFFFF']
-    return colors[idx % (len(colors) - 1)]
-
-
-def hex_to_rgb(hex):
-    h = hex.lstrip('#')
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+from .colors import (
+    calculate_contrast_text_color,
+    get_color,
+    hex_to_rgb,
+)
 
 
 def draw_point(img, point, color, thickness = 2):
@@ -91,12 +85,6 @@ def draw_overlay_mask(img, mask, color = (255, 0, 0), opacity = 1):
     img_over = cv2.addWeighted(img_copy, 1 - opacity, overlay, opacity, 0)
     img_copy[mask] = img_over[mask]
     return img_copy
-
-
-def calculate_contrast_text_color(background_color):
-    r, g, b = background_color
-    brightness = (r * 299 + g * 587 + b * 114) / 1000
-    return (0, 0, 0) if brightness > 150 else (255, 255, 255)
 
 
 def draw_text(img, text, point, background_color = None, text_color = (255, 255, 255), 
@@ -192,11 +180,12 @@ def draw_mask(overlay, mask, box, color):
 
 
 def calculate_optimal_thickness(img_size):
-    return 2 if min(img_size) < 1080 else 4
+    size = min(img_size)
+    return max(1, min(4, round(size / 540)))
 
 
 def calculate_optimal_text_scale(img_size):
-    return max(min(img_size) * 0.0008, 0.8)
+    return max(0.4, min(img_size) * 0.0008)
 
 
 # Joint pairs used for drawing pose estimations
@@ -217,6 +206,33 @@ def render_mask(overlay, mask, box, color):
     return _paint_mask(overlay, mask, box, color)
 
 
+def render_mask_contour(img, mask, box, color, thickness=None):
+    """Draw the visible contour of a cropped instance-segmentation mask."""
+    x, y, width, height = map(int, box)
+    if width <= 0 or height <= 0:
+        return img
+    mask = np.asarray(mask) > 0
+    if mask.ndim != 2:
+        return img
+    if mask.shape != (height, width):
+        mask = cv2.resize(
+            mask.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
+        )
+    contours, _ = cv2.findContours(
+        mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if contours:
+        contours = [contour + np.array([[[x, y]]], dtype=np.int32) for contour in contours]
+        cv2.drawContours(
+            img,
+            contours,
+            -1,
+            color,
+            thickness or calculate_optimal_thickness(img.shape[:2]),
+        )
+    return img
+
+
 def render_polygon(img, polygon, color, thickness=None):
     thickness = thickness or calculate_optimal_thickness(img.shape[:2])
     return draw_polygon(img, polygon, color, thickness)
@@ -229,6 +245,27 @@ def render_label(img, label, point, color, score=None, track_id=None, text_scale
     if track_id is not None:
         text = f"[{track_id}] {text}"
     return draw_text(img, text, (int(point[0]), int(point[1])), background_color=color, text_scale=text_scale, padding=thickness * 3)
+
+
+def _result_label(result):
+    """Return the label belonging to this result itself."""
+    return result.get('label')
+
+
+def _attached_results(result):
+    """Yield child model results attached to a parent detection."""
+    for value in result.values():
+        if not isinstance(value, dict):
+            continue
+        items = value.get('items')
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and (
+                    item.get('text') or item.get('label')
+                ):
+                    yield item
+        elif value.get('text') or value.get('label'):
+            yield value
 
 
 def render_trail(img, trail, color, thickness=None):
@@ -275,21 +312,28 @@ def render_results(img, results, thickness=None, text_scale=None):
     overlay = np.zeros_like(img) if has_masks else None
     mask_coverage = np.zeros(img.shape[:2], dtype=np.uint8) if has_masks else None
     for result in results:
-        label = result.get('label')
+        label = _result_label(result)
         score = result.get('score')
         track_id = result.get('track_id')
         class_id = result.get('class_id', 0)
         color = hex_to_rgb(result.get('color', get_color(track_id if track_id is not None else class_id)))
         polygon = result.get('polygon')
         box = result.get('box')
+        mask = result.get('mask')
+        keypoints = result.get('keypoints')
         if polygon is not None and len(polygon):
             render_polygon(img, polygon, color, thickness)
-        elif box is not None and len(box):
-            render_keypoints(img, result.get('keypoints', []), color, thickness)
+        elif mask is not None and box is not None and len(box):
+            render_mask_contour(img, mask, box, color, thickness)
+        elif keypoints is not None and len(keypoints):
+            if box is not None and len(box):
+                render_box(img, box, color, thickness)
+            render_keypoints(img, keypoints, color, thickness)
             if 'joint_scores' in result:
-                render_skeleton(img, result['keypoints'], result['joint_scores'], (255, 0, 255), thickness)
+                render_skeleton(img, keypoints, result['joint_scores'], (255, 0, 255), thickness)
+        elif box is not None and len(box):
             render_box(img, box, color, thickness)
-        if result.get('mask') is not None and overlay is not None:
+        if mask is not None and overlay is not None:
             # Detection masks are normally cropped to their box. A mask
             # without a box is treated as a full-image segmentation mask.
             mask_box = box if box is not None and len(box) else [
@@ -300,6 +344,24 @@ def render_results(img, results, thickness=None, text_scale=None):
         if label:
             point = result.get('box', [0, 0, 0, 0])[:2]
             render_label(img, label, point, color, score, track_id, text_scale, thickness)
+        for attached in _attached_results(result):
+            attached_label = attached.get('text') or attached.get('label')
+            attached_box = attached.get('box')
+            if attached_box is not None and len(attached_box):
+                render_box(img, attached_box, color, thickness)
+                attached_point = attached_box[:2]
+            else:
+                attached_point = result.get('box', [0, 0, 0, 0])[:2]
+            render_label(
+                img,
+                attached_label,
+                attached_point,
+                color,
+                attached.get('score'),
+                attached.get('track_id'),
+                text_scale,
+                thickness,
+            )
         if 'trail' in result:
             render_trail(img, result['trail'], color, thickness)
     if overlay is not None:

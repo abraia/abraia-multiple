@@ -58,7 +58,8 @@ class BaseRecLabelDecode():
                 char_list.append(self.character[int(text_index[batch_idx][idx])])
                 conf_list.append(text_prob[batch_idx][idx] if text_prob is not None else 1)
             text = ''.join(char_list)
-            result_list.append((text, np.mean(conf_list)))
+            score = float(np.mean(conf_list)) if conf_list else 0.0
+            result_list.append((text, score))
         return result_list
 
     def get_ignored_tokens(self):
@@ -353,22 +354,53 @@ class TextSystem():
         dst_img = np.rot90(dst_img) if dst_img_height * 1.0 / dst_img_width >= 1.5 else dst_img
         return dst_img
 
-    def __call__(self, img):
-        results = []
+    def _detect_text_regions(self, img):
+        """Detect text and prepare recognition crops for one image."""
         dt_boxes = self.text_detector(img)
-        if len(dt_boxes):
-            dt_boxes = sorted_boxes(dt_boxes)
-            img_crop_list = [self.get_rotate_crop_image(img, tmp_box) for tmp_box in dt_boxes]
-            rec_res = self.text_recognizer(img_crop_list)
-            for box, (text, score) in zip(dt_boxes, rec_res):
-                if score >= self.drop_score:
-                    results.append({'box': box.astype(np.int32), 'text': text, 'score': float(score)})
+        if not len(dt_boxes):
+            return [], []
+        dt_boxes = sorted_boxes(dt_boxes)
+        return dt_boxes, [
+            self.get_rotate_crop_image(img, box) for box in dt_boxes
+        ]
+
+    def _recognize_batch(self, images):
+        """Recognize text in multiple images with one shared batch stream."""
+        image_data = [self._detect_text_regions(img) for img in images]
+        crops = [crop for _boxes, image_crops in image_data for crop in image_crops]
+        recognized = self.text_recognizer(crops)
+        results = [[] for _ in images]
+        offset = 0
+        for image_index, (boxes, _image_crops) in enumerate(image_data):
+            for box in boxes:
+                if offset >= len(recognized):
+                    break
+                text, score = recognized[offset]
+                offset += 1
+                if score < self.drop_score:
+                    continue
+                results[image_index].append({
+                    'box': box.astype(np.int32),
+                    'text': text,
+                    'score': float(score),
+                })
         return results
 
-    def run(self, img):
-        """Recognize text using the pipeline model protocol."""
+    def __call__(self, img):
+        return self._recognize_batch([img])[0]
+
+    def run_batch(self, images):
+        """Recognize text for multiple region images in shared batches."""
+        return [
+            self._normalize_results(results)
+            for results in self._recognize_batch(list(images))
+        ]
+
+    @staticmethod
+    def _normalize_results(results):
         normalized = []
-        for result in self(img):
+        for result in results:
+            result = dict(result)
             points = np.asarray(result.get('box'))
             if points.ndim == 2 and points.shape[1] == 2:
                 x1, y1 = points.min(axis=0)
@@ -383,6 +415,10 @@ class TextSystem():
             result['label'] = result.get('text', '')
             normalized.append(result)
         return normalized
+
+    def run(self, img):
+        """Recognize text using the pipeline model protocol."""
+        return self.run_batch([img])[0]
 
     def close(self):
         """Release text detection and recognition sessions."""

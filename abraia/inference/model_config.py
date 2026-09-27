@@ -83,6 +83,7 @@ PIPELINE_MODEL_KINDS = (
     "face",
     "license_plate",
     "ocr",
+    "multispectral",
 )
 PIPELINE_MODEL_TASKS = PIPELINE_TASKS
 PIPELINE_HAILO_TASKS = HAILO_TASKS
@@ -107,6 +108,11 @@ MODEL_DESCRIPTORS = MappingProxyType({
     "face": ModelDescriptor(frozenset({"detection", "recognition"})),
     "license_plate": ModelDescriptor(frozenset({"detection", "recognition"})),
     "ocr": ModelDescriptor(frozenset({"recognition"})),
+    "multispectral": ModelDescriptor(
+        frozenset({"classification"}),
+        uri_based=True,
+        explicit_uri=True,
+    ),
 })
 MODEL_TASKS_BY_KIND = {
     kind: descriptor.tasks for kind, descriptor in MODEL_DESCRIPTORS.items()
@@ -240,11 +246,15 @@ class ModelSpec:
                 return ("Grounding DINO models require the detection task.",)
             if self.kind == "ocr":
                 return ("OCR models only support the recognition task.",)
+            if self.kind == "multispectral":
+                return ("Multispectral models require the classification task.",)
             return (f"{self.kind} models do not support the {self.task} task.",)
 
         if runtime:
             if self.kind == "resnet" and not self.uri:
                 return ("A ResNet classifier requires a model 'uri'",)
+            if self.kind == "multispectral" and not self.uri:
+                return ("A multispectral classifier requires a model 'uri'",)
             if self.kind in MODEL_ARCHITECTURES and not self.uri:
                 if self.kind not in MODEL_SIZE_URIS:
                     return (f"A {self.kind} model requires a model 'uri'",)
@@ -376,7 +386,7 @@ def model_control_visibility(kind, task):
         "confidence": True,
         "iou": (
             not (spec.kind == "face" and spec.task == "recognition")
-            and spec.kind not in ("ocr", "resnet")
+            and spec.kind not in ("ocr", "resnet", "multispectral")
         ),
         "approx": spec.task == "segmentation" and spec.kind in MODEL_ARCHITECTURES,
     }
@@ -410,6 +420,29 @@ PIPELINE_MODEL_OPTIONS = (
     ("ocr_recognition", "OCR recognition", "ocr", "recognition", ""),
 )
 
+# Models whose adapters are designed to consume an image region produced by
+# an earlier pipeline model. Keep this capability separate from the general
+# model catalog so editors and runtime validation share the same policy.
+PIPELINE_SECOND_STAGE_MODEL_PAIRS = frozenset({
+    ("resnet", "classification"),
+    ("face", "recognition"),
+    ("license_plate", "recognition"),
+    ("ocr", "recognition"),
+    ("multispectral", "classification"),
+})
+PIPELINE_SECOND_STAGE_MODEL_OPTIONS = tuple(
+    option for option in PIPELINE_MODEL_OPTIONS
+    if (option[2], option[3]) in PIPELINE_SECOND_STAGE_MODEL_PAIRS
+) + (
+    (
+        "multispectral_classification",
+        "Multispectral classification",
+        "multispectral",
+        "classification",
+        "",
+    ),
+)
+
 
 def is_resnet_model_uri(uri):
     """Return whether a URI names a model produced by classification training."""
@@ -436,6 +469,8 @@ __all__ = [
     "PIPELINE_HAILO_TASKS",
     "PIPELINE_MODEL_KINDS",
     "PIPELINE_MODEL_OPTIONS",
+    "PIPELINE_SECOND_STAGE_MODEL_OPTIONS",
+    "PIPELINE_SECOND_STAGE_MODEL_PAIRS",
     "PIPELINE_MODEL_TASKS",
     "RESNET_MODEL_KINDS",
     "ModelSpec",

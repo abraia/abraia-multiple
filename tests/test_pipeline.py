@@ -364,7 +364,7 @@ def test_pipeline_from_file_builds_components_and_resolves_paths():
             "source": {"type": "image", "src": "frame.jpg"},
             "model": {"kind": "yolov8", "uri": "model.onnx", "labels": ["person"]},
             "stages": [
-                {"type": "tracker", "enabled": "auto"},
+                {"type": "tracker"},
                 {"type": "line_counter", "line": [[0, 0], [10, 10]]},
             ],
             "display": {"show": False, "dest": "output.avi"},
@@ -378,7 +378,7 @@ def test_pipeline_from_file_builds_components_and_resolves_paths():
         assert pipeline.source.src == str(Path(temp_dir) / "frame.jpg")
         assert pipeline.source.dest == str(Path(temp_dir) / "output.avi")
         assert pipeline.model.uri == "model.onnx"
-        assert "tracker" not in pipeline.components
+        assert "tracker" in pipeline.components
         assert "line_counter" in pipeline.components
 
 

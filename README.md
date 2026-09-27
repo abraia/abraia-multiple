@@ -248,6 +248,46 @@ face and license-plate detectors:
 }
 ```
 
+Version two adds ordered, named steps for composed inference. A pipeline can
+use up to two models, along with `filter`, `crop`, and `attach` steps. The
+second model runs on regions from the preceding results and attaches its
+output to the matching detections. For example, a license-plate detector can
+pass each detected plate to OCR:
+
+```json
+{
+  "version": 2,
+  "source": {"type": "video", "src": "traffic.mp4"},
+  "steps": [
+    {
+      "id": "plates",
+      "type": "model",
+      "input": "frame",
+      "model": {"task": "detection", "kind": "license_plate"}
+    },
+    {
+      "id": "read_text",
+      "type": "model",
+      "model": {"task": "recognition", "kind": "ocr"}
+    }
+  ],
+  "display": {"show": true}
+}
+```
+
+The OCR step crops each detected plate, recognizes its text, and adds the
+recognition result to that detection. Steps can also explicitly connect
+outputs: use references such as `plates.results` or `crop.items` in an
+`input` field, and use `target` on an `attach` step to choose which result
+list receives the attached data. Version-one files remain supported. Run a
+version-two file the same way:
+
+```python
+from abraia.runtime import Pipeline
+
+Pipeline.from_file("plate_ocr.json").run()
+```
+
 ##### People monitoring
 
 Use this configuration for people tracking and line counting. The CLI provides

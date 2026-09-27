@@ -1,5 +1,6 @@
 """Output decoders and post-processing for inference models."""
 
+from .geometry import normalize_polygon, polygon_bounds
 from .masks import (
     annotation_color_rgb,
     colored_prediction_layers,
@@ -14,4 +15,6 @@ __all__ = [
     "compare_mask_layers",
     "mask_to_box",
     "mask_to_polygon",
+    "normalize_polygon",
+    "polygon_bounds",
 ]

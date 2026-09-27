@@ -6,11 +6,24 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .lifecycle import close_resources
+from .config import (
+    MAX_PIPELINE_TRACKERS,
+    ModelSpec,
+)
 
 
 def _is_remote_source(source: str) -> bool:
     source = source.lower()
     return source.startswith(("http://", "https://", "rtsp://"))
+
+
+def _is_spectral_source(source: Any) -> bool:
+    """Return whether a source path identifies a spectral capture."""
+    if not isinstance(source, str):
+        return False
+    return source.lower().endswith(
+        (".tif", ".tiff", ".hdr", ".raw", ".img", ".mat")
+    )
 
 
 def _is_temporal_source(source_config: Dict[str, Any], source: Any) -> bool:
@@ -78,7 +91,11 @@ class SourceFactory:
         return SourcePlan(source, source_type, video_kwargs)
 
     @staticmethod
-    def create(plan: SourcePlan):
+    def create(plan: SourcePlan, spectral=False):
+        if spectral:
+            from multiple.pipeline import SpectralSource
+
+            return SpectralSource(plan.source, **plan.video_kwargs)
         from .video import Video
 
         return Video(plan.source, **plan.video_kwargs)
@@ -164,12 +181,12 @@ class StageFactory:
     def build(self, stages_config, source_config, source, video):
         stages = []
         components = {}
+        tracker_count = 0
         for stage_config in stages_config:
             if not isinstance(stage_config, dict):
                 raise ValueError("Each pipeline stage must be an object")
             stage_type = stage_config.get("type")
             if stage_config.get("enabled") is False and stage_type in (
-                "tracker",
                 "line_counter",
                 "region_filter",
                 "region_timer",
@@ -177,11 +194,11 @@ class StageFactory:
                 continue
 
             if stage_type == "tracker":
-                enabled = stage_config.get("enabled", True)
-                if enabled == "auto":
-                    enabled = _is_temporal_source(source_config, source)
-                if not enabled:
-                    continue
+                tracker_count += 1
+                if tracker_count > MAX_PIPELINE_TRACKERS:
+                    raise ValueError(
+                        f"A pipeline can contain at most {MAX_PIPELINE_TRACKERS} tracker"
+                    )
                 tracker = self.tracker_cls(
                     track_thresh=stage_config.get("track_thresh", 0.25),
                     track_buffer=stage_config.get("track_buffer", 30),
@@ -255,7 +272,7 @@ class PipelineRenderer:
 
 
 class PipelineBuilder:
-    """Assemble a :class:`Pipeline` from the version-one configuration."""
+    """Assemble a :class:`Pipeline` from a versioned configuration."""
 
     def __init__(self, pipeline_cls):
         self.pipeline_cls = pipeline_cls
@@ -269,7 +286,15 @@ class PipelineBuilder:
     ):
         if not isinstance(config, dict):
             raise ValueError("Pipeline configuration must be a JSON object")
-        if config.get("version", 1) != 1:
+        version = config.get("version", 1)
+        if version == 2:
+            return self._build_composed(
+                config,
+                base_dir=base_dir,
+                on_frame=on_frame,
+                accelerator=accelerator,
+            )
+        if version != 1:
             raise ValueError("Unsupported pipeline configuration version")
 
         source_config = config.get("source") or {}
@@ -292,6 +317,10 @@ class PipelineBuilder:
 
         root = Path(base_dir or os.getcwd())
         source_plan = SourceFactory.prepare(source_config, display_config, root)
+        spectral_source = (
+            ModelSpec.from_config(model_config).kind == "multispectral"
+            or _is_spectral_source(source_plan.source)
+        )
         model_kwargs = get_model_run_kwargs(model_config)
         model = create_model(
             model_config,
@@ -301,7 +330,7 @@ class PipelineBuilder:
         video = None
         components = {}
         try:
-            video = SourceFactory.create(source_plan)
+            video = SourceFactory.create(source_plan, spectral=spectral_source)
             video.accelerator = get_model_accelerator(model)
             stage_factory = StageFactory(
                 Tracker,
@@ -339,6 +368,23 @@ class PipelineBuilder:
             model_kwargs=model_kwargs,
             on_frame=on_frame,
             components=components,
+        )
+
+    def _build_composed(
+        self,
+        config: Dict[str, Any],
+        base_dir: Optional[str] = None,
+        on_frame: Optional[Callable] = None,
+        accelerator: Optional[str] = "auto",
+    ):
+        from .composed_builder import build_composed_pipeline
+
+        return build_composed_pipeline(
+            self.pipeline_cls,
+            config,
+            base_dir=base_dir,
+            on_frame=on_frame,
+            accelerator=accelerator,
         )
 
 

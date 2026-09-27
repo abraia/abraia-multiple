@@ -86,7 +86,13 @@ def list_model_records(project, client=None):
     """Return model names with optional persisted evaluation metadata."""
     client = _resolve_client(client)
     records = []
-    for name in list_models(project, client=client):
+    files = client.list_files(f"{project}/")[0]
+    names = [
+        file_data["name"]
+        for file_data in files
+        if file_data["name"].lower().endswith((".onnx", ".joblib"))
+    ]
+    for name in names:
         record = {"name": name, "metrics": {}}
         if hasattr(client, "load_json"):
             stem = os.path.splitext(str(name))[0]
@@ -100,6 +106,21 @@ def list_model_records(project, client=None):
                     "classes": metadata.get("classes") or [],
                     "task": normalize_task(metadata.get("task")),
                 })
+                if str(name).lower().endswith(".joblib"):
+                    record["kind"] = metadata.get("kind") or "multispectral"
+                    record["task"] = normalize_task(
+                        metadata.get("task"), default="classification"
+                    )
+        elif str(name).lower().endswith(".joblib"):
+            record.update({
+                "classes": [],
+                "task": "classification",
+                "kind": "multispectral",
+            })
+        if str(name).lower().endswith(".joblib"):
+            record.setdefault("classes", [])
+            record.setdefault("task", "classification")
+            record.setdefault("kind", "multispectral")
         records.append(record)
     return records
 

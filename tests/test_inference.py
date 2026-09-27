@@ -22,7 +22,7 @@ from abraia.inference.postprocess.decoders import (
 from abraia.inference.postprocess.common import softmax
 from abraia.inference.postprocess.masks import mask_to_polygon
 from abraia.inference.vectors import search_vectors
-from abraia.inference.models.ocr import TextRecognizer
+from abraia.inference.models.ocr import BaseRecLabelDecode, TextRecognizer, TextSystem
 from abraia.inference.models.sam import SAM
 from abraia.inference.service import InferenceService
 
@@ -111,6 +111,17 @@ def test_async_runner_propagates_frame_errors():
 
 def test_clip_import():
     assert Clip is not None
+
+
+def test_ocr_decoder_returns_zero_confidence_for_blank_text():
+    decoder = BaseRecLabelDecode.__new__(BaseRecLabelDecode)
+
+    result = decoder.decode(
+        np.array([[0, 0]], dtype=np.int64),
+        np.array([[0.1, 0.2]], dtype=np.float32),
+    )
+
+    assert result == [("", 0.0)]
 
 
 def test_mask_to_polygon_accepts_boolean_masks():
@@ -387,6 +398,26 @@ def test_text_recognizer_processes_all_recognition_batches():
 
     assert len(result) == 7
     assert all(text == "decoded" for text, _score in result)
+
+
+def test_text_system_batches_recognition_across_region_images():
+    system = TextSystem.__new__(TextSystem)
+    system.drop_score = 0.5
+    boxes = [
+        np.array([[0, 0], [4, 0], [4, 2], [0, 2]], dtype=np.float32),
+        np.array([[1, 1], [5, 1], [5, 3], [1, 3]], dtype=np.float32),
+    ]
+    system._detect_text_regions = lambda image: ([boxes[image]], [image])
+    recognized_images = []
+    system.text_recognizer = lambda images: (
+        recognized_images.extend(images) or [("one", 0.9), ("two", 0.8)]
+    )
+
+    result = system.run_batch([0, 1])
+
+    assert recognized_images == [0, 1]
+    assert [item[0]["text"] for item in result] == ["one", "two"]
+    assert result[0][0]["box"] == [0, 0, 4, 2]
 
 
 def test_sam_close_releases_both_sessions():

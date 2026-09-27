@@ -52,9 +52,23 @@ class FrameContext:
     frame: Any
     frame_index: int
     frame_time: float
+    spectral_cube: Any = None
+    spectral_metadata: Any = None
     results: List[dict] = field(default_factory=list)
+    artifacts: Dict[str, Any] = field(default_factory=dict)
     metrics: Dict[str, Any] = field(default_factory=dict)
     views: Dict[str, List[dict]] = field(default_factory=dict)
+
+
+def _source_frame_parts(source_frame):
+    """Return the RGB frame and optional backing spectral data."""
+    if hasattr(source_frame, "rgb") and hasattr(source_frame, "cube"):
+        return (
+            source_frame.rgb,
+            source_frame.cube,
+            getattr(source_frame, "metadata", None),
+        )
+    return source_frame, None, None
 
 
 class Pipeline:
@@ -71,6 +85,7 @@ class Pipeline:
         source: Iterable,
         model: Any,
         stages: Optional[Iterable[Callable[[FrameContext], Optional[FrameContext]]]] = None,
+        steps: Optional[Iterable[Callable[[FrameContext], Optional[FrameContext]]]] = None,
         display: Any = None,
         render: Optional[Callable[[FrameContext], Any]] = None,
         model_kwargs: Optional[Dict[str, Any]] = None,
@@ -80,6 +95,7 @@ class Pipeline:
         self.source = source
         self.model = model
         self.stages = list(stages or [])
+        self.steps = list(steps or [])
         self.display = display
         self.render = render
         self.model_kwargs = model_kwargs or {}
@@ -151,6 +167,8 @@ class Pipeline:
             watcher.start()
         last_context = None
         try:
+            if self.steps:
+                return self._run_composed(self._is_cancelled)
             for result in self._iter_inference():
                 if self._stop_requested.is_set() or self._is_cancelled():
                     self.stop()
@@ -198,6 +216,44 @@ class Pipeline:
             if watcher is not None:
                 watcher.close()
             self.close()
+
+    def _run_composed(self, is_cancelled):
+        """Run named multi-model steps directly over the source frames."""
+        last_context = None
+        for frame_index, source_frame in enumerate(self.source):
+            if self._stop_requested.is_set() or is_cancelled():
+                self.stop()
+                break
+            frame, spectral_cube, spectral_metadata = _source_frame_parts(source_frame)
+            frame_time = (
+                frame_index / self.frame_rate
+                if self.frame_rate > 0
+                else float(frame_index)
+            )
+            started = time.perf_counter()
+            context = FrameContext(
+                frame,
+                frame_index,
+                frame_time,
+                spectral_cube=spectral_cube,
+                spectral_metadata=spectral_metadata,
+            )
+            for step in self.steps:
+                context = step(context) or context
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            if self.on_frame is not None:
+                self.on_frame(context, elapsed_ms)
+            output = self.render(context) if self.render else context.frame
+            last_context = context
+            if self.display is not None:
+                display_result = self.display.show(output)
+                if (
+                    display_result is False
+                    or getattr(self.display, "quit", False)
+                ):
+                    self.stop()
+                    break
+        return last_context
 
     @classmethod
     def from_file(
@@ -249,6 +305,7 @@ class Pipeline:
             self.source,
             self.model,
             *self.stages,
+            *self.steps,
             *self.components.values(),
         ])
 

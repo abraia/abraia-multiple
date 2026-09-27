@@ -7,6 +7,7 @@ from typing import Any, Optional, Protocol, runtime_checkable
 
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".bmp")
 VIDEO_SUFFIXES = (".mp4", ".avi", ".mov", ".mkv")
+SPECTRAL_SUFFIXES = (".tif", ".tiff", ".hdr", ".raw", ".img", ".mat")
 SOURCE_TYPE_ALIASES = {
     "images": "image",
     "usb_camera": "camera",
@@ -64,6 +65,9 @@ def infer_source_type(
     if lowered.endswith(IMAGE_SUFFIXES):
         if not require_exists or os.path.isfile(value):
             return image_type
+    if lowered.endswith(SPECTRAL_SUFFIXES):
+        if not require_exists or os.path.isfile(value):
+            return image_type
     if lowered.endswith(VIDEO_SUFFIXES):
         if not require_exists or os.path.isfile(value):
             return "video"
@@ -74,6 +78,7 @@ def infer_source_type(
 
 __all__ = [
     "IMAGE_SUFFIXES",
+    "SPECTRAL_SUFFIXES",
     "SOURCE_TYPE_ALIASES",
     "VIDEO_SUFFIXES",
     "ImageSource",

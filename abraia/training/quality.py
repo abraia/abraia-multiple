@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import hashlib
-import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 from PIL import Image
+
+from .quality_cache import (
+    _cache_identity,
+    _cache_path,
+    _load_cached_analysis,
+    _record_file_size,
+    _save_cached_analysis,
+)
 
 
 DEFAULT_SIMILARITY_THRESHOLD = 0.88
@@ -20,10 +26,11 @@ DEFAULT_DARK_THRESHOLD = 0.15
 DEFAULT_BRIGHT_THRESHOLD = 0.85
 DEFAULT_NEAREST_NEIGHBORS = 2
 _FEATURE_SIZE = 24
+_QUALITY_MAX_DIMENSION = 1024
 _PHASH_SIZE = 32
 _PHASH_LOW_FREQUENCIES = 8
 _FAST_MAX_CANDIDATES = 256
-_CACHE_SCHEMA_VERSION = 1
+_CACHE_SCHEMA_VERSION = 3
 _DCT_BASIS = np.cos(
     np.pi
     / _PHASH_SIZE
@@ -148,8 +155,9 @@ def analyze_rgb_quality(
                 feature_extractor=feature_extractor,
             )
             height, width = image.shape[:2]
-            brightness = float(np.mean(gray))
-            sharpness = _sharpness(gray)
+            quality_image = _prepare_quality_image(image)
+            brightness = float(np.mean(quality_image))
+            sharpness = _sharpness_image(quality_image)
             exposure_quality = max(0.0, 1.0 - 2.0 * abs(brightness - 0.5))
             stats = _image_stats(image, gray) if compute_stats else {}
             stats.update({
@@ -301,115 +309,6 @@ def _image_stats(image, gray):
         "edge_density": float(np.mean(gradients > 0.08)) if gradients.size else 0.0,
     }
 
-
-def _record_file_size(record):
-    value = record.get("file_size")
-    if value is not None:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            pass
-    path = Path(str(record.get("path") or ""))
-    try:
-        return int(path.stat().st_size)
-    except OSError:
-        return None
-
-
-def _cache_identity(record, cache_namespace=None, cache_context=None):
-    identity = {
-        "namespace": str(cache_namespace or ""),
-        "context": dict(cache_context or {}),
-        "path": str(record.get("path") or record.get("name") or ""),
-        "cache_key": record.get("cache_key"),
-        "file_size": _record_file_size(record),
-    }
-    path = Path(identity["path"])
-    try:
-        identity["mtime_ns"] = path.stat().st_mtime_ns
-    except OSError:
-        identity["mtime_ns"] = None
-    return identity
-
-
-def _cache_path(cache_dir, record, cache_namespace=None, cache_context=None):
-    identity = json.dumps(
-        _cache_identity(
-            record,
-            cache_namespace=cache_namespace,
-            cache_context=cache_context,
-        ),
-        sort_keys=True,
-        default=str,
-    ).encode("utf-8")
-    digest = hashlib.sha256(identity).hexdigest()
-    return Path(cache_dir) / (digest + ".npz")
-
-
-def _load_cached_analysis(
-    cache_dir,
-    record,
-    *,
-    cache_namespace=None,
-    cache_context=None,
-):
-    filename = _cache_path(
-        cache_dir,
-        record,
-        cache_namespace=cache_namespace,
-        cache_context=cache_context,
-    )
-    if not filename.is_file():
-        return None
-    try:
-        with np.load(filename, allow_pickle=False) as cached:
-            return ImageAnalysis(
-                record=record,
-                path=str(cached["path"]),
-                name=str(cached["name"]),
-                feature=cached["feature"],
-                feature_is_custom=False,
-                pixel_feature=cached["pixel_feature"],
-                gray=cached["gray"],
-                perceptual_hash=cached["perceptual_hash"].astype(bool),
-                texture=float(cached["texture"]),
-                brightness=float(cached["brightness"]),
-                sharpness=float(cached["sharpness"]),
-                metrics=json.loads(str(cached["metrics"])),
-            )
-    except (OSError, ValueError, KeyError, json.JSONDecodeError):
-        return None
-
-
-def _save_cached_analysis(
-    cache_dir,
-    record,
-    item,
-    *,
-    cache_namespace=None,
-    cache_context=None,
-):
-    filename = _cache_path(
-        cache_dir,
-        record,
-        cache_namespace=cache_namespace,
-        cache_context=cache_context,
-    )
-    temporary = filename.with_suffix(".tmp.npz")
-    np.savez_compressed(
-        temporary,
-        path=np.asarray(item.path),
-        name=np.asarray(item.name),
-        feature=item.feature,
-        pixel_feature=item.pixel_feature,
-        gray=item.gray,
-        perceptual_hash=item.perceptual_hash,
-        texture=item.texture,
-        brightness=item.brightness,
-        sharpness=item.sharpness,
-        metrics=np.asarray(json.dumps(item.metrics)),
-    )
-    os.replace(temporary, filename)
 
 
 def _resize(image, size):
@@ -653,6 +552,30 @@ def _candidate_indices(
         )
         candidates = [candidates[position] for position in positions]
     return candidates
+
+
+def _prepare_quality_image(image):
+    """Bound image size once for consistent brightness and blur metrics."""
+    height, width = image.shape[:2]
+    scale = min(1.0, _QUALITY_MAX_DIMENSION / max(height, width))
+    if scale >= 1.0:
+        return image
+    size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    values = np.uint8(np.clip(image, 0.0, 1.0) * 255.0)
+    return np.asarray(
+        Image.fromarray(values).resize(size, Image.Resampling.BILINEAR),
+        dtype=np.float32,
+    ) / 255.0
+
+
+def _sharpness_image(image):
+    """Return variance of the grayscale Laplacian for an RGB image."""
+    gray = (
+        image[..., 0] * 0.299
+        + image[..., 1] * 0.587
+        + image[..., 2] * 0.114
+    )
+    return _sharpness(gray)
 
 
 def _sharpness(gray):

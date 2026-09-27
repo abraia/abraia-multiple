@@ -2,24 +2,26 @@
 
 import cv2
 import numpy as np
-import zlib
 
 from ..geometry import approx_contour, merge_with_parent
-from ...utils.draw import get_color, hex_to_rgb
+from ...utils.colors import get_color, hex_to_rgb
 
 
-def annotation_color_rgb(annotation):
-    """Return the stable Abraia palette color for an annotation class."""
+def annotation_color_rgb(annotation, class_names=None):
+    """Return a class-list color, falling back to an explicit class ID."""
     annotation = annotation if isinstance(annotation, dict) else {}
     label = annotation.get("label")
-    if label is not None and str(label).strip():
-        class_id = zlib.crc32(str(label).encode("utf-8"))
-    else:
-        class_id = annotation.get("class_id")
-        try:
-            class_id = int(class_id)
-        except (TypeError, ValueError):
-            class_id = zlib.crc32(b"object")
+    if label is not None and class_names is not None:
+        normalized = str(label).strip().casefold()
+        for index, name in enumerate(class_names):
+            if str(name).strip().casefold() == normalized:
+                return hex_to_rgb(get_color(index))
+        return hex_to_rgb(get_color(len(class_names)))
+    class_id = annotation.get("class_id")
+    try:
+        class_id = int(class_id) if class_id is not None else 0
+    except (TypeError, ValueError):
+        class_id = 0
     return hex_to_rgb(get_color(class_id))
 
 

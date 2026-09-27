@@ -146,6 +146,17 @@ def _create_resnet_model(spec, _config, base_dir, session_options):
     )
 
 
+def _create_multispectral_model(spec, _config, base_dir, _session_options):
+    """Create the local multispectral object-classification adapter."""
+    if spec.params:
+        raise ValueError("Multispectral classifier options belong in the model artifact")
+    from multiple.pipeline import MultispectralClassifier
+
+    return MultispectralClassifier(
+        _resolve_model_uri(spec.uri, base_dir=base_dir),
+    )
+
+
 def _create_grounding_dino_model(spec, _config, base_dir, session_options):
     """Create the Grounding DINO adapter."""
     from .models.grounding_dino import GroundingDINOModel
@@ -225,6 +236,7 @@ def _create_ocr_model(spec, _config, _base_dir, session_options):
 _MODEL_FACTORIES = {
     **{kind: _create_yolo_model for kind in MODEL_ARCHITECTURES},
     "resnet": _create_resnet_model,
+    "multispectral": _create_multispectral_model,
     "grounding_dino": _create_grounding_dino_model,
     "face": _create_face_model,
     "license_plate": _create_license_plate_model,
