@@ -4,7 +4,17 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from .composition import AttachStep, BoundModelStep, CropStep, FilterStep, ModelStep
+from .composition import (
+    AttachStep,
+    BoundModelStep,
+    CropStep,
+    FilterStep,
+    LineCounterStep,
+    ModelStep,
+    RegionFilterStep,
+    RegionTimerStep,
+    TrackerStep,
+)
 from .config import (
     MAX_PIPELINE_MODELS,
     MAX_PIPELINE_TRACKERS,
@@ -12,9 +22,8 @@ from .config import (
     PIPELINE_SECOND_STAGE_MODEL_PAIRS,
 )
 from .factories import (
-    PipelineRenderer,
     SourceFactory,
-    StageFactory,
+    build_pipeline_output,
     _is_spectral_source,
 )
 from .lifecycle import close_resources
@@ -62,12 +71,6 @@ def build_composed_pipeline(
     previous_results_ref = "results"
     try:
         video = SourceFactory.create(source_plan, spectral=spectral_source)
-        stage_factory = StageFactory(
-            Tracker,
-            LineCounter,
-            RegionFilter,
-            RegionTimer,
-        )
         for index, step_config in enumerate(steps_config, 1):
             if not isinstance(step_config, dict):
                 raise ValueError(f"Pipeline step {index} must be an object")
@@ -94,7 +97,6 @@ def build_composed_pipeline(
                     raise ValueError(
                         f"A pipeline can contain at most {MAX_PIPELINE_MODELS} models"
                     )
-                model_config = step_config.get("model") or {}
                 if model_count > 1:
                     model_spec = ModelSpec.from_config(model_config)
                     model_pair = (model_spec.kind, model_spec.task)
@@ -113,8 +115,6 @@ def build_composed_pipeline(
                 "frame"
                 if step_type == "model" and model_count == 1
                 else previous_results_ref
-                if step_type == "model"
-                else "results"
             )
             if step_type == "model" and model_count > 1:
                 raw_input = default_input
@@ -204,20 +204,36 @@ def build_composed_pipeline(
                     target,
                     field=step_config.get("field", "result"),
                 ))
-            elif step_type in (
-                "tracker",
-                "line_counter",
-                "region_filter",
-                "region_timer",
-            ):
-                legacy_stages, legacy_components = stage_factory.build(
-                    [step_config],
-                    source_config,
-                    source_plan.source,
-                    video,
+            elif step_type == "tracker":
+                tracker = Tracker(
+                    track_thresh=step_config.get("track_thresh", 0.25),
+                    track_buffer=step_config.get("track_buffer", 30),
+                    match_thresh=step_config.get("match_thresh", 0.8),
+                    frame_rate=video.frame_rate,
                 )
-                steps.extend(legacy_stages)
-                components.update(legacy_components)
+                steps.append(TrackerStep(step_id, input_ref, tracker))
+                components["tracker"] = tracker
+            elif step_type == "line_counter":
+                line = step_config.get("line")
+                if not line or len(line) != 2:
+                    raise ValueError("line_counter requires a two-point 'line'")
+                counter = LineCounter(line)
+                steps.append(LineCounterStep(step_id, input_ref, counter))
+                components["line_counter"] = counter
+            elif step_type == "region_filter":
+                polygon = step_config.get("polygon")
+                if not polygon:
+                    raise ValueError("region_filter requires a 'polygon'")
+                region_filter = RegionFilter(polygon)
+                steps.append(RegionFilterStep(step_id, input_ref, region_filter))
+                components["region_filter"] = region_filter
+            elif step_type == "region_timer":
+                polygon = step_config.get("polygon")
+                if not polygon:
+                    raise ValueError("region_timer requires a 'polygon'")
+                region_timer = RegionTimer(polygon)
+                steps.append(RegionTimerStep(step_id, input_ref, region_timer))
+                components["region_timer"] = region_timer
             else:
                 raise ValueError(f"Unknown composed pipeline step type: {step_type}")
             output_name = "items" if step_type == "crop" else "results"
@@ -226,6 +242,10 @@ def build_composed_pipeline(
                 "model",
                 "filter",
                 "attach",
+                "tracker",
+                "line_counter",
+                "region_filter",
+                "region_timer",
             ):
                 previous_results_ref = f"{step_id}.results"
 
@@ -233,18 +253,12 @@ def build_composed_pipeline(
             get_model_accelerator(models[0]) if models else "CPU"
         )
     except Exception:
-        close_resources([*steps, *models, *components.values(), video])
+        close_resources([*steps, *models, video])
         raise
 
-    renderer = PipelineRenderer(
-        components,
-        render_results=display_config.get("render_results", True),
-        render_metrics=display_config.get("render_metrics", True),
+    renderer, display = build_pipeline_output(
+        video, source_plan, display_config, components
     )
-    show_display = bool(display_config.get("show", True))
-    if not show_display:
-        video.set_display_enabled(False)
-    display = video if show_display or source_plan.video_kwargs.get("dest") else None
     return pipeline_cls(
         source=video,
         model=models[0] if models else None,

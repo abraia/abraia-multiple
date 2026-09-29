@@ -69,24 +69,25 @@ def validate_pipeline_draft(draft):
             valid = False
         if not valid:
             errors.append(f"{label} must be between 0 and 1.")
-    canonical_stages = bool(
-        draft.stages
-        and isinstance(draft.stages[0], dict)
-        and draft.stages[0].get("type") == "model"
-        and draft.stages[0].get("input", "frame") == "frame"
+    steps = draft.steps
+    canonical_steps = bool(
+        steps
+        and isinstance(steps[0], dict)
+        and steps[0].get("type") == "model"
+        and steps[0].get("input", "frame") == "frame"
     )
-    has_composition = canonical_stages or any(
-        isinstance(stage, dict) and stage.get("type") in COMPOSITION_STAGE_TYPES
-        for stage in draft.stages
+    has_composition = canonical_steps or any(
+        isinstance(step, dict) and step.get("type") in COMPOSITION_STAGE_TYPES
+        for step in steps
     )
     known_outputs = {"frame", "results"}
     known_ids = set()
     model_count = 0
     tracker_count = 0
-    if not canonical_stages:
+    if not canonical_steps:
         known_outputs.add("model.results")
         known_ids.add("model")
-    for index, stage in enumerate(draft.stages, 1):
+    for index, stage in enumerate(steps, 1):
         stage_type = stage.get("type") if isinstance(stage, dict) else None
         if (
             isinstance(stage, dict)
@@ -109,9 +110,9 @@ def validate_pipeline_draft(draft):
                 errors.append(
                     f"A pipeline can contain at most {MAX_PIPELINE_TRACKERS} tracker."
                 )
-        if stage_type in COMPOSITION_STAGE_TYPES:
+        if has_composition and stage_type in SUPPORTED_STAGE_TYPES:
             step_id = str(stage.get("id", "")).strip()
-            if has_composition and not step_id:
+            if not step_id:
                 errors.append(f"Stage {index}: composed steps require a step ID.")
             elif step_id in known_ids:
                 errors.append(f"Stage {index}: duplicate step ID '{step_id}'.")
@@ -150,7 +151,9 @@ def validate_pipeline_draft(draft):
                             f"Stage {index}: model '{model_spec.kind}' with task "
                             f"'{model_spec.task}' cannot run as a second-stage model."
                         )
-            elif not str(stage.get("input", "")).strip():
+            elif stage_type in ("filter", "crop") and not str(
+                stage.get("input", "")
+            ).strip():
                 errors.append(f"Stage {index}: {stage_type} step requires an input reference.")
             if stage_type == "attach" and not str(stage.get("target", "")).strip():
                 errors.append(f"Stage {index}: attach step requires a target reference.")
@@ -163,14 +166,13 @@ def validate_pipeline_draft(draft):
                 output = "items"
             else:
                 output = "results"
+            if stage_type == "line_counter" and len(_points(stage.get("line"))) != 2:
+                errors.append(f"Stage {index}: line counter needs two points.")
+            if stage_type in ("region_filter", "region_timer"):
+                polygon = stage.get("polygon")
+                if len(_points(polygon)) < 3:
+                    errors.append(f"Stage {index}: region needs at least three points.")
             if step_id:
                 known_outputs.add(f"{step_id}.{output}")
             continue
-        if stage_type == "line_counter" and len(_points(stage.get("line"))) != 2:
-            errors.append(f"Stage {index}: line counter needs two points.")
-        if stage_type in ("region_filter", "region_timer"):
-            polygon = stage.get("polygon")
-            if len(_points(polygon)) < 3:
-                errors.append(f"Stage {index}: region needs at least three points.")
     return errors
-

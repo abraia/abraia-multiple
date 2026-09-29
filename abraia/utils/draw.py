@@ -400,7 +400,20 @@ def render_status(img, fps=None, thickness=None, text_scale=None, accelerator=No
     lines.append(f"RAM: {round(psutil.virtual_memory().used / (1024**3), 2)} GB")
     if fps is not None:
         lines.append(f"FPS: {round(fps, 1)}")
-    return draw_text_multiline(img, lines, (10, 40), background_color=(192, 192, 192), text_scale=text_scale, padding=thickness*3)
+    padding = thickness * 3
+    text_height = cv2.getTextSize(
+        lines[0], cv2.FONT_HERSHEY_DUPLEX, text_scale, 1
+    )[0][1]
+    margin = 10
+    point = (margin, margin + text_height + 2 * padding)
+    return draw_text_multiline(
+        img,
+        lines,
+        point,
+        background_color=(192, 192, 192),
+        text_scale=text_scale,
+        padding=padding,
+    )
 
 
 def render_resolution(img, thickness=None, text_scale=None):

@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 import tempfile
 import threading
+from io import BytesIO
 import time
 from typing import Callable, Optional
 from urllib.parse import quote
@@ -12,6 +13,8 @@ from urllib.parse import quote
 import requests
 from requests.adapters import HTTPAdapter
 from tqdm import tqdm
+
+from .concurrency import get_default_remote_request_scheduler
 
 
 API_URL = "https://api.abraia.me"
@@ -48,23 +51,33 @@ def _get_url_session():
     return session
 
 
+_DEFAULT_SCHEDULER = object()
+
+
 def request_with_retries(
     session,
     method,
     url,
     retries=3,
     backoff=0.5,
+    scheduler=_DEFAULT_SCHEDULER,
     **kwargs,
 ):
     """Perform a request with retry-safe handling for rewindable bodies."""
     data = kwargs.get("data")
     position = data.tell() if hasattr(data, "tell") else None
+    limiter = (
+        scheduler
+        if scheduler not in (_DEFAULT_SCHEDULER, None)
+        else get_default_remote_request_scheduler()
+    )
     last_error = None
     for attempt in range(retries):
         if position is not None and hasattr(data, "seek"):
             data.seek(position)
         try:
-            return session.request(method, url, **kwargs)
+            request = lambda: session.request(method, url, **kwargs)
+            return limiter.run(request) if limiter else request()
         except (requests.ConnectionError, requests.Timeout) as error:
             last_error = error
             if attempt + 1 == retries:
@@ -85,8 +98,8 @@ def url_path(path):
 def get_remote_file_size(url: str, timeout: int = 30):
     """Get the size of a remote file via a best-effort HEAD request."""
     try:
-        with _get_url_session().head(
-            url, timeout=timeout, allow_redirects=True
+        with request_with_retries(
+            _get_url_session(), "HEAD", url, timeout=timeout, allow_redirects=True
         ) as response:
             if not response.ok:
                 return None
@@ -110,7 +123,7 @@ def temporal_src(path):
     return str(dest)
 
 
-def download_url(
+def _download_url(
     url: str,
     dest: str,
     chunk_size: int = 8192,
@@ -152,6 +165,13 @@ def download_url(
     except Exception:
         temp_dest.unlink(missing_ok=True)
         raise
+
+
+def download_url(url: str, dest: str, chunk_size: int = 8192, timeout=(10, 120)):
+    """Download one URL while holding shared request capacity for the transfer."""
+    return get_default_remote_request_scheduler().run(
+        _download_url, url, dest, chunk_size=chunk_size, timeout=timeout
+    )
 
 
 def download_file(path):
@@ -223,10 +243,8 @@ class ArtifactResolver:
         remote_path = os.fspath(path).replace("\\", "/").lstrip("/")
         url = url_path(remote_path)
         try:
-            with _get_url_session().head(
-                url,
-                timeout=30,
-                allow_redirects=True,
+            with request_with_retries(
+                _get_url_session(), "HEAD", url, timeout=30, allow_redirects=True
             ) as response:
                 if response.ok:
                     return True
@@ -236,7 +254,9 @@ class ArtifactResolver:
         # Some file servers reject HEAD or omit useful headers.  Probe the
         # actual download endpoint without buffering the artifact.
         try:
-            with _get_url_session().get(
+            with request_with_retries(
+                _get_url_session(),
+                "GET",
                 url,
                 headers={"Range": "bytes=0-0"},
                 stream=True,
@@ -284,27 +304,28 @@ def resolve_model_file(path):
     return ARTIFACT_RESOLVER.resolve(path)
 
 
-def load_url(url, timeout=(10, 120)):
-    """Return a readable response body for a URL.
+def _load_url_content(url, timeout, scheduler):
+    limiter = (
+        get_default_remote_request_scheduler()
+        if scheduler is _DEFAULT_SCHEDULER or scheduler is None
+        else scheduler
+    )
+    session = _get_url_session()
 
-    Callers own the returned raw stream and must close it after consuming it.
-    """
+    def fetch():
+        with session.get(
+            url,
+            stream=True,
+            allow_redirects=True,
+            timeout=timeout,
+        ) as response:
+            if response.status_code == 200:
+                return response.content
+            return None
+
     for attempt in range(3):
         try:
-            response = request_with_retries(
-                _get_url_session(),
-                "GET",
-                url,
-                retries=3,
-                backoff=0.25,
-                stream=True,
-                allow_redirects=True,
-                timeout=timeout,
-            )
-            if response.status_code == 200:
-                return response.raw
-            response.close()
-            return None
+            return limiter.run(fetch) if limiter else fetch()
         except (requests.ConnectionError, requests.Timeout):
             if attempt == 2:
                 return None
@@ -312,21 +333,17 @@ def load_url(url, timeout=(10, 120)):
     return None
 
 
-def load_url_bytes(url, timeout=(10, 120)):
-    """Load a remote resource and close its connection after reading it."""
-    for attempt in range(3):
-        response = load_url(url, timeout=timeout)
-        if response is None:
-            return None
-        try:
-            return response.read()
-        except (OSError, requests.ConnectionError, requests.Timeout):
-            if attempt == 2:
-                return None
-            time.sleep(0.25 * (attempt + 1))
-        finally:
-            response.close()
+def load_url(url, timeout=(10, 120), *, scheduler=_DEFAULT_SCHEDULER):
+    """Return a readable response stream, with the full transfer rate-limited."""
+    content = _load_url_content(url, timeout, scheduler)
+    return BytesIO(content) if content is not None else None
 
+
+def load_url_bytes(url, timeout=(10, 120)):
+    """Load a remote resource while holding shared request capacity through its body."""
+    return _load_url_content(
+        url, timeout, get_default_remote_request_scheduler()
+    )
 
 __all__ = [
     "API_URL",

@@ -10,12 +10,18 @@ import click
 from tqdm import tqdm
 
 from . import APIError, Abraia, __version__, config
+from .utils.concurrency import (
+    DEFAULT_MAX_REMOTE_WORKERS,
+    bounded_map,
+)
 
 
 abraia = Abraia()
 
 
-def process_map(task, *values, desc="", max_workers=3):
+def process_map(
+    task, *values, desc="", max_workers=DEFAULT_MAX_REMOTE_WORKERS
+):
     """Apply a task concurrently while reporting progress.
 
     Network operations use threads so workers share no copied client process
@@ -34,10 +40,15 @@ def process_map(task, *values, desc="", max_workers=3):
         value if hasattr(value, "__len__") else itertools.islice(value, total)
         for value in values
     ]
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    worker_count = min(max(1, int(max_workers)), DEFAULT_MAX_REMOTE_WORKERS)
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
         results = []
+        jobs = zip(*prepared)
+        apply_task = lambda args: task(*args)
         with tqdm(total=total, desc=desc) as progress:
-            for result in executor.map(task, *prepared):
+            for result in bounded_map(
+                executor, apply_task, jobs, max_pending=worker_count * 2
+            ):
                 progress.set_postfix_str(str(result))
                 progress.update(1)
                 results.append(result)

@@ -147,25 +147,32 @@ class DatasetProjectService:
         return dataset
 
     def delete_image(self, project, path):
+        self._delete_image_files(path)
+        dataset = self.dataset_loader(project)
+        filename = canonical_filename(os.path.basename(path) or path)
+        self._remove_annotations(dataset, {filename})
+        self._remove_images_from_dataset(dataset, [path])
+        return dataset
+
+    def _delete_image_files(self, path):
         folder, name = os.path.split(path)
         self.client.remove_file(path)
         try:
             self.client.remove_file(os.path.join(folder, f"tb_{name}"))
         except Exception:
             pass
-        dataset = self.dataset_loader(project)
-        filename = canonical_filename(name or path)
+
+    @staticmethod
+    def _remove_annotations(dataset, filenames):
         annotations = dataset.annotations or []
         remaining = [
             annotation
             for annotation in annotations
-            if canonical_filename(annotation.get("filename")) != filename
+            if canonical_filename(annotation.get("filename")) not in filenames
         ]
         if len(remaining) != len(annotations):
             dataset.annotations = remaining
             dataset.save()
-        self._remove_images_from_dataset(dataset, [path])
-        return dataset
 
     @staticmethod
     def _remove_images_from_dataset(dataset, paths):
@@ -206,25 +213,13 @@ class DatasetProjectService:
                 raise RuntimeError("Operation canceled")
             if progress_callback:
                 progress_callback(index - 1, len(paths), path, False)
-            folder, name = os.path.split(path)
-            self.client.remove_file(path)
-            try:
-                self.client.remove_file(os.path.join(folder, f"tb_{name}"))
-            except Exception:
-                pass
+            name = os.path.basename(path)
+            self._delete_image_files(path)
             removed_filenames.add(canonical_filename(name or path))
             if progress_callback:
                 progress_callback(index, len(paths), path, True)
 
-        annotations = dataset.annotations or []
-        remaining = [
-            annotation
-            for annotation in annotations
-            if canonical_filename(annotation.get("filename")) not in removed_filenames
-        ]
-        if len(remaining) != len(annotations):
-            dataset.annotations = remaining
-            dataset.save()
+        self._remove_annotations(dataset, removed_filenames)
         self._remove_images_from_dataset(dataset, paths)
         return dataset
 

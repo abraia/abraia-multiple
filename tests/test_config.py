@@ -1,6 +1,7 @@
 from abraia import config
 from abraia.sources import normalize_source_type
 from abraia.runtime.config import (
+    PipelineDraft,
     format_points,
     load_pipeline_document,
     parse_points,
@@ -61,6 +62,56 @@ def test_pipeline_document_helpers_round_trip_json(tmp_path):
     save_pipeline_document(filename, configuration)
 
     assert load_pipeline_document(filename) == configuration
+
+
+def test_composed_steps_include_tracker_and_region_processors():
+    configuration = {
+        "version": 2,
+        "source": {"type": "image", "src": "frame.jpg"},
+        "steps": [
+            {"id": "detect", "type": "model", "input": "frame", "model": {
+                "kind": "yolov8", "task": "detection", "uri": "model.onnx"
+            }},
+            {"id": "track", "type": "tracker"},
+            {"id": "count", "type": "line_counter", "line": [[0, 0], [10, 10]]},
+            {"id": "filter", "type": "region_filter", "polygon": [[0, 0], [10, 0], [10, 10]]},
+            {"id": "timer", "type": "region_timer", "polygon": [[0, 0], [10, 0], [10, 10]]},
+        ],
+    }
+
+    draft = PipelineDraft.from_dict(configuration)
+
+    assert draft.validation_errors() == []
+    serialized = draft.to_dict()
+    assert serialized["version"] == 2
+    assert [step["type"] for step in serialized["steps"]] == [
+        "model", "tracker", "line_counter", "region_filter", "region_timer"
+    ]
+
+
+def test_version_one_tracker_stages_remain_version_one():
+    draft = PipelineDraft.from_dict({
+        "version": 1,
+        "source": {"type": "image", "src": "frame.jpg"},
+        "model": {"kind": "yolov8", "task": "detection", "uri": "model.onnx"},
+        "stages": [{"type": "tracker"}],
+    })
+
+    assert draft.to_dict()["version"] == 1
+
+
+def test_pipeline_draft_steps_are_canonical_with_stages_compatibility():
+    steps = [{"type": "tracker"}]
+    draft = PipelineDraft(steps=steps)
+
+    assert draft.steps == steps
+    assert draft.stages is draft.steps
+
+    draft.stages = [{"type": "line_counter"}]
+    assert draft.steps == [{"type": "line_counter"}]
+
+    legacy_draft = PipelineDraft(stages=steps)
+    assert legacy_draft.steps == steps
 
 
 def test_source_type_aliases_have_one_canonical_name():

@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 
 from ..utils import load_image, load_url
+from ..utils.concurrency import DEFAULT_MAX_REMOTE_WORKERS, bounded_map
 from ..tasks import normalize_task
 from ..datasets import RemoteDataset
 from .auto_annotation import Annotator, annotate_image as _annotate_image
@@ -66,8 +67,11 @@ def list_datasets(client=None):
 
     if not folders:
         return []
-    with ThreadPoolExecutor(max_workers=min(8, len(folders))) as executor:
-        valid = executor.map(has_annotations, folders)
+    worker_count = min(DEFAULT_MAX_REMOTE_WORKERS, len(folders))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        valid = bounded_map(
+            executor, has_annotations, folders, max_pending=worker_count * 2
+        )
         return [
             folder["name"]
             for folder, is_valid in zip(folders, valid)

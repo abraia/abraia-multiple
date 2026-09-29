@@ -78,8 +78,9 @@ def test_artifact_resolver_accepts_remote_head_without_content_length():
 
     resolver = ArtifactResolver()
     with patch("abraia.utils.remote._get_url_session") as get_session:
-        get_session.return_value.head.return_value = Response()
+        get_session.return_value.request.return_value = Response()
         assert resolver.remote_available("multiple/models/model.hef")
+        assert get_session.return_value.request.call_args.args[0] == "HEAD"
 
 
 def test_artifact_resolver_falls_back_to_a_range_get_when_head_fails():
@@ -95,10 +96,13 @@ def test_artifact_resolver_falls_back_to_a_range_get_when_head_fails():
 
     resolver = ArtifactResolver()
     with patch("abraia.utils.remote._get_url_session") as get_session:
-        get_session.return_value.head.return_value = Response(False)
-        get_session.return_value.get.return_value = Response(True)
+        get_session.return_value.request.side_effect = [
+            Response(False),
+            Response(True),
+        ]
         assert resolver.remote_available("multiple/models/model.hef")
-        get_session.return_value.get.assert_called_once()
+        calls = get_session.return_value.request.call_args_list
+        assert [call.args[0] for call in calls] == ["HEAD", "GET"]
 
 
 def test_transform_image_does_not_leak_default_parameters_between_calls():

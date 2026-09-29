@@ -12,10 +12,14 @@ from abraia.runtime import (
     FrameContext,
     FrameRecord,
     FrameResult,
+    LineCounterStep,
     LineCounterStage,
     Pipeline,
+    RegionFilterStep,
     RegionFilterStage,
+    RegionTimerStep,
     TrackerStage,
+    TrackerStep,
 )
 
 
@@ -315,6 +319,74 @@ def test_line_counter_stage_exposes_metrics():
     LineCounterStage(Counter())(context)
 
     assert context.metrics["line_counter"] == {"in": 3, "out": 2}
+
+
+def test_composed_pipeline_builds_stateful_processing_steps():
+    class Video:
+        frame_rate = 1
+
+        def __init__(self, *_args, **_kwargs):
+            self.display_enabled = True
+
+        def __iter__(self):
+            yield np.zeros((12, 12, 3), dtype=np.uint8)
+
+        def set_display_enabled(self, enabled):
+            self.display_enabled = enabled
+
+        def close(self):
+            pass
+
+    class Detector:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def run(self, _image, **_kwargs):
+            return [{"box": [1, 1, 3, 3], "label": "object", "score": 0.9}]
+
+        def close(self):
+            pass
+
+    class Tracker:
+        def __init__(self, **_kwargs):
+            pass
+
+        def update(self, results):
+            return [dict(result, track_id=1) for result in results]
+
+        def close(self):
+            pass
+
+    config = {
+        "version": 2,
+        "source": {"type": "image", "src": "frame.jpg"},
+        "steps": [
+            {"id": "model", "type": "model", "input": "frame", "model": {
+                "kind": "yolov8", "task": "detection", "uri": "detector.onnx"
+            }},
+            {"id": "tracker", "type": "tracker"},
+            {"id": "counter", "type": "line_counter", "line": [[0, 0], [10, 10]]},
+            {"id": "region", "type": "region_filter", "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]]},
+            {"id": "timer", "type": "region_timer", "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]]},
+        ],
+        "display": {"show": False},
+    }
+
+    with patch("abraia.runtime.video.Video", Video), \
+         patch("abraia.inference.models.detection.Model", Detector), \
+         patch("abraia.inference.Tracker", Tracker):
+        pipeline = Pipeline.from_dict(config)
+        context = pipeline.run()
+
+    assert [type(step) for step in pipeline.steps[1:]] == [
+        TrackerStep,
+        LineCounterStep,
+        RegionFilterStep,
+        RegionTimerStep,
+    ]
+    assert context.results[0]["track_id"] == 1
+    assert context.metrics["line_counter"] == {"in": 0, "out": 0}
+    assert context.metrics["region"]["count"] == 1
 
 
 def test_region_filter_stage_keeps_named_views():

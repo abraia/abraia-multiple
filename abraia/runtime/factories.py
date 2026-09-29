@@ -271,6 +271,28 @@ class PipelineRenderer:
         return out
 
 
+def create_stage_factory():
+    """Create the legacy stage factory shared by both pipeline formats."""
+    from ..inference import Tracker
+    from .stages import LineCounter, RegionFilter, RegionTimer
+
+    return StageFactory(Tracker, LineCounter, RegionFilter, RegionTimer)
+
+
+def build_pipeline_output(video, source_plan, display_config, components):
+    """Create shared rendering and display configuration for a pipeline."""
+    renderer = PipelineRenderer(
+        components,
+        render_results=display_config.get("render_results", True),
+        render_metrics=display_config.get("render_metrics", True),
+    )
+    show_display = bool(display_config.get("show", True))
+    if not show_display:
+        video.set_display_enabled(False)
+    display = video if show_display or source_plan.video_kwargs.get("dest") else None
+    return renderer, display
+
+
 class PipelineBuilder:
     """Assemble a :class:`Pipeline` from a versioned configuration."""
 
@@ -310,10 +332,8 @@ class PipelineBuilder:
         if not isinstance(stages_config, list):
             raise ValueError("Pipeline stages must be an array")
 
-        from ..inference import Tracker
         from ..inference.registry import create_model, get_model_run_kwargs
         from ..inference.session import get_model_accelerator
-        from .stages import LineCounter, RegionFilter, RegionTimer
 
         root = Path(base_dir or os.getcwd())
         source_plan = SourceFactory.prepare(source_config, display_config, root)
@@ -332,12 +352,7 @@ class PipelineBuilder:
         try:
             video = SourceFactory.create(source_plan, spectral=spectral_source)
             video.accelerator = get_model_accelerator(model)
-            stage_factory = StageFactory(
-                Tracker,
-                LineCounter,
-                RegionFilter,
-                RegionTimer,
-            )
+            stage_factory = create_stage_factory()
             stages, components = stage_factory.build(
                 stages_config,
                 source_config,
@@ -348,17 +363,9 @@ class PipelineBuilder:
             close_resources([model, video, *components.values()])
             raise
 
-        renderer = PipelineRenderer(
-            components,
-            render_results=display_config.get("render_results", True),
-            render_metrics=display_config.get("render_metrics", True),
+        renderer, display = build_pipeline_output(
+            video, source_plan, display_config, components
         )
-        show_display = bool(display_config.get("show", True))
-        if not show_display:
-            # Keep the sink alive when a destination was configured, but do
-            # not open an OpenCV preview window in headless runs.
-            video.set_display_enabled(False)
-        display = video if show_display or source_plan.video_kwargs.get("dest") else None
         return self.pipeline_cls(
             source=video,
             model=model,

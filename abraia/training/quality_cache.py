@@ -69,7 +69,7 @@ def _load_cached_analysis(
         return None
     try:
         with np.load(filename, allow_pickle=False) as cached:
-            from .quality import ImageAnalysis
+            from .quality_metrics import ImageAnalysis
 
             return ImageAnalysis(
                 record=record,

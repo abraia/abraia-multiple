@@ -401,13 +401,88 @@ class AttachStep(CompositionStep):
         return context
 
 
+class _ResultsStep(CompositionStep):
+    """Base for stateful steps that read and emit detection results."""
+
+    def __init__(self, step_id, input_ref, processor):
+        super().__init__(step_id)
+        self.input_ref = input_ref
+        self.processor = processor
+
+    def _results(self, context):
+        values = _resolve_reference(context, self.input_ref)
+        if not isinstance(values, list):
+            raise ValueError(
+                f"Step '{self.step_id}' requires a result-list input"
+            )
+        return values
+
+    def _emit(self, context, values):
+        context.artifacts[f"{self.step_id}.results"] = values
+        context.results = values
+        return context
+
+    def close(self):
+        close = getattr(self.processor, "close", None)
+        if callable(close):
+            close()
+
+
+class TrackerStep(_ResultsStep):
+    """Attach tracking IDs to detections in a composed pipeline."""
+
+    def __call__(self, context):
+        return self._emit(context, self.processor.update(self._results(context)))
+
+
+class LineCounterStep(_ResultsStep):
+    """Count tracked detections crossing a configured line."""
+
+    def __call__(self, context):
+        values = self._results(context)
+        in_count, out_count = self.processor.update(values)
+        context.metrics["line_counter"] = {"in": in_count, "out": out_count}
+        return self._emit(context, values)
+
+
+class RegionFilterStep(_ResultsStep):
+    """Keep detections inside a configured region."""
+
+    def __call__(self, context):
+        inside, outside = self.processor.update(self._results(context))
+        context.views["in_region"] = inside
+        context.views["out_region"] = outside
+        return self._emit(context, inside)
+
+
+class RegionTimerStep(_ResultsStep):
+    """Annotate detections with time spent inside a configured region."""
+
+    def __call__(self, context):
+        inside, outside = self.processor.update(
+            self._results(context), context.frame_time
+        )
+        context.views["in_region"] = inside
+        context.views["out_region"] = outside
+        context.metrics["region"] = {
+            "count": len(inside),
+            "in_objects": inside,
+            "out_objects": outside,
+        }
+        return self._emit(context, inside)
+
+
 __all__ = [
     "AttachStep",
     "BoundModelStep",
     "CompositionStep",
     "CropStep",
     "FilterStep",
+    "LineCounterStep",
     "ModelStep",
+    "RegionFilterStep",
     "RegionInput",
+    "RegionTimerStep",
+    "TrackerStep",
     "crop_region",
 ]

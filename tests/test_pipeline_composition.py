@@ -364,7 +364,7 @@ def test_pipeline_renderer_shows_text_attached_by_second_model():
     assert render_box.call_args_list[-1].args[1] == [2, 2, 1, 1]
 
 
-def test_version_two_pipeline_builder_accepts_legacy_tracker_stage():
+def test_version_two_pipeline_builder_uses_native_tracker_step():
     class Video:
         frame_rate = 1
 
@@ -418,7 +418,10 @@ def test_version_two_pipeline_builder_accepts_legacy_tracker_stage():
         pipeline = Pipeline.from_dict(config)
         last = pipeline.run()
 
+    from abraia.runtime import TrackerStep
+
     assert last.results[0]["track_id"] == 7
+    assert isinstance(pipeline.steps[1], TrackerStep)
 
 
 def test_pipeline_view_round_trips_composed_steps():

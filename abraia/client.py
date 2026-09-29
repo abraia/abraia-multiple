@@ -13,6 +13,7 @@ from .utils.remote import (
     request_with_retries,
     temporal_src,
 )
+from .utils.concurrency import get_default_remote_request_scheduler
 
 
 _NO_DELEGATE = object()
@@ -110,12 +111,18 @@ class Abraia:
 
     def _request(self, method, url, **kwargs):
         """Perform a resilient API request, including retryable resets."""
+        scheduler_override = kwargs.pop('_scheduler', None)
         kwargs.setdefault('timeout', self.request_timeout)
         return request_with_retries(
             self.session,
             method,
             url,
             retries=self.request_retries,
+            scheduler=(
+                scheduler_override
+                if scheduler_override is not None
+                else getattr(self, "_request_scheduler", None)
+            ),
             **kwargs,
         )
 
@@ -203,11 +210,20 @@ class Abraia:
         url = f"{API_URL}/files/{self.userid}/{path}"
         if cache and os.path.exists(dest):
             return dest
-        resp = self._request('GET', url, stream=True, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        save_data(dest, resp.content)
-        return dest
+        def transfer():
+            resp = self._request(
+                'GET', url, stream=True, auth=self.auth, _scheduler=False
+            )
+            if resp.status_code != 200:
+                raise APIError(resp.text, resp.status_code)
+            save_data(dest, resp.content)
+            return dest
+
+        scheduler = (
+            getattr(self, "_request_scheduler", None)
+            or get_default_remote_request_scheduler()
+        )
+        return scheduler.run(transfer)
 
     def download_cached(self, path):
         """Download a remote file into the shared process cache."""

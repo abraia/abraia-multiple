@@ -9,12 +9,14 @@ from .curation import (
     CurationAnalyzer,
     CurationReport,
     PathLike,
-    _annotation_relative_path,
-    _basename,
-    _is_annotated_path,
-    _is_deleted_annotation,
     _local_key,
-    _project_relative_path,
+)
+from .curation_paths import (
+    annotation_relative_path,
+    basename,
+    is_annotated_path,
+    is_deleted_annotation,
+    project_relative_path,
 )
 
 
@@ -40,12 +42,12 @@ class RemoteCurationService:
         analyzer = analyzer or CurationAnalyzer()
         image_records = list(dataset.images or [])
         annotated = {
-            _annotation_relative_path(annotation, project)
+            annotation_relative_path(annotation, project)
             for annotation in dataset.annotations or []
             if isinstance(annotation, Mapping)
         }
         image_relatives = [
-            _project_relative_path(
+            project_relative_path(
                 image.get("path") or "{}/{}".format(
                     str(project).strip("/"), image.get("name", "")
                 ),
@@ -55,7 +57,7 @@ class RemoteCurationService:
         ]
         basename_counts = defaultdict(int)
         for relative in image_relatives:
-            basename_counts[_basename(relative)] += 1
+            basename_counts[basename(relative)] += 1
 
         with tempfile.TemporaryDirectory(prefix="abraia-curation-") as staging:
             staging_path = Path(staging)
@@ -143,7 +145,7 @@ class RemoteCurationService:
             local_path.parent.mkdir(parents=True, exist_ok=True)
             client.download_file(remote_path, str(local_path))
             local_to_remote[_local_key(local_path)] = remote_path
-            if _is_annotated_path(relative, annotated, basename_counts):
+            if is_annotated_path(relative, annotated, basename_counts):
                 protected.append(local_path)
             if progress_callback:
                 progress_callback(index, total, remote_path, True)
@@ -207,14 +209,14 @@ class RemoteCurationService:
             client.remove_file(path)
         if paths:
             deleted_relatives = {
-                _project_relative_path(path, project) for path in paths
+                project_relative_path(path, project) for path in paths
             }
             dataset.annotations = [
                 annotation
                 for annotation in dataset.annotations or []
                 if (
                     not isinstance(annotation, Mapping)
-                    or not _is_deleted_annotation(
+                    or not is_deleted_annotation(
                         annotation,
                         deleted_relatives,
                         basename_counts,

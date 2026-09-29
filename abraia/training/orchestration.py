@@ -2,7 +2,7 @@
 
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict
 
 from PIL import Image
@@ -16,6 +16,10 @@ from ..tasks import (
     to_ultralytics_task,
 )
 from ..utils import save_text
+from ..utils.concurrency import (
+    DEFAULT_MAX_REMOTE_WORKERS,
+    bounded_as_completed,
+)
 from .annotations import prune_orphaned_annotations
 from .core import _resolve_client
 from .dataset import download_file
@@ -160,25 +164,38 @@ def prepare_dataset(dataset, force=False, callback=None, split_options=None):
                 "total": total,
                 "filename": "Starting download",
             })
-        work = list(zip(all_annotations, all_folders))
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {
-                executor.submit(
-                    save_data,
-                    annotation,
-                    folder,
-                    dataset.classes,
-                    dataset.task,
-                    client,
-                ): annotation
-                for annotation, folder in work
-            }
-            completed = as_completed(futures)
-            if callback is None:
-                completed = tqdm(completed, total=total, desc="Downloading images")
-            for current, future in enumerate(completed, start=1):
-                future.result()
-                report(current, futures[future])
+        work = zip(all_annotations, all_folders)
+        worker_count = min(DEFAULT_MAX_REMOTE_WORKERS, max(1, total))
+        current = 0
+        progress_bar = (
+            tqdm(total=total, desc="Downloading images")
+            if callback is None else None
+        )
+        try:
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                def save_item(item):
+                    annotation, folder = item
+                    return save_data(
+                        annotation,
+                        folder,
+                        dataset.classes,
+                        dataset.task,
+                        client,
+                    )
+
+                for (annotation, _folder), _result in bounded_as_completed(
+                    executor,
+                    save_item,
+                    work,
+                    max_pending=worker_count * 2,
+                ):
+                    current += 1
+                    report(current, annotation)
+                    if progress_bar is not None:
+                        progress_bar.update(1)
+        finally:
+            if progress_bar is not None:
+                progress_bar.close()
         if normalize_task(dataset.task) != "classification":
             save_config(dataset.project, dataset.classes)
 

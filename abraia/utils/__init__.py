@@ -51,6 +51,19 @@ _LAZY_EXPORTS = {
     "load_image": (".image", "load_image"),
     "save_image": (".image", "save_image"),
     "show_image": (".image", "show_image"),
+    "DEFAULT_MAX_REMOTE_REQUESTS": (
+        ".concurrency", "DEFAULT_MAX_REMOTE_REQUESTS"
+    ),
+    "DEFAULT_MAX_REMOTE_WORKERS": (
+        ".concurrency", "DEFAULT_MAX_REMOTE_WORKERS"
+    ),
+    "RemoteRequestScheduler": (
+        ".concurrency", "RemoteRequestScheduler"
+    ),
+    "bounded_map": (".concurrency", "bounded_map"),
+    "get_default_remote_request_scheduler": (
+        ".concurrency", "get_default_remote_request_scheduler"
+    ),
     "API_URL": (".remote", "API_URL"),
     "ARTIFACT_RESOLVER": (".remote", "ARTIFACT_RESOLVER"),
     "ArtifactReference": (".remote", "ArtifactReference"),

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from abraia.sources import infer_source_type, normalize_source_type
 from .pipeline_schema import (
     COMPOSITION_STAGE_TYPES,
+    COMPOSITION_STEP_TYPES,
     MAX_PIPELINE_MODELS,
     MAX_PIPELINE_TRACKERS,
     SUPPORTED_STAGE_TYPES,
@@ -28,7 +29,7 @@ from abraia.inference.model_config import (
 )
 
 
-@dataclass
+@dataclass(init=False)
 class PipelineDraft:
     """Editable, JSON-compatible representation of a pipeline.
 
@@ -49,10 +50,60 @@ class PipelineDraft:
     conf_threshold: Optional[float] = None
     iou_threshold: Optional[float] = None
     approx: Optional[bool] = None
-    stages: List[Dict[str, Any]] = field(default_factory=list)
+    steps: List[Dict[str, Any]] = field(default_factory=list)
     show: bool = True
     render_results: bool = True
     render_metrics: bool = True
+
+    def __init__(
+        self,
+        source_type="camera",
+        source="0",
+        resolution=None,
+        fps=30,
+        model_uri="",
+        model_kind="yolov8",
+        model_task="detection",
+        model_index="",
+        labels=None,
+        conf_threshold=None,
+        iou_threshold=None,
+        approx=None,
+        stages=None,
+        show=True,
+        render_results=True,
+        render_metrics=True,
+        *,
+        steps=None,
+    ):
+        """Create a draft, accepting ``stages`` as a compatibility alias."""
+        if steps is not None and stages is not None:
+            raise TypeError("Pass either 'steps' or 'stages', not both")
+        self.source_type = source_type
+        self.source = source
+        self.resolution = [1920, 1080] if resolution is None else resolution
+        self.fps = fps
+        self.model_uri = model_uri
+        self.model_kind = model_kind
+        self.model_task = model_task
+        self.model_index = model_index
+        self.labels = [] if labels is None else labels
+        self.conf_threshold = conf_threshold
+        self.iou_threshold = iou_threshold
+        self.approx = approx
+        self.steps = list(steps if steps is not None else stages or [])
+        self.show = show
+        self.render_results = render_results
+        self.render_metrics = render_metrics
+
+    @property
+    def stages(self):
+        """Compatibility alias for the version-one pipeline field name."""
+        return self.steps
+
+    @stages.setter
+    def stages(self, value):
+        self.steps = list(value or [])
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> "PipelineDraft":
@@ -156,7 +207,7 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
     resolution = resolution[:2]
     while len(resolution) < 2:
         resolution.append([1920, 1080][len(resolution)])
-    stages_config = config.get("stages", []) or []
+    steps_config = config.get("stages", []) or []
     if config.get("version", 1) == 2:
         steps = config.get("steps", []) or []
         if not isinstance(steps, list):
@@ -173,12 +224,8 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
         if primary is None:
             raise ValueError("A composed pipeline must define a frame model step")
         model = primary.get("model") or {}
-        stages_config = [dict(step) for step in steps]
-    stages = []
-    for stage in stages_config:
-        if isinstance(stage, dict):
-            normalized_stage = dict(stage)
-            stages.append(normalized_stage)
+        steps_config = steps
+    normalized_steps = [dict(step) for step in steps_config if isinstance(step, dict)]
     labels_value = model.get("labels", [])
     if isinstance(labels_value, str):
         labels_value = labels_value.split(",")
@@ -213,7 +260,7 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
         conf_threshold=editor_values["conf_threshold"],
         iou_threshold=editor_values["iou_threshold"],
         approx=model.get("approx"),
-        stages=stages,
+        steps=normalized_steps,
         show=bool(display.get("show", True)),
         render_results=bool(display.get("render_results", True)),
         render_metrics=bool(display.get("render_metrics", True)),
@@ -248,17 +295,17 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
         approx=draft.approx,
         model_index=draft.model_index,
     )
-    stages = [dict(stage) for stage in draft.stages]
-    canonical_stages = bool(
-        stages
-        and isinstance(stages[0], dict)
-        and stages[0].get("type") == "model"
-        and stages[0].get("input", "frame") == "frame"
+    steps = [dict(step) for step in draft.steps]
+    canonical_steps = bool(
+        steps
+        and isinstance(steps[0], dict)
+        and steps[0].get("type") == "model"
+        and steps[0].get("input", "frame") == "frame"
     )
-    composed = canonical_stages or any(
-        stage.get("type") in COMPOSITION_STAGE_TYPES
-        for stage in stages
-        if isinstance(stage, dict)
+    composed = canonical_steps or any(
+        step.get("type") in COMPOSITION_STAGE_TYPES
+        for step in steps
+        if isinstance(step, dict)
     )
     display = {
         "show": bool(draft.show),
@@ -270,15 +317,13 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
             "version": 1,
             "source": source,
             "model": model,
-            "stages": stages,
+            "stages": steps,
             "display": display,
         }
 
-    if canonical_stages:
-        steps = []
-        for index, stage in enumerate(stages, 1):
-            stage.setdefault("id", "model" if index == 1 else f"step-{index - 1}")
-            steps.append(stage)
+    if canonical_steps:
+        for index, step in enumerate(steps, 1):
+            step.setdefault("id", "model" if index == 1 else f"step-{index - 1}")
         return {
             "version": 2,
             "source": source,
@@ -287,21 +332,21 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
         }
 
     if any(
-        stage.get("type") not in COMPOSITION_STAGE_TYPES
-        for stage in stages
-        if isinstance(stage, dict)
+        step.get("type") not in SUPPORTED_STAGE_TYPES
+        for step in steps
+        if isinstance(step, dict)
     ):
         raise ValueError(
-            "Composed pipelines currently support model, filter, crop, and attach steps only."
+            "Composed pipelines contain an unsupported step type."
         )
-    steps = [{"id": "model", "type": "model", "input": "frame", "model": model}]
-    for index, stage in enumerate(stages, 1):
-        stage.setdefault("id", f"step-{index}")
-        steps.append(stage)
+    pipeline_steps = [{"id": "model", "type": "model", "input": "frame", "model": model}]
+    for index, step in enumerate(steps, 1):
+        step.setdefault("id", f"step-{index}")
+        pipeline_steps.append(step)
     return {
         "version": 2,
         "source": source,
-        "steps": steps,
+        "steps": pipeline_steps,
         "display": display,
     }
 
@@ -314,6 +359,7 @@ __all__ = [
     "SUPPORTED_MODEL_TASKS",
     "SUPPORTED_STAGE_TYPES",
     "COMPOSITION_STAGE_TYPES",
+    "COMPOSITION_STEP_TYPES",
     "MAX_PIPELINE_TRACKERS",
     "MAX_PIPELINE_MODELS",
     "default_stage",

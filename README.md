@@ -249,8 +249,10 @@ face and license-plate detectors:
 ```
 
 Version two adds ordered, named steps for composed inference. A pipeline can
-use up to two models, along with `filter`, `crop`, and `attach` steps. The
-second model runs on regions from the preceding results and attaches its
+use up to two models, along with `filter`, `crop`, `attach`, `tracker`,
+`line_counter`, `region_filter`, and `region_timer` steps. Stateful steps can
+name an `input` result reference; when omitted, they use the preceding results.
+The second model runs on regions from the preceding results and attaches its
 output to the matching detections. For example, a license-plate detector can
 pass each detected plate to OCR:
 

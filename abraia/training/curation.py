@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import posixpath
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Union
 
 from PIL import Image
@@ -686,53 +685,6 @@ def _local_key(path: PathLike) -> str:
 def _resolve_local_path(value: PathLike, input_path: Path) -> Path:
     path = Path(value)
     return path if path.is_absolute() else input_path / path
-
-
-def _basename(value: Any) -> str:
-    return posixpath.basename(str(value or "").splitlines()[0].strip().replace("\\", "/"))
-
-
-def _annotation_relative_path(annotation: Mapping[str, Any], project: str) -> str:
-    """Normalize an annotation's path relative to its project."""
-    value = annotation.get("path") or annotation.get("filename")
-    return _project_relative_path(value, project) if value else ""
-
-
-def _is_annotated_path(
-    relative: str,
-    annotated: Set[str],
-    basename_counts: Mapping[str, int],
-) -> bool:
-    """Match exact paths and conservatively support legacy basename metadata."""
-    if relative in annotated:
-        return True
-    basename = _basename(relative)
-    return basename_counts.get(basename, 0) > 0 and basename in annotated
-
-
-def _is_deleted_annotation(
-    annotation: Mapping[str, Any],
-    deleted_relatives: Set[str],
-    basename_counts: Mapping[str, int],
-    project: str,
-) -> bool:
-    """Match annotation cleanup to the same path identity used for protection."""
-    relative = _annotation_relative_path(annotation, project)
-    if relative in deleted_relatives:
-        return True
-    basename = _basename(relative)
-    deleted_basenames = {_basename(path) for path in deleted_relatives}
-    return (
-        "/" not in relative
-        and basename_counts.get(basename, 0) == 1
-        and relative in deleted_basenames
-    )
-
-
-def _project_relative_path(remote_path: str, project: str) -> str:
-    path = posixpath.normpath(str(remote_path or "").strip().replace("\\", "/").strip("/"))
-    root = str(project).strip("/") + "/"
-    return path[len(root):] if path.startswith(root) else path
 
 
 __all__ = [

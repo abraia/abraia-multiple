@@ -281,7 +281,7 @@ class Pipeline:
         on_frame: Optional[Callable[[FrameContext, float], None]] = None,
         accelerator: Optional[str] = "auto",
     ) -> "Pipeline":
-        """Build a pipeline from the small version-1 JSON schema.
+        """Build a pipeline from a supported versioned JSON configuration.
 
         The loader intentionally creates the existing SDK components rather
         than importing arbitrary classes named by a configuration file.
