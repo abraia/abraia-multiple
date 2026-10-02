@@ -83,7 +83,15 @@ def hailo_device_arch():
 
 def hailo_model_available(config, architecture):
     """Return whether an explicit Hailo model artifact is available."""
-    model = config.get("model", {})
+    model = next(
+        (
+            step.get("model", {})
+            for step in config.get("steps", [])
+            if step.get("type") == "model"
+            and "input" not in step
+        ),
+        {},
+    )
     uri = model.get("uri")
     if not uri:
         return False

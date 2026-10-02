@@ -1,18 +1,19 @@
 """Versioned pipeline configuration and validation for runtime clients."""
 
-import json
 from copy import deepcopy
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from abraia.sources import infer_source_type, normalize_source_type
 from .pipeline_schema import (
-    COMPOSITION_STAGE_TYPES,
-    COMPOSITION_STEP_TYPES,
     MAX_PIPELINE_MODELS,
     MAX_PIPELINE_TRACKERS,
+    normalize_points,
+    PIPELINE_STAGE_DEFINITIONS,
     SUPPORTED_STAGE_TYPES,
+    normalize_step_ids,
+    strip_internal_step_ids,
+    is_primary_model_step,
 )
 from .validation import validate_pipeline_draft
 from abraia.inference.model_config import (
@@ -22,11 +23,21 @@ from abraia.inference.model_config import (
     PIPELINE_MODEL_KINDS as SUPPORTED_MODEL_KINDS,
     PIPELINE_MODEL_OPTIONS as SUPPORTED_MODEL_OPTIONS,
     PIPELINE_SECOND_STAGE_MODEL_OPTIONS as SUPPORTED_SECOND_STAGE_MODEL_OPTIONS,
-    PIPELINE_SECOND_STAGE_MODEL_PAIRS,
     PIPELINE_MODEL_TASKS as SUPPORTED_MODEL_TASKS,
     model_control_visibility,
     model_defaults,
 )
+
+
+def default_primary_stage():
+    model = ModelSpec.from_config({
+        "kind": "yolov8",
+        "task": "detection",
+    }).to_pipeline_config()
+    return {
+        "type": "model",
+        "model": model,
+    }
 
 
 @dataclass(init=False)
@@ -42,14 +53,6 @@ class PipelineDraft:
     source: str = "0"
     resolution: List[int] = field(default_factory=lambda: [1920, 1080])
     fps: int = 30
-    model_uri: str = ""
-    model_kind: str = "yolov8"
-    model_task: str = "detection"
-    model_index: str = ""
-    labels: List[str] = field(default_factory=list)
-    conf_threshold: Optional[float] = None
-    iou_threshold: Optional[float] = None
-    approx: Optional[bool] = None
     steps: List[Dict[str, Any]] = field(default_factory=list)
     show: bool = True
     render_results: bool = True
@@ -61,49 +64,25 @@ class PipelineDraft:
         source="0",
         resolution=None,
         fps=30,
-        model_uri="",
-        model_kind="yolov8",
-        model_task="detection",
-        model_index="",
-        labels=None,
-        conf_threshold=None,
-        iou_threshold=None,
-        approx=None,
-        stages=None,
         show=True,
         render_results=True,
         render_metrics=True,
         *,
         steps=None,
     ):
-        """Create a draft, accepting ``stages`` as a compatibility alias."""
-        if steps is not None and stages is not None:
-            raise TypeError("Pass either 'steps' or 'stages', not both")
+        """Create a draft with ordered version-two steps."""
         self.source_type = source_type
         self.source = source
         self.resolution = [1920, 1080] if resolution is None else resolution
         self.fps = fps
-        self.model_uri = model_uri
-        self.model_kind = model_kind
-        self.model_task = model_task
-        self.model_index = model_index
-        self.labels = [] if labels is None else labels
-        self.conf_threshold = conf_threshold
-        self.iou_threshold = iou_threshold
-        self.approx = approx
-        self.steps = list(steps if steps is not None else stages or [])
+        self.steps = (
+            [default_primary_stage()]
+            if steps is None
+            else list(steps)
+        )
         self.show = show
         self.render_results = render_results
         self.render_metrics = render_metrics
-
-    @property
-    def stages(self):
-        """Compatibility alias for the version-one pipeline field name."""
-        return self.steps
-
-    @stages.setter
-    def stages(self, value):
-        self.steps = list(value or [])
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> "PipelineDraft":
@@ -121,36 +100,15 @@ class PipelineDraft:
 
 def default_stage(stage_type):
     """Return a fresh stage config suitable for an editor card."""
-    defaults = {
-        "tracker": {"type": "tracker", "track_thresh": 0.25, "track_buffer": 30, "match_thresh": 0.8},
-        "line_counter": {"type": "line_counter", "line": [[0, 0], [100, 100]]},
-        "region_filter": {"type": "region_filter", "polygon": [[0, 0], [100, 0], [100, 100]]},
-        "region_timer": {"type": "region_timer", "polygon": [[0, 0], [100, 0], [100, 100]]},
-        "filter": {"type": "filter", "id": "filter", "input": "results", "labels": [], "min_confidence": 0.0},
-        "crop": {"type": "crop", "id": "crop", "input": "results", "padding": 0.0},
-        "model": {
-            "type": "model",
-            "id": "read_text",
-            "model": {"kind": "ocr", "task": "recognition"},
-        },
-    }
-    if stage_type not in defaults:
+    definition = PIPELINE_STAGE_DEFINITIONS.get(stage_type)
+    if definition is None:
         raise ValueError(f"Unsupported stage type: {stage_type}")
-    return deepcopy(defaults[stage_type])
+    return deepcopy(definition["default"])
 
 
 def parse_points(text):
     """Parse ``x, y; x, y`` text into JSON-compatible coordinate pairs."""
-    points = []
-    for raw_point in str(text or "").split(";"):
-        values = [value.strip() for value in raw_point.split(",")]
-        if len(values) != 2:
-            continue
-        try:
-            points.append([float(values[0]), float(values[1])])
-        except (TypeError, ValueError):
-            continue
-    return points
+    return normalize_points(str(text or ""))
 
 
 def format_points(points):
@@ -162,19 +120,6 @@ def format_points(points):
     )
 
 
-def load_pipeline_document(filename):
-    """Load a version-one pipeline document from a JSON file."""
-    with Path(filename).open("r", encoding="utf-8") as stream:
-        return json.load(stream)
-
-
-def save_pipeline_document(filename, configuration):
-    """Save a pipeline document as indented JSON with a trailing newline."""
-    with Path(filename).open("w", encoding="utf-8") as stream:
-        json.dump(configuration, stream, indent=2)
-        stream.write("\n")
-
-
 def _number(value, default, cast=float):
     try:
         return cast(value)
@@ -183,20 +128,17 @@ def _number(value, default, cast=float):
 
 
 def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
-    """Build a :class:`PipelineDraft` from a version-one or version-two document."""
+    """Build a :class:`PipelineDraft` from a versioned pipeline document."""
     draft_class = draft_class or PipelineDraft
 
     if not isinstance(config, dict):
         raise ValueError("Pipeline configuration must be a JSON object")
-    if config.get("version", 1) not in (1, 2):
-        raise ValueError("Unsupported pipeline configuration version")
+    if config.get("version") != 2:
+        raise ValueError("Only version 2 pipeline documents are supported")
     source = config.get("source") or {}
-    model = config.get("model") or {}
     display = config.get("display") or {}
     if not isinstance(source, dict):
         source = {}
-    if not isinstance(model, dict):
-        model = {}
     if not isinstance(display, dict):
         display = {}
     resolution = source.get("resolution", [1920, 1080])
@@ -207,32 +149,16 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
     resolution = resolution[:2]
     while len(resolution) < 2:
         resolution.append([1920, 1080][len(resolution)])
-    steps_config = config.get("stages", []) or []
-    if config.get("version", 1) == 2:
-        steps = config.get("steps", []) or []
-        if not isinstance(steps, list):
-            raise ValueError("Pipeline steps must be an array")
-        primary = next(
-            (
-                step for step in steps
-                if isinstance(step, dict)
-                and step.get("type") == "model"
-                and step.get("input", "frame") == "frame"
-            ),
-            None,
+    steps_config = config.get("steps", []) or []
+    if not isinstance(steps_config, list):
+        raise ValueError("Pipeline steps must be an array")
+    if any(not isinstance(step, dict) for step in steps_config):
+        raise ValueError("Pipeline steps must contain objects")
+    if steps_config and not is_primary_model_step(steps_config[0]):
+        raise ValueError(
+            "A version 2 pipeline with stages must start with a frame model step"
         )
-        if primary is None:
-            raise ValueError("A composed pipeline must define a frame model step")
-        model = primary.get("model") or {}
-        steps_config = steps
-    normalized_steps = [dict(step) for step in steps_config if isinstance(step, dict)]
-    labels_value = model.get("labels", [])
-    if isinstance(labels_value, str):
-        labels_value = labels_value.split(",")
-    model_spec = ModelSpec.from_config(model)
-    model_kind = model_spec.kind
-    model_task = model_spec.task
-    editor_values = model_spec.editor_values(model)
+    normalized_steps = normalize_step_ids(steps_config)
     source_default = "0" if source.get("type") in (None, "camera") else ""
     source_value = str(source.get("src", source_default)).strip()
     configured_source_type = source.get("type")
@@ -248,18 +174,6 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
         source=source_value,
         resolution=[_number(v, 0, int) for v in resolution],
         fps=_number(source.get("fps", 30), 30, int),
-        model_uri=str(
-            model.get("uri", "")
-            if "uri" in model
-            else model_spec.resolved_uri
-        ),
-        model_kind=model_kind,
-        model_task=model_task,
-        model_index=editor_values["model_index"],
-        labels=[str(label).strip() for label in labels_value or [] if str(label).strip()],
-        conf_threshold=editor_values["conf_threshold"],
-        iou_threshold=editor_values["iou_threshold"],
-        approx=model.get("approx"),
         steps=normalized_steps,
         show=bool(display.get("show", True)),
         render_results=bool(display.get("render_results", True)),
@@ -268,7 +182,7 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
 
 
 def serialize_pipeline_draft(draft) -> Dict[str, Any]:
-    """Serialize a pipeline draft into the appropriate versioned document."""
+    """Serialize a pipeline draft as a version-two document."""
     source_value = "" if draft.source is None else str(draft.source).strip()
     source_type = infer_source_type(
         source_value,
@@ -280,75 +194,33 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
         "resolution": [int(v) for v in (draft.resolution or [1920, 1080])[:2]],
         "fps": int(draft.fps),
     }
-    model_spec = ModelSpec.from_config({
-        "kind": draft.model_kind,
-        "task": draft.model_task,
-        "uri": draft.model_uri,
-    })
-    model_task = model_spec.task
-    if model_task not in SUPPORTED_MODEL_TASKS:
-        raise ValueError(f"Unsupported pipeline model task: {model_task}")
-    model = model_spec.to_pipeline_config(
-        labels=draft.labels,
-        conf_threshold=draft.conf_threshold,
-        iou_threshold=draft.iou_threshold,
-        approx=draft.approx,
-        model_index=draft.model_index,
-    )
     steps = [dict(step) for step in draft.steps]
-    canonical_steps = bool(
-        steps
-        and isinstance(steps[0], dict)
-        and steps[0].get("type") == "model"
-        and steps[0].get("input", "frame") == "frame"
-    )
-    composed = canonical_steps or any(
-        step.get("type") in COMPOSITION_STAGE_TYPES
-        for step in steps
-        if isinstance(step, dict)
-    )
+    canonical_steps = is_primary_model_step(steps[0]) if steps else True
     display = {
         "show": bool(draft.show),
         "render_results": bool(draft.render_results),
         "render_metrics": bool(draft.render_metrics),
     }
-    if not composed:
-        return {
-            "version": 1,
-            "source": source,
-            "model": model,
-            "stages": steps,
-            "display": display,
-        }
-
-    if canonical_steps:
-        for index, step in enumerate(steps, 1):
-            step.setdefault("id", "model" if index == 1 else f"step-{index - 1}")
-        return {
-            "version": 2,
-            "source": source,
-            "steps": steps,
-            "display": display,
-        }
-
     if any(
         step.get("type") not in SUPPORTED_STAGE_TYPES
         for step in steps
         if isinstance(step, dict)
     ):
+        raise ValueError("Pipeline contains an unsupported step type.")
+
+    if not canonical_steps:
         raise ValueError(
-            "Composed pipelines contain an unsupported step type."
+            "A version 2 pipeline with stages must start with a model step."
         )
-    pipeline_steps = [{"id": "model", "type": "model", "input": "frame", "model": model}]
-    for index, step in enumerate(steps, 1):
-        step.setdefault("id", f"step-{index}")
-        pipeline_steps.append(step)
+    pipeline_steps = strip_internal_step_ids(steps)
+
     return {
         "version": 2,
         "source": source,
         "steps": pipeline_steps,
         "display": display,
     }
+
 
 __all__ = [
     "PipelineDraft",
@@ -358,19 +230,16 @@ __all__ = [
     "SUPPORTED_SECOND_STAGE_MODEL_OPTIONS",
     "SUPPORTED_MODEL_TASKS",
     "SUPPORTED_STAGE_TYPES",
-    "COMPOSITION_STAGE_TYPES",
-    "COMPOSITION_STEP_TYPES",
     "MAX_PIPELINE_TRACKERS",
     "MAX_PIPELINE_MODELS",
+    "default_primary_stage",
     "default_stage",
     "format_points",
     "infer_source_type",
-    "load_pipeline_document",
     "model_control_visibility",
     "model_defaults",
     "parse_points",
     "parse_pipeline_draft",
-    "save_pipeline_document",
     "serialize_pipeline_draft",
     "validate_pipeline_draft",
 ]

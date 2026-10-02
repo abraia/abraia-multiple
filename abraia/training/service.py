@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import gc
 import os
 import posixpath
@@ -131,10 +132,17 @@ class DatasetProjectService:
     adapter while ``abraia`` provides the standard image adapter.
     """
 
-    def __init__(self, client, dataset_loader, training_service=None):
+    def __init__(
+        self,
+        client,
+        dataset_loader,
+        training_service=None,
+        image_path_groups=None,
+    ):
         self.client = client
         self.dataset_loader = dataset_loader
         self.training = training_service
+        self.image_path_groups = image_path_groups
 
     def create_empty_dataset(self, project):
         self.client.save_json(f"{project}/annotations.json", [])
@@ -144,6 +152,13 @@ class DatasetProjectService:
         dataset = self.dataset_loader(project)
         if upsert_annotation(dataset, filename, objects):
             dataset.save()
+        return dataset
+
+    def save_annotations(self, project, annotations):
+        """Replace and persist the dataset annotation table in one update."""
+        dataset = self.dataset_loader(project)
+        dataset.annotations = copy.deepcopy(annotations or [])
+        dataset.save()
         return dataset
 
     def delete_image(self, project, path):
@@ -200,6 +215,19 @@ class DatasetProjectService:
     def delete_images(self, project, paths, progress_callback=None, is_cancelled=None):
         """Remove several images with one dataset reload and annotation save."""
         paths = list(dict.fromkeys(path for path in paths if path))
+        groups = [[path] for path in paths]
+        if self.image_path_groups and any(
+            os.path.splitext(path)[1].lower() == ".hdr" for path in paths
+        ):
+            groups = self.image_path_groups(project, paths) or groups
+            if len(groups) != len(paths):
+                raise ValueError("Image path groups must align with selected paths")
+            groups = [
+                list(dict.fromkeys(group or (path,)))
+                for path, group in zip(paths, groups)
+            ]
+            paths = [path for group in groups for path in group]
+            progress_callback = _logical_delete_progress(progress_callback, groups)
         is_cancelled = is_cancelled or (lambda: False)
         if progress_callback:
             progress_callback(0, len(paths), "Preparing image deletion", False)
@@ -306,6 +334,36 @@ class DatasetProjectService:
         return self.training.auto_annotate(
             dataset, label, progress_callback, is_cancelled, task=task
         )
+
+
+def _logical_delete_progress(callback, groups):
+    """Report companion-file deletion progress by selected logical image."""
+    if callback is None:
+        return None
+    member_groups = {
+        path: index
+        for index, group in enumerate(groups)
+        for path in group
+    }
+    last_members = {group[-1]: index for index, group in enumerate(groups)}
+    completed = set()
+
+    def report(_done, _total, message, item_done):
+        group_index = member_groups.get(message)
+        if (
+            item_done
+            and group_index is not None
+            and last_members.get(message) == group_index
+        ):
+            completed.add(group_index)
+        callback(
+            len(completed),
+            len(groups),
+            message,
+            bool(item_done and group_index in completed),
+        )
+
+    return report
 
 
 __all__ = ["DatasetProjectService", "TrainingService"]

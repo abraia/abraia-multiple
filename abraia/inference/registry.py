@@ -146,17 +146,6 @@ def _create_resnet_model(spec, _config, base_dir, session_options):
     )
 
 
-def _create_multispectral_model(spec, _config, base_dir, _session_options):
-    """Create the local multispectral object-classification adapter."""
-    if spec.params:
-        raise ValueError("Multispectral classifier options belong in the model artifact")
-    from multiple.pipeline import MultispectralClassifier
-
-    return MultispectralClassifier(
-        _resolve_model_uri(spec.uri, base_dir=base_dir),
-    )
-
-
 def _create_grounding_dino_model(spec, _config, base_dir, session_options):
     """Create the Grounding DINO adapter."""
     from .models.grounding_dino import GroundingDINOModel
@@ -236,12 +225,21 @@ def _create_ocr_model(spec, _config, _base_dir, session_options):
 _MODEL_FACTORIES = {
     **{kind: _create_yolo_model for kind in MODEL_ARCHITECTURES},
     "resnet": _create_resnet_model,
-    "multispectral": _create_multispectral_model,
     "grounding_dino": _create_grounding_dino_model,
     "face": _create_face_model,
     "license_plate": _create_license_plate_model,
     "ocr": _create_ocr_model,
 }
+
+
+def register_model_factory(kind, factory):
+    """Register an application supplied factory for a supported model kind."""
+    normalized = str(kind or "").strip().lower()
+    if normalized not in PIPELINE_MODEL_KINDS:
+        raise ValueError(f"Unsupported pipeline model kind: {kind}")
+    if not callable(factory):
+        raise TypeError("Model factory must be callable")
+    _MODEL_FACTORIES[normalized] = factory
 
 
 def create_model(config: Dict[str, Any], base_dir=None, accelerator=None):
@@ -280,6 +278,7 @@ __all__ = [
     "PIPELINE_MODEL_KINDS",
     "RESNET_MODEL_KINDS",
     "create_model",
+    "register_model_factory",
     "get_model_run_kwargs",
     "model_backend",
     "supports_runtime_options",

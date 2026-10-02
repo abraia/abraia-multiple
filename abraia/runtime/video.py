@@ -2,6 +2,7 @@
 
 import logging
 import os
+import queue
 import threading
 import time
 from pathlib import Path
@@ -273,6 +274,9 @@ class FrameSource:
         self.width = None
         self.height = None
         self.source_fps = None
+        self._capture_stop = threading.Event()
+        self._capture_queue = None
+        self._capture_thread = None
 
         if self.source_type == "images":
             self.images = load_images(str(src))
@@ -294,6 +298,48 @@ class FrameSource:
                 self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or self.resolution[1]
             )
         self.frame_rate = self.source_fps or fps
+        if self.source_type in ("camera", "usb_camera", "rpi_camera"):
+            self._capture_queue = queue.Queue(maxsize=1)
+            self._capture_thread = threading.Thread(
+                target=self._prefetch_camera_frames,
+                name="abraia-camera-capture",
+                daemon=True,
+            )
+            self._capture_thread.start()
+
+    def _prefetch_camera_frames(self):
+        capture = self.cap
+        while not self._capture_stop.is_set() and capture is not None:
+            try:
+                ret, frame = read_rgb(capture)
+            except Exception:
+                logger.debug("Camera frame capture failed", exc_info=True)
+                break
+            if not ret:
+                break
+            try:
+                self._capture_queue.put_nowait(frame)
+            except queue.Full:
+                try:
+                    self._capture_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self._capture_queue.put_nowait(frame)
+                except queue.Full:
+                    pass
+
+    def _read_source_frame(self):
+        if self._capture_queue is None:
+            return read_rgb(self.cap)
+        while not self._capture_stop.is_set():
+            try:
+                return True, self._capture_queue.get(timeout=0.1)
+            except queue.Empty:
+                thread = self._capture_thread
+                if thread is not None and not thread.is_alive():
+                    return False, None
+        return False, None
 
     @staticmethod
     def _camera_resolution(resolution) -> Tuple[int, int]:
@@ -374,7 +420,7 @@ class FrameSource:
             while self.cap is not None:
                 if self.stop_event.is_set() or getattr(self, "quit", False):
                     break
-                ret, frame = read_rgb(self.cap)
+                ret, frame = self._read_source_frame()
                 if not ret:
                     break
 
@@ -429,12 +475,16 @@ class FrameSource:
 
     def _close_capture(self):
         """Release only the input capture used by the frame iterator."""
+        self._capture_stop.set()
         capture, self.cap = self.cap, None
         if capture is not None:
             try:
                 capture.release()
             except Exception:
                 logger.debug("Failed to release frame source", exc_info=True)
+        thread = self._capture_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=0.2)
 
 
 class Video(FrameSource):

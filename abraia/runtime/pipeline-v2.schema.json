@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/abraia/vision-studio/schemas/pipeline-v2.schema.json",
+  "title": "Abraia Vision Pipeline v2",
+  "description": "Ordered frame pipeline configuration consumed by Abraia Vision Studio and the Abraia runtime.",
+  "type": "object",
+  "required": ["version", "source", "steps"],
+  "properties": {
+    "version": {"const": 2},
+    "source": {"$ref": "#/$defs/source"},
+    "steps": {
+      "type": "array",
+      "minItems": 0,
+      "prefixItems": [{"$ref": "#/$defs/modelStep"}],
+      "items": {"$ref": "#/$defs/step"}
+    },
+    "display": {"$ref": "#/$defs/display"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": ["src"],
+      "properties": {
+        "type": {"enum": ["camera", "image", "video", "stream"]},
+        "src": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+        "resolution": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "integer", "exclusiveMinimum": 0}
+        },
+        "fps": {"type": "integer", "exclusiveMinimum": 0},
+        "video_unpaced": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "display": {
+      "type": "object",
+      "properties": {
+        "show": {"type": "boolean"},
+        "render_results": {"type": "boolean"},
+        "render_metrics": {"type": "boolean"},
+        "dest": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "point": {
+      "type": "array",
+      "prefixItems": [{"type": "number"}, {"type": "number"}],
+      "items": false
+    },
+    "line": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/point"}
+    },
+    "polygon": {
+      "type": "array",
+      "minItems": 3,
+      "items": {"$ref": "#/$defs/point"}
+    },
+    "model": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"type": "string"},
+        "task": {"type": "string"},
+        "uri": {"type": "string"},
+        "size": {"type": "string"},
+        "labels": {"type": "array", "items": {"type": "string"}},
+        "params": {"type": "object"},
+        "conf_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "iou_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "approx": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "baseStep": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"type": "string"},
+        "enabled": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "modelStep": {
+      "allOf": [
+        {"$ref": "#/$defs/baseStep"},
+        {
+          "properties": {
+            "type": {"const": "model"},
+            "model": {"$ref": "#/$defs/model"}
+          },
+          "required": ["model"]
+        }
+      ]
+    },
+    "step": {
+      "oneOf": [
+        {"$ref": "#/$defs/modelStep"},
+        {
+          "allOf": [
+            {"$ref": "#/$defs/baseStep"},
+            {"properties": {"type": {"const": "tracker"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/baseStep"},
+            {
+              "properties": {
+                "type": {"const": "line_counter"},
+                "line": {"$ref": "#/$defs/line"}
+              },
+              "required": ["line"]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/baseStep"},
+            {
+              "properties": {
+                "type": {"const": "region_filter"},
+                "polygon": {"$ref": "#/$defs/polygon"}
+              },
+              "required": ["polygon"]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/baseStep"},
+            {
+              "properties": {
+                "type": {"const": "region_timer"},
+                "polygon": {"$ref": "#/$defs/polygon"}
+              },
+              "required": ["polygon"]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/baseStep"},
+            {
+              "properties": {
+                "type": {"const": "filter"},
+                "labels": {"type": "array", "items": {"type": "string"}},
+                "min_confidence": {"type": "number", "minimum": 0, "maximum": 1}
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/baseStep"},
+            {
+              "properties": {
+                "type": {"const": "crop"},
+                "padding": {"type": "number", "minimum": 0}
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

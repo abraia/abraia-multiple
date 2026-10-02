@@ -85,8 +85,10 @@ def test_rgb_pruning_uses_perceptual_similarity_for_brightness_changes():
         {"base.jpg": base, "brighter.jpg": brighter}.__getitem__,
     )
 
-    assert findings[0]["path"] == "brighter.jpg"
-    assert findings[0]["reasons"] == ("highly similar",)
+    brighter_finding = next(
+        finding for finding in findings if finding["path"] == "brighter.jpg"
+    )
+    assert brighter_finding["reasons"] == ("highly similar",)
 
 
 def test_rgb_pruning_detects_small_translations_as_similar():

@@ -66,6 +66,9 @@ def test_video_close_is_idempotent():
     source, writer = Resource(), Resource()
     video = Video.__new__(Video)
     video.cap = source
+    video._capture_stop = threading.Event()
+    video._capture_queue = None
+    video._capture_thread = None
     video.out = writer
     video.win_name = ''
     video._output = VideoOutput.__new__(VideoOutput)

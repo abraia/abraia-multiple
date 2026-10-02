@@ -7,7 +7,7 @@ from typing import Any, Optional, Protocol, runtime_checkable
 
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".bmp")
 VIDEO_SUFFIXES = (".mp4", ".avi", ".mov", ".mkv")
-SPECTRAL_SUFFIXES = (".tif", ".tiff", ".hdr", ".raw", ".img", ".mat")
+SPECTRAL_SUFFIXES = (".tif", ".tiff", ".hdr", ".raw", ".img")
 SOURCE_TYPE_ALIASES = {
     "images": "image",
     "usb_camera": "camera",

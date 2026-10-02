@@ -28,6 +28,7 @@ _LAZY_EXPORTS = {
     "ModelSession": (".service", "ModelSession"),
     "InferenceModel": (".contracts", "InferenceModel"),
     "create_model": (".registry", "create_model"),
+    "register_model_factory": (".registry", "register_model_factory"),
     "ModelSpec": (".model_config", "ModelSpec"),
 }
 
@@ -67,5 +68,6 @@ __all__ = [
     "ModelSession",
     "InferenceModel",
     "create_model",
+    "register_model_factory",
     "ModelSpec",
 ]

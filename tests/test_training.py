@@ -6,7 +6,12 @@ from unittest.mock import patch
 import numpy as np
 import sys
 
-from abraia.training import metric_average, normalize_model_record
+from abraia.training import (
+    DatasetProjectService,
+    metric_average,
+    normalize_custom_models,
+    normalize_model_record,
+)
 
 
 def test_annotator_uses_the_transformers_grounding_dino_model(monkeypatch):
@@ -653,3 +658,81 @@ def test_classification_dataset_includes_held_out_test_split(tmp_path):
         str(tmp_path / "val"),
         str(tmp_path / "test"),
     ]
+
+
+
+def test_normalize_custom_models_adds_project_scope_and_model_defaults():
+    models = normalize_custom_models(
+        [
+            {"name": " detector.onnx ", "task": "detection"},
+            {"name": "classifier.onnx", "task": "classification"},
+            {"name": "   "},
+        ],
+        project="demo",
+        userid="user",
+    )
+
+    assert models == [
+        {
+            "name": "detector.onnx",
+            "uri": "user/demo/detector.onnx",
+            "task": "detection",
+            "kind": "yolov8",
+        },
+        {
+            "name": "classifier.onnx",
+            "uri": "user/demo/classifier.onnx",
+            "task": "classification",
+            "kind": "resnet",
+        },
+    ]
+
+
+def test_dataset_project_service_saves_replacement_annotation_table():
+    from types import SimpleNamespace
+
+    saved = []
+    dataset = SimpleNamespace(
+        annotations=[],
+        save=lambda: saved.append(list(dataset.annotations)),
+    )
+    service = DatasetProjectService(
+        SimpleNamespace(), lambda _project: dataset
+    )
+    annotations = [{"filename": "photo.jpg", "objects": []}]
+
+    assert service.save_annotations("demo", annotations) is dataset
+    assert dataset.annotations == annotations
+    assert saved == [annotations]
+    assert dataset.annotations is not annotations
+
+
+def test_dataset_project_service_groups_companion_progress_by_image():
+    from types import SimpleNamespace
+
+    removed = []
+    progress = []
+    dataset = SimpleNamespace(
+        images=[{"name": "scene.hdr", "path": "demo/scene.hdr"}],
+        annotations=[{"filename": "scene.hdr", "objects": []}],
+        save=lambda: None,
+    )
+    service = DatasetProjectService(
+        SimpleNamespace(remove_file=removed.append),
+        lambda _project: dataset,
+        image_path_groups=lambda _project, paths: [
+            [paths[0], "demo/scene.bin"]
+        ],
+    )
+
+    assert service.delete_images(
+        "demo",
+        ["demo/scene.hdr"],
+        progress_callback=lambda *event: progress.append(event),
+    ) is dataset
+    assert removed == [
+        "demo/scene.hdr", "demo/tb_scene.hdr",
+        "demo/scene.bin", "demo/tb_scene.bin",
+    ]
+    assert progress[0] == (0, 1, "Preparing image deletion", False)
+    assert progress[-1] == (1, 1, "demo/scene.bin", True)

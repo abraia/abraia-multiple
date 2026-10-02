@@ -225,36 +225,14 @@ from abraia.runtime import Pipeline
 Pipeline.from_file("pipeline.json").run()
 ```
 
-The version-one pipeline format supports a source, model, tracker, line
-counter, region filter or timer, and display output. Stages run in the order
-listed. The model can be an ONNX model, a Hailo model, or one of the built-in
-face and license-plate detectors:
-
-```json
-{
-  "version": 1,
-  "source": {"type": "video", "src": "people.mp4"},
-  "model": {
-    "task": "detection",
-    "kind": "yolov8",
-    "uri": "multiple/models/yolov8n.onnx",
-    "labels": ["person"]
-  },
-  "stages": [
-    {"type": "tracker"},
-    {"type": "line_counter", "line": [[0, 650], [1920, 650]]}
-  ],
-  "display": {"show": true, "dest": "output.avi"}
-}
-```
-
-Version two adds ordered, named steps for composed inference. A pipeline can
-use up to two models, along with `filter`, `crop`, `attach`, `tracker`,
-`line_counter`, `region_filter`, and `region_timer` steps. Stateful steps can
-name an `input` result reference; when omitted, they use the preceding results.
-The second model runs on regions from the preceding results and attaches its
-output to the matching detections. For example, a license-plate detector can
-pass each detected plate to OCR:
+Pipelines use ordered version-two steps for inference. Step identifiers are
+generated internally from their order and are omitted from saved documents. A
+pipeline can
+use up to two models, along with `filter`, `crop`, `tracker`, `line_counter`,
+`region_filter`, and `region_timer` steps. These steps consume the preceding
+step results automatically. The second model runs on regions from the
+preceding results and attaches its output to the matching detections. For
+example, a license-plate detector can pass each detected plate to OCR:
 
 ```json
 {
@@ -262,13 +240,10 @@ pass each detected plate to OCR:
   "source": {"type": "video", "src": "traffic.mp4"},
   "steps": [
     {
-      "id": "plates",
       "type": "model",
-      "input": "frame",
       "model": {"task": "detection", "kind": "license_plate"}
     },
     {
-      "id": "read_text",
       "type": "model",
       "model": {"task": "recognition", "kind": "ocr"}
     }
@@ -278,17 +253,16 @@ pass each detected plate to OCR:
 ```
 
 The OCR step crops each detected plate, recognizes its text, and adds the
-recognition result to that detection. Steps can also explicitly connect
-outputs: use references such as `plates.results` or `crop.items` in an
-`input` field, and use `target` on an `attach` step to choose which result
-list receives the attached data. Version-one files remain supported. Run a
-version-two file the same way:
+recognition result to that detection. Run a version-two file the same way:
 
 ```python
 from abraia.runtime import Pipeline
 
 Pipeline.from_file("plate_ocr.json").run()
 ```
+
+The pipeline v2 JSON Schema is included with the package at
+`abraia/runtime/pipeline-v2.schema.json`.
 
 ##### People monitoring
 
@@ -421,32 +395,72 @@ coordinates, and model URI for the target installation:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "source": {
     "type": "camera",
     "src": 0,
-    "resolution": [1920, 1080],
+    "resolution": [
+      1920,
+      1080
+    ],
     "fps": 30,
     "video_unpaced": false
   },
-  "model": {
-    "task": "detection",
-    "kind": "yolov8",
-    "uri": "multiple/models/yolov8n_hailo8.hef",
-    "params": {
-      "batch_size": 1,
-      "score_threshold": 0.3
-    }
-  },
-  "stages": [
-    {"type": "tracker", "enabled": true},
-    {"type": "line_counter", "line": [[100, 540], [1820, 540]]},
+  "steps": [
+    {
+      "type": "model",
+      "model": {
+        "task": "detection",
+        "kind": "yolov8",
+        "uri": "multiple/models/yolov8n_hailo8.hef",
+        "params": {
+          "batch_size": 1,
+          "score_threshold": 0.3
+        }
+      }
+    },
+    {
+      "type": "tracker",
+      "enabled": true
+    },
+    {
+      "type": "line_counter",
+      "line": [
+        [
+          100,
+          540
+        ],
+        [
+          1820,
+          540
+        ]
+      ]
+    },
     {
       "type": "region_timer",
-      "polygon": [[300, 200], [1620, 200], [1620, 900], [300, 900]]
+      "polygon": [
+        [
+          300,
+          200
+        ],
+        [
+          1620,
+          200
+        ],
+        [
+          1620,
+          900
+        ],
+        [
+          300,
+          900
+        ]
+      ]
     }
   ],
-  "display": {"show": true}
+  "display": {
+    "show": true
+  }
 }
 ```
 

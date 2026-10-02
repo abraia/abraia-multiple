@@ -1,16 +1,12 @@
 """Runtime components for media input and inference pipelines."""
 
+from .factories import register_spectral_source
 from .pipeline import (
     FrameContext,
     CancellableSource,
-    LineCounterStage,
     Pipeline,
-    RegionFilterStage,
-    RegionTimerStage,
-    TrackerStage,
 )
 from .composition import (
-    AttachStep,
     BoundModelStep,
     CropStep,
     FilterStep,
@@ -40,17 +36,22 @@ from .config import (
     SUPPORTED_SECOND_STAGE_MODEL_OPTIONS,
     SUPPORTED_MODEL_TASKS,
     SUPPORTED_STAGE_TYPES,
-    COMPOSITION_STAGE_TYPES,
-    COMPOSITION_STEP_TYPES,
+    default_primary_stage,
     default_stage,
     format_points,
-    load_pipeline_document,
     model_control_visibility,
     model_defaults,
     parse_points,
-    save_pipeline_document,
 )
-from .runner import run_pipeline
+from .runner import prepare_pipeline_display_frame, run_pipeline
+from .pipeline_schema import (
+    PIPELINE_STAGE_DEFINITIONS,
+    PipelineStep,
+    iter_pipeline_steps,
+    TRACKER_DEPENDENT_STAGE_TYPES,
+    normalize_step_ids,
+    strip_internal_step_ids,
+)
 
 __all__ = [
     "FrameContext",
@@ -61,15 +62,10 @@ __all__ = [
     "FrameRecord",
     "FrameResult",
     "LineCounter",
-    "LineCounterStage",
     "Pipeline",
-    "RegionFilterStage",
-    "RegionTimerStage",
     "RegionTimer",
     "RegionFilter",
     "count_objects",
-    "TrackerStage",
-    "AttachStep",
     "BoundModelStep",
     "CropStep",
     "FilterStep",
@@ -90,14 +86,19 @@ __all__ = [
     "SUPPORTED_SECOND_STAGE_MODEL_OPTIONS",
     "SUPPORTED_MODEL_TASKS",
     "SUPPORTED_STAGE_TYPES",
-    "COMPOSITION_STAGE_TYPES",
-    "COMPOSITION_STEP_TYPES",
+    "PIPELINE_STAGE_DEFINITIONS",
+    "TRACKER_DEPENDENT_STAGE_TYPES",
+    "PipelineStep",
+    "iter_pipeline_steps",
+    "normalize_step_ids",
+    "strip_internal_step_ids",
+    "default_primary_stage",
     "default_stage",
     "format_points",
-    "load_pipeline_document",
     "model_control_visibility",
     "model_defaults",
     "parse_points",
+    "prepare_pipeline_display_frame",
     "run_pipeline",
-    "save_pipeline_document",
+    "register_spectral_source",
 ]

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from threading import Barrier
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
@@ -13,12 +14,9 @@ from abraia.runtime import (
     FrameRecord,
     FrameResult,
     LineCounterStep,
-    LineCounterStage,
     Pipeline,
     RegionFilterStep,
-    RegionFilterStage,
     RegionTimerStep,
-    TrackerStage,
     TrackerStep,
 )
 
@@ -305,7 +303,7 @@ def test_tracker_stage_updates_context_results():
             return results
 
     context = FrameContext(frame=None, frame_index=0, frame_time=0, results=[{}])
-    TrackerStage(Tracker())(context)
+    TrackerStep("tracker", Tracker())(context)
 
     assert context.results[0]["track_id"] == 7
 
@@ -316,7 +314,7 @@ def test_line_counter_stage_exposes_metrics():
             return 3, 2
 
     context = FrameContext(frame=None, frame_index=0, frame_time=0, results=[])
-    LineCounterStage(Counter())(context)
+    LineCounterStep("counter", Counter())(context)
 
     assert context.metrics["line_counter"] == {"in": 3, "out": 2}
 
@@ -361,13 +359,13 @@ def test_composed_pipeline_builds_stateful_processing_steps():
         "version": 2,
         "source": {"type": "image", "src": "frame.jpg"},
         "steps": [
-            {"id": "model", "type": "model", "input": "frame", "model": {
+            {"type": "model", "model": {
                 "kind": "yolov8", "task": "detection", "uri": "detector.onnx"
             }},
-            {"id": "tracker", "type": "tracker"},
-            {"id": "counter", "type": "line_counter", "line": [[0, 0], [10, 10]]},
-            {"id": "region", "type": "region_filter", "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]]},
-            {"id": "timer", "type": "region_timer", "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]]},
+            {"type": "tracker"},
+            {"type": "line_counter", "line": [[0, 0], [10, 10]]},
+            {"type": "region_filter", "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]]},
+            {"type": "region_timer", "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]]},
         ],
         "display": {"show": False},
     }
@@ -401,11 +399,50 @@ def test_region_filter_stage_keeps_named_views():
         frame_time=0,
         results=[inside, outside],
     )
-    RegionFilterStage(RegionFilter())(context)
+    RegionFilterStep("region", RegionFilter())(context)
 
     assert context.results == [inside]
     assert context.views["in_region"] == [inside]
     assert context.views["out_region"] == [outside]
+
+
+def test_pipeline_builds_source_and_model_concurrently():
+    ready_together = Barrier(2)
+
+    class FakeVideo:
+        frame_rate = 30
+
+        def __init__(self, *_args, **_kwargs):
+            ready_together.wait(timeout=3)
+
+        def set_display_enabled(self, _enabled):
+            pass
+
+        def close(self):
+            pass
+
+    class FakeModel:
+        def __init__(self, *_args, **_kwargs):
+            ready_together.wait(timeout=3)
+
+        def close(self):
+            pass
+
+    config = {
+        "version": 2,
+        "source": {"type": "image", "src": "frame.jpg"},
+        "steps": [{"type": "model", "model": {
+            "kind": "yolov8", "task": "detection", "uri": "model.onnx"
+        }}],
+        "display": {"show": False},
+    }
+
+    with patch("abraia.runtime.video.Video", FakeVideo), \
+         patch("abraia.inference.models.detection.Model", FakeModel):
+        pipeline = Pipeline.from_dict(config, accelerator="cpu")
+
+    assert isinstance(pipeline.model, FakeModel)
+    pipeline.close()
 
 
 def test_pipeline_from_file_builds_components_and_resolves_paths():
@@ -432,12 +469,24 @@ def test_pipeline_from_file_builds_components_and_resolves_paths():
     with TemporaryDirectory() as temp_dir:
         config_path = Path(temp_dir) / "pipeline.json"
         config_path.write_text(json.dumps({
-            "version": 1,
+            "version": 2,
             "source": {"type": "image", "src": "frame.jpg"},
-            "model": {"kind": "yolov8", "uri": "model.onnx", "labels": ["person"]},
-            "stages": [
-                {"type": "tracker"},
-                {"type": "line_counter", "line": [[0, 0], [10, 10]]},
+            "steps": [
+                {
+                    "id": "model",
+                    "type": "model",
+                    "model": {
+                        "kind": "yolov8",
+                        "uri": "model.onnx",
+                        "labels": ["person"],
+                    },
+                },
+                {"id": "tracker", "type": "tracker"},
+                {
+                    "id": "line_counter",
+                    "type": "line_counter",
+                    "line": [[0, 0], [10, 10]],
+                },
             ],
             "display": {"show": False, "dest": "output.avi"},
         }))
@@ -450,6 +499,8 @@ def test_pipeline_from_file_builds_components_and_resolves_paths():
         assert pipeline.source.src == str(Path(temp_dir) / "frame.jpg")
         assert pipeline.source.dest == str(Path(temp_dir) / "output.avi")
         assert pipeline.model.uri == "model.onnx"
+        assert isinstance(pipeline.steps[1], TrackerStep)
+        assert isinstance(pipeline.steps[2], LineCounterStep)
         assert "tracker" in pipeline.components
         assert "line_counter" in pipeline.components
 
@@ -476,8 +527,13 @@ def test_pipeline_resolves_local_model_uri_relative_to_config(tmp_path):
             received.append(uri)
 
     config = {
+        "version": 2,
         "source": {"type": "image", "src": "frame.jpg"},
-        "model": {"kind": "yolov8", "uri": "model.onnx"},
+        "steps": [{
+            "id": "model",
+            "type": "model",
+            "model": {"kind": "yolov8", "uri": "model.onnx"},
+        }],
         "display": {"show": False},
     }
 
@@ -489,38 +545,104 @@ def test_pipeline_resolves_local_model_uri_relative_to_config(tmp_path):
     pipeline.close()
 
 
+def test_pipeline_from_dict_rejects_unsupported_versions():
+    with pytest.raises(ValueError, match="Only version 2"):
+        Pipeline.from_dict({"version": 3})
+
+
 def test_pipeline_from_dict_rejects_unknown_stage():
     config = {
+        "version": 2,
         "source": {"src": 0},
-        "model": {"kind": "yolov8", "uri": "model.onnx"},
-        "stages": [{"type": "unknown"}],
+        "steps": [
+            {
+                "id": "model",
+                "type": "model",
+                "model": {"kind": "yolov8", "uri": "model.onnx"},
+            },
+            {"id": "unknown", "type": "unknown"},
+        ],
     }
 
     class FakeVideo:
         frame_rate = 30
 
         def __init__(self, *args, **kwargs):
-            pass
+            pytest.fail("Invalid stage must be rejected before source creation")
 
     class FakeModel:
         def __init__(self, uri, **kwargs):
-            pass
+            pytest.fail("Invalid stage must be rejected before model creation")
 
     with patch("abraia.runtime.video.Video", FakeVideo), \
          patch("abraia.inference.models.detection.Model", FakeModel):
         try:
             Pipeline.from_dict(config)
         except ValueError as error:
-            assert "Unknown pipeline stage type" in str(error)
+            assert "Unknown composed pipeline step type" in str(error)
         else:
             raise AssertionError("Expected unknown stage to be rejected")
 
 
+def test_pipeline_closes_resources_if_renderer_factory_fails():
+    closed = []
+
+    class FakeVideo:
+        frame_rate = 30
+
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def set_display_enabled(self, _enabled):
+            pass
+
+        def close(self):
+            closed.append("source")
+
+    class FakeModel:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def close(self):
+            closed.append("model")
+
+    config = {
+        "version": 2,
+        "source": {"type": "image", "src": "frame.jpg"},
+        "steps": [{"type": "model", "model": {
+            "kind": "yolov8", "task": "detection", "uri": "model.onnx"
+        }}],
+        "display": {"show": False},
+    }
+
+    def fail_renderer(_renderer, _config):
+        raise RuntimeError("renderer setup failed")
+
+    with patch("abraia.runtime.video.Video", FakeVideo), \
+         patch("abraia.inference.models.detection.Model", FakeModel):
+        with pytest.raises(RuntimeError, match="renderer setup failed"):
+            Pipeline.from_dict(
+                config,
+                accelerator="cpu",
+                renderer_factory=fail_renderer,
+            )
+
+    assert closed.count("source") == 1
+    assert closed.count("model") == 1
+
+
 def test_pipeline_from_dict_skips_disabled_stages():
     config = {
+        "version": 2,
         "source": {"src": "clip.mp4"},
-        "model": {"kind": "yolov8", "uri": "model.onnx"},
-        "stages": [{"type": "line_counter", "enabled": False}],
+        "steps": [
+            {
+                "id": "model",
+                "type": "model",
+                "model": {"kind": "yolov8", "uri": "model.onnx"},
+            },
+            {"id": "line_counter", "type": "line_counter", "enabled": False},
+        ],
     }
 
     class FakeVideo:
@@ -537,13 +659,65 @@ def test_pipeline_from_dict_skips_disabled_stages():
          patch("abraia.inference.models.detection.Model", FakeModel):
         pipeline = Pipeline.from_dict(config)
 
-    assert pipeline.stages == []
+    assert len(pipeline.steps) == 1
+
+
+def test_pipeline_from_dict_rejects_invalid_model_spec():
+    config = {
+        "version": 2,
+        "source": {"src": 0},
+        "steps": [{
+            "id": "model",
+            "type": "model",
+            "model": {"kind": "unknown_model", "uri": "model.onnx"},
+        }],
+    }
+
+    class FakeVideo:
+        frame_rate = 30
+
+        def __init__(self, *args, **kwargs):
+            pytest.fail("Invalid model must be rejected before source creation")
+
+        def close(self):
+            pass
+
+    with patch("abraia.runtime.video.Video", FakeVideo):
+        with pytest.raises(ValueError, match="Unknown detector kind"):
+            Pipeline.from_dict(config)
+
+
+def test_pipeline_from_dict_rejects_tracker_dependent_stage_ordering():
+    config = {
+        "version": 2,
+        "source": {"src": 0},
+        "steps": [
+            {
+                "id": "model",
+                "type": "model",
+                "model": {"kind": "yolov8", "uri": "model.onnx"},
+            },
+            {
+                "id": "counter",
+                "type": "line_counter",
+                "line": [[0, 0], [10, 10]],
+            },
+        ],
+    }
+
+    with pytest.raises(ValueError, match="requires an earlier tracker"):
+        Pipeline.from_dict(config)
 
 
 def test_pipeline_from_dict_keeps_camera_indices_as_camera_sources():
     config = {
+        "version": 2,
         "source": {"type": "camera", "src": "0"},
-        "model": {"kind": "yolov8", "uri": "model.onnx"},
+        "steps": [{
+            "id": "model",
+            "type": "model",
+            "model": {"kind": "yolov8", "uri": "model.onnx"},
+        }],
     }
 
     class FakeVideo:
@@ -773,15 +947,20 @@ def test_pipeline_from_dict_passes_pose_options_to_onnx_model():
 
     model = FakeModel()
     config = {
+        "version": 2,
         "source": {"type": "image", "src": "frame.jpg"},
-        "model": {
-            "kind": "yolov8",
-            "task": "pose",
-            "uri": "multiple/models/yolov8m_pose.onnx",
-            "labels": ["person"],
-            "conf_threshold": 0.4,
-            "iou_threshold": 0.6,
-        },
+        "steps": [{
+            "id": "model",
+            "type": "model",
+            "model": {
+                "kind": "yolov8",
+                "task": "pose",
+                "uri": "multiple/models/yolov8m_pose.onnx",
+                "labels": ["person"],
+                "conf_threshold": 0.4,
+                "iou_threshold": 0.6,
+            },
+        }],
         "display": {"show": False, "render_results": False},
     }
 
@@ -968,8 +1147,13 @@ def test_pipeline_keeps_file_output_enabled_when_preview_is_disabled():
     with patch("abraia.runtime.video.Video", FakeVideo), \
          patch("abraia.inference.models.detection.Model", FakeModel):
         pipeline = Pipeline.from_dict({
+            "version": 2,
             "source": {"src": "frame.jpg"},
-            "model": {"kind": "yolov8", "uri": "model.onnx"},
+            "steps": [{
+                "id": "model",
+                "type": "model",
+                "model": {"kind": "yolov8", "uri": "model.onnx"},
+            }],
             "display": {"show": False, "dest": "output.avi"},
         })
         pipeline.run()
@@ -981,14 +1165,17 @@ def test_pipeline_keeps_file_output_enabled_when_preview_is_disabled():
 
 def test_demo_definitions_are_pipeline_configs():
     from abraia.demo import PIPELINES
+    from abraia.runtime.config import PipelineDraft
 
     assert PIPELINES
     for config in PIPELINES.values():
-        assert config["version"] == 1
+        assert config["version"] == 2
         assert "src" in config["source"]
-        if config["model"].get("kind") not in ("face", "license_plate", "ocr"):
-            assert "uri" in config["model"]
-        assert all("type" in stage for stage in config["stages"])
+        model = next(step["model"] for step in config["steps"] if step["type"] == "model")
+        if model.get("kind") not in ("face", "license_plate", "ocr"):
+            assert "uri" in model
+        assert all("type" in step and "id" not in step for step in config["steps"])
+        assert PipelineDraft.from_dict(config).validation_errors() == []
 
 
 def test_plate_demo_is_available_to_monitor_objects():
@@ -1010,7 +1197,11 @@ def test_plate_demo_is_available_to_monitor_objects():
         demo.monitor_objects("camera", demo="plates")
 
     assert FakePipeline.received["source"]["src"] == "camera"
-    assert FakePipeline.received["model"] == {
+    model = next(
+        step["model"] for step in FakePipeline.received["steps"]
+        if step["type"] == "model"
+    )
+    assert model == {
         "task": "recognition",
         "kind": "license_plate",
         "params": {"threshold": 0.85, "iou_threshold": 0.15},
@@ -1037,14 +1228,18 @@ def test_hailo_accelerator_uses_shared_pipeline():
          patch("abraia.demo._hailo_model_available", return_value=True):
         demo.monitor_objects(0, demo="pose", accelerator="hailo")
 
-    assert FakePipeline.received["model"] == {
+    model = next(
+        step["model"] for step in FakePipeline.received["steps"]
+        if step["type"] == "model"
+    )
+    assert model == {
         "task": "pose",
         "kind": "yolov8",
         "uri": "multiple/models/yolov8m_pose_hailo8.hef",
         "params": {"model_type": "v8"},
     }
     assert FakePipeline.received["source"]["src"] == 0
-    assert FakePipeline.received["stages"] == [{"type": "tracker"}]
+    assert any(step["type"] == "tracker" for step in FakePipeline.received["steps"])
 
 
 def test_hailo_pipeline_definitions_use_pipeline_schema():
@@ -1053,12 +1248,12 @@ def test_hailo_pipeline_definitions_use_pipeline_schema():
     hailo_demos = ("detect", "tomato", "apple", "segment", "pose")
     for name in hailo_demos:
         config = PIPELINE_DEVICES[name]
-        assert config["version"] == 1
+        assert config["version"] == 2
         assert "source" in config
-        assert "model" in config
-        assert config["model"]["uri"].endswith(".onnx")
-        assert "uri" in config["model"]
-        assert all("type" in stage for stage in config["stages"])
+        model = next(step["model"] for step in config["steps"] if step["type"] == "model")
+        assert model["uri"].endswith(".onnx")
+        assert "uri" in model
+        assert all("type" in step and "id" not in step for step in config["steps"])
 
 
 def test_cli_search_command_routes_to_search_images():
@@ -1171,3 +1366,69 @@ def test_cli_custom_run_prefers_explicit_source_argument():
         module.abraia.userid = original_userid
 
     assert process_media.call_args.args[0] == "image.jpg"
+
+
+
+def test_pipeline_runner_passes_renderer_factory_and_reports_bounded_events(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    import abraia.runtime as runtime
+    from abraia.runtime.runner import run_pipeline
+
+    calls = {}
+
+    class FakePipeline:
+        model = None
+        render = None
+
+        def __init__(self, on_frame):
+            self.on_frame = on_frame
+
+        @classmethod
+        def from_dict(cls, config, *, on_frame, renderer_factory):
+            calls["config"] = config
+            calls["renderer_factory"] = renderer_factory
+            return cls(on_frame)
+
+        def run(self, is_cancelled):
+            context = SimpleNamespace(
+                frame_index=0,
+                results=[{"label": "plant"}],
+                metrics={"count": 1},
+                frame=np.zeros((2, 3, 3), dtype=np.uint8),
+            )
+            self.on_frame(context, 12.345)
+
+    monkeypatch.setattr(runtime, "Pipeline", FakePipeline)
+    original_config = {"display": {"show": True}}
+    renderer_factory = object()
+    callback_events = []
+    statuses = []
+    result = run_pipeline(
+        original_config,
+        frame_callback=callback_events.append,
+        max_events=1,
+        renderer_factory=renderer_factory,
+        status_callback=statuses.append,
+    )
+
+    assert calls["renderer_factory"] is renderer_factory
+    assert calls["config"]["display"]["show"] is False
+    assert original_config["display"]["show"] is True
+    assert result["frame_count"] == 1
+    assert result["events"] == callback_events
+    assert result["events"][0]["elapsed_ms"] == 12.35
+    assert result["events"][0]["accelerator"] == "CPU"
+    assert statuses and statuses[0].startswith("Model and source ready in ")
+
+
+def test_prepare_pipeline_display_frame_only_downscales():
+    from abraia.runtime import prepare_pipeline_display_frame
+
+    frame = np.zeros((1440, 2560, 3), dtype=np.uint8)
+    resized = prepare_pipeline_display_frame(frame)
+
+    assert resized.shape == (720, 1280, 3)
+    assert prepare_pipeline_display_frame(frame[:10, :20]).shape == (10, 20, 3)

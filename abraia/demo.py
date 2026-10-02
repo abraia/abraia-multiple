@@ -7,6 +7,7 @@ from abraia.inference import FaceRecognizer, FaceAttribute
 from abraia.inference.models.faces import find_pose
 from abraia.runtime.stages import count_objects
 from abraia.runtime import Pipeline
+from abraia.runtime.pipeline_schema import is_primary_model_step
 from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
 from abraia.runtime import Video
 from abraia.utils import download_url, load_image
@@ -19,179 +20,260 @@ from abraia.inference.accelerators import (
 
 
 DEFAULT_PIPELINE = {
-    'version': 1,
+    'version': 2,
     'source': {'type': 'camera', 'src': 0},
-    'model': {
-        'task': 'detection',
-        'kind': 'yolov8',
-        'uri': 'multiple/models/yolov8n.onnx',
-    },
-    'stages': [{'type': 'tracker'}],
+    'steps': [
+        {
+            'type': 'model',
+            'model': {
+                'task': 'detection',
+                'kind': 'yolov8',
+                'uri': 'multiple/models/yolov8n.onnx',
+            },
+        },
+        {'type': 'tracker'},
+    ],
     'display': {'show': True},
 }
 
 
 PIPELINES = {
     'tomato': {
-        'version': 1,
+        'version': 2,
         'source': {'type': 'video', 'src': '10179855-hd_1280_720_30fps.mp4'},
-        'model': {
-            'task': 'detection',
-            'kind': 'yolov8',
-            'uri': 'multiple/tomato/yolov8n.onnx',
-            'labels': ['tomato'],
-        },
-        'stages': [
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'detection',
+                    'kind': 'yolov8',
+                    'uri': 'multiple/tomato/yolov8n.onnx',
+                    'labels': ['tomato'],
+                },
+            },
             {'type': 'tracker'},
-            {'type': 'line_counter', 'line': [[960, 0], [960, 720]]},
+            {
+                'type': 'line_counter',
+                'line': [
+                    [960, 0],
+                    [960, 720],
+                ],
+            },
         ],
         'display': {'show': True},
     },
     'apple': {
-        'version': 1,
+        'version': 2,
         'source': {'type': 'video', 'src': '5479199-hd_1280_720_25fps.mp4'},
-        'model': {
-            'task': 'segmentation',
-            'kind': 'yolov8',
-            'uri': 'multiple/models/yolov8n-seg.onnx',
-            'labels': ['apple'],
-        },
-        'stages': [
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'segmentation',
+                    'kind': 'yolov8',
+                    'uri': 'multiple/models/yolov8n-seg.onnx',
+                    'labels': ['apple'],
+                },
+            },
             {'type': 'tracker'},
-            {'type': 'line_counter', 'line': [[960, 0], [960, 720]]},
+            {
+                'type': 'line_counter',
+                'line': [
+                    [960, 0],
+                    [960, 720],
+                ],
+            },
         ],
         'display': {'show': True},
     },
     'strawberry': {
-        'version': 1,
+        'version': 2,
         'source': {'type': 'video', 'src': '9710983-hd_1920_1080_30fps.mp4'},
-        'model': {
-            'task': 'detection',
-            'kind': 'yolov8',
-            'uri': 'multiple/strawberry/yolov8n.onnx',
-            'labels': ['strawberry'],
-        },
-        'stages': [{'type': 'tracker'}],
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'detection',
+                    'kind': 'yolov8',
+                    'uri': 'multiple/strawberry/yolov8n.onnx',
+                    'labels': ['strawberry'],
+                },
+            },
+            {'type': 'tracker'},
+        ],
         'display': {'show': True},
     },
     'grapes': {
-        'version': 1,
+        'version': 2,
         'source': {'type': 'video', 'src': '5658544-hd_1366_720_24fps.mp4'},
-        'model': {
-            'task': 'detection',
-            'kind': 'yolov8',
-            'uri': 'multiple/grapes/yolov8n.onnx',
-            'labels': ['grapes'],
-        },
-        'stages': [{'type': 'tracker'}],
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'detection',
+                    'kind': 'yolov8',
+                    'uri': 'multiple/grapes/yolov8n.onnx',
+                    'labels': ['grapes'],
+                },
+            },
+            {'type': 'tracker'},
+        ],
         'display': {'show': True},
     },
     'people': {
-        'version': 1,
+        'version': 2,
         'source': {'type': 'video', 'src': '853889-hd_1920_1080_25fps.mp4'},
-        'model': {
-            'task': 'detection',
-            'kind': 'yolov8',
-            'uri': 'multiple/models/yolov8n.onnx',
-            'labels': ['person'],
-        },
-        'stages': [
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'detection',
+                    'kind': 'yolov8',
+                    'uri': 'multiple/models/yolov8n.onnx',
+                    'labels': ['person'],
+                },
+            },
             {
                 'type': 'region_filter',
-                'polygon': [[0, 600], [1920, 600], [1920, 700], [0, 700]],
+                'polygon': [
+                    [0, 600],
+                    [1920, 600],
+                    [1920, 700],
+                    [0, 700],
+                ],
             },
             {'type': 'tracker'},
-            {'type': 'line_counter', 'line': [[0, 650], [1920, 650]]},
+            {
+                'type': 'line_counter',
+                'line': [
+                    [0, 650],
+                    [1920, 650],
+                ],
+            },
         ],
         'display': {'show': True},
     },
     'queue': {
-        'version': 1,
+        'version': 2,
         'source': {'type': 'video', 'src': '4775505-hd_1920_1080_30fps.mp4'},
-        'model': {
-            'task': 'detection',
-            'kind': 'yolov8',
-            'uri': 'multiple/models/yolov8n.onnx',
-            'labels': ['person'],
-        },
-        'stages': [
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'detection',
+                    'kind': 'yolov8',
+                    'uri': 'multiple/models/yolov8n.onnx',
+                    'labels': ['person'],
+                },
+            },
             {'type': 'tracker'},
             {
                 'type': 'region_timer',
-                'polygon': [[10, 600], [1690, 600], [1690, 700], [10, 700]],
+                'polygon': [
+                    [10, 600],
+                    [1690, 600],
+                    [1690, 700],
+                    [10, 700],
+                ],
             },
         ],
         'display': {'show': True},
     },
     'escalator': {
-        'version': 1,
+        'version': 2,
         'source': {'type': 'video', 'src': '14393755-hd_1920_1080_30fps.mp4'},
-        'model': {
-            'task': 'detection',
-            'kind': 'yolov8',
-            'uri': 'multiple/models/yolov8n.onnx',
-            'labels': ['person'],
-        },
-        'stages': [
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'detection',
+                    'kind': 'yolov8',
+                    'uri': 'multiple/models/yolov8n.onnx',
+                    'labels': ['person'],
+                },
+            },
             {
                 'type': 'region_filter',
                 'polygon': [
-                    [0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0],
+                    [0, 245],
+                    [350, 1080],
+                    [1200, 1080],
+                    [530, 0],
+                    [0, 0],
                 ],
             },
             {'type': 'tracker'},
-            {'type': 'line_counter', 'line': [[950, 670], [270, 895]]},
+            {
+                'type': 'line_counter',
+                'line': [
+                    [950, 670],
+                    [270, 895],
+                ],
+            },
             {
                 'type': 'region_timer',
                 'polygon': [
-                    [0, 245], [350, 1080], [1200, 1080], [530, 0], [0, 0],
+                    [0, 245],
+                    [350, 1080],
+                    [1200, 1080],
+                    [530, 0],
+                    [0, 0],
                 ],
             },
         ],
         'display': {'show': True},
     },
     'plates': {
-        'version': 1,
+        'version': 2,
         'source': {'type': 'video', 'src': 'cars.mp4'},
-        'model': {
-            'task': 'recognition',
-            'kind': 'license_plate',
-            'params': {'threshold': 0.85, 'iou_threshold': 0.15},
-        },
-        'stages': [],
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'recognition',
+                    'kind': 'license_plate',
+                    'params': {'threshold': 0.85, 'iou_threshold': 0.15},
+                },
+            },
+        ],
         'display': {'show': True},
     },
-    'detect': {
-        **deepcopy(DEFAULT_PIPELINE),
-    },
+    'detect': {**deepcopy(DEFAULT_PIPELINE)},
     'segment': {
-        'version': 1,
-        'source': {
-            'type': 'video',
-            'src': '853889-hd_1920_1080_25fps.mp4',
-        },
-        'model': {
-            'task': 'segmentation',
-            'kind': 'yolov8',
-            'uri': 'multiple/models/yolov8n-seg.onnx',
-        },
-        'stages': [{'type': 'tracker'}],
+        'version': 2,
+        'source': {'type': 'video', 'src': '853889-hd_1920_1080_25fps.mp4'},
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'segmentation',
+                    'kind': 'yolov8',
+                    'uri': 'multiple/models/yolov8n-seg.onnx',
+                },
+            },
+            {'type': 'tracker'},
+        ],
         'display': {'show': True},
     },
     'pose': {
-        'version': 1,
+        'version': 2,
         'source': {
             'type': 'camera',
             'src': 0,
             'resolution': [1280, 720],
             'fps': 30,
         },
-        'model': {
-            'task': 'pose',
-            'kind': 'yolov8',
-            'uri': 'multiple/models/yolov8m_pose.onnx',
-        },
-        'stages': [{'type': 'tracker'}],
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': 'pose',
+                    'kind': 'yolov8',
+                    'uri': 'multiple/models/yolov8m_pose.onnx',
+                },
+            },
+            {'type': 'tracker'},
+        ],
         'display': {'show': True},
     },
 }
@@ -207,10 +289,18 @@ HAILO_AUTO_EXCLUSIONS = frozenset({'apple'})
 VIDEO_URL = 'https://api.abraia.me/files/multiple/videos/{}'
 
 
+def _primary_model_step(config):
+    """Return the frame model step in a version-two pipeline."""
+    return next(
+        step for step in config.get('steps', [])
+        if is_primary_model_step(step)
+    )
+
+
 def _resolve_hailo_config(config, architecture):
     """Pair a canonical demo ONNX URI with an architecture-specific HEF."""
     selected = deepcopy(config)
-    model = selected.get('model', {})
+    model = _primary_model_step(selected)['model']
     from abraia.inference.accelerators import paired_hailo_uri
     from abraia.inference.hailo.models import model_type_from_onnx_uri
     from abraia.tasks import normalize_task
@@ -331,7 +421,9 @@ def monitor_objects(
     requested_accelerator = normalize_accelerator(accelerator)
     if (
         requested_accelerator != 'auto'
-        and not str(selected.get('model', {}).get('uri', '')).lower().endswith('.hef')
+        and not str(
+            _primary_model_step(selected)['model'].get('uri', '')
+        ).lower().endswith('.hef')
     ):
         pipeline_options['accelerator'] = requested_accelerator
     pipeline = Pipeline.from_dict(selected, **pipeline_options)

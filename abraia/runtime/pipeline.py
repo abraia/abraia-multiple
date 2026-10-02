@@ -9,10 +9,6 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from .factories import (
     PipelineBuilder,
-    RegionFilterStage,
-    RegionTimerStage,
-    LineCounterStage,
-    TrackerStage,
 )
 from .lifecycle import CancellationWatcher, close_resources, stop_resource
 
@@ -55,9 +51,14 @@ class FrameContext:
     spectral_cube: Any = None
     spectral_metadata: Any = None
     results: List[dict] = field(default_factory=list)
+    current: Any = None
     artifacts: Dict[str, Any] = field(default_factory=dict)
     metrics: Dict[str, Any] = field(default_factory=dict)
     views: Dict[str, List[dict]] = field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.current is None:
+            self.current = self.results
 
 
 def _source_frame_parts(source_frame):
@@ -167,7 +168,7 @@ class Pipeline:
             watcher.start()
         last_context = None
         try:
-            if self.steps:
+            if self.steps or self.model is None:
                 return self._run_composed(self._is_cancelled)
             for result in self._iter_inference():
                 if self._stop_requested.is_set() or self._is_cancelled():
@@ -184,6 +185,7 @@ class Pipeline:
                 )
                 context = FrameContext(frame, frame_index, frame_time)
                 context.results = results
+                context.current = results
 
                 for stage in self.stages:
                     context = stage(context) or context
@@ -191,24 +193,9 @@ class Pipeline:
                 if self.on_frame is not None:
                     if elapsed_ms is None:
                         elapsed_ms = 0
-                    self.on_frame(context, elapsed_ms)
-
-                output = self.render(context) if self.render else context.frame
                 last_context = context
-                if self.display is not None:
-                    display_result = self.display.show(output)
-                    # Display backends may report that their window was
-                    # closed either through the return value or a persistent
-                    # ``quit`` flag.  Propagate that request to the source
-                    # and asynchronous model immediately; otherwise a
-                    # preview key such as ``q`` is ignored until the input
-                    # stream ends.
-                    if (
-                        display_result is False
-                        or getattr(self.display, "quit", False)
-                    ):
-                        self.stop()
-                        break
+                if not self._finish_frame(context, elapsed_ms):
+                    break
 
             return last_context
         finally:
@@ -220,7 +207,29 @@ class Pipeline:
     def _run_composed(self, is_cancelled):
         """Run named multi-model steps directly over the source frames."""
         last_context = None
-        for frame_index, source_frame in enumerate(self.source):
+        first_step = self.steps[0] if self.steps else None
+        stream_inference = (
+            getattr(getattr(first_step, "model", None), "iter_inference", None)
+            if first_step is not None
+            else None
+        )
+        if callable(stream_inference):
+            frame_results = stream_inference(self.source, **first_step.model_kwargs)
+            frames = (
+                (
+                    result.record.index,
+                    result.record.frame,
+                    result.results,
+                    result.elapsed_ms,
+                )
+                for result in frame_results
+            )
+        else:
+            frames = (
+                (frame_index, source_frame, None, None)
+                for frame_index, source_frame in enumerate(self.source)
+            )
+        for frame_index, source_frame, streamed_results, inference_ms in frames:
             if self._stop_requested.is_set() or is_cancelled():
                 self.stop()
                 break
@@ -237,23 +246,36 @@ class Pipeline:
                 frame_time,
                 spectral_cube=spectral_cube,
                 spectral_metadata=spectral_metadata,
+                current=frame,
             )
-            for step in self.steps:
+            start_at = 0
+            if callable(stream_inference):
+                first_step.apply_results(context, streamed_results)
+                start_at = 1
+            for step in self.steps[start_at:]:
                 context = step(context) or context
-            elapsed_ms = (time.perf_counter() - started) * 1000
-            if self.on_frame is not None:
-                self.on_frame(context, elapsed_ms)
-            output = self.render(context) if self.render else context.frame
+            elapsed_ms = (
+                inference_ms + (time.perf_counter() - started) * 1000
+                if inference_ms is not None
+                else (time.perf_counter() - started) * 1000
+            )
             last_context = context
-            if self.display is not None:
-                display_result = self.display.show(output)
-                if (
-                    display_result is False
-                    or getattr(self.display, "quit", False)
-                ):
-                    self.stop()
-                    break
+            if not self._finish_frame(context, elapsed_ms):
+                break
         return last_context
+
+    def _finish_frame(self, context, elapsed_ms):
+        """Report, render, and display one completed frame context."""
+        if self.on_frame is not None:
+            self.on_frame(context, elapsed_ms)
+        if self.display is None:
+            return True
+        output = self.render(context) if self.render else context.frame
+        display_result = self.display.show(output)
+        if display_result is False or getattr(self.display, "quit", False):
+            self.stop()
+            return False
+        return True
 
     @classmethod
     def from_file(
@@ -261,6 +283,7 @@ class Pipeline:
         path: str,
         on_frame: Optional[Callable[[FrameContext, float], None]] = None,
         accelerator: Optional[str] = "auto",
+        renderer_factory: Optional[Callable] = None,
     ) -> "Pipeline":
         """Build a pipeline from a JSON configuration file."""
         config_path = Path(path)
@@ -271,6 +294,7 @@ class Pipeline:
             base_dir=config_path.parent,
             on_frame=on_frame,
             accelerator=accelerator,
+            renderer_factory=renderer_factory,
         )
 
     @classmethod
@@ -280,6 +304,7 @@ class Pipeline:
         base_dir: Optional[str] = None,
         on_frame: Optional[Callable[[FrameContext, float], None]] = None,
         accelerator: Optional[str] = "auto",
+        renderer_factory: Optional[Callable] = None,
     ) -> "Pipeline":
         """Build a pipeline from a supported versioned JSON configuration.
 
@@ -293,6 +318,7 @@ class Pipeline:
             base_dir=base_dir,
             on_frame=on_frame,
             accelerator=accelerator,
+            renderer_factory=renderer_factory,
         )
 
     def close(self):
@@ -317,8 +343,4 @@ class Pipeline:
 __all__ = [
     "FrameContext",
     "Pipeline",
-    "TrackerStage",
-    "LineCounterStage",
-    "RegionFilterStage",
-    "RegionTimerStage",
 ]

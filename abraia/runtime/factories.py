@@ -7,8 +7,13 @@ from typing import Any, Callable, Dict, Optional
 
 from .lifecycle import close_resources
 from .config import (
-    MAX_PIPELINE_TRACKERS,
     ModelSpec,
+)
+from .composition import (
+    LineCounterStep,
+    RegionFilterStep,
+    RegionTimerStep,
+    TrackerStep,
 )
 
 
@@ -22,7 +27,7 @@ def _is_spectral_source(source: Any) -> bool:
     if not isinstance(source, str):
         return False
     return source.lower().endswith(
-        (".tif", ".tiff", ".hdr", ".raw", ".img", ".mat")
+        (".tif", ".tiff", ".hdr", ".raw", ".img")
     )
 
 
@@ -47,6 +52,17 @@ class SourcePlan:
     source: Any
     source_type: Optional[str]
     video_kwargs: Dict[str, Any]
+
+
+_SPECTRAL_SOURCE_FACTORY = None
+
+
+def register_spectral_source(factory):
+    """Register the application supplied source for spectral data."""
+    if not callable(factory):
+        raise TypeError("Spectral source factory must be callable")
+    global _SPECTRAL_SOURCE_FACTORY
+    _SPECTRAL_SOURCE_FACTORY = factory
 
 
 class SourceFactory:
@@ -93,145 +109,14 @@ class SourceFactory:
     @staticmethod
     def create(plan: SourcePlan, spectral=False):
         if spectral:
-            from multiple.pipeline import SpectralSource
-
-            return SpectralSource(plan.source, **plan.video_kwargs)
+            if _SPECTRAL_SOURCE_FACTORY is None:
+                raise ValueError(
+                    "Spectral pipeline support has not been registered"
+                )
+            return _SPECTRAL_SOURCE_FACTORY(plan.source, **plan.video_kwargs)
         from .video import Video
 
         return Video(plan.source, **plan.video_kwargs)
-
-
-class TrackerStage:
-    """Attach tracking IDs to model results."""
-
-    def __init__(self, tracker: Any):
-        self.tracker = tracker
-
-    def __call__(self, context):
-        context.results = self.tracker.update(context.results)
-        return context
-
-
-class LineCounterStage:
-    """Update a line counter and expose its values as frame metrics."""
-
-    def __init__(self, counter: Any):
-        self.counter = counter
-
-    def __call__(self, context):
-        in_count, out_count = self.counter.update(context.results)
-        context.metrics["line_counter"] = {
-            "in": in_count,
-            "out": out_count,
-        }
-        return context
-
-
-class RegionFilterStage:
-    """Split detections into objects inside and outside a region."""
-
-    def __init__(self, region_filter: Any):
-        self.region_filter = region_filter
-
-    def __call__(self, context):
-        inside, outside = self.region_filter.update(context.results)
-        context.views["in_region"] = inside
-        context.views["out_region"] = outside
-        context.results = inside
-        return context
-
-
-class RegionTimerStage:
-    """Track time spent by detections inside a configured region."""
-
-    def __init__(self, region_timer: Any):
-        self.region_timer = region_timer
-
-    def __call__(self, context):
-        inside, outside = self.region_timer.update(
-            context.results,
-            context.frame_time,
-        )
-        context.views["in_region"] = inside
-        context.views["out_region"] = outside
-        context.metrics["region"] = {
-            "count": len(inside),
-            "in_objects": inside,
-            "out_objects": outside,
-        }
-        context.results = inside
-        return context
-
-
-class StageFactory:
-    """Build configured stateful pipeline stages."""
-
-    def __init__(
-        self,
-        tracker_cls,
-        line_counter_cls,
-        region_filter_cls,
-        region_timer_cls,
-    ):
-        self.tracker_cls = tracker_cls
-        self.line_counter_cls = line_counter_cls
-        self.region_filter_cls = region_filter_cls
-        self.region_timer_cls = region_timer_cls
-
-    def build(self, stages_config, source_config, source, video):
-        stages = []
-        components = {}
-        tracker_count = 0
-        for stage_config in stages_config:
-            if not isinstance(stage_config, dict):
-                raise ValueError("Each pipeline stage must be an object")
-            stage_type = stage_config.get("type")
-            if stage_config.get("enabled") is False and stage_type in (
-                "line_counter",
-                "region_filter",
-                "region_timer",
-            ):
-                continue
-
-            if stage_type == "tracker":
-                tracker_count += 1
-                if tracker_count > MAX_PIPELINE_TRACKERS:
-                    raise ValueError(
-                        f"A pipeline can contain at most {MAX_PIPELINE_TRACKERS} tracker"
-                    )
-                tracker = self.tracker_cls(
-                    track_thresh=stage_config.get("track_thresh", 0.25),
-                    track_buffer=stage_config.get("track_buffer", 30),
-                    match_thresh=stage_config.get("match_thresh", 0.8),
-                    frame_rate=video.frame_rate,
-                )
-                stage = TrackerStage(tracker)
-                components["tracker"] = tracker
-            elif stage_type == "line_counter":
-                line = stage_config.get("line")
-                if not line or len(line) != 2:
-                    raise ValueError("line_counter requires a two-point 'line'")
-                counter = self.line_counter_cls(line)
-                stage = LineCounterStage(counter)
-                components["line_counter"] = counter
-            elif stage_type == "region_filter":
-                polygon = stage_config.get("polygon")
-                if not polygon:
-                    raise ValueError("region_filter requires a 'polygon'")
-                region_filter = self.region_filter_cls(polygon)
-                stage = RegionFilterStage(region_filter)
-                components["region_filter"] = region_filter
-            elif stage_type == "region_timer":
-                polygon = stage_config.get("polygon")
-                if not polygon:
-                    raise ValueError("region_timer requires a 'polygon'")
-                region_timer = self.region_timer_cls(polygon)
-                stage = RegionTimerStage(region_timer)
-                components["region_timer"] = region_timer
-            else:
-                raise ValueError(f"Unknown pipeline stage type: {stage_type}")
-            stages.append(stage)
-        return stages, components
 
 
 class PipelineRenderer:
@@ -271,14 +156,6 @@ class PipelineRenderer:
         return out
 
 
-def create_stage_factory():
-    """Create the legacy stage factory shared by both pipeline formats."""
-    from ..inference import Tracker
-    from .stages import LineCounter, RegionFilter, RegionTimer
-
-    return StageFactory(Tracker, LineCounter, RegionFilter, RegionTimer)
-
-
 def build_pipeline_output(video, source_plan, display_config, components):
     """Create shared rendering and display configuration for a pipeline."""
     renderer = PipelineRenderer(
@@ -305,85 +182,12 @@ class PipelineBuilder:
         base_dir: Optional[str] = None,
         on_frame: Optional[Callable] = None,
         accelerator: Optional[str] = "auto",
+        renderer_factory: Optional[Callable] = None,
     ):
         if not isinstance(config, dict):
             raise ValueError("Pipeline configuration must be a JSON object")
-        version = config.get("version", 1)
-        if version == 2:
-            return self._build_composed(
-                config,
-                base_dir=base_dir,
-                on_frame=on_frame,
-                accelerator=accelerator,
-            )
-        if version != 1:
-            raise ValueError("Unsupported pipeline configuration version")
-
-        source_config = config.get("source") or {}
-        model_config = config.get("model") or {}
-        display_config = config.get("display") or {}
-        stages_config = config.get("stages", []) or []
-        if not isinstance(source_config, dict) or "src" not in source_config:
-            raise ValueError("Pipeline source must define 'src'")
-        if not isinstance(model_config, dict):
-            raise ValueError("Pipeline model must be an object")
-        if not isinstance(display_config, dict):
-            raise ValueError("Pipeline display must be an object")
-        if not isinstance(stages_config, list):
-            raise ValueError("Pipeline stages must be an array")
-
-        from ..inference.registry import create_model, get_model_run_kwargs
-        from ..inference.session import get_model_accelerator
-
-        root = Path(base_dir or os.getcwd())
-        source_plan = SourceFactory.prepare(source_config, display_config, root)
-        spectral_source = (
-            ModelSpec.from_config(model_config).kind == "multispectral"
-            or _is_spectral_source(source_plan.source)
-        )
-        model_kwargs = get_model_run_kwargs(model_config)
-        model = create_model(
-            model_config,
-            base_dir=root,
-            accelerator=accelerator,
-        )
-        video = None
-        components = {}
-        try:
-            video = SourceFactory.create(source_plan, spectral=spectral_source)
-            video.accelerator = get_model_accelerator(model)
-            stage_factory = create_stage_factory()
-            stages, components = stage_factory.build(
-                stages_config,
-                source_config,
-                source_plan.source,
-                video,
-            )
-        except Exception:
-            close_resources([model, video, *components.values()])
-            raise
-
-        renderer, display = build_pipeline_output(
-            video, source_plan, display_config, components
-        )
-        return self.pipeline_cls(
-            source=video,
-            model=model,
-            stages=stages,
-            display=display,
-            render=renderer,
-            model_kwargs=model_kwargs,
-            on_frame=on_frame,
-            components=components,
-        )
-
-    def _build_composed(
-        self,
-        config: Dict[str, Any],
-        base_dir: Optional[str] = None,
-        on_frame: Optional[Callable] = None,
-        accelerator: Optional[str] = "auto",
-    ):
+        if config.get("version") != 2:
+            raise ValueError("Only version 2 pipeline configurations are supported")
         from .composed_builder import build_composed_pipeline
 
         return build_composed_pipeline(
@@ -392,19 +196,15 @@ class PipelineBuilder:
             base_dir=base_dir,
             on_frame=on_frame,
             accelerator=accelerator,
+            renderer_factory=renderer_factory,
         )
 
-
 __all__ = [
-    "LineCounterStage",
     "PipelineBuilder",
     "PipelineRenderer",
-    "RegionFilterStage",
-    "RegionTimerStage",
     "SourceFactory",
+    "register_spectral_source",
     "SourcePlan",
-    "StageFactory",
-    "TrackerStage",
     "_is_remote_source",
     "_is_temporal_source",
 ]

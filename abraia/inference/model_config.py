@@ -213,6 +213,17 @@ class ModelSpec:
         """Return the configured URI or its built-in default."""
         return self.uri or self.default_uri
 
+    @property
+    def result_field(self) -> str:
+        """Return the result field used by a bound second-stage model."""
+        if self.kind == "ocr":
+            return "ocr"
+        if self.task == "classification":
+            return "classification"
+        if self.task == "recognition":
+            return "recognition"
+        return "result"
+
     def pipeline_errors(self) -> Tuple[str, ...]:
         """Return user-facing validation errors for pipeline editors."""
         return self._validation_messages(runtime=False)

@@ -13,7 +13,12 @@ with pathlib.Path('requirements.txt').open() as requirements_txt:
         in pkg_resources.parse_requirements(requirements_txt)]
     
 extras_require = {
-    'dev': ['ultralytics>=8.4.97,<9', 'onnx>=1.16.0', 'transformers>=4.57.1'],
+    'dev': [
+        'ultralytics>=8.4.97,<9',
+        'onnx>=1.16.0',
+        'transformers>=4.57.1',
+        'jsonschema>=4.0',
+    ],
     # The Hailo Dataflow Compiler is distributed separately by Hailo and
     # cannot be declared as a normal PyPI dependency.
     'hailo': ['ultralytics>=8.4.97,<9', 'PyYAML>=6.0'],
@@ -34,6 +39,7 @@ setup(
     packages=find_packages(exclude=['tests', 'tests.*', 'miscode', 'miscode.*']),
     package_data={
         '': ['*.jpg'],
+        'abraia.runtime': ['*.json'],
     },
     include_package_data=True,
     tests_require=['pytest'],

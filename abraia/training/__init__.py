@@ -55,6 +55,7 @@ from .curation import (
     is_rgb_dataset,
 )
 from .metrics import metric_average, normalize_model_record
+from .model_catalog import normalize_custom_models
 
 
 __all__ = [
@@ -88,6 +89,7 @@ __all__ = [
     "load_dataset",
     "metric_average",
     "normalize_model_record",
+    "normalize_custom_models",
     "objects_for_image",
     "prune_orphaned_annotations",
     "prepare_dataset",
