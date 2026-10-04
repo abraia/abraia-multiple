@@ -170,7 +170,7 @@ class Dataset(RemoteDataset):
                     include_empty=True,
                     classification=classification,
                 )
-                self.annotations.append(annotation)
+                self.add_annotations([annotation])
                 self.save()
                 if callback:
                     callback({

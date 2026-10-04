@@ -211,7 +211,7 @@ class RemoteCurationService:
             deleted_relatives = {
                 project_relative_path(path, project) for path in paths
             }
-            dataset.annotations = [
+            annotations = [
                 annotation
                 for annotation in dataset.annotations or []
                 if (
@@ -224,5 +224,6 @@ class RemoteCurationService:
                     )
                 )
             ]
+            dataset.replace_annotations(annotations)
             dataset.save()
         report.deleted = paths

@@ -20,7 +20,6 @@ from ..utils.concurrency import (
     DEFAULT_MAX_REMOTE_WORKERS,
     bounded_as_completed,
 )
-from .annotations import prune_orphaned_annotations
 from .core import _resolve_client
 from .dataset import download_file
 from .splitting import (
@@ -118,7 +117,8 @@ def dataset_split_summary(dataset, split_options=None):
 
 def prepare_dataset(dataset, force=False, callback=None, split_options=None):
     """Download and split a dataset, optionally reporting each file."""
-    prune_orphaned_annotations(dataset)
+    if dataset.prune_orphaned_annotations():
+        dataset.save()
     client = _resolve_client(getattr(dataset, "client", None))
     if force or not os.path.exists(dataset.project):
         if force:
@@ -130,14 +130,6 @@ def prepare_dataset(dataset, force=False, callback=None, split_options=None):
                 if os.path.isdir(split_path):
                     shutil.rmtree(split_path)
         annotations = dataset.annotations
-        dataset_path = f"{dataset.project}/dataset.json"
-        if client.check_file(dataset_path):
-            filenames = client.load_json(dataset_path)
-            annotations = [
-                annotation
-                for annotation in annotations
-                if annotation.get("filename") in filenames
-            ]
         if split_options is None:
             split_values = split_dataset(annotations)
         else:

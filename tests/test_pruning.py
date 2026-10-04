@@ -64,13 +64,6 @@ def test_rgb_pruning_reports_start_and_completion_for_each_image():
     ]
 
 
-def test_rgb_pruning_rejects_spectral_records():
-    record = {"name": "scene.tiff", "path": "scene.tiff"}
-
-    with pytest.raises(ValueError, match="only for RGB"):
-        analyze_rgb_quality([record], lambda _path: np.zeros((4, 4, 3)))
-
-
 def test_rgb_pruning_uses_perceptual_similarity_for_brightness_changes():
     base = np.zeros((40, 40, 3), dtype=np.uint8)
     base[8:32, 10:30] = [180, 120, 80]

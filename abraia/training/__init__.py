@@ -7,8 +7,6 @@ from .annotations import (
     find_image,
     image_filename,
     objects_for_image,
-    prune_orphaned_annotations,
-    upsert_annotation,
 )
 from .core import (
     HAILO_EXPORT_TARGETS,
@@ -56,6 +54,7 @@ from .curation import (
 )
 from .metrics import metric_average, normalize_model_record
 from .model_catalog import normalize_custom_models
+from .plot_data import normalize_confusion_matrix
 
 
 __all__ = [
@@ -90,8 +89,8 @@ __all__ = [
     "metric_average",
     "normalize_model_record",
     "normalize_custom_models",
+    "normalize_confusion_matrix",
     "objects_for_image",
-    "prune_orphaned_annotations",
     "prepare_dataset",
     "save_annotation",
     "save_config",
@@ -104,5 +103,4 @@ __all__ = [
     "summarize_split_records",
     "normalize_split_ratios",
     "versioned_model_paths",
-    "upsert_annotation",
 ]

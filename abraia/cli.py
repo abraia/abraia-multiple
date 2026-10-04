@@ -77,8 +77,13 @@ def upload_file(file, folder):
 
 
 def download_file(path, folder):
-    dest = os.path.join(folder, os.path.basename(path))
-    return abraia.download_file(path, dest)
+    """Download a remote file through the SDK's shared cache."""
+    remote_info = path if isinstance(path, dict) else None
+    remote_path = remote_info.get("path") if remote_info else path
+    dest = os.path.join(folder, os.path.basename(remote_path))
+    os.makedirs(folder, exist_ok=True)
+    abraia.download_file(remote_path, dest, remote_info=remote_info)
+    return dest
 
 
 def remove_file(path):
@@ -289,7 +294,7 @@ def download(path, folder):
         files = list_files(path)[0]
         return process_map(
             download_file,
-            [file["path"] for file in files],
+            files,
             itertools.repeat(folder),
             desc="Downloading",
         )

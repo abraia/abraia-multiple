@@ -15,6 +15,7 @@ from requests.adapters import HTTPAdapter
 from tqdm import tqdm
 
 from .concurrency import get_default_remote_request_scheduler
+from .cache import RemoteFileCache
 
 
 API_URL = "https://api.abraia.me"
@@ -110,14 +111,14 @@ def get_remote_file_size(url: str, timeout: int = 30):
 
 
 def temporal_src(path):
-    """Return a path below the process cache directory.
+    """Return a scratch path below the system temporary directory.
 
     Relative path components containing ``..`` are rejected so remote names
-    cannot escape the cache through ordinary path traversal.
+    cannot escape the scratch directory through path traversal.
     """
     relative = Path(os.fspath(path))
     if relative.is_absolute() or ".." in relative.parts:
-        raise ValueError("Temporary paths must remain relative to the cache directory")
+        raise ValueError("Temporary paths must remain relative to the scratch directory")
     dest = Path(tempdir) / relative
     dest.parent.mkdir(parents=True, exist_ok=True)
     return str(dest)
@@ -175,10 +176,12 @@ def download_url(url: str, dest: str, chunk_size: int = 8192, timeout=(10, 120))
 
 
 def download_file(path):
-    dest = temporal_src(path)
-    if not os.path.exists(dest):
-        download_url(url_path(path), dest)
-    return dest
+    """Download a shared model asset through the common disk cache."""
+    cache = RemoteFileCache("shared-artifacts")
+    return cache.get_or_create(
+        path,
+        lambda destination: download_url(url_path(path), destination),
+    )
 
 
 def is_managed_model_path(path):

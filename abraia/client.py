@@ -1,5 +1,7 @@
 import os
 import json
+import shutil
+import posixpath
 
 from io import BytesIO
 from fnmatch import fnmatch
@@ -14,6 +16,7 @@ from .utils.remote import (
     temporal_src,
 )
 from .utils.concurrency import get_default_remote_request_scheduler
+from .utils.cache import RemoteFileCache
 
 
 _NO_DELEGATE = object()
@@ -137,25 +140,35 @@ class Abraia:
 
     def list_files(self, path=''):
         delegated = self._delegate('list_files', path)
-        if delegated is not _NO_DELEGATE:
-            return delegated
         dirname, basename = os.path.dirname(path), os.path.basename(path)
-        folder = dirname + '/' if dirname else dirname
-        url = f"{API_URL}/files/{self.userid}/{folder}"
-        resp = self._request('GET', url, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        resp = resp.json()
-        files = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name'], 'type': get_type(f['name']), 'size': f['size'], 'date': datetime.fromtimestamp(f['date'])}, resp['files']))
-        folders = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name']}, resp['folders']))
+        if delegated is not _NO_DELEGATE:
+            files, folders = delegated
+        else:
+            folder = dirname + '/' if dirname else dirname
+            url = f"{API_URL}/files/{self.userid}/{folder}"
+            resp = self._request('GET', url, auth=self.auth)
+            if resp.status_code != 200:
+                raise APIError(resp.text, resp.status_code)
+            resp = resp.json()
+            files = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name'], 'type': get_type(f['name']), 'size': f['size'], 'date': datetime.fromtimestamp(f['date'])}, resp['files']))
+            folders = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name']}, resp['folders']))
+        if not basename:
+            RemoteFileCache(self.userid).reconcile_listing(dirname, files)
         if basename:
             files = list(filter(lambda f: fnmatch(f['path'], path), files))
             folders = list(filter(lambda f: fnmatch(f['path'], path), folders))
         return files, folders
 
-    def upload_file(self, src, path=''):
+    def upload_file(self, src, path='', remote_info=None):
         delegated = self._delegate('upload_file', src, path)
         if delegated is not _NO_DELEGATE:
+            if not path or path.endswith('/'):
+                remote_path = delegated
+                if not remote_path and isinstance(src, str):
+                    remote_path = posixpath.join(path, os.path.basename(src))
+            else:
+                remote_path = path
+            self._store_uploaded_file(remote_path, src, remote_info)
             return delegated
         if path == '' or path.endswith('/'):
             path = path + os.path.basename(src)
@@ -166,6 +179,11 @@ class Abraia:
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
+        if remote_info is None:
+            remote_info = resp.get('file')
+        if remote_info and isinstance(remote_info.get('date'), (int, float)):
+            remote_info = dict(remote_info)
+            remote_info['date'] = datetime.fromtimestamp(remote_info['date'])
         url = resp.get('uploadURL')
         if url:
             data = src if isinstance(src, BytesIO) else open(src, 'rb')
@@ -176,8 +194,11 @@ class Abraia:
                     data.close()
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
-            return file_path(f"{self.userid}/{path}", self.userid)
-        return file_path(resp['file']['source'], self.userid)
+            result = file_path(f"{self.userid}/{path}", self.userid)
+        else:
+            result = file_path(resp['file']['source'], self.userid)
+        self._store_uploaded_file(path, src, remote_info)
+        return result
 
     def check_file(self, path):
         delegated = self._delegate('check_file', path)
@@ -194,6 +215,8 @@ class Abraia:
     def move_file(self, old_path, new_path):
         delegated = self._delegate('move_file', old_path, new_path)
         if delegated is not _NO_DELEGATE:
+            self.invalidate_cached(old_path)
+            self.invalidate_cached(new_path)
             return delegated
         json = {'store': f"{self.userid}/{old_path}"}
         url = f"{API_URL}/files/{self.userid}/{new_path}"
@@ -201,15 +224,34 @@ class Abraia:
         if resp.status_code != 201:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
+        self.invalidate_cached(old_path)
+        self.invalidate_cached(new_path)
         return file_path(resp['file']['source'], self.userid)
 
-    def download_file(self, path, dest, cache=False):
-        delegated = self._delegate('download_file', path, dest, cache=cache)
+    def download_file(self, path, dest=None, remote_info=None):
+        """Download through the shared cache, optionally copying to ``dest``."""
+        cache = RemoteFileCache(self.userid)
+        cached = cache.get_or_create(
+            path,
+            lambda destination: self._download_file_uncached(path, destination),
+            remote_info=remote_info,
+        )
+        if dest is None or os.path.abspath(cached) == os.path.abspath(dest):
+            return cached
+        os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+        shutil.copy2(cached, dest)
+        return dest
+
+    def _download_file_uncached(self, path, dest):
+        """Fetch a remote file directly into a cache staging path."""
+        client = getattr(self, '_client', None)
+        uncached = getattr(client, '_download_file_uncached', None)
+        if uncached is not None:
+            return uncached(path, dest)
+        delegated = self._delegate('download_file', path, dest)
         if delegated is not _NO_DELEGATE:
             return delegated
         url = f"{API_URL}/files/{self.userid}/{path}"
-        if cache and os.path.exists(dest):
-            return dest
         def transfer():
             resp = self._request(
                 'GET', url, stream=True, auth=self.auth, _scheduler=False
@@ -225,25 +267,43 @@ class Abraia:
         )
         return scheduler.run(transfer)
 
-    def download_cached(self, path):
-        """Download a remote file into the shared process cache."""
-        destination = self.cached_destination(path)
-        return self.download_file(path, destination, cache=True)
+    def invalidate_cached(self, path):
+        """Remove a cached file and its dependent thumbnail."""
+        return RemoteFileCache(self.userid).invalidate_source(path)
 
-    @staticmethod
-    def cached_destination(path):
-        """Return the shared process-cache destination for a remote path."""
-        return temporal_src(str(path))
-    
+    def _store_uploaded_file(self, path, source, remote_info=None):
+        """Cache uploaded local bytes without querying remote metadata."""
+        if not path:
+            return
+        cache = RemoteFileCache(self.userid)
+        if isinstance(source, str) and source.startswith('http'):
+            self.invalidate_cached(path)
+            return
+        cache.invalidate_thumbnail(path)
+        try:
+            seeded = cache.store(path, source, remote_info)
+            if seeded is None:
+                seeded = cache.store(path, source)
+            if seeded is None:
+                self.invalidate_cached(path)
+        except (OSError, TypeError, ValueError):
+            self.invalidate_cached(path)
+
+    def clear_cache(self):
+        """Clear all remote files cached for this account."""
+        return RemoteFileCache(self.userid).clear()
+
     def remove_file(self, path):
         delegated = self._delegate('remove_file', path)
         if delegated is not _NO_DELEGATE:
+            self.invalidate_cached(path)
             return delegated
         url = f"{API_URL}/files/{self.userid}/{path}"
         resp = self._request('DELETE', url, auth=self.auth)
         if resp.status_code != 200:
             raise APIError(resp.text, resp.status_code)
         resp = resp.json()
+        self.invalidate_cached(path)
         return file_path(resp['file']['source'], self.userid)
 
     def load_metadata(self, path):
@@ -284,12 +344,8 @@ class Abraia:
             raise APIError(resp.text, resp.status_code)
         save_data(dest, resp.content)
 
-    def load_file(self, path, cache=False):
-        delegated = self._delegate('load_file', path, cache=cache)
-        if delegated is not _NO_DELEGATE:
-            return delegated
-        dest = temporal_src(path)
-        self.download_file(path, dest, cache=cache)
+    def load_file(self, path):
+        dest = self.download_file(path)
         try:
             with open(dest, 'r') as f:
                 return f.read()
@@ -298,33 +354,19 @@ class Abraia:
                 return BytesIO(f.read())
 
     def save_file(self, path, stream):
-        delegated = self._delegate('save_file', path, stream)
-        if delegated is not _NO_DELEGATE:
-            return delegated
-        stream =  BytesIO(bytes(stream, 'utf-8')) if isinstance(stream, str) else stream
+        stream = BytesIO(stream.encode('utf-8')) if isinstance(stream, str) else stream
         return self.upload_file(stream, path)
 
     def load_json(self, path):
-        delegated = self._delegate('load_json', path)
-        if delegated is not _NO_DELEGATE:
-            return delegated
-        url = f"{API_URL}/files/{self.userid}/{path}"
-        resp = self._request('GET', url, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        return resp.json()
+        dest = self.download_file(path)
+        with open(dest, 'r', encoding='utf-8') as source:
+            return json.load(source)
 
     def save_json(self, path, values):
-        delegated = self._delegate('save_json', path, values)
-        if delegated is not _NO_DELEGATE:
-            return delegated
         return self.save_file(path, json.dumps(values))
 
     def load_image(self, path):
-        delegated = self._delegate('load_image', path)
-        if delegated is not _NO_DELEGATE:
-            return delegated
-        dest = self.download_cached(path)
+        dest = self.download_file(path)
         return load_image(dest)
 
     def load_image_details(self, path):
@@ -343,9 +385,6 @@ class Abraia:
         return self.load_image_details(path)
 
     def save_image(self, path, im):
-        delegated = self._delegate('save_image', path, im)
-        if delegated is not _NO_DELEGATE:
-            return delegated
         src = temporal_src(path)
         save_image(im, src)
         return self.upload_file(src, path)

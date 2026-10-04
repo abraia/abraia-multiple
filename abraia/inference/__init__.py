@@ -9,6 +9,11 @@ from importlib import import_module
 
 _LAZY_EXPORTS = {
     "available_accelerators": (".accelerators", "available_accelerators"),
+    "AnnotationModelRoute": (".annotation_policy", "AnnotationModelRoute"),
+    "GROUNDING_DINO_MODEL": (".annotation_policy", "GROUNDING_DINO_MODEL"),
+    "MOBILE_SAM_DISABLED_TASKS": (".annotation_policy", "MOBILE_SAM_DISABLED_TASKS"),
+    "MOBILE_SAM_MODEL": (".annotation_policy", "MOBILE_SAM_MODEL"),
+    "model_route": (".annotation_policy", "model_route"),
     "normalize_accelerator": (".accelerators", "normalize_accelerator"),
     "onnx_providers": (".accelerators", "onnx_providers"),
     "Model": (".models.detection", "Model"),
@@ -49,6 +54,11 @@ def __dir__():
 
 __all__ = [
     "available_accelerators",
+    "AnnotationModelRoute",
+    "GROUNDING_DINO_MODEL",
+    "MOBILE_SAM_DISABLED_TASKS",
+    "MOBILE_SAM_MODEL",
+    "model_route",
     "normalize_accelerator",
     "onnx_providers",
     "Model",
