@@ -1,17 +1,25 @@
-from abraia.training.dataset import Dataset
-from abraia.training.dataset import Annotator
-from abraia.datasets import DatasetBase
-from abraia.training.orchestration import split_dataset
-from unittest.mock import patch
-import numpy as np
 import sys
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import numpy as np
+import torch
+
+from abraia.dataset import DatasetService, RemoteDataset
+from abraia.dataset.annotation import Annotator, annotate_image
+from abraia.dataset.remote import Dataset
 
 from abraia.training import (
-    DatasetProjectService,
+    ModelTrainer,
+    artifacts,
     metric_average,
     normalize_custom_models,
     normalize_model_record,
+    prepare_dataset,
+    split_dataset,
+    train_dataset,
 )
+from abraia.training.classify import train_model
 
 
 def test_annotator_uses_the_transformers_grounding_dino_model(monkeypatch):
@@ -75,8 +83,6 @@ def test_annotate_image_classification_keeps_only_the_detected_label():
         def detect(self, image, classes):
             raise AssertionError("classification should not call detect directly")
 
-    from abraia.training.auto_annotation import annotate_image
-
     result = annotate_image(
         {"url": "image.jpg", "name": "image.jpg"},
         ["cat"],
@@ -89,9 +95,9 @@ def test_annotate_image_classification_keeps_only_the_detected_label():
     assert result["objects"] == [{"label": "cat", "score": 0.9}]
 
 
-@patch('abraia.training.dataset.Dataset._load_annotations')
-@patch('abraia.training.dataset.Dataset._list_images')
-@patch('abraia.training.dataset.list_datasets')
+@patch('abraia.dataset.remote.Dataset._load_annotations')
+@patch('abraia.dataset.remote.Dataset._list_images')
+@patch('abraia.dataset.remote.list_datasets')
 def test_dataset_load(mock_list_datasets, mock_list_images, mock_load_annotations):
     mock_list_datasets.return_value = ['test_project']
     mock_load_annotations.return_value = [{'filename': 'test.jpg', 'objects': [{'label': 'cat'}]}]
@@ -145,10 +151,10 @@ def test_dataset_save():
     assert client.saved == ('test_project/annotations.json', ds.annotations)
 
 
-@patch('abraia.training.dataset.Dataset.save')
-@patch('abraia.training.dataset.load_url')
-@patch('abraia.training.dataset.load_image')
-@patch('abraia.training.dataset.Annotator')
+@patch('abraia.dataset.remote.Dataset.save')
+@patch('abraia.dataset.remote.load_url')
+@patch('abraia.dataset.remote.load_image')
+@patch('abraia.dataset.remote.Annotator')
 def test_dataset_annotate_filter(
     mock_annotator_cls, mock_load_image, mock_load_url, mock_save
 ):
@@ -217,30 +223,19 @@ def test_dataset_annotated_status():
     assert ds.annotated is False
 
 
-def test_prune_orphaned_annotations_removes_missing_images_and_saves():
-    from abraia.training import prune_orphaned_annotations
+def test_dataset_prunes_orphaned_annotations():
+    dataset = RemoteDataset("demo", client=object())
+    dataset.images = [{"name": "present.jpg"}]
+    dataset.annotations = [
+        {"filename": "present.jpg", "objects": []},
+        {"filename": "deleted.jpg", "objects": []},
+    ]
 
-    saved = []
-    dataset = type(
-        "Dataset",
-        (),
-        {
-            "images": [{"name": "present.jpg"}],
-            "annotations": [
-                {"filename": "present.jpg", "objects": []},
-                {"filename": "deleted.jpg", "objects": []},
-            ],
-            "save": lambda self: saved.append(list(self.annotations)),
-        },
-    )()
-
-    assert prune_orphaned_annotations(dataset) == 1
+    assert dataset.prune_orphaned_annotations() == 1
     assert dataset.annotations == [{"filename": "present.jpg", "objects": []}]
-    assert saved == [dataset.annotations]
 
 
 def test_prepare_dataset_reports_download_progress(monkeypatch):
-    import abraia.training as training
     import abraia.training.orchestration as orchestration
 
     annotations = [
@@ -267,26 +262,29 @@ def test_prepare_dataset_reports_download_progress(monkeypatch):
             "classes": ["cat"],
             "task": "classification",
             "client": client,
+            "prune_orphaned_annotations": lambda self: 0,
         },
     )()
     monkeypatch.setattr(orchestration.os.path, "exists", lambda _path: False)
     monkeypatch.setattr(
         orchestration,
         "split_dataset",
-        lambda values: (values[:1], values[1:2], values[2:]),
+        lambda values, _options=None: (values[:1], values[1:2], values[2:]),
     )
-    monkeypatch.setattr(orchestration, "save_data", lambda *args: None)
+    monkeypatch.setattr(
+        orchestration, "save_data", lambda *args, **kwargs: None
+    )
     events = []
 
-    training.prepare_dataset(dataset, callback=events.append)
+    prepare_dataset(dataset, callback=events.append)
 
     assert [event["current"] for event in events][0] == 0
     assert sorted(event["current"] for event in events[1:]) == [1, 2, 3]
     assert all(event["total"] == 3 for event in events)
 
 
-def test_dataset_base_preserves_first_seen_class_order():
-    classes, task = DatasetBase._process_annotations(
+def test_dataset_preserves_first_seen_class_order():
+    classes, task = RemoteDataset._process_annotations(
         [{"objects": [{"label": "dog"}, {"label": "cat"}, {"label": "dog"}]}]
     )
 
@@ -379,41 +377,35 @@ def test_split_dataset_is_reproducible_and_keeps_background_in_train():
     assert any(item["filename"] == "background.jpg" for item in first[0])
 
 
-from abraia.training import ModelTrainer
-from abraia.training.service import TrainingService
-
-
-@patch("abraia.training.dataset.annotate_image")
-@patch("abraia.training.dataset.Annotator")
-def test_auto_annotate_uses_explicit_classification_task(
-    mock_annotator_cls, mock_annotate_image
+@patch("abraia.dataset.remote.annotate_image")
+@patch("abraia.dataset.remote.Annotator")
+@patch("abraia.dataset.remote.Dataset.save")
+def test_dataset_annotate_uses_explicit_classification_task(
+    mock_save, mock_annotator_cls, mock_annotate_image
 ):
-    from types import SimpleNamespace
-
-    dataset = SimpleNamespace(
-        task="",
-        annotations=[],
-        images=[{"name": "cat.jpg", "url": "cat-url"}],
-        save= lambda: None,
-    )
+    dataset = Dataset("demo", client=object())
+    dataset.task = ""
+    dataset.images = [{"name": "cat.jpg", "url": "cat-url"}]
     mock_annotate_image.return_value = {
         "filename": "cat.jpg",
         "objects": [{"label": "cat"}],
     }
     progress = []
 
-    TrainingService().auto_annotate(
-        dataset,
+    dataset.annotate(
         "cat",
-        lambda *event: progress.append(event),
-        lambda: False,
         task="classification",
+        include_empty=False,
+        progress_callback=lambda *event: progress.append(event),
+        is_cancelled=lambda: False,
     )
 
     assert mock_annotate_image.call_args.kwargs["classification"] is True
     assert mock_annotate_image.call_args.kwargs["segment"] is False
     mock_annotator_cls.return_value.close.assert_called_once_with()
     assert progress == [(1, 1, "cat.jpg", 1)]
+    assert dataset.annotations == [mock_annotate_image.return_value]
+    mock_save.assert_called_once_with()
 
 
 @patch('abraia.training.classify.Model')
@@ -425,7 +417,7 @@ def test_model_trainer_test(mock_classify_model_cls):
     metrics = trainer.test('val')
     
     assert metrics['acc'] == 0.95
-    mock_model.test.assert_called_once_with(split='val')
+    mock_model.test.assert_called_once_with(split='val', is_cancelled=None)
 
 
 @patch('abraia.training.detect.Model')
@@ -526,6 +518,58 @@ def test_ultralytics_model_compiles_native_hailo_bundle(tmp_path):
     assert model.hailo_model == result
 
 
+def test_hailo_dfc_wheels_match_target_generations():
+    assert artifacts.HAILO_DFC_WHEELS["hailo8"].startswith("multiple/hailo8/")
+    assert artifacts.HAILO_DFC_WHEELS["hailo8l"].endswith(
+        "3.33.1-py3-none-linux_x86_64.whl"
+    )
+    assert artifacts.HAILO_DFC_WHEELS["hailo10h"].startswith("multiple/hailo15/")
+    assert artifacts.HAILO_DFC_VERSIONS["hailo15h"] == "5.2.0"
+
+
+def test_ensure_hailo_dfc_skips_matching_installation():
+    with patch.object(artifacts, "_supports_hailo_dfc", return_value=True), \
+            patch.object(artifacts, "_installed_dfc_version", return_value="3.33.1"), \
+            patch.object(artifacts, "_dfc_import_available", return_value=True), \
+            patch("abraia.utils.remote.download_file") as download, \
+            patch.object(artifacts.subprocess, "run") as run:
+        assert artifacts.ensure_hailo_dfc("hailo8l") is False
+
+    download.assert_not_called()
+    run.assert_not_called()
+
+
+def test_ensure_hailo_dfc_downloads_and_installs_missing_compiler():
+    with patch.object(artifacts, "_supports_hailo_dfc", return_value=True), \
+            patch.object(artifacts, "_installed_dfc_version", return_value=None), \
+            patch.object(artifacts, "_dfc_import_available", side_effect=[False, True]), \
+            patch("abraia.utils.remote.download_file", return_value="/tmp/dfc.whl") as download, \
+            patch.object(artifacts.subprocess, "run") as run:
+        run.return_value.returncode = 0
+
+        assert artifacts.ensure_hailo_dfc("hailo15h") is True
+
+    download.assert_called_once_with(
+        "multiple/hailo15/"
+        "hailo_dataflow_compiler-5.2.0-py3-none-linux_x86_64.whl"
+    )
+    assert run.call_args.args[0] == [
+        artifacts.sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "/tmp/dfc.whl",
+    ]
+
+
+def test_ensure_hailo_dfc_does_not_download_on_unsupported_host():
+    with patch.object(artifacts, "_supports_hailo_dfc", return_value=False), \
+            patch("abraia.utils.remote.download_file") as download:
+        assert artifacts.ensure_hailo_dfc("hailo8") is False
+
+    download.assert_not_called()
+
+
 @patch('abraia.training.prepare_dataset')
 @patch('abraia.training.ModelTrainer')
 def test_training_service_reports_stage_transitions_before_backend_work(
@@ -546,7 +590,7 @@ def test_training_service_reports_stage_transitions_before_backend_work(
     events = []
     is_cancelled = lambda: False
 
-    result = TrainingService().train_dataset(
+    result = train_dataset(
         "project",
         dataset,
         epochs=2,
@@ -572,8 +616,6 @@ def test_training_service_reports_stage_transitions_before_backend_work(
 
 
 def test_train_model_honors_cancellation_between_batches():
-    import torch
-
     class DummyModel(torch.nn.Module):
         def __init__(self):
             super().__init__()
@@ -600,9 +642,6 @@ def test_train_model_honors_cancellation_between_batches():
     else:
         raise AssertionError("training did not honor cancellation")
 
-
-import torch
-from abraia.training.classify import train_model
 
 def test_train_model_epochs():
     class DummyModel(torch.nn.Module):
@@ -633,9 +672,6 @@ def test_train_model_epochs():
 
 
 def test_classification_dataset_includes_held_out_test_split(tmp_path):
-    from types import SimpleNamespace
-    from unittest.mock import patch
-
     from abraia.training.classify import Model
 
     image_folder = SimpleNamespace(classes=["cat", "dog"])
@@ -688,15 +724,11 @@ def test_normalize_custom_models_adds_project_scope_and_model_defaults():
     ]
 
 
-def test_dataset_project_service_saves_replacement_annotation_table():
-    from types import SimpleNamespace
-
+def test_dataset_service_saves_replacement_annotation_table():
     saved = []
-    dataset = SimpleNamespace(
-        annotations=[],
-        save=lambda: saved.append(list(dataset.annotations)),
-    )
-    service = DatasetProjectService(
+    dataset = RemoteDataset("demo", SimpleNamespace())
+    dataset.save = lambda: saved.append(list(dataset.annotations))
+    service = DatasetService(
         SimpleNamespace(), lambda _project: dataset
     )
     annotations = [{"filename": "photo.jpg", "objects": []}]
@@ -707,32 +739,22 @@ def test_dataset_project_service_saves_replacement_annotation_table():
     assert dataset.annotations is not annotations
 
 
-def test_dataset_project_service_groups_companion_progress_by_image():
-    from types import SimpleNamespace
+def test_dataset_service_delegates_image_deletion_to_adapter():
+    calls = []
 
-    removed = []
-    progress = []
-    dataset = SimpleNamespace(
-        images=[{"name": "scene.hdr", "path": "demo/scene.hdr"}],
-        annotations=[{"filename": "scene.hdr", "objects": []}],
-        save=lambda: None,
-    )
-    service = DatasetProjectService(
-        SimpleNamespace(remove_file=removed.append),
-        lambda _project: dataset,
-        image_path_groups=lambda _project, paths: [
-            [paths[0], "demo/scene.bin"]
-        ],
-    )
+    def delete_images(paths, **options):
+        calls.append((paths, options))
+        return dataset
+
+    dataset = SimpleNamespace(delete_images=delete_images)
+    service = DatasetService(SimpleNamespace(), lambda _project: dataset)
+    progress_callback = lambda *event: None
 
     assert service.delete_images(
         "demo",
         ["demo/scene.hdr"],
-        progress_callback=lambda *event: progress.append(event),
+        progress_callback=progress_callback,
     ) is dataset
-    assert removed == [
-        "demo/scene.hdr", "demo/tb_scene.hdr",
-        "demo/scene.bin", "demo/tb_scene.bin",
-    ]
-    assert progress[0] == (0, 1, "Preparing image deletion", False)
-    assert progress[-1] == (1, 1, "demo/scene.bin", True)
+    assert calls[0][0] == ["demo/scene.hdr"]
+    assert calls[0][1]["progress_callback"] is progress_callback
+    assert callable(calls[0][1]["is_cancelled"])

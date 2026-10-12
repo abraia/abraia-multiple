@@ -1,13 +1,11 @@
 """Inference adapter for classification models exported by training."""
 
-import os
 import cv2
 import numpy as np
 
 from ..postprocess.classification import postprocess
 from ..postprocess.detection import validate_model_config
-from ..session import OnnxSessionMixin
-from ...utils import load_json, resolve_model_file
+from ..session import OnnxSessionMixin, load_onnx_model_config
 
 
 def preprocess_resnet(img, input_shape=(1, 3, 224, 224), resize_size=256):
@@ -51,13 +49,7 @@ class ResNetClassifier(OnnxSessionMixin):
     """Run ResNet18/50/101 ONNX models exported by classification training."""
 
     def __init__(self, model_uri, providers=None, accelerator=None):
-        model_uri = os.fspath(model_uri)
-        if os.path.isabs(model_uri) and not os.path.isfile(model_uri):
-            raise FileNotFoundError(f"Model file not found: {model_uri}")
-        config_uri = f"{os.path.splitext(model_uri)[0]}.json"
-        model_path = resolve_model_file(model_uri)
-        config_path = resolve_model_file(config_uri)
-        self.config = load_json(config_path)
+        model_path, self.config = load_onnx_model_config(model_uri)
         self.task, self.input_shape, self.classes = validate_model_config(self.config)
         if self.task != "classification":
             raise ValueError("ResNet models require the classification task")
@@ -84,12 +76,5 @@ class ResNetClassifier(OnnxSessionMixin):
             score_threshold=score_threshold,
             labels=labels,
         )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
 
 __all__ = ["ResNetClassifier", "preprocess_resnet"]

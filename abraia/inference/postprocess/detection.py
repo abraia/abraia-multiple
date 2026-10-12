@@ -152,18 +152,7 @@ def process_output(
     return results
 
 
-class DetectionDecoder:
-    """Decode detection and segmentation outputs for one model."""
-
-    def __init__(self, classes):
-        self.classes = list(classes)
-
-    def __call__(self, outputs, size, shape, **kwargs):
-        return process_output(outputs, size, shape, self.classes, **kwargs)
-
-
 __all__ = [
-    "DetectionDecoder",
     "get_mask",
     "prepare_input",
     "process_output",

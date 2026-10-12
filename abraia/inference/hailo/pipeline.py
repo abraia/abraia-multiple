@@ -30,7 +30,7 @@ class HailoPipelineModel:
     ``iter_inference`` protocol when it is present.  This adapter prepares
     batches in one thread, submits them to Hailo's asynchronous runtime in a
     second thread, and yields completed frames in source order.  The latter
-    is important because tracking and counting stages are stateful.
+    is important because tracking and counting steps are stateful.
     """
 
     def __init__(

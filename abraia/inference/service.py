@@ -11,12 +11,12 @@ import hashlib
 import os
 from pathlib import Path
 import threading
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
 from ..utils import as_array
-from .contracts import InferenceModel
+from .session import ResourceGroup
 
 
 def _image_signature(image):
@@ -50,16 +50,23 @@ class ModelSession:
     available.
     """
 
-    def __init__(self, model_uri, factory: Callable[[str], InferenceModel]):
+    def __init__(self, model_uri, factory: Callable[[str], Any]):
         self.model_uri = model_uri
-        self._model: InferenceModel = factory(model_uri)
+        model = factory(model_uri)
         if not any(
-            callable(getattr(self._model, name))
+            callable(getattr(model, name, None))
             for name in ("run", "iter_inference")
         ):
+            close = getattr(model, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
             raise TypeError(
                 "Inference backend models must expose run or iter_inference"
             )
+        self._model = model
         self._closed = False
         self._lock = threading.RLock()
 
@@ -67,7 +74,12 @@ class ModelSession:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Model session has already been closed")
-            return self._model.run(*args, **kwargs)
+            run = getattr(self._model, "run", None)
+            if not callable(run):
+                raise TypeError(
+                    "This inference backend only supports iter_inference"
+                )
+            return run(*args, **kwargs)
 
     def iter_inference(self, source, **kwargs):
         """Delegate the streaming model protocol when the backend supports it."""
@@ -111,7 +123,6 @@ class InferenceService:
         self._sessions = {}
         self._lock = threading.RLock()
         self._sam = None
-        self._sam_image = None
         self._sam_image_key = None
         self._grounding_dino = None
 
@@ -148,12 +159,6 @@ class InferenceService:
         with self._lock:
             self._backend_factories[name] = factory
 
-    def create_model(self, config, base_dir=None):
-        """Create a configured built-in model using the shared registry."""
-        from .registry import create_model
-
-        return create_model(config, base_dir=base_dir)
-
     def run(self, model_uri, image, backend="onnx", **kwargs):
         """Run a model, reusing its loaded session for subsequent calls."""
         session = self.get_session(model_uri, backend=backend)
@@ -161,23 +166,13 @@ class InferenceService:
 
     def close(self):
         """Close all cached model sessions and interactive models."""
-        errors = []
         with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
             sam, self._sam = self._sam, None
             grounding_dino, self._grounding_dino = self._grounding_dino, None
-            self._sam_image = None
             self._sam_image_key = None
-            for resource in [*sessions, sam, grounding_dino]:
-                if resource is None:
-                    continue
-                try:
-                    resource.close()
-                except Exception as exc:
-                    errors.append(exc)
-        if errors:
-            raise errors[0]
+            ResourceGroup([*sessions, sam, grounding_dino]).close()
 
     def __enter__(self):
         return self
@@ -197,7 +192,6 @@ class InferenceService:
             sam = self._sam
             if self._sam_image_key != image_key:
                 sam.encode(image)
-                self._sam_image = image
                 self._sam_image_key = image_key
             return sam.predict(image, prompt=json.dumps(prompt))
 

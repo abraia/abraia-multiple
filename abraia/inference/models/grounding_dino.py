@@ -11,6 +11,7 @@ import re
 import cv2
 import numpy as np
 
+from ..postprocess.common import iou
 from ..session import OnnxSessionMixin
 from ...utils import get_providers, load_json, resolve_model_file
 
@@ -278,19 +279,9 @@ def _nms_by_phrase(results, threshold):
             kept.append(current)
             group = [
                 result for result in group
-                if _box_iou(current["box"], result["box"]) <= threshold
+                if iou(current["box"], result["box"]) <= threshold
             ]
     return sorted(kept, key=lambda result: result["score"], reverse=True)
-
-
-def _box_iou(box1, box2):
-    x1 = max(box1[0], box2[0])
-    y1 = max(box1[1], box2[1])
-    x2 = min(box1[0] + box1[2], box2[0] + box2[2])
-    y2 = min(box1[1] + box1[3], box2[1] + box2[3])
-    intersection = max(0, x2 - x1) * max(0, y2 - y1)
-    union = box1[2] * box1[3] + box2[2] * box2[3] - intersection
-    return intersection / union if union else 0.0
 
 
 class GroundingDINOModel(OnnxSessionMixin):
@@ -457,13 +448,6 @@ class GroundingDINOModel(OnnxSessionMixin):
             iou_threshold=iou_threshold,
             offsets=offsets,
         )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
 
 __all__ = [
     "DEFAULT_MODEL_URI",

@@ -9,13 +9,17 @@ import regex as re
 from PIL import Image
 
 from ...utils import download_file
-from ..session import (
-    OnnxSessionBundle,
-    ResourceGroup,
-)
+from ..session import OnnxSessionBundle
 
 
 DEFAULT_BPE_URI = "multiple/models/clip/bpe_simple_vocab_16e6.txt.gz"
+_CLIP_INPUT_SIZE = 224
+_CLIP_NORM_MEAN = np.array(
+    [0.48145466, 0.4578275, 0.40821073]
+).reshape((1, 1, 3))
+_CLIP_NORM_STD = np.array(
+    [0.26862954, 0.26130258, 0.27577711]
+).reshape((1, 1, 3))
 
 
 class Clip:
@@ -47,7 +51,6 @@ class Clip:
         self.image_model = None
         self.text_model = None
         self._session_bundle = None
-        self._resources = ResourceGroup()
         try:
             image_model_path = download_file('multiple/models/clip/clip_image_model_vitb32.onnx')
             text_model_path = download_file('multiple/models/clip/clip_text_model_vitb32.onnx')
@@ -56,18 +59,20 @@ class Clip:
                 providers=providers,
                 accelerator=accelerator,
             )
-            self._resources.add(self._session_bundle)
             self.image_model, self.text_model = self._session_bundle.sessions
             self.execution_providers = self._session_bundle.execution_providers
             self.accelerator = self._session_bundle.accelerator
 
             self.embedding_size = 512
             self._tokenizer = Tokenizer()
-            self._preprocessor = Preprocessor()
             self._batch_size = batch_size
         except Exception:
-            self._resources.close(suppress_errors=True)
-            self._session_bundle = None
+            bundle, self._session_bundle = self._session_bundle, None
+            if bundle is not None:
+                try:
+                    bundle.close()
+                except Exception:
+                    pass
             self.image_model = None
             self.text_model = None
             raise
@@ -85,7 +90,7 @@ class Clip:
         """
         embeddings = []
         for batch in to_batches(images, self._batch_size):
-            imgs = [self._preprocessor.encode_image(image) for image in batch]
+            imgs = [preprocess_image(image) for image in batch]
             if not imgs:
                 return self._get_empty_embedding()
             batch_arr = np.concatenate(imgs)
@@ -119,10 +124,10 @@ class Clip:
 
     def close(self):
         """Release the image and text ONNX sessions."""
-        resources, self._resources = getattr(self, '_resources', None), None
-        if resources is not None:
-            resources.close()
+        bundle = getattr(self, "_session_bundle", None)
         self._session_bundle = None
+        if bundle is not None:
+            bundle.close()
         self.image_model = None
         self.text_model = None
 
@@ -166,34 +171,25 @@ def to_batches(items, size):
         yield batch
 
 
-class Preprocessor:
-    """Preprocess images using the original CLIP image transformations."""
-
-    CLIP_INPUT_SIZE = 224
-    NORM_MEAN = np.array([0.48145466, 0.4578275, 0.40821073]).reshape((1, 1, 3))
-    NORM_STD = np.array([0.26862954, 0.26130258, 0.27577711]).reshape((1, 1, 3))
-
-    @staticmethod
-    def _crop_and_resize(img: np.ndarray) -> np.ndarray:
-        """Resize and crop an image to a square, preserving its aspect ratio."""
-        h, w = img.shape[0:2]
-        target_size = Preprocessor.CLIP_INPUT_SIZE
-        resized_h = target_size if h < w else target_size * h // w
-        resized_w = target_size * w // h if h < w else target_size
-        img = Image.fromarray(img).resize(
-            (resized_w, resized_h), resample=Image.BICUBIC
-        )
-        img = np.array(img)
-        y_from = (resized_h - target_size) // 2
-        x_from = (resized_w - target_size) // 2
-        return img[y_from:y_from + target_size, x_from:x_from + target_size, :]
-
-    def encode_image(self, img: np.ndarray) -> np.ndarray:
-        """Convert an image to the normalized CLIP input tensor."""
-        img = self._crop_and_resize(img)
-        img = np.clip(img.astype(np.float32) / 255, 0, 1)
-        img = (img - self.NORM_MEAN) / self.NORM_STD
-        return np.expand_dims(img.transpose((2, 0, 1)), axis=0).astype(np.float32)
+def preprocess_image(img: np.ndarray) -> np.ndarray:
+    """Resize, center-crop, and normalize an image for the CLIP model."""
+    h, w = img.shape[0:2]
+    resized_h = _CLIP_INPUT_SIZE if h < w else _CLIP_INPUT_SIZE * h // w
+    resized_w = _CLIP_INPUT_SIZE * w // h if h < w else _CLIP_INPUT_SIZE
+    img = Image.fromarray(img).resize(
+        (resized_w, resized_h), resample=Image.BICUBIC
+    )
+    img = np.asarray(img)
+    y_from = (resized_h - _CLIP_INPUT_SIZE) // 2
+    x_from = (resized_w - _CLIP_INPUT_SIZE) // 2
+    img = img[
+        y_from:y_from + _CLIP_INPUT_SIZE,
+        x_from:x_from + _CLIP_INPUT_SIZE,
+        :,
+    ]
+    img = np.clip(img.astype(np.float32) / 255, 0, 1)
+    img = (img - _CLIP_NORM_MEAN) / _CLIP_NORM_STD
+    return np.expand_dims(img.transpose((2, 0, 1)), axis=0).astype(np.float32)
 
 
 def default_bpe():
@@ -347,4 +343,4 @@ class Tokenizer:
         return result
 
 
-__all__ = ["Clip", "Preprocessor", "Tokenizer"]
+__all__ = ["Clip", "Tokenizer", "preprocess_image"]

@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 
-from abraia.training.core import (
+from abraia.training.artifacts import (
     next_model_version,
     save_hailo_bundle,
     save_versioned_model,

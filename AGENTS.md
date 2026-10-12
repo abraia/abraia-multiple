@@ -30,6 +30,8 @@ Run a focused test file with `pytest -q tests/test_inference.py`. Build source a
 
 Use four-space indentation and standard Python naming: `snake_case` for functions, methods, and modules; `CamelCase` for classes; and `UPPER_CASE` for constants. Keep imports explicit and preserve the package’s public exports in the relevant `__init__.py`. No repository-wide formatter or linter is configured, so follow the surrounding code and keep changes focused.
 
+Prefer the smallest change that solves the request. Keep implementation direct; avoid adding helpers, classes, modules, or compatibility paths unless they are needed. Prefer functions and existing data structures over new classes unless a class meaningfully owns state or behavior. Inline one-use logic when that makes the code simpler, and remove obsolete paths instead of preserving them without a concrete requirement.
+
 ## Testing Guidelines
 
 Add tests under `tests/` using `test_*.py` filenames and `test_*` functions. Prefer deterministic unit tests with mocked network, model, camera, and accelerator boundaries. Run the smallest relevant test first, then the full suite before submitting. CI runs on Python 3.8 and supplies `ABRAIA_ID` and `ABRAIA_KEY` for tests that require service access.

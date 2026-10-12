@@ -3,8 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from abraia.training import is_rgb_dataset
-from abraia.training.quality import analyze_rgb_quality
+from abraia.dataset.quality import analyze_rgb_quality, is_rgb_dataset
 
 
 def test_rgb_pruning_finds_quality_candidates():

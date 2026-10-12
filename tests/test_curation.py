@@ -1,11 +1,8 @@
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
-
 import numpy as np
 
-from abraia.training.quality import analyze_rgb_quality
-from abraia.training.curation import CurationAnalyzer, curate_dataset
+from abraia.dataset.curation import analyze_curation
+from abraia.dataset.quality import analyze_rgb_quality
+from abraia.dataset.remote import Dataset
 
 
 def _write_image(path, value):
@@ -21,13 +18,22 @@ def test_native_analyzer_reports_exact_duplicates_and_quality_findings(tmp_path)
     (image_dir / "b_copy.jpg").write_bytes((image_dir / "a_keep.jpg").read_bytes())
     (image_dir / "broken.jpg").write_bytes(b"not an image")
 
-    report = CurationAnalyzer().analyze(image_dir)
+    report = analyze_curation(
+        [path.name for path in image_dir.iterdir()],
+        path_loader=lambda path: image_dir / path,
+    )
 
-    duplicate = next(finding for finding in report.findings if finding.kind == "duplicate")
-    assert duplicate.path == "b_copy.jpg"
-    assert duplicate.neighbor == "a_keep.jpg"
-    assert duplicate.recommended is True
-    assert any(finding.kind == "invalid" for finding in report.findings)
+    duplicate = next(
+        finding
+        for finding in report["findings"]
+        if finding["kind"] == "duplicate"
+    )
+    assert duplicate["path"] == "b_copy.jpg"
+    assert duplicate["neighbor"] == "a_keep.jpg"
+    assert duplicate["recommended"] is True
+    assert any(
+        finding["kind"] == "invalid" for finding in report["findings"]
+    )
 
 
 def test_native_analyzer_protects_annotated_duplicate(tmp_path):
@@ -36,15 +42,20 @@ def test_native_analyzer_protects_annotated_duplicate(tmp_path):
     _write_image(image_dir / "a_keep.jpg", 120)
     (image_dir / "b_copy.jpg").write_bytes((image_dir / "a_keep.jpg").read_bytes())
 
-    report = CurationAnalyzer().analyze(
-        image_dir,
-        protected_paths=[image_dir / "b_copy.jpg"],
+    report = analyze_curation(
+        ["a_keep.jpg", "b_copy.jpg"],
+        path_loader=lambda path: image_dir / path,
+        protected_paths=["b_copy.jpg"],
     )
 
-    duplicate = next(finding for finding in report.findings if finding.kind == "duplicate")
-    assert duplicate.path == "a_keep.jpg"
-    assert duplicate.neighbor == "b_copy.jpg"
-    assert duplicate.recommended is True
+    duplicate = next(
+        finding
+        for finding in report["findings"]
+        if finding["kind"] == "duplicate"
+    )
+    assert duplicate["path"] == "a_keep.jpg"
+    assert duplicate["neighbor"] == "b_copy.jpg"
+    assert duplicate["recommended"] is True
 
 
 def test_native_analyzer_keeps_highest_resolution_similar_image(tmp_path):
@@ -59,16 +70,19 @@ def test_native_analyzer_keeps_highest_resolution_similar_image(tmp_path):
     Image.fromarray(large).save(image_dir / "a_high.png")
     Image.fromarray(small).save(image_dir / "b_low.png")
 
-    report = CurationAnalyzer().analyze(image_dir)
+    report = analyze_curation(
+        ["a_high.png", "b_low.png"],
+        path_loader=lambda path: image_dir / path,
+    )
 
     duplicate = next(
         finding
-        for finding in report.findings
-        if finding.kind == "duplicate"
+        for finding in report["findings"]
+        if finding["kind"] == "duplicate"
     )
-    assert duplicate.path == "b_low.png"
-    assert duplicate.neighbor == "a_high.png"
-    assert report.recommended_paths == ["b_low.png"]
+    assert duplicate["path"] == "b_low.png"
+    assert duplicate["neighbor"] == "a_high.png"
+    assert report["recommended_paths"] == ["b_low.png"]
 
 
 def test_similarity_analysis_keeps_top_k_neighbor_edges():
@@ -90,99 +104,55 @@ def test_similarity_analysis_keeps_top_k_neighbor_edges():
     assert len(third["metrics"]["similar_neighbors"]) == 2
 
 
-def test_curate_dataset_applies_remote_deletions_and_annotation_cleanup():
+def test_dataset_curate_applies_deletions_and_annotation_cleanup():
     class FakeClient:
         def __init__(self):
             self.removals = []
+            self.saved = None
 
-        def download_file(self, source, destination):
-            Path(destination).write_bytes(b"image")
+        def download_file(self, source):
+            return source
 
         def remove_file(self, path):
             self.removals.append(path)
 
-    client = FakeClient()
-    dataset = SimpleNamespace(
-        client=client,
-        images=[
-            {"name": "keep.jpg", "path": "project/keep.jpg"},
-            {"name": "copy.jpg", "path": "project/copy.jpg"},
-        ],
-        annotations=[{"filename": "keep.jpg", "objects": []}],
-        save=lambda: setattr(dataset, "saved", True),
-    )
-    report = SimpleNamespace(
-        findings=[],
-        recommended_paths=["project/copy.jpg"],
-        deleted=[],
-    )
-
-    class FakeAnalyzer:
-        def analyze(self, *args, **kwargs):
-            return report
-
-    with patch("abraia.training.dataset.load_dataset", return_value=dataset):
-        result = curate_dataset(
-            "project",
-            client=client,
-            apply=True,
-            analyzer=FakeAnalyzer(),
-        )
-
-    assert result.deleted == ["project/copy.jpg"]
-    assert client.removals == ["project/copy.jpg"]
-    assert dataset.saved is True
-
-
-def test_curate_dataset_uses_relative_paths_for_duplicate_basenames():
-    class FakeClient:
-        def __init__(self):
-            self.removals = []
-
-        def download_file(self, source, destination):
-            Path(destination).write_bytes(b"image")
-
-        def remove_file(self, path):
-            self.removals.append(path)
+        def save_json(self, path, value):
+            self.saved = (path, value)
 
     client = FakeClient()
-    dataset = SimpleNamespace(
-        client=client,
-        images=[
-            {"name": "duplicate.jpg", "path": "project/set-a/duplicate.jpg"},
-            {"name": "duplicate.jpg", "path": "project/set-b/duplicate.jpg"},
-        ],
-        annotations=[
-            {"filename": "set-a/duplicate.jpg", "objects": []},
-        ],
-        save=lambda: setattr(dataset, "saved", True),
-    )
-    report = SimpleNamespace(
-        findings=[],
-        recommended_paths=["project/set-b/duplicate.jpg"],
-        deleted=[],
-    )
+    dataset = Dataset("project", client=client)
+    dataset.images = [
+        {"name": "keep.jpg", "path": "keep.jpg"},
+        {"name": "copy.jpg", "path": "copy.jpg"},
+    ]
+    dataset.annotations = [
+        {"filename": name, "path": name, "objects": []}
+        for name in ("keep.jpg", "copy.jpg")
+    ]
+    report = {
+        "findings": [],
+        "recommended_paths": ["copy.jpg"],
+        "deleted": [],
+    }
 
-    class FakeAnalyzer:
-        seen_kwargs = None
+    analysis = {}
 
-        def analyze(self, *args, **kwargs):
-            self.seen_kwargs = kwargs
-            return report
+    def fake_analyze(paths, **kwargs):
+        analysis["paths"] = paths
+        analysis["protected_paths"] = kwargs["protected_paths"]
+        for path in paths:
+            kwargs["path_loader"](path)
+        return report
 
-    analyzer = FakeAnalyzer()
-    with patch("abraia.training.dataset.load_dataset", return_value=dataset):
-        curate_dataset(
-            "project",
-            client=client,
-            apply=True,
-            analyzer=analyzer,
-        )
+    result = dataset.curate(apply=True, analyze_fn=fake_analyze)
 
-    assert client.removals == ["project/set-b/duplicate.jpg"]
+    assert analysis["paths"] == ["keep.jpg", "copy.jpg"]
+    assert analysis["protected_paths"] == ["keep.jpg", "copy.jpg"]
+    assert result["deleted"] == ["copy.jpg"]
+    assert dataset.curation_findings == result["findings"]
+    assert "project/copy.jpg" in client.removals
+    assert dataset.images == [{"name": "keep.jpg", "path": "keep.jpg"}]
     assert [annotation["filename"] for annotation in dataset.annotations] == [
-        "set-a/duplicate.jpg"
+        "keep.jpg"
     ]
-    assert [path.parts[-2:] for path in analyzer.seen_kwargs["protected_paths"]] == [
-        ("set-a", "duplicate.jpg")
-    ]
+    assert client.saved == ("project/annotations.json", dataset.annotations)

@@ -15,7 +15,9 @@ def draw_point(img, point, color, thickness = 2):
 
 
 def draw_line(img, line, color, thickness = 2):
-    pt1, pt2 = line
+    pt1, pt2 = (
+        tuple(np.round(point).astype(np.int32)) for point in line
+    )
     cv2.line(img, pt1, pt2, color, thickness)
     return img
 
@@ -93,7 +95,8 @@ def draw_text(img, text, point, background_color = None, text_color = (255, 255,
         text_font, text_thickness = cv2.FONT_HERSHEY_DUPLEX, 1
         w, h = cv2.getTextSize(text, text_font, text_scale, text_thickness)[0]
         width, height = w + 2 * padding, h + 2 * padding
-        x, y = point[0], max(point[1] - height, 0)
+        x, y = (int(value) for value in np.round(point))
+        y = max(y - height, 0)
         org = (x + padding, y + padding + h)
         if background_color is not None:
             img = draw_filled_rectangle(img, [x, y, width, height], background_color)

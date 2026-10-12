@@ -1,6 +1,8 @@
 """Dataset preparation and model-training orchestration."""
 
+import gc
 import os
+import posixpath
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict
@@ -20,8 +22,7 @@ from ..utils.concurrency import (
     DEFAULT_MAX_REMOTE_WORKERS,
     bounded_as_completed,
 )
-from .core import _resolve_client
-from .dataset import download_file
+from .artifacts import _resolve_client
 from .splitting import (
     DATASET_SPLITS,
     DEFAULT_EVALUATION_SPLIT,
@@ -30,6 +31,15 @@ from .splitting import (
     split_annotation_records,
     summarize_split_records,
 )
+
+
+def download_file(path, folder, client=None):
+    """Download one remote training file when it is not already local."""
+    client = _resolve_client(client)
+    destination = os.path.join(folder, os.path.basename(path))
+    if not os.path.exists(destination):
+        client.download_file(path, destination)
+    return destination
 
 
 def save_annotation(annotation, folder, classes, task):
@@ -69,10 +79,10 @@ def save_annotation(annotation, folder, classes, task):
     save_text(label_path, "\n".join(label_lines))
 
 
-def save_data(annotation, folder, classes, task, client=None):
+def save_data(annotation, folder, classes, task, client=None, remote_path=None):
     """Download one annotation image and write its training label."""
     task = normalize_task(task)
-    path = annotation["path"]
+    path = remote_path or annotation["path"]
     destination = folder if task == "classification" else os.path.join(folder, "images")
     if task == "classification":
         label = next(
@@ -96,18 +106,20 @@ def save_config(dataset, classes):
     save_text(os.path.join(dataset, "data.yaml"), yaml_content)
 
 
+def _normalize_split_options(split_options=None):
+    return {**DEFAULT_SPLIT_OPTIONS, **(split_options or {})}
+
+
 def split_dataset(annotations, split_options=None):
     """Split records with a deterministic, class-balanced policy."""
-    options = dict(DEFAULT_SPLIT_OPTIONS)
-    options.update(split_options or {})
+    options = _normalize_split_options(split_options)
     return split_annotation_records(annotations, **options)
 
 
 def dataset_split_summary(dataset, split_options=None):
     """Return the split preview data used by Studio and training clients."""
-    options = dict(DEFAULT_SPLIT_OPTIONS)
-    options.update(split_options or {})
-    splits = split_dataset(dataset.annotations, options)
+    options = _normalize_split_options(split_options)
+    splits = split_annotation_records(dataset.annotations, **options)
     return summarize_split_records(
         splits,
         classes=getattr(dataset, "classes", None),
@@ -130,17 +142,15 @@ def prepare_dataset(dataset, force=False, callback=None, split_options=None):
                 if os.path.isdir(split_path):
                     shutil.rmtree(split_path)
         annotations = dataset.annotations
-        if split_options is None:
-            split_values = split_dataset(annotations)
-        else:
-            split_values = split_dataset(annotations, split_options)
+        split_values = split_dataset(annotations, split_options)
         splits = list(zip(DATASET_SPLITS, split_values))
-        all_annotations, all_folders = [], []
-        for split_name, split_annotations in splits:
-            folder = os.path.join(dataset.project, split_name)
-            all_annotations.extend(split_annotations)
-            all_folders.extend([folder] * len(split_annotations))
-        total = len(all_annotations)
+        total = sum(len(split_annotations) for _, split_annotations in splits)
+
+        def work_items():
+            for split_name, split_annotations in splits:
+                folder = os.path.join(dataset.project, split_name)
+                for annotation in split_annotations:
+                    yield annotation, folder
 
         def report(current, annotation):
             if callback:
@@ -156,7 +166,6 @@ def prepare_dataset(dataset, force=False, callback=None, split_options=None):
                 "total": total,
                 "filename": "Starting download",
             })
-        work = zip(all_annotations, all_folders)
         worker_count = min(DEFAULT_MAX_REMOTE_WORKERS, max(1, total))
         current = 0
         progress_bar = (
@@ -173,12 +182,16 @@ def prepare_dataset(dataset, force=False, callback=None, split_options=None):
                         dataset.classes,
                         dataset.task,
                         client,
+                        remote_path=posixpath.join(
+                            str(dataset.project).strip("/"),
+                            annotation.get("path") or annotation["filename"],
+                        ),
                     )
 
                 for (annotation, _folder), _result in bounded_as_completed(
                     executor,
                     save_item,
-                    work,
+                    work_items(),
                     max_pending=worker_count * 2,
                 ):
                     current += 1
@@ -259,8 +272,6 @@ class ModelTrainer:
                 self.pbar = None
 
     def test(self, split: str = DEFAULT_EVALUATION_SPLIT, is_cancelled=None) -> Dict[str, Any]:
-        if is_cancelled is None:
-            return self.model.test(split=split)
         return self.model.test(split=split, is_cancelled=is_cancelled)
 
     def save(self, device="cpu") -> Dict[str, Any]:
@@ -296,13 +307,76 @@ class ModelTrainer:
             iou=iou,
         )
 
+def train_dataset(
+    project, dataset, epochs, training_callback, is_cancelled,
+    model_size="small", split_options=None,
+):
+    """Prepare, train, validate, and save a dataset model."""
+    from . import ModelTrainer, prepare_dataset
+
+    task = normalize_task(dataset.task)
+    trainer = None
+    try:
+        if is_cancelled():
+            raise RuntimeError("Training canceled")
+        training_callback({"stage": "Preparing dataset"})
+        prepare_dataset(
+            dataset,
+            force=split_options is not None,
+            split_options=split_options,
+            callback=lambda event: training_callback(
+                {"stage": "Preparing dataset", **event}
+            ),
+        )
+        if is_cancelled():
+            raise RuntimeError("Training canceled")
+        training_callback({"stage": "Loading model"})
+        trainer_kwargs = {"client": getattr(dataset, "client", None)}
+        if model_size != "small":
+            trainer_kwargs["model_size"] = model_size
+        trainer = ModelTrainer(project, task, dataset.classes, **trainer_kwargs)
+
+        def on_epoch(metrics):
+            if is_cancelled():
+                raise RuntimeError("Training canceled")
+            training_callback({"stage": "Training", **metrics})
+
+        training_callback({"stage": "Training"})
+        trainer.train(
+            epochs=epochs,
+            callback=on_epoch,
+            is_cancelled=is_cancelled,
+        )
+        if is_cancelled():
+            raise RuntimeError("Training canceled")
+        training_callback({"stage": "Validating model"})
+        stats = trainer.test(
+            split=DEFAULT_EVALUATION_SPLIT,
+            is_cancelled=is_cancelled,
+        )
+        if is_cancelled():
+            raise RuntimeError("Training canceled")
+        training_callback({"stage": "Exporting model"})
+        saved_model = trainer.save()
+        return {
+            "stats": stats,
+            "epochs": epochs,
+            "task": task,
+            "saved_model": saved_model,
+        }
+    finally:
+        del trainer
+        gc.collect()
+
 
 __all__ = [
     "ModelTrainer",
     "dataset_split_summary",
+    "download_file",
     "prepare_dataset",
     "save_annotation",
     "save_config",
     "save_data",
     "split_dataset",
+    "train_dataset",
 ]

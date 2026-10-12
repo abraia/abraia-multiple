@@ -4,8 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from abraia.runtime.output import VideoOutput
-from abraia.runtime.video import Camera, FrameSource, Video
+from abraia.runtime.video import Camera, FrameSource, Video, VideoOutput
 
 
 class FakePicamera:
@@ -69,8 +68,6 @@ def test_video_close_is_idempotent():
     video._capture_stop = threading.Event()
     video._capture_queue = None
     video._capture_thread = None
-    video.out = writer
-    video.win_name = ''
     video._output = VideoOutput.__new__(VideoOutput)
     video._output.out = writer
     video._output.win_name = ''

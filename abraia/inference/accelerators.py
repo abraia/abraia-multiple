@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from ..utils import get_providers
-from ..utils.remote import ARTIFACT_RESOLVER, is_managed_model_path
+from ..utils.remote import is_managed_model_path, probe_artifact
 
 
 CPU_PROVIDER = "CPUExecutionProvider"
@@ -102,11 +102,11 @@ def hailo_model_available(config, architecture):
     if path.lower().startswith(("http://", "https://")):
         return False
     if os.path.dirname(path):
-        return ARTIFACT_RESOLVER.probe(path).available
+        return probe_artifact(path).available
 
     if not architecture or not path.lower().endswith(".hef"):
         return False
-    return ARTIFACT_RESOLVER.probe(path).available
+    return probe_artifact(path).available
 
 
 def paired_hailo_uri(onnx_uri, task, architecture=None):

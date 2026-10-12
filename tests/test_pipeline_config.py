@@ -18,6 +18,10 @@ from abraia.inference.model_config import (
     MODEL_ARCHITECTURES,
     ModelSpec,
 )
+from abraia.runtime.config import (
+    model_editor_values,
+    model_pipeline_errors,
+)
 from abraia.tasks import HAILO_TASKS, normalize_task
 
 
@@ -316,7 +320,11 @@ def test_model_spec_reports_pipeline_compatibility_errors():
         "uri": "multiple/models/resnet18.onnx",
     })
 
-    assert spec.pipeline_errors() == (
+    assert model_pipeline_errors({
+        "kind": spec.kind,
+        "task": spec.task,
+        "uri": spec.uri,
+    }) == (
         "Classification models require the classification task.",
     )
 
@@ -360,19 +368,18 @@ def test_model_spec_does_not_mutate_backend_parameters():
     assert spec.params["index"] == "faces.json"
 
 
-def test_model_spec_owns_legacy_parameter_mapping_and_serialization():
+def test_model_editor_values_read_legacy_model_parameters():
     spec = ModelSpec.from_config({
         "kind": "ocr",
         "task": "recognition",
         "params": {"drop_score": 0.6},
     })
 
-    assert spec.editor_values()["conf_threshold"] == 0.6
-    assert spec.to_pipeline_config(conf_threshold=0.7) == {
-        "kind": "ocr",
-        "task": "recognition",
-        "params": {"drop_score": 0.7},
-    }
+    assert model_editor_values({
+        "kind": spec.kind,
+        "task": spec.task,
+        "params": dict(spec.params),
+    })["conf_threshold"] == 0.6
 
 
 if __name__ == "__main__":

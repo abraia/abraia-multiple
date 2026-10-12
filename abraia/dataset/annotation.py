@@ -1,5 +1,6 @@
 """Optional model-assisted image annotation helpers."""
 
+from dataclasses import dataclass
 import json
 import math
 import os
@@ -11,6 +12,31 @@ from ..utils import load_image, load_url
 
 
 DEFAULT_MODEL = "IDEA-Research/grounding-dino-tiny"
+MOBILE_SAM_MODEL = "MobileSAM"
+GROUNDING_DINO_MODEL = "Grounding DINO"
+MOBILE_SAM_DISABLED_TASKS = frozenset(("classification",))
+
+
+@dataclass(frozen=True)
+class AnnotationModelRoute:
+    """Describe the inference operation selected for an annotation model."""
+
+    operation: str
+    allowed: bool = True
+
+
+def model_route(model_name, task):
+    """Return the inference route for an annotation model and task."""
+    if model_name == MOBILE_SAM_MODEL:
+        return AnnotationModelRoute("sam", task not in MOBILE_SAM_DISABLED_TASKS)
+    if model_name == GROUNDING_DINO_MODEL:
+        operation = (
+            "grounding_dino_segmentation"
+            if task == "segmentation"
+            else "grounding_dino"
+        )
+        return AnnotationModelRoute(operation)
+    return AnnotationModelRoute("custom")
 
 if sys.platform == "darwin":
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -143,4 +169,12 @@ def annotate_image(
             annotator.close()
 
 
-__all__ = ["Annotator", "annotate_image"]
+__all__ = [
+    "AnnotationModelRoute",
+    "Annotator",
+    "GROUNDING_DINO_MODEL",
+    "MOBILE_SAM_DISABLED_TASKS",
+    "MOBILE_SAM_MODEL",
+    "annotate_image",
+    "model_route",
+]

@@ -3,20 +3,20 @@
 from .factories import register_spectral_source
 from .pipeline import (
     FrameContext,
-    CancellableSource,
     Pipeline,
 )
 from .composition import (
     BoundModelStep,
     CropStep,
     FilterStep,
-    LineCounterStep,
+    LineCounter,
     ModelStep,
-    RegionFilterStep,
+    ProcessorStep,
     RegionInput,
-    RegionTimerStep,
-    TrackerStep,
+    RegionTimer,
+    count_objects,
     crop_region,
+    filter_region,
 )
 from .inference import (
     AsyncInferenceRunner,
@@ -24,20 +24,18 @@ from .inference import (
     FrameRecord,
     FrameResult,
 )
-from .output import VideoOutput
-from .video import FrameSource, Video
-from .stages import LineCounter, RegionFilter, RegionTimer, count_objects
+from .video import FrameSource, Video, VideoOutput
 from .config import (
     PipelineDraft,
     SUPPORTED_HAILO_TASKS,
     SUPPORTED_MODEL_DEFAULT_URIS,
     SUPPORTED_MODEL_KINDS,
     SUPPORTED_MODEL_OPTIONS,
-    SUPPORTED_SECOND_STAGE_MODEL_OPTIONS,
+    SUPPORTED_SECOND_STEP_MODEL_OPTIONS,
     SUPPORTED_MODEL_TASKS,
-    SUPPORTED_STAGE_TYPES,
-    default_primary_stage,
-    default_stage,
+    SUPPORTED_STEP_TYPES,
+    default_primary_step,
+    default_step,
     format_points,
     model_control_visibility,
     model_defaults,
@@ -45,17 +43,16 @@ from .config import (
 )
 from .runner import prepare_pipeline_display_frame, run_pipeline
 from .pipeline_schema import (
-    PIPELINE_STAGE_DEFINITIONS,
+    PIPELINE_STEP_DEFINITIONS,
     PipelineStep,
     iter_pipeline_steps,
-    TRACKER_DEPENDENT_STAGE_TYPES,
+    TRACKER_DEPENDENT_STEP_TYPES,
     normalize_step_ids,
     strip_internal_step_ids,
 )
 
 __all__ = [
     "FrameContext",
-    "CancellableSource",
     "FrameSource",
     "AsyncInferenceRunner",
     "FrameBatch",
@@ -64,15 +61,12 @@ __all__ = [
     "LineCounter",
     "Pipeline",
     "RegionTimer",
-    "RegionFilter",
+    "filter_region",
     "count_objects",
     "BoundModelStep",
     "CropStep",
     "FilterStep",
-    "LineCounterStep",
-    "RegionFilterStep",
-    "RegionTimerStep",
-    "TrackerStep",
+    "ProcessorStep",
     "ModelStep",
     "RegionInput",
     "crop_region",
@@ -83,17 +77,17 @@ __all__ = [
     "SUPPORTED_MODEL_DEFAULT_URIS",
     "SUPPORTED_MODEL_KINDS",
     "SUPPORTED_MODEL_OPTIONS",
-    "SUPPORTED_SECOND_STAGE_MODEL_OPTIONS",
+    "SUPPORTED_SECOND_STEP_MODEL_OPTIONS",
     "SUPPORTED_MODEL_TASKS",
-    "SUPPORTED_STAGE_TYPES",
-    "PIPELINE_STAGE_DEFINITIONS",
-    "TRACKER_DEPENDENT_STAGE_TYPES",
+    "SUPPORTED_STEP_TYPES",
+    "PIPELINE_STEP_DEFINITIONS",
+    "TRACKER_DEPENDENT_STEP_TYPES",
     "PipelineStep",
     "iter_pipeline_steps",
     "normalize_step_ids",
     "strip_internal_step_ids",
-    "default_primary_stage",
-    "default_stage",
+    "default_primary_step",
+    "default_step",
     "format_points",
     "model_control_visibility",
     "model_defaults",

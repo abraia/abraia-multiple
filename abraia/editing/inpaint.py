@@ -1,8 +1,8 @@
 import cv2
 import numpy as np
-import onnxruntime as ort
 
 from ..utils import download_file
+from ..inference.session import OnnxSessionMixin
 
 
 def _tile_starts(length, tile_length, overlap):
@@ -71,12 +71,15 @@ def pad_img_to_modulo(img, mod):
     return np.pad(img, ((0, 0), (0, out_height - height), (0, out_width - width)), mode="symmetric")
 
 
-class LAMA:
-    def __init__(self):
+class LAMA(OnnxSessionMixin):
+    def __init__(self, providers=None, accelerator=None):
         self.image_size = (512, 512)
-        sess_options = ort.SessionOptions()
         model_src = download_file('multiple/models/editing/lama_fp32.onnx')
-        self.session = ort.InferenceSession(model_src, sess_options=sess_options)
+        self._init_onnx_session(
+            model_src,
+            providers=providers,
+            accelerator=accelerator,
+        )
 
     def preprocess(self, image, mask, pad_out_to_modulo=8):
         out_image = cv2.resize(image, self.image_size, interpolation=cv2.INTER_LINEAR)
@@ -101,6 +104,7 @@ class LAMA:
         return output
 
     def process(self, img, mask):
+        self._ensure_open()
         h, w = img.shape[:2]
         image, mask = self.preprocess(img, mask)
         outputs = self.session.run(None, {'image': image, 'mask': mask})

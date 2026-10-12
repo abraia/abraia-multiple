@@ -1,35 +1,23 @@
 """Public training APIs."""
 
-from .annotations import (
-    annotation_counts,
-    canonical_filename,
-    dataset_has_annotations,
-    find_image,
-    image_filename,
-    objects_for_image,
-)
-from .core import (
+from .artifacts import (
     HAILO_EXPORT_TARGETS,
+    list_model_records,
+    list_models,
     save_hailo_bundle,
     save_versioned_model,
     versioned_model_paths,
 )
-from .dataset import (
-    download_file,
-    list_datasets,
-    list_model_records,
-    list_models,
-    load_dataset,
-    search_images,
-)
 from .orchestration import (
     ModelTrainer,
     dataset_split_summary,
+    download_file,
     prepare_dataset,
     save_annotation,
     save_config,
     save_data,
     split_dataset,
+    train_dataset,
 )
 from .splitting import (
     DATASET_SPLITS,
@@ -43,18 +31,12 @@ from .splitting import (
     split_annotation_records,
     summarize_split_records,
 )
-from .service import DatasetProjectService, TrainingService
-from .curation import (
-    DEFAULT_NEAREST_NEIGHBORS,
-    CurationAnalyzer,
-    CurationFinding,
-    CurationReport,
-    curate_dataset,
-    is_rgb_dataset,
+from .model_data import (
+    metric_average,
+    normalize_confusion_matrix,
+    normalize_custom_models,
+    normalize_model_record,
 )
-from .metrics import metric_average, normalize_model_record
-from .model_catalog import normalize_custom_models
-from .plot_data import normalize_confusion_matrix
 
 
 __all__ = [
@@ -65,40 +47,24 @@ __all__ = [
     "DEFAULT_EVALUATION_SPLIT",
     "DEFAULT_SPLIT_RATIOS",
     "DEFAULT_SPLIT_OPTIONS",
-    "TrainingService",
-    "DatasetProjectService",
-    "DEFAULT_NEAREST_NEIGHBORS",
-    "is_rgb_dataset",
     "SPLIT_NAMES",
     "SPLIT_RATIO_KEYS",
-    "annotation_counts",
-    "canonical_filename",
-    "CurationFinding",
-    "CurationReport",
-    "CurationAnalyzer",
-    "curate_dataset",
-    "dataset_has_annotations",
     "download_file",
     "dataset_split_summary",
-    "find_image",
-    "image_filename",
-    "list_datasets",
     "list_models",
     "list_model_records",
-    "load_dataset",
     "metric_average",
     "normalize_model_record",
     "normalize_custom_models",
     "normalize_confusion_matrix",
-    "objects_for_image",
     "prepare_dataset",
     "save_annotation",
     "save_config",
     "save_data",
     "save_hailo_bundle",
-    "search_images",
     "save_versioned_model",
     "split_dataset",
+    "train_dataset",
     "split_annotation_records",
     "summarize_split_records",
     "normalize_split_ratios",

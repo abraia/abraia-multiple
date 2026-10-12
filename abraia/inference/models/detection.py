@@ -1,23 +1,17 @@
-import os
+from functools import partial
 
-from ..postprocess.decoders import (
-    create_decoder,
+from ..postprocess.detection import (
     prepare_input,
+    process_output,
     validate_model_config,
 )
-from ..session import OnnxSessionMixin
-from ...utils import load_json, resolve_model_file
+from ..postprocess.pose import process_pose_output
+from ..session import OnnxSessionMixin, load_onnx_model_config
 
 
 class Model(OnnxSessionMixin):
     def __init__(self, model_uri, providers=None, accelerator=None):
-        model_uri = os.fspath(model_uri)
-        if os.path.isabs(model_uri) and not os.path.isfile(model_uri):
-            raise FileNotFoundError(f"Model file not found: {model_uri}")
-        config_uri = f"{os.path.splitext(model_uri)[0]}.json"
-        model_path = resolve_model_file(model_uri)
-        config_path = resolve_model_file(config_uri)
-        self.config = load_json(config_path)
+        model_path, self.config = load_onnx_model_config(model_uri)
         self.task, self.input_shape, self.classes = validate_model_config(
             self.config
         )
@@ -29,7 +23,8 @@ class Model(OnnxSessionMixin):
             raise ValueError(
                 "Detection ONNX models support detection, segmentation, or pose"
             )
-        self.decoder = create_decoder(self.task, self.classes)
+        decoder = process_pose_output if self.task == "pose" else process_output
+        self.decoder = partial(decoder, classes=list(self.classes))
         self._init_onnx_session(
             model_path,
             providers=providers,
@@ -64,9 +59,3 @@ class Model(OnnxSessionMixin):
             labels=labels,
             transform=(scale, padding),
         )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()

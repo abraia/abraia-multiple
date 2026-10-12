@@ -1,14 +1,16 @@
-"""Shared dataset state and remote dataset helpers."""
+"""Model catalog, versioning, and export helpers."""
 
 import importlib
 from importlib import metadata
+import os
 import re
 import platform
 from pathlib import Path
 import subprocess
 import sys
 
-from ..client import Abraia
+from ..dataset import _resolve_client
+from ..tasks import normalize_task
 
 
 HAILO_EXPORT_TARGETS = (
@@ -51,9 +53,86 @@ HAILO_DFC_VERSIONS = {
 }
 
 
-def _resolve_client(client=None):
-    """Return an injected client or create one lazily for this operation."""
-    return client if client is not None else Abraia()
+def list_models(project, client=None, sort_by_accuracy=False):
+    """Return ONNX model names stored in a remote project.
+
+    When ``sort_by_accuracy`` is true, models with saved accuracy metrics are
+    returned first, from highest to lowest score. Models without a score keep
+    their relative order after the ranked models.
+    """
+    client = _resolve_client(client)
+    if sort_by_accuracy:
+        records = list_model_records(project, client)
+        models = [
+            record for record in records
+            if str(record["name"]).lower().endswith(".onnx")
+        ]
+
+        def accuracy(record):
+            metrics = record.get("metrics") or {}
+            for key in ("acc", "accuracy", "mAP"):
+                value = metrics.get(key)
+                if isinstance(value, (int, float)):
+                    return float(value)
+                if isinstance(value, (list, tuple)):
+                    values = [
+                        float(item) for item in value
+                        if isinstance(item, (int, float))
+                    ]
+                    if values:
+                        return sum(values) / len(values)
+            return None
+
+        ranked = [(accuracy(record), record) for record in models]
+        ranked.sort(key=lambda item: (
+            item[0] is None,
+            -(item[0] or 0.0),
+        ))
+        return [record["name"] for _, record in ranked]
+
+    files = client.list_files(f"{project}/")[0]
+    return [
+        file_data["name"]
+        for file_data in files
+        if file_data["name"].endswith(".onnx")
+    ]
+
+
+def list_model_records(project, client=None):
+    """Return model names with optional persisted evaluation metadata."""
+    client = _resolve_client(client)
+    records = []
+    files = client.list_files(f"{project}/")[0]
+    names = [
+        file_data["name"]
+        for file_data in files
+        if file_data["name"].lower().endswith((".onnx", ".joblib"))
+    ]
+    for name in names:
+        record = {"name": name, "metrics": {}}
+        if hasattr(client, "load_json"):
+            stem = os.path.splitext(str(name))[0]
+            try:
+                metadata = client.load_json(f"{project}/{stem}.json")
+            except Exception:
+                metadata = None
+            if isinstance(metadata, dict):
+                record.update({
+                    "metrics": metadata.get("metrics") or {},
+                    "classes": metadata.get("classes") or [],
+                    "task": normalize_task(metadata.get("task")),
+                })
+                if str(name).lower().endswith(".joblib"):
+                    record["kind"] = metadata.get("kind") or "multispectral"
+                    record["task"] = normalize_task(
+                        metadata.get("task"), default="classification"
+                    )
+        if str(name).lower().endswith(".joblib"):
+            record.setdefault("classes", [])
+            record.setdefault("task", "classification")
+            record.setdefault("kind", "multispectral")
+        records.append(record)
+    return records
 
 
 def ensure_hailo_dfc(target):
@@ -258,6 +337,8 @@ def save_hailo_bundle(
 
 
 __all__ = [
+    "list_models",
+    "list_model_records",
     "next_model_version",
     "HAILO_EXPORT_TARGETS",
     "HAILO_DFC_WHEELS",

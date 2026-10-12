@@ -2,45 +2,182 @@
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping
 
 from abraia.sources import infer_source_type, normalize_source_type
 from .pipeline_schema import (
     MAX_PIPELINE_MODELS,
     MAX_PIPELINE_TRACKERS,
     normalize_points,
-    PIPELINE_STAGE_DEFINITIONS,
-    SUPPORTED_STAGE_TYPES,
+    PIPELINE_STEP_DEFINITIONS,
+    SUPPORTED_STEP_TYPES,
     normalize_step_ids,
     strip_internal_step_ids,
-    is_primary_model_step,
+    starts_with_model_step,
+    iter_pipeline_steps,
+    is_valid_step_geometry,
+    validate_step_structure,
+    PIPELINE_SECOND_STEP_MODEL_PAIRS,
 )
-from .validation import validate_pipeline_draft
 from abraia.inference.model_config import (
     DEFAULT_MODEL_URIS as SUPPORTED_MODEL_DEFAULT_URIS,
+    MODEL_ARCHITECTURES,
+    MODEL_DESCRIPTORS,
+    MODEL_SIZE_URIS,
     ModelSpec,
     PIPELINE_HAILO_TASKS as SUPPORTED_HAILO_TASKS,
     PIPELINE_MODEL_KINDS as SUPPORTED_MODEL_KINDS,
-    PIPELINE_MODEL_OPTIONS as SUPPORTED_MODEL_OPTIONS,
-    PIPELINE_SECOND_STAGE_MODEL_OPTIONS as SUPPORTED_SECOND_STAGE_MODEL_OPTIONS,
     PIPELINE_MODEL_TASKS as SUPPORTED_MODEL_TASKS,
-    model_control_visibility,
-    model_defaults,
 )
+from abraia.tasks import normalize_task
 
 
-def default_primary_stage():
-    model = ModelSpec.from_config({
-        "kind": "yolov8",
-        "task": "detection",
-    }).to_pipeline_config()
+MODEL_DEFAULT_THRESHOLDS = {
+    ("yolov8", "detection"): (0.25, 0.45),
+    ("yolov8", "segmentation"): (0.25, 0.7),
+    ("yolov8", "pose"): (0.25, 0.7),
+    ("resnet", "classification"): (0.25, 0.0),
+    ("grounding_dino", "detection"): (0.25, 0.45),
+    ("face", "detection"): (0.75, 0.5),
+    ("face", "recognition"): (0.45, 0.5),
+    ("license_plate", "detection"): (0.5, 0.1),
+    ("license_plate", "recognition"): (0.85, 0.15),
+    ("ocr", "recognition"): (0.5, 0.0),
+}
+
+
+def _sized_model_options(kind, label, task):
+    size_labels = {"small": "Small", "medium": "Medium", "large": "Large"}
+    return tuple(
+        (f"{kind}_{task}_{size}", f"{label} ({size_labels[size]})", kind, task, uri)
+        for size, uri in MODEL_SIZE_URIS[kind][task].items()
+    )
+
+
+SUPPORTED_MODEL_OPTIONS = (
+    *_sized_model_options("yolov8", "Object detection", "detection"),
+    *_sized_model_options("yolov8", "Instance segmentation", "segmentation"),
+    *_sized_model_options("yolov8", "Pose estimation", "pose"),
+    *_sized_model_options("resnet", "ResNet classification", "classification"),
+    ("face_detection", "Face detection", "face", "detection", ""),
+    ("face_recognition", "Face recognition", "face", "recognition", ""),
+    ("license_plate_detection", "License plate detection", "license_plate", "detection", ""),
+    ("license_plate_recognition", "License plate recognition", "license_plate", "recognition", ""),
+    ("ocr_recognition", "OCR recognition", "ocr", "recognition", ""),
+)
+SUPPORTED_SECOND_STEP_MODEL_OPTIONS = tuple(
+    option for option in SUPPORTED_MODEL_OPTIONS
+    if (option[2], option[3]) in PIPELINE_SECOND_STEP_MODEL_PAIRS
+) + ((
+    "multispectral_classification",
+    "Multispectral classification",
+    "multispectral",
+    "classification",
+    "",
+),)
+
+
+def model_defaults(kind, task):
+    kind = str(kind or "").strip().lower()
+    task = normalize_task(
+        task, default="classification" if kind == "resnet" else "detection"
+    )
+    if kind in MODEL_ARCHITECTURES and (kind, task) not in MODEL_DEFAULT_THRESHOLDS:
+        kind = "yolov8"
+    return MODEL_DEFAULT_THRESHOLDS.get((kind, task), (0.25, 0.45))
+
+
+def model_control_visibility(kind, task):
+    kind = str(kind or "").strip().lower()
+    task = normalize_task(
+        task, default="classification" if kind == "resnet" else "detection"
+    )
+    descriptor = MODEL_DESCRIPTORS.get(kind)
+    uses_uri = bool(descriptor and descriptor.uri_based)
     return {
-        "type": "model",
-        "model": model,
+        "uri": uses_uri,
+        "index": kind == "face" and task == "recognition",
+        "labels": uses_uri,
+        "confidence": True,
+        "iou": kind not in ("ocr", "resnet", "multispectral")
+        and not (kind == "face" and task == "recognition"),
+        "approx": kind in MODEL_ARCHITECTURES and task == "segmentation",
     }
 
 
-@dataclass(init=False)
+def model_pipeline_errors(model):
+    spec = model if isinstance(model, ModelSpec) else ModelSpec.from_config(model)
+    if spec.kind not in SUPPORTED_MODEL_KINDS:
+        return ("Choose a supported detector kind.",)
+    if spec.task not in SUPPORTED_MODEL_TASKS:
+        return ("Choose a supported detector task.",)
+    descriptor = spec.descriptor
+    if descriptor and spec.task not in descriptor.tasks:
+        messages = {
+            "resnet": "Classification models require the classification task.",
+            "grounding_dino": "Grounding DINO models require the detection task.",
+            "ocr": "OCR models only support the recognition task.",
+            "multispectral": "Multispectral models require the classification task.",
+        }
+        if spec.kind in MODEL_ARCHITECTURES:
+            return (f"{spec.kind} models support detection, segmentation, or pose.",)
+        return (
+            messages.get(
+                spec.kind,
+                f"{spec.kind} models do not support the {spec.task} task.",
+            ),
+        )
+    if descriptor and descriptor.explicit_uri and not spec.uri:
+        return ("Enter a model URI or local model path.",)
+    if (
+        spec.kind == "face"
+        and spec.task == "recognition"
+        and not spec.params.get("index")
+    ):
+        return ("Face recognition requires an index JSON file.",)
+    return ()
+
+
+def model_editor_values(model, config=None):
+    spec = model if isinstance(model, ModelSpec) else ModelSpec.from_config(model)
+    if not isinstance(config, Mapping):
+        config = {}
+    params = spec.params
+
+    def value(name, fallback=None):
+        return params.get(name, config.get(name, fallback))
+
+    if spec.kind == "face":
+        confidence = value("prob_threshold", config.get("conf_threshold"))
+        if spec.task == "recognition":
+            confidence = value("threshold", confidence)
+        iou = value("iou_threshold", config.get("iou_threshold"))
+    elif spec.kind == "license_plate":
+        confidence = value("threshold", config.get("conf_threshold"))
+        iou = value("iou_threshold", config.get("iou_threshold"))
+    elif spec.kind == "ocr":
+        confidence, iou = value("drop_score", config.get("conf_threshold")), None
+    else:
+        confidence, iou = config.get("conf_threshold"), config.get("iou_threshold")
+    return {
+        "conf_threshold": confidence,
+        "iou_threshold": iou,
+        "model_index": str(params.get("index", "")),
+    }
+
+
+def default_primary_step():
+    return {
+        "type": "model",
+        "model": {
+            "task": "detection",
+            "kind": "yolov8",
+            "uri": SUPPORTED_MODEL_DEFAULT_URIS["yolov8"]["detection"],
+        },
+    }
+
+
+@dataclass
 class PipelineDraft:
     """Editable, JSON-compatible representation of a pipeline.
 
@@ -53,40 +190,23 @@ class PipelineDraft:
     source: str = "0"
     resolution: List[int] = field(default_factory=lambda: [1920, 1080])
     fps: int = 30
-    steps: List[Dict[str, Any]] = field(default_factory=list)
     show: bool = True
     render_results: bool = True
     render_metrics: bool = True
+    steps: List[Dict[str, Any]] = field(
+        default_factory=lambda: [default_primary_step()]
+    )
 
-    def __init__(
-        self,
-        source_type="camera",
-        source="0",
-        resolution=None,
-        fps=30,
-        show=True,
-        render_results=True,
-        render_metrics=True,
-        *,
-        steps=None,
-    ):
-        """Create a draft with ordered version-two steps."""
-        self.source_type = source_type
-        self.source = source
-        self.resolution = [1920, 1080] if resolution is None else resolution
-        self.fps = fps
+    def __post_init__(self):
+        if self.resolution is None:
+            self.resolution = [1920, 1080]
         self.steps = (
-            [default_primary_stage()]
-            if steps is None
-            else list(steps)
+            [default_primary_step()] if self.steps is None else list(self.steps)
         )
-        self.show = show
-        self.render_results = render_results
-        self.render_metrics = render_metrics
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> "PipelineDraft":
-        return parse_pipeline_draft(config, draft_class=cls)
+        return parse_pipeline_draft(config)
 
     def to_dict(self) -> Dict[str, Any]:
         return serialize_pipeline_draft(self)
@@ -94,15 +214,12 @@ class PipelineDraft:
     def validation_errors(self) -> List[str]:
         return validate_pipeline_draft(self)
 
-    def is_valid(self):
-        return not self.validation_errors()
 
-
-def default_stage(stage_type):
-    """Return a fresh stage config suitable for an editor card."""
-    definition = PIPELINE_STAGE_DEFINITIONS.get(stage_type)
+def default_step(step_type):
+    """Return a fresh step config suitable for an editor card."""
+    definition = PIPELINE_STEP_DEFINITIONS.get(step_type)
     if definition is None:
-        raise ValueError(f"Unsupported stage type: {stage_type}")
+        raise ValueError(f"Unsupported step type: {step_type}")
     return deepcopy(definition["default"])
 
 
@@ -127,10 +244,8 @@ def _number(value, default, cast=float):
         return default
 
 
-def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
+def parse_pipeline_draft(config: Dict[str, Any]):
     """Build a :class:`PipelineDraft` from a versioned pipeline document."""
-    draft_class = draft_class or PipelineDraft
-
     if not isinstance(config, dict):
         raise ValueError("Pipeline configuration must be a JSON object")
     if config.get("version") != 2:
@@ -154,9 +269,9 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
         raise ValueError("Pipeline steps must be an array")
     if any(not isinstance(step, dict) for step in steps_config):
         raise ValueError("Pipeline steps must contain objects")
-    if steps_config and not is_primary_model_step(steps_config[0]):
+    if not starts_with_model_step(steps_config):
         raise ValueError(
-            "A version 2 pipeline with stages must start with a frame model step"
+            "A version 2 pipeline with steps must start with a frame model step"
         )
     normalized_steps = normalize_step_ids(steps_config)
     source_default = "0" if source.get("type") in (None, "camera") else ""
@@ -169,7 +284,7 @@ def parse_pipeline_draft(config: Dict[str, Any], draft_class=None):
         )
     else:
         source_type = normalize_source_type(configured_source_type)
-    return draft_class(
+    return PipelineDraft(
         source_type=source_type or "camera",
         source=source_value,
         resolution=[_number(v, 0, int) for v in resolution],
@@ -195,14 +310,14 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
         "fps": int(draft.fps),
     }
     steps = [dict(step) for step in draft.steps]
-    canonical_steps = is_primary_model_step(steps[0]) if steps else True
+    canonical_steps = starts_with_model_step(steps)
     display = {
         "show": bool(draft.show),
         "render_results": bool(draft.render_results),
         "render_metrics": bool(draft.render_metrics),
     }
     if any(
-        step.get("type") not in SUPPORTED_STAGE_TYPES
+        step.get("type") not in SUPPORTED_STEP_TYPES
         for step in steps
         if isinstance(step, dict)
     ):
@@ -210,7 +325,7 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
 
     if not canonical_steps:
         raise ValueError(
-            "A version 2 pipeline with stages must start with a model step."
+            "A version 2 pipeline with steps must start with a model step."
         )
     pipeline_steps = strip_internal_step_ids(steps)
 
@@ -222,18 +337,83 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
     }
 
 
+def validate_pipeline_draft(draft):
+    """Return user-facing validation messages for a pipeline draft."""
+    errors = []
+    source_value = "" if draft.source is None else str(draft.source).strip()
+    source_type = infer_source_type(
+        source_value,
+        fallback=normalize_source_type(draft.source_type) or "camera",
+    ) or "camera"
+    if not source_value:
+        errors.append("Choose a source file, camera, or stream.")
+    elif source_type == "camera" and not source_value.isdigit():
+        errors.append("Camera source must be a numeric camera index.")
+    try:
+        resolution_valid = len(draft.resolution) == 2 and all(
+            int(value) > 0 for value in draft.resolution
+        )
+    except (TypeError, ValueError):
+        resolution_valid = False
+    if not resolution_valid:
+        errors.append("Resolution must contain two positive values.")
+    try:
+        fps_valid = int(draft.fps) > 0
+    except (TypeError, ValueError):
+        fps_valid = False
+    if not fps_valid:
+        errors.append("FPS must be greater than zero.")
+    steps = draft.steps
+    if not starts_with_model_step(steps):
+        errors.append(
+            "A version 2 pipeline with steps must start with a frame model step."
+        )
+    errors.extend(validate_step_structure(steps))
+    for index, step in enumerate(iter_pipeline_steps(steps), 1):
+        if not step.is_mapping or not step.is_active:
+            continue
+        step_type = step.type
+        if step_type == "model" and isinstance(step.get("model"), dict):
+            model = step.get("model")
+            spec = ModelSpec.from_config(model)
+            errors.extend(model_pipeline_errors(spec))
+            editor_values = model_editor_values(spec, model)
+            for name, label in (
+                ("conf_threshold", "Confidence threshold"),
+                ("iou_threshold", "IoU threshold"),
+            ):
+                value = editor_values[name]
+                if value is None:
+                    continue
+                try:
+                    valid = 0 <= float(value) <= 1
+                except (TypeError, ValueError):
+                    valid = False
+                if not valid:
+                    errors.append(f"{label} must be between 0 and 1.")
+        if step_type == "line_counter" and not is_valid_step_geometry(
+            step_type, step
+        ):
+            errors.append(f"Step {index}: line counter needs two points.")
+        if step_type in ("region_filter", "region_timer") and not is_valid_step_geometry(
+            step_type, step
+        ):
+            errors.append(f"Step {index}: region needs at least three points.")
+    return errors
+
+
 __all__ = [
     "PipelineDraft",
     "SUPPORTED_MODEL_KINDS",
     "SUPPORTED_MODEL_DEFAULT_URIS",
     "SUPPORTED_MODEL_OPTIONS",
-    "SUPPORTED_SECOND_STAGE_MODEL_OPTIONS",
+    "SUPPORTED_SECOND_STEP_MODEL_OPTIONS",
     "SUPPORTED_MODEL_TASKS",
-    "SUPPORTED_STAGE_TYPES",
+    "SUPPORTED_STEP_TYPES",
     "MAX_PIPELINE_TRACKERS",
     "MAX_PIPELINE_MODELS",
-    "default_primary_stage",
-    "default_stage",
+    "default_primary_step",
+    "default_step",
     "format_points",
     "infer_source_type",
     "model_control_visibility",

@@ -1,12 +1,11 @@
 import cv2
 import numpy as np
-import onnxruntime as ort
 
 from PIL import Image
 
 from ..utils import download_file
+from ..inference.session import OnnxSessionMixin
 
-ort.set_default_logger_severity(3)
 
 kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
@@ -28,15 +27,18 @@ def naive_cutout(img, mask):
     return cutout
 
 
-class BackgroundRemover:
+class BackgroundRemover(OnnxSessionMixin):
     
-    def __init__(self):
+    def __init__(self, providers=None, accelerator=None):
         self.image_size = (1024, 1024)
         self.input_mean = (0.5, 0.5, 0.5)
         self.input_std = (1.0, 1.0, 1.0)
-        self.providers = ort.get_available_providers()
         model_src = download_file('multiple/models/editing/rmbg14_fp16.onnx')
-        self.session = ort.InferenceSession(model_src, providers=self.providers)
+        self._init_onnx_session(
+            model_src,
+            providers=providers,
+            accelerator=accelerator,
+        )
         self.input_name = self.session.get_inputs()[0].name
 
     def preprocess(self, img):
@@ -58,6 +60,7 @@ class BackgroundRemover:
         return mask
 
     def predict(self, img):
+        self._ensure_open()
         h, w = img.shape[:2]
         inputs = {self.input_name: self.preprocess(img)}
         outputs = self.session.run(None, inputs)

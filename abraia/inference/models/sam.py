@@ -4,7 +4,7 @@ import numpy as np
 
 from ...utils import download_file, Sketcher
 from ..postprocess.masks import mask_to_box
-from ..session import OnnxSessionBundle, ResourceGroup
+from ..session import OnnxSessionBundle
 
 
 def get_input_points(prompt):
@@ -32,23 +32,24 @@ class SAM:
         self.encoder = None
         self.decoder = None
         self._session_bundle = None
-        self._resources = ResourceGroup()
         try:
             encoder_src = download_file('multiple/models/mobile_sam.encoder.onnx')
             decoder_src = download_file('multiple/models/mobile_sam.decoder.onnx')
-            self._session_bundle = self._resources.add(
-                OnnxSessionBundle(
-                    [encoder_src, decoder_src],
-                    providers=providers,
-                    accelerator=accelerator,
-                )
+            self._session_bundle = OnnxSessionBundle(
+                [encoder_src, decoder_src],
+                providers=providers,
+                accelerator=accelerator,
             )
             self.encoder, self.decoder = self._session_bundle.sessions
             self.execution_providers = self._session_bundle.execution_providers
             self.accelerator = self._session_bundle.accelerator
         except Exception:
-            self._resources.close(suppress_errors=True)
-            self._session_bundle = None
+            bundle, self._session_bundle = self._session_bundle, None
+            if bundle is not None:
+                try:
+                    bundle.close()
+                except Exception:
+                    pass
             self.encoder = None
             self.decoder = None
             raise
@@ -122,10 +123,10 @@ class SAM:
         """Release the encoder and decoder sessions."""
         if self._closed:
             return
-        resources, self._resources = getattr(self, '_resources', None), None
-        if resources is not None:
-            resources.close()
+        bundle = getattr(self, "_session_bundle", None)
         self._session_bundle = None
+        if bundle is not None:
+            bundle.close()
         self.encoder = None
         self.decoder = None
         self.image_embedding = None
@@ -141,12 +142,19 @@ class SAM:
 class InteractiveSAM(Sketcher, SAM):
 
     def __init__(self, img, radius=7, providers=None, accelerator=None):
-        SAM.__init__(self, providers=providers, accelerator=accelerator)
-        self.image_embedding = None
-        self.encode(img)
-        self.cropped_img = None
-        self.selected_box = None
-        Sketcher.__init__(self, img, radius=radius)
+        try:
+            SAM.__init__(self, providers=providers, accelerator=accelerator)
+            self.image_embedding = None
+            self.encode(img)
+            self.cropped_img = None
+            self.selected_box = None
+            Sketcher.__init__(self, img, radius=radius)
+        except Exception:
+            try:
+                self.close()
+            except Exception:
+                pass
+            raise
 
     def select_object(self):
         """Interactively select an object by clicking on it, returning the cropped image and bounding box."""

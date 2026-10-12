@@ -1,3 +1,4 @@
+from functools import lru_cache
 import os
 import cv2
 import numpy as np
@@ -43,40 +44,40 @@ def combine_maps(map1, map2, alpha=0.3):
     return cv2.normalize(cmap, cmap, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
 
 
-class Faces: 
-    def __init__(self):
-        self.detector = Retinaface()
-
-    def detect(self, img):
-        results = self.detector.detect_faces(img)
-        return [result['box'] for result in results]
+@lru_cache(maxsize=1)
+def _center_map():
+    path = os.path.join(os.path.dirname(__file__), "center.jpg")
+    return cv2.imread(path)[:, :, 0]
 
 
-class Saliency:
-    def __init__(self):
-        self.center = cv2.imread(os.path.join(os.path.dirname(__file__), 'center.jpg'))[:, :, 0]
-
-    def faces_map(self, salmap, rects, alpha):
-        if len(rects):
-            facemap = draw_ellipses(np.zeros(salmap.shape, dtype=np.uint8), rects, 255)
-            facemap = cv2.GaussianBlur(facemap.astype(np.float32) / 255, (249, 249), 30)
-            facemap = cv2.normalize(facemap, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            salmap = combine_maps(salmap, facemap, alpha)
+def _apply_face_prior(salmap, faces, alpha):
+    if len(faces) == 0:
         return salmap
+    face_map = draw_ellipses(
+        np.zeros(salmap.shape, dtype=np.uint8), faces, 255
+    )
+    face_map = cv2.GaussianBlur(
+        face_map.astype(np.float32) / 255, (249, 249), 30
+    )
+    face_map = cv2.normalize(
+        face_map,
+        None,
+        alpha=0,
+        beta=255,
+        norm_type=cv2.NORM_MINMAX,
+        dtype=cv2.CV_8U,
+    )
+    return combine_maps(salmap, face_map, alpha)
 
-    def center_model(self, salmap, alpha):
-        size = salmap.shape[1], salmap.shape[0]
-        modmap = cv2.resize(self.center, size)
-        salmap = combine_maps(salmap, modmap, alpha)
-        return salmap
 
-    def predict(self, img, faces=None):
-        if faces is None:
-            faces = []
-        salmap = spectral_residual(img)
-        salmap = self.faces_map(salmap, faces, 0.35)
-        salmap = self.center_model(salmap, 0.05)
-        return salmap
+def saliency_map(img, faces=None):
+    """Combine spectral, face, and center priors into a saliency map."""
+    faces = () if faces is None else faces
+    salmap = spectral_residual(img)
+    salmap = _apply_face_prior(salmap, faces, 0.35)
+    size = salmap.shape[1], salmap.shape[0]
+    center = cv2.resize(_center_map(), size)
+    return combine_maps(salmap, center, 0.05)
 
 
 def rectangle_union(recta, rectb):
@@ -273,8 +274,7 @@ def best_crop_area(salmap, faces, energy, ratio):
 
 class Smartcrop:
     def __init__(self):
-        self.faces = Faces()
-        self.saliency = Saliency()
+        self.face_detector = Retinaface()
 
     def preprocess(self, img):
         height, width = img.shape[:2]
@@ -291,8 +291,10 @@ class Smartcrop:
             rimg = self.preprocess(img)
             rh, rw = rimg.shape[:2]
             energy = laplacian(rimg)
-            faces = self.faces.detect(rimg)
-            salmap = self.saliency.predict(rimg, faces=faces)
+            faces = [
+                result["box"] for result in self.face_detector.detect_faces(rimg)
+            ]
+            salmap = saliency_map(rimg, faces=faces)
             ar = max(size[0] / size[1], 0.027)
             rect = best_crop_area(salmap, faces, energy, ar)
             return rectangle_scale(rect, (w / rw, h / rh))

@@ -1,7 +1,6 @@
 """Remote image search and upload helpers."""
 
 import io
-import itertools
 import os
 import re
 import tempfile
@@ -13,7 +12,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from ..utils import HEADERS
-from .core import _resolve_client
+from . import _resolve_client
 
 
 GOOGLE_BASE_URL = "https://www.google.com/search?q="
@@ -101,8 +100,9 @@ def search_bing(query, limit=50):
 
 
 def scan_google_page(html, extensions=None, timer=5000):
-    extensions = extensions or {".jpg", ".jpeg", ".webp"}
     """Yield supported image URLs embedded in a Google response."""
+    if extensions is None:
+        extensions = {".jpg", ".jpeg", ".webp"}
     scanner_counter = -1
     scanner = html.find
     for _ in range(timer):
@@ -137,40 +137,40 @@ def search_images(query, save_output, limit=100, callback=None, client=None):
     ends = [False] * len(links)
     progress = tqdm(total=limit, desc="Downloading images") if callback is None else None
     try:
-        for link_index in itertools.cycle(range(len(links))):
-            try:
-                link = next(links[link_index])
-            except StopIteration:
-                ends[link_index] = True
-                if set(ends) == {True}:
-                    break
-                continue
-            if link in seen:
-                continue
-            seen.add(link)
-            if download_count >= limit:
-                break
-            try:
-                uploaded, filename = save_image_file(
-                    link,
-                    save_output,
-                    existing_filenames=existing_filenames,
-                    client=client,
-                )
-            except Exception:
-                continue
-            if uploaded:
-                existing_filenames.add(filename)
-                download_count += 1
-                if callback:
-                    callback({
+        while download_count < limit and not all(ends):
+            for index, links_from_source in enumerate(links):
+                if ends[index] or download_count >= limit:
+                    continue
+                try:
+                    link = next(links_from_source)
+                except StopIteration:
+                    ends[index] = True
+                    continue
+                if link in seen:
+                    continue
+                seen.add(link)
+                try:
+                    uploaded, filename = save_image_file(
+                        link,
+                        save_output,
+                        existing_filenames=existing_filenames,
+                        client=client,
+                    )
+                except Exception:
+                    continue
+                if uploaded:
+                    existing_filenames.add(filename)
+                    download_count += 1
+                    event = {
                         "current": download_count,
                         "total": limit,
                         "filename": filename,
-                    })
-                elif progress:
-                    progress.set_description(f"Downloaded {filename}")
-                    progress.update(1)
+                    }
+                    if callback:
+                        callback(event)
+                    elif progress:
+                        progress.set_description(f"Downloaded {filename}")
+                        progress.update(1)
     finally:
         if progress:
             progress.close()

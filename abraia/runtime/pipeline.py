@@ -7,43 +7,13 @@ import threading
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from .factories import (
-    PipelineBuilder,
-)
+from .factories import _build_pipeline
 from .lifecycle import CancellationWatcher, close_resources, stop_resource
-
-
-class CancellableSource:
-    """Wrap a blocking source with cooperative cancellation."""
-
-    def __init__(self, source, is_cancelled):
-        self.source = source
-        self.frame_rate = getattr(source, "frame_rate", 0)
-        self._is_cancelled = is_cancelled
-        self._watcher = CancellationWatcher(
-            is_cancelled,
-            lambda: stop_resource(self.source),
-        )
-
-    def stop(self):
-        self._watcher.stop_event.set()
-        stop_resource(self.source)
-
-    def __iter__(self):
-        self._watcher.start()
-        try:
-            for frame in self.source:
-                if self._is_cancelled():
-                    break
-                yield frame
-        finally:
-            self.stop()
-            self._watcher.close()
 
 
 @dataclass
 class FrameContext:
-    """State passed between pipeline stages for one frame."""
+    """State passed between pipeline steps for one frame."""
 
     frame: Any
     frame_index: int
@@ -75,7 +45,7 @@ def _source_frame_parts(source_frame):
 class Pipeline:
     """Run a model and a sequence of processors over a frame source.
 
-    Stages are called in the order supplied. Each stage receives a
+    Steps are called in the order supplied. Each step receives a
     :class:`FrameContext` and may mutate it or return a replacement context.
     The source is expected to be iterable and to expose ``frame_rate`` when
     timestamps based on a video frame rate are useful.
@@ -85,7 +55,6 @@ class Pipeline:
         self,
         source: Iterable,
         model: Any,
-        stages: Optional[Iterable[Callable[[FrameContext], Optional[FrameContext]]]] = None,
         steps: Optional[Iterable[Callable[[FrameContext], Optional[FrameContext]]]] = None,
         display: Any = None,
         render: Optional[Callable[[FrameContext], Any]] = None,
@@ -95,7 +64,6 @@ class Pipeline:
     ):
         self.source = source
         self.model = model
-        self.stages = list(stages or [])
         self.steps = list(steps or [])
         self.display = display
         self.render = render
@@ -109,38 +77,6 @@ class Pipeline:
         frame_rate = getattr(source, "frame_rate", None)
         self.frame_rate = float(frame_rate or 0)
 
-    def _iter_inference(self):
-        """Yield :class:`FrameResult` objects from the model.
-
-        Most models expose the original synchronous ``run`` method.  Hardware
-        backends may instead expose ``iter_inference(source)`` and overlap
-        capture, preprocessing, and inference internally.  Keeping this small
-        protocol here lets the rest of the pipeline (including stateful
-        stages) remain backend-independent.
-        """
-        from .inference import FrameRecord, FrameResult
-
-        async_iterator = getattr(self.model, "iter_inference", None)
-        if callable(async_iterator):
-            for result in async_iterator(self.source, **self.model_kwargs):
-                if not isinstance(result, FrameResult):
-                    raise TypeError(
-                        "Async models must yield FrameResult instances"
-                    )
-                yield result
-            return
-
-        for frame_index, frame in enumerate(self.source):
-            if self._stop_requested.is_set() or self._is_cancelled():
-                self.stop()
-                break
-            started = time.perf_counter()
-            yield FrameResult(
-                FrameRecord(frame_index, frame, started),
-                self.model.run(frame, **self.model_kwargs),
-                (time.perf_counter() - started) * 1000,
-            )
-
     def stop(self):
         """Request cancellation and release a blocking source if possible."""
         self._stop_requested.set()
@@ -151,7 +87,7 @@ class Pipeline:
 
         Models with an ``iter_inference(source)`` method may process frames
         asynchronously.  Results are still consumed in source order so
-        stateful stages such as tracking and counting remain deterministic.
+        stateful steps such as tracking and counting remain deterministic.
         """
         if self._closed:
             raise RuntimeError("Pipeline has already been closed")
@@ -166,80 +102,62 @@ class Pipeline:
                 stop_event=self._stop_requested,
             )
             watcher.start()
-        last_context = None
         try:
-            if self.steps or self.model is None:
-                return self._run_composed(self._is_cancelled)
-            for result in self._iter_inference():
-                if self._stop_requested.is_set() or self._is_cancelled():
-                    self.stop()
-                    break
-                frame_index = result.record.index
-                frame = result.record.frame
-                results = result.results
-                elapsed_ms = result.elapsed_ms
-                frame_time = (
-                    frame_index / self.frame_rate
-                    if self.frame_rate > 0
-                    else float(frame_index)
-                )
-                context = FrameContext(frame, frame_index, frame_time)
-                context.results = results
-                context.current = results
-
-                for stage in self.stages:
-                    context = stage(context) or context
-
-                if self.on_frame is not None:
-                    if elapsed_ms is None:
-                        elapsed_ms = 0
-                last_context = context
-                if not self._finish_frame(context, elapsed_ms):
-                    break
-
-            return last_context
+            return self._run_frames(self._is_cancelled)
         finally:
             self._stop_requested.set()
             if watcher is not None:
                 watcher.close()
             self.close()
 
-    def _run_composed(self, is_cancelled):
-        """Run named multi-model steps directly over the source frames."""
+    def _run_frames(self, is_cancelled):
+        """Run inference and ordered steps over each source frame."""
         last_context = None
         first_step = self.steps[0] if self.steps else None
-        stream_inference = (
-            getattr(getattr(first_step, "model", None), "iter_inference", None)
+        inference_model = (
+            getattr(first_step, "model", None)
             if first_step is not None
-            else None
+            else self.model
         )
-        if callable(stream_inference):
-            frame_results = stream_inference(self.source, **first_step.model_kwargs)
-            frames = (
-                (
-                    result.record.index,
-                    result.record.frame,
-                    result.results,
-                    result.elapsed_ms,
-                )
-                for result in frame_results
+        stream_inference = getattr(inference_model, "iter_inference", None)
+        streaming = callable(stream_inference)
+        if streaming:
+            from .inference import FrameResult
+
+            model_kwargs = (
+                first_step.model_kwargs
+                if first_step is not None
+                else self.model_kwargs
             )
+            frame_results = stream_inference(self.source, **model_kwargs)
+            frames = enumerate(frame_results)
         else:
-            frames = (
-                (frame_index, source_frame, None, None)
-                for frame_index, source_frame in enumerate(self.source)
-            )
-        for frame_index, source_frame, streamed_results, inference_ms in frames:
+            frames = enumerate(self.source)
+
+        single_model = not self.steps and self.model is not None
+        for source_index, item in frames:
             if self._stop_requested.is_set() or is_cancelled():
                 self.stop()
                 break
-            frame, spectral_cube, spectral_metadata = _source_frame_parts(source_frame)
+            if streaming:
+                if not isinstance(item, FrameResult):
+                    raise TypeError("Async models must yield FrameResult instances")
+                frame_index = item.record.index
+                source_frame = item.record.frame
+                inference_ms = item.elapsed_ms
+            else:
+                frame_index = source_index
+                source_frame = item
+                inference_ms = None
+
+            frame, spectral_cube, spectral_metadata = _source_frame_parts(
+                source_frame
+            )
             frame_time = (
                 frame_index / self.frame_rate
                 if self.frame_rate > 0
                 else float(frame_index)
             )
-            started = time.perf_counter()
             context = FrameContext(
                 frame,
                 frame_index,
@@ -248,17 +166,35 @@ class Pipeline:
                 spectral_metadata=spectral_metadata,
                 current=frame,
             )
-            start_at = 0
-            if callable(stream_inference):
-                first_step.apply_results(context, streamed_results)
-                start_at = 1
-            for step in self.steps[start_at:]:
+
+            started = time.perf_counter()
+            if streaming and first_step is not None:
+                first_step.apply_results(context, item.results)
+                steps = self.steps[1:]
+            elif single_model:
+                if streaming:
+                    results = item.results
+                else:
+                    inference_started = time.perf_counter()
+                    results = self.model.run(source_frame, **self.model_kwargs)
+                    inference_ms = (time.perf_counter() - inference_started) * 1000
+                context.results = results
+                context.current = results
+                steps = ()
+            else:
+                steps = self.steps
+
+            for step in steps:
                 context = step(context) or context
-            elapsed_ms = (
-                inference_ms + (time.perf_counter() - started) * 1000
-                if inference_ms is not None
-                else (time.perf_counter() - started) * 1000
-            )
+            step_elapsed_ms = (time.perf_counter() - started) * 1000
+            if single_model:
+                elapsed_ms = inference_ms
+            elif streaming:
+                elapsed_ms = (inference_ms or 0) + step_elapsed_ms
+            else:
+                elapsed_ms = step_elapsed_ms
+            if self.on_frame is not None and elapsed_ms is None:
+                elapsed_ms = 0
             last_context = context
             if not self._finish_frame(context, elapsed_ms):
                 break
@@ -313,7 +249,8 @@ class Pipeline:
         ``accelerator`` selects a paired accelerator implementation when
         available and falls back to ONNX/CPU when it is not.
         """
-        return PipelineBuilder(cls).build(
+        return _build_pipeline(
+            cls,
             config,
             base_dir=base_dir,
             on_frame=on_frame,
@@ -326,11 +263,17 @@ class Pipeline:
         if self._closed:
             return
         self._closed = True
+        step_models = {
+            id(step.model)
+            for step in self.steps
+            if getattr(step, "model", None) is not None
+            and callable(getattr(step, "close", None))
+        }
+        resources = [self.display, self.source]
+        if self.model is not None and id(self.model) not in step_models:
+            resources.append(self.model)
         close_resources([
-            self.display,
-            self.source,
-            self.model,
-            *self.stages,
+            *resources,
             *self.steps,
             *self.components.values(),
         ])

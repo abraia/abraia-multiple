@@ -9,8 +9,8 @@ from typing import Optional
 
 from ...tasks import normalize_task
 from ...utils.remote import (
-    ARTIFACT_RESOLVER,
     is_managed_model_path,
+    resolve_artifact,
 )
 
 
@@ -170,7 +170,7 @@ def _download_artifact(path) -> Path:
     """Resolve a local or remote artifact through the shared resolver."""
     from ...utils import download_file
 
-    return Path(ARTIFACT_RESOLVER.resolve(path, downloader=download_file))
+    return Path(resolve_artifact(path, downloader=download_file))
 
 
 def resolve_hef_path(hef_path: Optional[str], task: str,

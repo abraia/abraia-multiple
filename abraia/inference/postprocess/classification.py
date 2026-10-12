@@ -45,14 +45,4 @@ def postprocess(outputs, classes, top_k=1, score_threshold=None, labels=None):
     return results
 
 
-class ClassificationDecoder:
-    """Decode image-classification logits for one model."""
-
-    def __init__(self, classes):
-        self.classes = list(classes)
-
-    def __call__(self, outputs, **kwargs):
-        return postprocess(outputs, self.classes, **kwargs)
-
-
-__all__ = ["ClassificationDecoder", "postprocess", "preprocess"]
+__all__ = ["postprocess", "preprocess"]

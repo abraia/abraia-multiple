@@ -6,14 +6,12 @@ from typing import Any, Dict
 
 from ..tasks import HAILO_TASKS
 from .model_config import (
-    GROUNDING_DINO_MODEL_KINDS,
     MODEL_ARCHITECTURES,
     MODEL_RUN_OPTIONS,
     MODEL_SIZE_URIS,
     MODEL_DESCRIPTORS,
     ModelSpec,
     PIPELINE_MODEL_KINDS,
-    RESNET_MODEL_KINDS,
 )
 from .accelerators import (
     hailo_device_arch,
@@ -271,12 +269,10 @@ def create_model(config: Dict[str, Any], base_dir=None, accelerator=None):
 
 
 __all__ = [
-    "GROUNDING_DINO_MODEL_KINDS",
     "MODEL_RUN_OPTIONS",
     "MODEL_SIZE_URIS",
     "MODEL_ARCHITECTURES",
     "PIPELINE_MODEL_KINDS",
-    "RESNET_MODEL_KINDS",
     "create_model",
     "register_model_factory",
     "get_model_run_kwargs",

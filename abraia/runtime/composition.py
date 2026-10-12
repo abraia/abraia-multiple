@@ -3,6 +3,90 @@
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
 
+from abraia.inference.geometry import point_in_polygon, segments_intersect
+
+
+def count_objects(results):
+    """Count object occurrences across detection results."""
+    counts = {}
+    for result in results:
+        label = result["label"]
+        counts[label] = counts.get(label, 0) + 1
+    return [{"label": label, "count": count} for label, count in counts.items()]
+
+
+class LineCounter:
+    def __init__(self, line):
+        self.line = line
+        self.in_count = 0
+        self.out_count = 0
+        self.prev_results = {}
+
+    def update(self, results):
+        for result in results:
+            track_id = result.get("track_id")
+            if track_id is None:
+                continue
+            prev_result = self.prev_results.get(track_id)
+            if prev_result:
+                x1, y1, w1, h1 = result["box"]
+                x2, y2, w2, h2 = prev_result["box"]
+                direction = segments_intersect(
+                    self.line[0],
+                    self.line[1],
+                    [x1 + w1 / 2, y1 + h1 / 2],
+                    [x2 + w2 / 2, y2 + h2 / 2],
+                )
+                if direction > 0:
+                    self.in_count += 1
+                elif direction < 0:
+                    self.out_count += 1
+            self.prev_results[track_id] = result
+        return self.in_count, self.out_count
+
+
+def filter_region(results, polygon):
+    """Split detections according to whether their centers lie in a polygon."""
+    in_objects, out_objects = [], []
+    for result in results:
+        box = result.get("box")
+        if box:
+            x, y, width, height = box
+            center = x + width / 2, y + height / 2
+            target = in_objects if point_in_polygon(center, polygon) else out_objects
+            target.append(result)
+    return in_objects, out_objects
+
+
+class RegionTimer:
+    def __init__(self, polygon):
+        self.region = polygon
+        self.timers = {}
+
+    def update(self, results, frame_time):
+        in_objects, out_objects = [], []
+        for result in results:
+            box = result.get("box")
+            track_id = result.get("track_id")
+            start_time = self.timers.get(track_id)
+            if not box or track_id is None:
+                continue
+            x, y, width, height = box
+            center = x + width / 2, y + height / 2
+            if point_in_polygon(center, self.region):
+                in_objects.append(result)
+                if start_time is None:
+                    self.timers[track_id] = frame_time
+                else:
+                    result["time"] = round(frame_time - start_time, 2)
+                    result["label"] = f"time {result['time']}s"
+                    result.pop("score", None)
+            else:
+                out_objects.append(result)
+                if start_time is not None:
+                    del self.timers[track_id]
+        return in_objects, out_objects
+
 
 @dataclass
 class RegionInput:
@@ -80,6 +164,63 @@ def _region_result(value):
     return result
 
 
+def _select_results(values, labels, min_confidence):
+    """Keep mapping results that match the configured label and score."""
+    selected = []
+    for value in values:
+        if not isinstance(value, Mapping):
+            continue
+        if labels and str(value.get("label", "")) not in labels:
+            continue
+        if min_confidence is not None:
+            score = value.get("score", value.get("confidence", 0.0))
+            if float(score) < float(min_confidence):
+                continue
+        selected.append(value)
+    return selected
+
+
+def _run_regions(step_id, model, model_kwargs, regions):
+    """Run a model over regions and preserve their source identities."""
+    if not regions:
+        return []
+    run_batch = getattr(model, "run_batch", None)
+    if callable(run_batch):
+        raw_results = run_batch(
+            [region.image for region in regions], **model_kwargs
+        )
+        if len(raw_results) != len(regions):
+            raise ValueError(
+                f"Model step '{step_id}' returned {len(raw_results)} results "
+                f"for {len(regions)} regions"
+            )
+    else:
+        raw_results = [
+            model.run(region.image, **model_kwargs) for region in regions
+        ]
+
+    return [
+        {
+            "item_id": region.id,
+            "parent_id": region.parent_id,
+            "source_box": list(region.source_box),
+            **_region_result(raw),
+        }
+        for region, raw in zip(regions, raw_results)
+    ]
+
+
+def _close_model(model):
+    close = getattr(model, "close", None)
+    if callable(close):
+        close()
+
+
+def _initialize_model_step(step, model, model_kwargs):
+    step.model = model
+    step.model_kwargs = dict(model_kwargs or {})
+
+
 def _map_region_result(value, source_box):
     """Translate region-local boxes and points back to frame coordinates."""
     if not isinstance(value, Mapping) or not source_box:
@@ -138,8 +279,7 @@ class ModelStep(CompositionStep):
 
     def __init__(self, step_id, model, model_kwargs=None):
         super().__init__(step_id)
-        self.model = model
-        self.model_kwargs = dict(model_kwargs or {})
+        _initialize_model_step(self, model, model_kwargs)
 
     def __call__(self, context):
         inputs = context.current
@@ -152,7 +292,9 @@ class ModelStep(CompositionStep):
         if not isinstance(inputs, Iterable) or isinstance(inputs, (str, bytes)):
             raise ValueError(f"Model step '{self.step_id}' requires region inputs")
         regions = list(inputs)
-        output = self._run_regions(regions)
+        output = _run_regions(
+            self.step_id, self.model, self.model_kwargs, regions
+        )
         context.artifacts[f"{self.step_id}.results"] = output
         self._set_current(context, output, update_results=True)
         return context
@@ -167,47 +309,11 @@ class ModelStep(CompositionStep):
             self._set_current(context, output)
         return context
 
-    def _run_regions(self, regions):
-        """Run this model over region inputs and preserve their identities."""
-        if not regions:
-            output = []
-        elif callable(getattr(self.model, "run_batch", None)):
-            raw_results = self.model.run_batch(
-                [region.image for region in regions], **self.model_kwargs
-            )
-            if len(raw_results) != len(regions):
-                raise ValueError(
-                    f"Model step '{self.step_id}' returned {len(raw_results)} results "
-                    f"for {len(regions)} regions"
-                )
-            output = [
-                {
-                    "item_id": region.id,
-                    "parent_id": region.parent_id,
-                    "source_box": list(region.source_box),
-                    **_region_result(raw),
-                }
-                for region, raw in zip(regions, raw_results)
-            ]
-        else:
-            output = []
-            for region in regions:
-                raw = self.model.run(region.image, **self.model_kwargs)
-                output.append({
-                    "item_id": region.id,
-                    "parent_id": region.parent_id,
-                    "source_box": list(region.source_box),
-                    **_region_result(raw),
-                })
-        return output
-
     def close(self):
-        close = getattr(self.model, "close", None)
-        if callable(close):
-            close()
+        _close_model(self.model)
 
 
-class BoundModelStep(ModelStep):
+class BoundModelStep(CompositionStep):
     """Run a model on selected detections and attach results automatically."""
 
     def __init__(
@@ -220,7 +326,8 @@ class BoundModelStep(ModelStep):
         field="result",
         model_kwargs=None,
     ):
-        super().__init__(step_id, model, model_kwargs=model_kwargs)
+        super().__init__(step_id)
+        _initialize_model_step(self, model, model_kwargs)
         self.labels = {str(label) for label in labels or ()}
         self.min_confidence = min_confidence
         self.crop_padding = crop_padding
@@ -232,17 +339,9 @@ class BoundModelStep(ModelStep):
             raise ValueError(
                 f"Bound model step '{self.step_id}' requires detection results"
             )
-        selected = []
-        for value in values:
-            if not isinstance(value, Mapping):
-                continue
-            if self.labels and str(value.get("label", "")) not in self.labels:
-                continue
-            if self.min_confidence is not None:
-                score = value.get("score", value.get("confidence", 0.0))
-                if float(score) < float(self.min_confidence):
-                    continue
-            selected.append(value)
+        selected = _select_results(
+            values, self.labels, self.min_confidence
+        )
 
         regions = []
         spectral_cube = getattr(context, "spectral_cube", None)
@@ -266,8 +365,9 @@ class BoundModelStep(ModelStep):
                 parent_id=parent_id,
                 metadata=dict(value),
             ))
-        output = self._run_regions(regions)
-        context.artifacts[f"{self.step_id}.results"] = output
+        output = _run_regions(
+            self.step_id, self.model, self.model_kwargs, regions
+        )
         by_id = {
             str(value.get("id")): value
             for value in values
@@ -286,6 +386,9 @@ class BoundModelStep(ModelStep):
         self._set_current(context, values, update_results=True)
         return context
 
+    def close(self):
+        _close_model(self.model)
+
 
 class FilterStep(CompositionStep):
     """Filter detection-like records before a downstream region step."""
@@ -299,17 +402,9 @@ class FilterStep(CompositionStep):
         values = context.current
         if not isinstance(values, list):
             raise ValueError(f"Filter step '{self.step_id}' requires a result list")
-        output = []
-        for value in values:
-            if not isinstance(value, Mapping):
-                continue
-            if self.labels and str(value.get("label", "")) not in self.labels:
-                continue
-            if self.min_confidence is not None:
-                score = value.get("score", value.get("confidence", 0.0))
-                if float(score) < float(self.min_confidence):
-                    continue
-            output.append(value)
+        output = _select_results(
+            values, self.labels, self.min_confidence
+        )
         context.artifacts[f"{self.step_id}.results"] = output
         self._set_current(context, output)
         return context
@@ -348,12 +443,13 @@ class CropStep(CompositionStep):
         return context
 
 
-class _ResultsStep(CompositionStep):
-    """Base for stateful steps that read and emit detection results."""
+class ProcessorStep(CompositionStep):
+    """Apply a tracker, counter, or region operation to current results."""
 
-    def __init__(self, step_id, processor):
+    def __init__(self, step_id, processor, operation):
         super().__init__(step_id)
         self.processor = processor
+        self.operation = operation
 
     def _results(self, context):
         values = context.current
@@ -373,81 +469,35 @@ class _ResultsStep(CompositionStep):
         if callable(close):
             close()
 
-
-def _update_tracker(processor, values):
-    """Apply tracking to results without imposing pipeline storage rules."""
-    return processor.update(values)
-
-
-def _update_line_counter(context, processor, values):
-    """Update line counts and expose them on a frame context."""
-    in_count, out_count = processor.update(values)
-    context.metrics["line_counter"] = {"in": in_count, "out": out_count}
-
-
-def _update_region_filter(context, processor, values):
-    """Partition results by region and store both views on the context."""
-    inside, outside = processor.update(values)
-    context.views["in_region"] = inside
-    context.views["out_region"] = outside
-    return inside
-
-
-def _update_region_timer(context, processor, values, frame_time):
-    """Update region timing, views, and count metrics for one frame."""
-    inside, outside = processor.update(values, frame_time)
-    context.views["in_region"] = inside
-    context.views["out_region"] = outside
-    context.metrics["region"] = {
-        "count": len(inside),
-        "in_objects": inside,
-        "out_objects": outside,
-    }
-    return inside
-
-
-class TrackerStep(_ResultsStep):
-    """Attach tracking IDs to detections in a composed pipeline."""
-
-    def __call__(self, context):
-        return self._emit(
-            context,
-            _update_tracker(self.processor, self._results(context)),
-        )
-
-
-class LineCounterStep(_ResultsStep):
-    """Count tracked detections crossing a configured line."""
-
     def __call__(self, context):
         values = self._results(context)
-        _update_line_counter(context, self.processor, values)
-        return self._emit(context, values)
-
-
-class RegionFilterStep(_ResultsStep):
-    """Keep detections inside a configured region."""
-
-    def __call__(self, context):
-        inside = _update_region_filter(
-            context,
-            self.processor,
-            self._results(context),
-        )
-        return self._emit(context, inside)
-
-
-class RegionTimerStep(_ResultsStep):
-    """Annotate detections with time spent inside a configured region."""
-
-    def __call__(self, context):
-        inside = _update_region_timer(
-            context,
-            self.processor,
-            self._results(context),
-            context.frame_time,
-        )
-        return self._emit(context, inside)
+        if self.operation == "tracker":
+            output = self.processor.update(values)
+        elif self.operation == "line_counter":
+            in_count, out_count = self.processor.update(values)
+            context.metrics["line_counter"] = {
+                "in": in_count,
+                "out": out_count,
+            }
+            output = values
+        elif self.operation in ("region_filter", "region_timer"):
+            if self.operation == "region_timer":
+                inside, outside = self.processor.update(
+                    values, context.frame_time
+                )
+                context.metrics["region"] = {
+                    "count": len(inside),
+                    "in_objects": inside,
+                    "out_objects": outside,
+                }
+            elif self.operation == "region_filter":
+                inside, outside = self.processor(values)
+            context.views["in_region"] = inside
+            context.views["out_region"] = outside
+            output = inside
+        else:
+            raise ValueError(f"Unknown result processor: {self.operation}")
+        return self._emit(context, output)
 
 
 __all__ = [
@@ -455,11 +505,12 @@ __all__ = [
     "CompositionStep",
     "CropStep",
     "FilterStep",
-    "LineCounterStep",
+    "LineCounter",
     "ModelStep",
-    "RegionFilterStep",
+    "ProcessorStep",
     "RegionInput",
-    "RegionTimerStep",
-    "TrackerStep",
+    "RegionTimer",
+    "count_objects",
     "crop_region",
+    "filter_region",
 ]

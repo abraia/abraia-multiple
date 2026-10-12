@@ -13,11 +13,9 @@ from abraia.runtime import (
     FrameContext,
     FrameRecord,
     FrameResult,
-    LineCounterStep,
+    ModelStep,
     Pipeline,
-    RegionFilterStep,
-    RegionTimerStep,
-    TrackerStep,
+    ProcessorStep,
 )
 
 
@@ -117,12 +115,12 @@ class CloseableModel:
         self.closed = True
 
 
-def test_pipeline_runs_model_stages_and_display_in_order():
+def test_pipeline_runs_model_steps_and_display_in_order():
     model = FakeModel()
     display = FakeDisplay()
     calls = []
 
-    def stage(context):
+    def step(context):
         calls.append((context.frame, context.frame_time))
         context.results[0]["processed"] = True
         return context
@@ -130,10 +128,9 @@ def test_pipeline_runs_model_stages_and_display_in_order():
     last = Pipeline(
         source=FakeSource(),
         model=model,
-        stages=[stage],
+        steps=[ModelStep("model", model, {"labels": ["person"]}), step],
         display=display,
         render=lambda context: (context.frame, context.results[0]["processed"]),
-        model_kwargs={"labels": ["person"]},
     ).run()
 
     assert [call[0] for call in model.calls] == ["frame-1", "frame-2"]
@@ -240,14 +237,15 @@ def test_pipeline_supports_ordered_async_model_results():
 
     seen = []
 
-    def stage(context):
+    def step(context):
         seen.append(context.frame_index)
         return context
 
+    model = AsyncModel()
     last = Pipeline(
         source=["frame-1", "frame-2"],
-        model=AsyncModel(),
-        stages=[stage],
+        model=model,
+        steps=[ModelStep("model", model), step],
     ).run()
 
     assert seen == [0, 1]
@@ -296,25 +294,25 @@ def test_pipeline_closes_owned_resources_when_inference_fails():
     assert model.closed
 
 
-def test_tracker_stage_updates_context_results():
+def test_tracker_step_updates_context_results():
     class Tracker:
         def update(self, results):
             results[0]["track_id"] = 7
             return results
 
     context = FrameContext(frame=None, frame_index=0, frame_time=0, results=[{}])
-    TrackerStep("tracker", Tracker())(context)
+    ProcessorStep("tracker", Tracker(), "tracker")(context)
 
     assert context.results[0]["track_id"] == 7
 
 
-def test_line_counter_stage_exposes_metrics():
+def test_line_counter_step_exposes_metrics():
     class Counter:
         def update(self, results):
             return 3, 2
 
     context = FrameContext(frame=None, frame_index=0, frame_time=0, results=[])
-    LineCounterStep("counter", Counter())(context)
+    ProcessorStep("counter", Counter(), "line_counter")(context)
 
     assert context.metrics["line_counter"] == {"in": 3, "out": 2}
 
@@ -376,21 +374,17 @@ def test_composed_pipeline_builds_stateful_processing_steps():
         pipeline = Pipeline.from_dict(config)
         context = pipeline.run()
 
-    assert [type(step) for step in pipeline.steps[1:]] == [
-        TrackerStep,
-        LineCounterStep,
-        RegionFilterStep,
-        RegionTimerStep,
+    assert [step.operation for step in pipeline.steps[1:]] == [
+        "tracker", "line_counter", "region_filter", "region_timer"
     ]
     assert context.results[0]["track_id"] == 1
     assert context.metrics["line_counter"] == {"in": 0, "out": 0}
     assert context.metrics["region"]["count"] == 1
 
 
-def test_region_filter_stage_keeps_named_views():
-    class RegionFilter:
-        def update(self, results):
-            return [results[0]], [results[1]]
+def test_region_filter_step_keeps_named_views():
+    def filter_results(results):
+        return [results[0]], [results[1]]
 
     inside, outside = {"id": 1}, {"id": 2}
     context = FrameContext(
@@ -399,7 +393,7 @@ def test_region_filter_stage_keeps_named_views():
         frame_time=0,
         results=[inside, outside],
     )
-    RegionFilterStep("region", RegionFilter())(context)
+    ProcessorStep("region", filter_results, "region_filter")(context)
 
     assert context.results == [inside]
     assert context.views["in_region"] == [inside]
@@ -499,8 +493,10 @@ def test_pipeline_from_file_builds_components_and_resolves_paths():
         assert pipeline.source.src == str(Path(temp_dir) / "frame.jpg")
         assert pipeline.source.dest == str(Path(temp_dir) / "output.avi")
         assert pipeline.model.uri == "model.onnx"
-        assert isinstance(pipeline.steps[1], TrackerStep)
-        assert isinstance(pipeline.steps[2], LineCounterStep)
+        assert isinstance(pipeline.steps[1], ProcessorStep)
+        assert pipeline.steps[1].operation == "tracker"
+        assert isinstance(pipeline.steps[2], ProcessorStep)
+        assert pipeline.steps[2].operation == "line_counter"
         assert "tracker" in pipeline.components
         assert "line_counter" in pipeline.components
 
@@ -550,7 +546,7 @@ def test_pipeline_from_dict_rejects_unsupported_versions():
         Pipeline.from_dict({"version": 3})
 
 
-def test_pipeline_from_dict_rejects_unknown_stage():
+def test_pipeline_from_dict_rejects_unknown_step():
     config = {
         "version": 2,
         "source": {"src": 0},
@@ -568,11 +564,11 @@ def test_pipeline_from_dict_rejects_unknown_stage():
         frame_rate = 30
 
         def __init__(self, *args, **kwargs):
-            pytest.fail("Invalid stage must be rejected before source creation")
+            pytest.fail("Invalid step must be rejected before source creation")
 
     class FakeModel:
         def __init__(self, uri, **kwargs):
-            pytest.fail("Invalid stage must be rejected before model creation")
+            pytest.fail("Invalid step must be rejected before model creation")
 
     with patch("abraia.runtime.video.Video", FakeVideo), \
          patch("abraia.inference.models.detection.Model", FakeModel):
@@ -581,7 +577,7 @@ def test_pipeline_from_dict_rejects_unknown_stage():
         except ValueError as error:
             assert "Unknown composed pipeline step type" in str(error)
         else:
-            raise AssertionError("Expected unknown stage to be rejected")
+            raise AssertionError("Expected unknown step to be rejected")
 
 
 def test_pipeline_closes_resources_if_renderer_factory_fails():
@@ -631,7 +627,7 @@ def test_pipeline_closes_resources_if_renderer_factory_fails():
     assert closed.count("model") == 1
 
 
-def test_pipeline_from_dict_skips_disabled_stages():
+def test_pipeline_from_dict_skips_disabled_steps():
     config = {
         "version": 2,
         "source": {"src": "clip.mp4"},
@@ -687,7 +683,7 @@ def test_pipeline_from_dict_rejects_invalid_model_spec():
             Pipeline.from_dict(config)
 
 
-def test_pipeline_from_dict_rejects_tracker_dependent_stage_ordering():
+def test_pipeline_from_dict_rejects_tracker_dependent_step_ordering():
     config = {
         "version": 2,
         "source": {"src": 0},

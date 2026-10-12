@@ -330,16 +330,26 @@ class RemoteFileCache:
 
     def _data_files(self):
         """Yield cached files, excluding metadata and incomplete downloads."""
-        for entry in self.root.rglob("*"):
-            try:
-                parts = entry.relative_to(self.root).parts
-                if (
-                    entry.is_file()
-                    and not {".metadata", ".staging"}.intersection(parts)
-                ):
-                    yield entry
-            except OSError:
+        # os.walk ignores directories removed between enumeration and descent
+        # when no onerror callback is supplied. pathlib.Path.rglob can instead
+        # raise from inside its iterator when a concurrent download removes a
+        # temporary staging directory.
+        for directory, subdirectories, filenames in os.walk(self.root):
+            relative = Path(directory).relative_to(self.root)
+            if {".metadata", ".staging"}.intersection(relative.parts):
+                subdirectories[:] = []
                 continue
+            subdirectories[:] = [
+                name for name in subdirectories
+                if name not in {".metadata", ".staging"}
+            ]
+            for filename in filenames:
+                entry = Path(directory) / filename
+                try:
+                    if entry.is_file():
+                        yield entry
+                except OSError:
+                    continue
 
     def _signature_path(self, path):
         relative = Path(os.fspath(path)).as_posix()

@@ -5,7 +5,13 @@ import numpy as np
 
 from abraia import APIError
 from abraia import Abraia
-from abraia.utils import ArtifactResolver, load_json, resolve_model_file, save_json
+from abraia.utils import (
+    artifact_reference,
+    load_json,
+    remote_available,
+    resolve_model_file,
+    save_json,
+)
 from abraia.utils.remote import is_managed_model_path
 
 
@@ -59,7 +65,7 @@ def test_artifact_resolver_prefers_managed_namespace_over_local_copy(tmp_path):
     local.parent.mkdir(parents=True)
     local.write_bytes(b"local")
 
-    reference = ArtifactResolver().reference("multiple/models/model.onnx")
+    reference = artifact_reference("multiple/models/model.onnx")
 
     assert reference.local_path is None
     assert reference.remote_path == "multiple/models/model.onnx"
@@ -76,10 +82,9 @@ def test_artifact_resolver_accepts_remote_head_without_content_length():
         def __exit__(self, *_args):
             pass
 
-    resolver = ArtifactResolver()
     with patch("abraia.utils.remote._get_url_session") as get_session:
         get_session.return_value.request.return_value = Response()
-        assert resolver.remote_available("multiple/models/model.hef")
+        assert remote_available("multiple/models/model.hef")
         assert get_session.return_value.request.call_args.args[0] == "HEAD"
 
 
@@ -94,13 +99,12 @@ def test_artifact_resolver_falls_back_to_a_range_get_when_head_fails():
         def __exit__(self, *_args):
             pass
 
-    resolver = ArtifactResolver()
     with patch("abraia.utils.remote._get_url_session") as get_session:
         get_session.return_value.request.side_effect = [
             Response(False),
             Response(True),
         ]
-        assert resolver.remote_available("multiple/models/model.hef")
+        assert remote_available("multiple/models/model.hef")
         calls = get_session.return_value.request.call_args_list
         assert [call.args[0] for call in calls] == ["HEAD", "GET"]
 

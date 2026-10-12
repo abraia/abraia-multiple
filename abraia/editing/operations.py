@@ -128,10 +128,10 @@ def clean_image(img):
     """Interactively select and inpaint an image region."""
     from ..inference.models.sam import InteractiveSAM
 
-    interactive_sam = InteractiveSAM(img)
-    return interactive_sam.interactive_mask(
-        callback=lambda image, mask: _lama().inpaint(image, mask)
-    )
+    with InteractiveSAM(img) as interactive_sam:
+        return interactive_sam.interactive_mask(
+            callback=lambda image, mask: _lama().inpaint(image, mask)
+        )
 
 
 __all__ = [

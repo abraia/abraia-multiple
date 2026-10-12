@@ -13,13 +13,9 @@ from abraia.inference.session import (
 )
 from abraia.inference.accelerators import onnx_providers
 from abraia.runtime import AsyncInferenceRunner, FrameResult
-from abraia.inference.postprocess.decoders import (
-    postprocess,
-    prepare_input,
-    preprocess,
-    process_output,
-    process_pose_output,
-)
+from abraia.inference.postprocess.classification import postprocess, preprocess
+from abraia.inference.postprocess.detection import prepare_input, process_output
+from abraia.inference.postprocess.pose import process_pose_output
 from abraia.inference.postprocess.common import softmax
 from abraia.inference.postprocess.masks import mask_to_polygon
 from abraia.inference.vectors import search_vectors

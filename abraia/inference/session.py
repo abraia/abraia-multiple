@@ -3,7 +3,7 @@
 import logging
 import os
 
-from ..utils import get_providers
+from ..utils import get_providers, load_json, resolve_model_file
 from .accelerators import (
     available_accelerators,
     onnx_providers,
@@ -89,22 +89,22 @@ def create_onnx_session(path, providers=None, accelerator=None):
         return ort.InferenceSession(os.fspath(path), providers=[cpu_provider])
 
 
+def load_onnx_model_config(model_uri):
+    """Load an ONNX model path and its adjacent JSON config."""
+    model_uri = os.fspath(model_uri)
+    if os.path.isabs(model_uri) and not os.path.isfile(model_uri):
+        raise FileNotFoundError(f"Model file not found: {model_uri}")
+    config_uri = f"{os.path.splitext(model_uri)[0]}.json"
+    model_path = resolve_model_file(model_uri)
+    config = load_json(resolve_model_file(config_uri))
+    return model_path, config
+
+
 def close_session(session):
     """Close an ONNX Runtime session when the backend exposes ``close``."""
     close = getattr(session, "close", None)
     if callable(close):
         close()
-
-
-def close_resource(resource):
-    """Close a model component or a raw backend session."""
-    if resource is None:
-        return
-    close = getattr(resource, "close", None)
-    if callable(close):
-        close()
-    else:
-        close_session(resource)
 
 
 class ResourceGroup:
@@ -127,7 +127,7 @@ class ResourceGroup:
         if resource is None:
             return None
         if self._closed:
-            close_resource(resource)
+            close_session(resource)
             raise RuntimeError("Resource group has already been closed")
         if not any(existing is resource for existing in self._resources):
             self._resources.append(resource)
@@ -142,7 +142,7 @@ class ResourceGroup:
         first_error = None
         for resource in reversed(resources):
             try:
-                close_resource(resource)
+                close_session(resource)
             except Exception as error:
                 if first_error is None:
                     first_error = error
@@ -262,8 +262,8 @@ __all__ = [
     "ResourceGroup",
     "available_accelerators",
     "accelerator_from_providers",
-    "close_resource",
     "close_session",
     "create_onnx_session",
     "get_model_accelerator",
+    "load_onnx_model_config",
 ]

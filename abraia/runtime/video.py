@@ -13,14 +13,81 @@ import cv2
 from ..utils.draw import render_resolution, render_status
 from ..sources import (
     IMAGE_SUFFIXES,
-    VIDEO_SUFFIXES,
     infer_source_type as infer_media_source_type,
 )
-from .output import VideoOutput
+from ..utils.filesystem import make_dirs
 
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS: Tuple[str, ...] = IMAGE_SUFFIXES
+
+
+class VideoOutput:
+    """Own a video writer and an optional OpenCV preview window."""
+
+    def __init__(self, dest=None, fps=30, size=(0, 0)):
+        self.out = None
+        self.win_name = ""
+        self.display_enabled = True
+        self.quit = False
+        if dest:
+            make_dirs(dest)
+            fourcc = cv2.VideoWriter_fourcc(*"XVID")
+            self.out = cv2.VideoWriter(dest, fourcc, fps, size)
+            if not self.out.isOpened():
+                self.out.release()
+                self.out = None
+                raise RuntimeError(f"Unable to open video destination: {dest}")
+
+    def show(self, frame):
+        """Write an RGB frame and, when enabled, display it in a window."""
+        output = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        if self.out:
+            self.out.write(output)
+        if not self.display_enabled:
+            return
+        try:
+            if not self.win_name:
+                self.win_name = "Video"
+                cv2.namedWindow(self.win_name, cv2.WINDOW_GUI_NORMAL)
+            cv2.imshow(self.win_name, output)
+            key = cv2.waitKey(1) & 0xFF
+            if (
+                key in (27, ord("q"))
+                or cv2.getWindowProperty(self.win_name, cv2.WND_PROP_VISIBLE) < 1
+            ):
+                self.quit = True
+        except cv2.error as error:
+            logger.warning("OpenCV display unavailable: %s", error)
+            self.display_enabled = False
+            if self.win_name:
+                try:
+                    cv2.destroyWindow(self.win_name)
+                except cv2.error:
+                    pass
+                self.win_name = ""
+
+    def close(self):
+        """Release the writer and preview window; safe to call repeatedly."""
+        if self.out is not None:
+            try:
+                self.out.release()
+            except Exception:
+                logger.debug("Failed to release video writer", exc_info=True)
+            finally:
+                self.out = None
+        if self.win_name:
+            try:
+                cv2.destroyWindow(self.win_name)
+                cv2.waitKey(1)
+            except cv2.error:
+                pass
+            finally:
+                self.win_name = ""
+
+    def set_display_enabled(self, enabled: bool):
+        """Enable or disable the preview window while keeping file output."""
+        self.display_enabled = bool(enabled)
 
 
 def is_raspberry_pi() -> bool:
@@ -35,12 +102,6 @@ def is_raspberry_pi() -> bool:
 def is_stream_url(src: Any) -> bool:
     """Return whether ``src`` looks like a supported network stream URL."""
     return str(src).lower().startswith(("rtsp://", "http://", "https://"))
-
-
-def is_video(src: Any) -> bool:
-    """Return whether ``src`` is an existing video file."""
-    value = str(src)
-    return os.path.isfile(value) and value.lower().endswith(VIDEO_SUFFIXES)
 
 
 def is_image(src: Any) -> bool:
@@ -396,7 +457,7 @@ class FrameSource:
                 yield image
             return
 
-        source_type = getattr(self, "source_type", getattr(self, "input_type", None))
+        source_type = self.source_type
         camera_source = source_type in ("camera", "usb_camera", "rpi_camera", "stream")
         video_source = source_type == "video"
         target_fps = max(
@@ -466,6 +527,8 @@ class FrameSource:
                 return None
         if self.cap is None:
             return None
+        if isinstance(self.cap, Camera) and getattr(self.cap, "picam2", None):
+            return None
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
         ret, frame = read_rgb(self.cap)
         return frame if ret else None
@@ -499,10 +562,6 @@ class Video(FrameSource):
         source_type=None,
         video_unpaced=True,
     ):
-        self.out = None
-        self.quit = False
-        self._display_enabled = True
-        self.win_name = ""
         self._output = None
         super().__init__(
             src,
@@ -523,7 +582,6 @@ class Video(FrameSource):
                 fps=self.fps,
                 size=(self.width, self.height),
             )
-            self.out = self._output.out
         except Exception:
             super().close()
             raise
@@ -531,9 +589,6 @@ class Video(FrameSource):
 
     def __len__(self):
         return self.frames
-
-    def __iter__(self):
-        yield from super().__iter__()
 
     def __enter__(self):
         return self
@@ -547,21 +602,9 @@ class Video(FrameSource):
         output, self._output = getattr(self, "_output", None), None
         if output is not None:
             output.close()
-            self.out = None
-            self.win_name = ""
-
-    def get_frame(self, frame_num):
-        if self.cap is None:
-            return None
-        if isinstance(self.cap, Camera) and getattr(self.cap, "picam2", None):
-            return None
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-        ret, frame = read_rgb(self.cap)
-        return frame if ret else None
 
     def set_display_enabled(self, enabled: bool):
         """Configure preview visibility without exposing sink internals."""
-        self._display_enabled = bool(enabled)
         if self._output is not None:
             self._output.set_display_enabled(enabled)
 
@@ -579,13 +622,17 @@ class Video(FrameSource):
 
         if self._output is None:
             return
-        self._output.display_enabled = self._display_enabled
-        self._output.win_name = self.win_name
         self._output.show(display_frame)
-        self.out = self._output.out
-        self.win_name = self._output.win_name
-        self._display_enabled = self._output.display_enabled
-        self.quit = self._output.quit
+
+    @property
+    def quit(self):
+        return bool(getattr(getattr(self, "_output", None), "quit", False))
+
+    @quit.setter
+    def quit(self, value):
+        output = getattr(self, "_output", None)
+        if output is not None:
+            output.quit = bool(value)
 
 
 if __name__ == "__main__":
@@ -605,7 +652,6 @@ __all__ = [
     "is_image",
     "is_raspberry_pi",
     "is_stream_url",
-    "is_video",
     "load_images",
     "open_capture",
     "read_rgb",

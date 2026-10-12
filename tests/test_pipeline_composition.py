@@ -60,7 +60,7 @@ def test_composed_pipeline_keeps_region_parent_identity():
     assert tuple(region.image.shape[:2]) == (3, 3)
 
 
-def test_bound_model_stage_filters_crops_and_attaches_automatically():
+def test_bound_model_step_filters_crops_and_attaches_automatically():
     frame = np.zeros((10, 12, 3), dtype=np.uint8)
     detector = Detector()
     ocr = OCR()
@@ -83,7 +83,7 @@ def test_bound_model_stage_filters_crops_and_attaches_automatically():
     assert "ocr" not in last.results[1]
 
 
-def test_composed_draft_serializes_ordered_second_stage_models():
+def test_composed_draft_serializes_ordered_follow_up_model_steps():
     draft = PipelineDraft(
         source_type="image",
         source="frame.jpg",
@@ -110,7 +110,7 @@ def test_composed_draft_serializes_ordered_second_stage_models():
     assert not draft.validation_errors()
 
 
-def test_composed_draft_rejects_incompatible_second_stage_model():
+def test_composed_draft_rejects_incompatible_follow_up_model_step():
     draft = PipelineDraft.from_dict({
         "version": 2,
         "source": {"type": "image", "src": "frame.jpg"},
@@ -128,7 +128,7 @@ def test_composed_draft_rejects_incompatible_second_stage_model():
         ],
     })
 
-    assert "cannot run as a second-stage model" in " ".join(
+    assert "cannot run as a second-step model" in " ".join(
         draft.validation_errors()
     )
 
@@ -193,7 +193,7 @@ def test_version_two_pipeline_builder_runs_composed_models():
     assert last.results[0]["ocr"]["text"] == "XYZ"
 
 
-def test_version_two_pipeline_builder_runs_automatic_second_model_stage():
+def test_version_two_pipeline_builder_runs_automatic_follow_up_model_step():
     class Video:
         frame_rate = 1
 
@@ -284,65 +284,3 @@ def test_pipeline_renderer_shows_text_attached_by_second_model():
         "plate", "AUTO"
     ]
     assert render_box.call_args_list[-1].args[1] == [2, 2, 1, 1]
-
-
-def test_version_two_pipeline_builder_uses_native_tracker_step():
-    class Video:
-        frame_rate = 1
-
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def __iter__(self):
-            yield np.zeros((6, 6, 3), dtype=np.uint8)
-
-        def set_display_enabled(self, _enabled):
-            pass
-
-        def close(self):
-            pass
-
-    class Detector:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def run(self, _image, **_kwargs):
-            return [{"box": [1, 1, 3, 3], "label": "plate", "score": 0.9}]
-
-        def close(self):
-            pass
-
-    class Tracker:
-        def __init__(self, **_kwargs):
-            pass
-
-        def update(self, results):
-            return [dict(result, track_id=7) for result in results]
-
-        def close(self):
-            pass
-
-    config = {
-        "version": 2,
-        "source": {"type": "image", "src": "frame.jpg"},
-        "steps": [
-            {"id": "model", "type": "model", "model": {
-                "kind": "yolov8", "task": "detection", "uri": "detector.onnx"
-            }},
-            {"id": "tracker", "type": "tracker", "enabled": True},
-        ],
-        "display": {"show": False},
-    }
-
-    with patch("abraia.runtime.video.Video", Video), \
-         patch("abraia.inference.models.detection.Model", Detector), \
-         patch("abraia.inference.Tracker", Tracker):
-        pipeline = Pipeline.from_dict(config)
-        last = pipeline.run()
-
-    from abraia.runtime import TrackerStep
-
-    assert last.results[0]["track_id"] == 7
-    assert isinstance(pipeline.steps[1], TrackerStep)
-
-

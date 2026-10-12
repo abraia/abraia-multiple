@@ -5,7 +5,7 @@ from copy import deepcopy
 
 from abraia.inference import FaceRecognizer, FaceAttribute
 from abraia.inference.models.faces import find_pose
-from abraia.runtime.stages import count_objects
+from abraia.runtime.composition import count_objects
 from abraia.runtime import Pipeline
 from abraia.runtime.pipeline_schema import is_primary_model_step
 from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline

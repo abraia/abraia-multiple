@@ -1,12 +1,17 @@
-"""Image feature extraction and quality scoring primitives."""
+"""RGB image-dataset quality checks."""
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 from PIL import Image
+
 
 DEFAULT_NEAREST_NEIGHBORS = 2
 _FEATURE_SIZE = 24
@@ -84,7 +89,7 @@ def _features(image, feature_extractor=None):
     return feature, pixel_feature, gray.astype(np.float32), perceptual_hash, texture
 
 
-def _image_stats(image, gray):
+def _image_stats(image, gray, texture):
     """Return inexpensive statistics useful for quality ranking and review."""
     quantized = np.uint8(np.clip(image, 0.0, 1.0) * 255.0)
     gradients = np.concatenate((
@@ -92,7 +97,7 @@ def _image_stats(image, gray):
         np.abs(np.diff(gray, axis=1)).reshape(-1),
     ))
     return {
-        "contrast": float(np.std(gray)),
+        "contrast": texture,
         "unique_colors": int(np.unique(quantized.reshape(-1, 3), axis=0).shape[0]),
         "edge_density": float(np.mean(gradients > 0.08)) if gradients.size else 0.0,
     }
@@ -193,14 +198,20 @@ def _mark_similar(
     duplicate_threshold,
     nearest_neighbors_k=DEFAULT_NEAREST_NEIGHBORS,
     candidate_mode="all",
+    is_cancelled=None,
 ):
     buckets = _build_hash_buckets(items) if candidate_mode == "hash" else None
+    is_cancelled = is_cancelled or (lambda: False)
     for index, item in enumerate(items):
+        if is_cancelled():
+            raise RuntimeError("Operation canceled")
         candidates = []
         for previous_index in _candidate_indices(
             items, index, candidate_mode, buckets,
             max_candidates=_FAST_MAX_CANDIDATES,
         ):
+            if is_cancelled():
+                raise RuntimeError("Operation canceled")
             score = _similarity(
                 item,
                 items[previous_index],
@@ -242,12 +253,16 @@ def _mark_outliers(
     nearest_neighbors_k=DEFAULT_NEAREST_NEIGHBORS,
     mode="one",
     candidate_mode="all",
+    is_cancelled=None,
 ):
     # Percentile-based outlier selection is not meaningful on tiny datasets;
     # treat outliers as a population-level signal.
     if len(items) < 4:
         return
+    is_cancelled = is_cancelled or (lambda: False)
     if percentile is None:
+        if is_cancelled():
+            raise RuntimeError("Operation canceled")
         # Keep the original absolute mode for callers of the low-level API.
         # Curation uses percentile-based nearest-neighbor scores below.
         features = np.stack([item.feature for item in items])
@@ -261,19 +276,22 @@ def _mark_outliers(
         scores = []
         buckets = _build_hash_buckets(items) if candidate_mode == "hash" else None
         for index, item in enumerate(items):
-            distances = sorted(
-                1.0 - _similarity(
+            if is_cancelled():
+                raise RuntimeError("Operation canceled")
+            distances = []
+            for other_index in _candidate_indices(
+                items, index, candidate_mode, buckets,
+                max_candidates=_FAST_MAX_CANDIDATES,
+            ):
+                if is_cancelled():
+                    raise RuntimeError("Operation canceled")
+                distances.append(1.0 - _similarity(
                     item,
-                    other,
+                    items[other_index],
                     fast=candidate_mode == "hash",
                     translated=False,
-                )
-                for other_index in _candidate_indices(
-                    items, index, candidate_mode, buckets,
-                    max_candidates=_FAST_MAX_CANDIDATES,
-                )
-                for other in [items[other_index]]
-            )
+                ))
+            distances.sort()
             neighbors = distances[:nearest_neighbors_k]
             score = (
                 neighbors[0]
@@ -384,3 +402,331 @@ def _percentile(values, percentile):
     ordered = sorted(float(value) for value in values)
     index = max(0, min(len(ordered) - 1, int(percentile * len(ordered)) - 1))
     return ordered[index]
+
+
+DEFAULT_SIMILARITY_THRESHOLD = 0.88
+DEFAULT_DUPLICATE_THRESHOLD = 0.995
+DEFAULT_BLUR_THRESHOLD = 0.0015
+DEFAULT_DARK_THRESHOLD = 0.15
+DEFAULT_BRIGHT_THRESHOLD = 0.85
+_CACHE_SCHEMA_VERSION = 3
+
+_RGB_MIME_TYPES = frozenset({
+    "image/jpeg", "image/png", "image/bmp", "image/webp",
+})
+_RGB_SUFFIXES = frozenset({
+    ".jpg", ".jpeg", ".png", ".bmp", ".webp",
+})
+
+
+def _record_file_size(record):
+    value = record.get("file_size")
+    if value is not None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+    path = Path(str(record.get("path") or ""))
+    try:
+        return int(path.stat().st_size)
+    except OSError:
+        return None
+
+
+def _cache_identity(record, cache_namespace=None, cache_context=None):
+    identity = {
+        "namespace": str(cache_namespace or ""),
+        "context": dict(cache_context or {}),
+        "path": str(record.get("path") or record.get("name") or ""),
+        "cache_key": record.get("cache_key"),
+        "file_size": _record_file_size(record),
+    }
+    path = Path(identity["path"])
+    try:
+        identity["mtime_ns"] = path.stat().st_mtime_ns
+    except OSError:
+        identity["mtime_ns"] = None
+    return identity
+
+
+def _cache_path(cache_dir, record, cache_namespace=None, cache_context=None):
+    identity = json.dumps(
+        _cache_identity(
+            record,
+            cache_namespace=cache_namespace,
+            cache_context=cache_context,
+        ),
+        sort_keys=True,
+        default=str,
+    ).encode("utf-8")
+    digest = hashlib.sha256(identity).hexdigest()
+    return Path(cache_dir) / (digest + ".npz")
+
+
+def _load_cached_analysis(
+    cache_dir,
+    record,
+    *,
+    cache_namespace=None,
+    cache_context=None,
+):
+    filename = _cache_path(
+        cache_dir,
+        record,
+        cache_namespace=cache_namespace,
+        cache_context=cache_context,
+    )
+    if not filename.is_file():
+        return None
+    try:
+        with np.load(filename, allow_pickle=False) as cached:
+            return ImageAnalysis(
+                record=record,
+                path=str(cached["path"]),
+                name=str(cached["name"]),
+                feature=cached["feature"],
+                feature_is_custom=False,
+                pixel_feature=cached["pixel_feature"],
+                gray=cached["gray"],
+                perceptual_hash=cached["perceptual_hash"].astype(bool),
+                texture=float(cached["texture"]),
+                brightness=float(cached["brightness"]),
+                sharpness=float(cached["sharpness"]),
+                metrics=json.loads(str(cached["metrics"])),
+            )
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def _save_cached_analysis(
+    cache_dir,
+    record,
+    item,
+    *,
+    cache_namespace=None,
+    cache_context=None,
+):
+    filename = _cache_path(
+        cache_dir,
+        record,
+        cache_namespace=cache_namespace,
+        cache_context=cache_context,
+    )
+    temporary = filename.with_suffix(".tmp.npz")
+    np.savez_compressed(
+        temporary,
+        path=np.asarray(item.path),
+        name=np.asarray(item.name),
+        feature=item.feature,
+        pixel_feature=item.pixel_feature,
+        gray=item.gray,
+        perceptual_hash=item.perceptual_hash,
+        texture=item.texture,
+        brightness=item.brightness,
+        sharpness=item.sharpness,
+        metrics=np.asarray(json.dumps(item.metrics)),
+    )
+    os.replace(temporary, filename)
+
+
+def _is_rgb_record(image):
+    image = image or {}
+    image_type = str(image.get("type", "") or "").lower()
+    if image_type:
+        return image_type in _RGB_MIME_TYPES
+    path = str(image.get("path") or image.get("name") or "")
+    return os.path.splitext(path.split("?", 1)[0].lower())[1] in _RGB_SUFFIXES
+
+
+def is_rgb_dataset(dataset):
+    """Return whether a non-empty dataset contains only standard RGB images."""
+    images = getattr(dataset, "images", []) or []
+    return bool(images) and all(_is_rgb_record(image) for image in images)
+
+
+def analyze_rgb_quality(
+    images,
+    image_loader,
+    *,
+    similarity_threshold=DEFAULT_SIMILARITY_THRESHOLD,
+    duplicate_threshold=DEFAULT_DUPLICATE_THRESHOLD,
+    blur_threshold=DEFAULT_BLUR_THRESHOLD,
+    blur_percentile=None,
+    dark_threshold=DEFAULT_DARK_THRESHOLD,
+    bright_threshold=DEFAULT_BRIGHT_THRESHOLD,
+    outlier_percentile=None,
+    nearest_neighbors_k=DEFAULT_NEAREST_NEIGHBORS,
+    outlier_mode="one",
+    include_all=False,
+    feature_extractor=None,
+    cache_dir=None,
+    cache_namespace=None,
+    cache_context=None,
+    candidate_mode="all",
+    compute_stats=True,
+    progress_callback=None,
+    is_cancelled=None,
+):
+    """Find RGB images that are candidates for dataset removal."""
+    records = list(images or [])
+    if any(not _is_rgb_record(image) for image in records):
+        raise ValueError("Dataset curation is available only for RGB image datasets")
+
+    is_cancelled = is_cancelled or (lambda: False)
+    if nearest_neighbors_k < 1:
+        raise ValueError("nearest_neighbors_k must be at least 1")
+    if outlier_mode not in {"one", "all"}:
+        raise ValueError("outlier_mode must be 'one' or 'all'")
+    if candidate_mode not in {"all", "hash"}:
+        raise ValueError("candidate_mode must be 'all' or 'hash'")
+    if cache_dir is not None:
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    cache_context = dict(cache_context or {})
+    cache_context.update({
+        "schema_version": _CACHE_SCHEMA_VERSION,
+        "compute_stats": bool(compute_stats),
+    })
+    analyses: List[ImageAnalysis] = []
+    total = len(records)
+    for index, record in enumerate(records, start=1):
+        if is_cancelled():
+            raise RuntimeError("Operation canceled")
+        path = record.get("path") or record.get("name") or ""
+        name = record.get("name") or path
+        if progress_callback:
+            progress_callback(index - 1, max(1, total), name, False)
+        try:
+            cached = None
+            if feature_extractor is None and cache_dir is not None:
+                cached = _load_cached_analysis(
+                    cache_dir,
+                    record,
+                    cache_namespace=cache_namespace,
+                    cache_context=cache_context,
+                )
+            if cached is not None:
+                cached.record = record
+                analyses.append(cached)
+                if progress_callback:
+                    progress_callback(index, max(1, total), name, True)
+                continue
+
+            image = _prepare_rgb(image_loader(path))
+            feature, pixel_feature, gray, perceptual_hash, texture = _features(
+                image,
+                feature_extractor=feature_extractor,
+            )
+            height, width = image.shape[:2]
+            quality_image = _prepare_quality_image(image)
+            brightness = float(np.mean(quality_image))
+            sharpness = _sharpness_image(quality_image)
+            exposure_quality = max(0.0, 1.0 - 2.0 * abs(brightness - 0.5))
+            stats = _image_stats(image, gray, texture) if compute_stats else {}
+            stats.update({
+                "brightness": brightness,
+                "sharpness": sharpness,
+                "width": int(record.get("width") or width),
+                "height": int(record.get("height") or height),
+                "resolution": int(
+                    (record.get("width") or width)
+                    * (record.get("height") or height)
+                ),
+                "file_size": _record_file_size(record),
+                "quality_score": float(
+                    sharpness * (0.5 + 0.5 * exposure_quality)
+                ),
+            })
+            analyses.append(ImageAnalysis(
+                record=record,
+                path=path,
+                name=name,
+                feature=feature,
+                feature_is_custom=feature_extractor is not None,
+                pixel_feature=pixel_feature,
+                gray=gray,
+                perceptual_hash=perceptual_hash,
+                texture=texture,
+                brightness=brightness,
+                sharpness=sharpness,
+                metrics=stats,
+            ))
+            if feature_extractor is None and cache_dir is not None:
+                _save_cached_analysis(
+                    cache_dir,
+                    record,
+                    analyses[-1],
+                    cache_namespace=cache_namespace,
+                    cache_context=cache_context,
+                )
+        except Exception as error:
+            analyses.append(ImageAnalysis(
+                record=record,
+                path=path,
+                name=name,
+                feature=None,
+                feature_is_custom=False,
+                pixel_feature=None,
+                gray=None,
+                perceptual_hash=None,
+                texture=None,
+                brightness=None,
+                sharpness=None,
+                reasons=["unreadable"],
+                metrics={"error": str(error)},
+            ))
+        if progress_callback:
+            progress_callback(index, max(1, total), name, True)
+
+    readable = [item for item in analyses if item.feature is not None]
+    _mark_similar(
+        readable,
+        similarity_threshold,
+        duplicate_threshold,
+        nearest_neighbors_k,
+        candidate_mode=candidate_mode,
+        is_cancelled=is_cancelled,
+    )
+    _mark_outliers(
+        readable,
+        percentile=outlier_percentile,
+        nearest_neighbors_k=nearest_neighbors_k,
+        mode=outlier_mode,
+        candidate_mode=candidate_mode,
+        is_cancelled=is_cancelled,
+    )
+    if blur_threshold is None:
+        blur_threshold = _percentile(
+            [item.sharpness for item in readable],
+            blur_percentile,
+        )
+    for item in readable:
+        if blur_threshold is not None and item.sharpness <= blur_threshold:
+            item.reasons.append("blurry")
+        if item.brightness < dark_threshold:
+            item.reasons.append("dark")
+        elif item.brightness > bright_threshold:
+            item.reasons.append("bright")
+
+    return [
+        {
+            "path": item.path,
+            "name": item.name,
+            "reasons": tuple(dict.fromkeys(item.reasons)),
+            "metrics": dict(item.metrics),
+        }
+        for item in analyses
+        if include_all or item.reasons
+    ]
+
+
+
+__all__ = [
+    "DEFAULT_BLUR_THRESHOLD",
+    "DEFAULT_BRIGHT_THRESHOLD",
+    "DEFAULT_DARK_THRESHOLD",
+    "DEFAULT_DUPLICATE_THRESHOLD",
+    "DEFAULT_SIMILARITY_THRESHOLD",
+    "DEFAULT_NEAREST_NEIGHBORS",
+    "analyze_rgb_quality",
+    "is_rgb_dataset",
+]

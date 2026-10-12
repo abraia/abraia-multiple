@@ -10,11 +10,11 @@ from abraia.runtime.config import (
     format_points,
     parse_points,
 )
-from abraia.runtime.pipeline_rules import (
-    is_valid_stage_geometry,
-    stages_missing_tracker,
+from abraia.runtime.pipeline_schema import (
+    is_valid_step_geometry,
+    steps_missing_tracker,
+    PipelineStep,
 )
-from abraia.runtime.pipeline_schema import PipelineStep
 
 
 def test_load_uses_user_id_encoded_in_key(monkeypatch):
@@ -132,30 +132,30 @@ def test_pipeline_step_view_and_geometry_rules_reject_malformed_values():
 
     assert step.id == "line"
     assert step.type == "line_counter"
-    assert not is_valid_stage_geometry(step.type, step)
-    assert not is_valid_stage_geometry(
+    assert not is_valid_step_geometry(step.type, step)
+    assert not is_valid_step_geometry(
         "region_filter",
         {"polygon": [[0, 0], [10, 0]]},
     )
 
 
-def test_disabled_dependency_stages_do_not_require_a_tracker():
-    assert stages_missing_tracker([
+def test_disabled_dependency_steps_do_not_require_a_tracker():
+    assert steps_missing_tracker([
         {"type": "line_counter", "enabled": False},
     ]) == []
-    assert stages_missing_tracker([
+    assert steps_missing_tracker([
         {"type": "line_counter"},
     ]) == [(1, "line_counter")]
 
 
 def test_runtime_exports_pipeline_step_schema_metadata():
     from abraia.runtime import (
-        PIPELINE_STAGE_DEFINITIONS,
+        PIPELINE_STEP_DEFINITIONS,
         PipelineStep as PublicPipelineStep,
     )
 
     assert PublicPipelineStep is PipelineStep
-    assert set(PIPELINE_STAGE_DEFINITIONS) == {
+    assert set(PIPELINE_STEP_DEFINITIONS) == {
         "model",
         "filter",
         "crop",

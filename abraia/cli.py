@@ -208,7 +208,10 @@ def curate(
     mode,
 ):
     """Analyze an image dataset and optionally apply recommendations."""
-    from .training import CurationAnalyzer, curate_dataset
+    from functools import partial
+
+    from .dataset.curation import analyze_curation
+    from .dataset.remote import load_dataset
 
     def operation():
         confirm = None
@@ -216,11 +219,11 @@ def curate(
             confirm = lambda paths: click.confirm(
                 f"Delete {len(paths)} recommended remote file(s)?"
             )
-        report = curate_dataset(
-            project,
+        report = load_dataset(project).curate(
             work_dir=work_dir,
             apply=apply_changes,
-            analyzer=CurationAnalyzer(
+            analyze_fn=partial(
+                analyze_curation,
                 duplicate_threshold=duplicate_threshold,
                 blur_threshold=blur_threshold,
                 blur_percentile=blur_percentile,
@@ -231,7 +234,7 @@ def curate(
             ),
             confirm=confirm,
         )
-        click.echo(json.dumps(report.to_dict(), indent=2))
+        click.echo(json.dumps(report, indent=2))
 
     _run_remote(operation)
 
@@ -338,7 +341,7 @@ def metadata(path, remove):
 @cli.command("list")
 def list_datasets_command():
     """List available datasets."""
-    from .training import list_datasets
+    from .dataset.remote import list_datasets
 
     _run_remote(lambda: click.echo(json.dumps(list_datasets(), indent=2)))
 
@@ -396,7 +399,8 @@ def process_dataset(project, anonymize_images=False, upscale_threshold=0):
 @click.option("--upscale", help="Upscale images smaller than threshold", type=int, default=0)
 def create(project, query, anonymize=False, upscale=0):
     """Create or update a dataset."""
-    from .training import load_dataset, search_images
+    from .dataset.image_search import search_images
+    from .dataset.remote import load_dataset
 
     def operation():
         dataset = load_dataset(project)
@@ -423,7 +427,7 @@ def annotate(project, label, segment=False):
     """Annotate a dataset using Grounding Dino."""
     if not label:
         raise click.UsageError("A label is required for annotation")
-    from .training import load_dataset
+    from .dataset.remote import load_dataset
 
     _run_remote(lambda: load_dataset(project).annotate(label, segment=segment))
 
@@ -433,7 +437,8 @@ def annotate(project, label, segment=False):
 @click.argument("epochs", type=int, required=False, default=None)
 def train(project, epochs):
     """Train a model on the specified dataset."""
-    from .training import ModelTrainer, load_dataset, prepare_dataset
+    from .dataset.remote import load_dataset
+    from .training import ModelTrainer, prepare_dataset
 
     def operation():
         click.echo("Loading dataset...")
@@ -488,7 +493,8 @@ def compile_model_command(
     version,
 ):
     """Compile a trained Ultralytics model to a Hailo HEF bundle."""
-    from .training import ModelTrainer, load_dataset, prepare_dataset
+    from .dataset.remote import load_dataset
+    from .training import ModelTrainer, prepare_dataset
 
     def operation():
         click.echo("Loading dataset...")

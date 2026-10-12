@@ -1,30 +1,7 @@
 import numpy as np
-import onnxruntime as ort
 
 from ..utils import download_file
-
-sess_options = ort.SessionOptions()
-sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-
-
-class SwinIR:
-    def __init__(self):
-        model_src = download_file('multiple/models/editing/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.onnx')
-        self.session = ort.InferenceSession(model_src, sess_options)
-        self.input_name = self.session.get_inputs()[0].name
-
-    def preprocess(self, img):
-        img = (img / 255).astype(np.float32)
-        return np.expand_dims(img.transpose((2, 0, 1)), axis=0)
-
-    def postprocess(self, img):
-        img = (255 * img.clip(0, 1)).astype(np.uint8)
-        return img.transpose((1, 2, 0))
-
-    def upscale(self, img):
-        inputs = {self.input_name: self.preprocess(img)}
-        outputs = self.session.run(None, inputs)
-        return self.postprocess(outputs[0][0])
+from ..inference.session import OnnxSessionMixin
 
 
 def create_gradient_mask(shape, feather):
@@ -81,13 +58,17 @@ def tiled_upscale(samples, function, scale, tile_size, overlap = 8):
     return output
 
 
-class Upscaler:
-    def __init__(self, overlap = 8):
+class Upscaler(OnnxSessionMixin):
+    def __init__(self, overlap=8, providers=None, accelerator=None):
         self.scale = 2
         self.overlap = overlap
         self.tile_size = (1024, 1024)
         model_src = download_file('multiple/models/editing/2xNomosUni_compact_multijpg_ldl_fp32_opset17.onnx')
-        self.session = ort.InferenceSession(model_src, sess_options)
+        self._init_onnx_session(
+            model_src,
+            providers=providers,
+            accelerator=accelerator,
+        )
         self.input_name = self.session.get_inputs()[0].name
 
     def preprocess(self, img):
@@ -99,6 +80,7 @@ class Upscaler:
         return img.transpose((1, 2, 0))
     
     def predict(self, img):
+        self._ensure_open()
         return self.session.run(None, {self.input_name: img})[0]
 
     def upscale(self, img):

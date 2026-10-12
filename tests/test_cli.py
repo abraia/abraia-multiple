@@ -11,12 +11,18 @@ from abraia import cli as cli_module
 def test_curate_requires_confirmation_before_applying_changes():
     captured = {}
 
-    def fake_curate_dataset(project, **kwargs):
-        captured["project"] = project
+    def fake_curate(**kwargs):
         captured["confirmed"] = kwargs["confirm"](["project/image.jpg"])
-        return SimpleNamespace(to_dict=lambda: {"deleted": []})
+        return {"deleted": []}
 
-    with patch("abraia.training.curate_dataset", side_effect=fake_curate_dataset):
+    def fake_load_dataset(project):
+        captured["project"] = project
+        return SimpleNamespace(curate=fake_curate)
+
+    with patch(
+        "abraia.dataset.remote.load_dataset",
+        side_effect=fake_load_dataset,
+    ):
         result = CliRunner().invoke(
             cli,
             ["curate", "project", "--apply"],

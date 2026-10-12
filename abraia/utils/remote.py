@@ -206,95 +206,90 @@ class ArtifactReference:
         return self.local_path is not None or self.source == "remote"
 
 
-class ArtifactResolver:
-    """Resolve local and Abraia-managed artifacts through one policy."""
+def artifact_reference(path) -> ArtifactReference:
+    """Classify a path without downloading or performing network I/O."""
+    requested = os.fspath(path)
+    if is_url(requested):
+        return ArtifactReference(requested=requested, source="url")
 
-    def reference(self, path) -> ArtifactReference:
-        """Classify a path without downloading or performing network I/O."""
-        requested = os.fspath(path)
-        if is_url(requested):
-            return ArtifactReference(requested=requested, source="url")
-
-        local = Path(requested)
-        managed = is_managed_model_path(requested)
-        if local.exists() and not managed:
-            return ArtifactReference(
-                requested=requested,
-                local_path=local,
-                source="local",
-            )
-        if local.is_absolute():
-            return ArtifactReference(requested=requested)
-
+    local = Path(requested)
+    managed = is_managed_model_path(requested)
+    if local.exists() and not managed:
         return ArtifactReference(
             requested=requested,
-            remote_path=requested.replace("\\", "/").lstrip("/"),
-            source="managed" if managed else "remote",
+            local_path=local,
+            source="local",
         )
+    if local.is_absolute():
+        return ArtifactReference(requested=requested)
 
-    def probe(self, path) -> ArtifactReference:
-        """Resolve a path and check remote availability without downloading."""
-        reference = self.reference(path)
-        if reference.local_path is not None or not reference.remote_path:
-            return reference
-        if self.remote_available(reference.remote_path):
-            return replace(reference, source="remote")
-        return replace(reference, source="missing")
-
-    def remote_available(self, path) -> bool:
-        """Return whether a remote artifact responds to a lightweight probe."""
-        remote_path = os.fspath(path).replace("\\", "/").lstrip("/")
-        url = url_path(remote_path)
-        try:
-            with request_with_retries(
-                _get_url_session(), "HEAD", url, timeout=30, allow_redirects=True
-            ) as response:
-                if response.ok:
-                    return True
-        except (OSError, requests.RequestException):
-            pass
-
-        # Some file servers reject HEAD or omit useful headers.  Probe the
-        # actual download endpoint without buffering the artifact.
-        try:
-            with request_with_retries(
-                _get_url_session(),
-                "GET",
-                url,
-                headers={"Range": "bytes=0-0"},
-                stream=True,
-                timeout=(10, 30),
-                allow_redirects=True,
-            ) as response:
-                return response.ok
-        except (OSError, requests.RequestException):
-            return False
-
-    def resolve(
-        self,
-        path,
-        *,
-        downloader: Optional[Callable[[str], str]] = None,
-    ) -> str:
-        """Return a local path, downloading a remote artifact when needed."""
-        reference = self.reference(path)
-        if reference.local_path is not None:
-            return str(reference.local_path)
-        if reference.source == "url":
-            raise ValueError("URL artifacts require an explicit download destination")
-        if not reference.remote_path:
-            raise FileNotFoundError(f"Artifact not found: {path}")
-
-        fetch = downloader or download_file
-        downloaded = Path(fetch(reference.remote_path))
-        if not downloaded.is_file():
-            raise FileNotFoundError(
-                f"Downloaded artifact is not a file: {reference.remote_path}"
-            )
-        return str(downloaded.resolve())
+    return ArtifactReference(
+        requested=requested,
+        remote_path=requested.replace("\\", "/").lstrip("/"),
+        source="managed" if managed else "remote",
+    )
 
 
-ARTIFACT_RESOLVER = ArtifactResolver()
+def remote_available(path) -> bool:
+    """Return whether a remote artifact responds to a lightweight probe."""
+    remote_path = os.fspath(path).replace("\\", "/").lstrip("/")
+    url = url_path(remote_path)
+    try:
+        with request_with_retries(
+            _get_url_session(), "HEAD", url, timeout=30, allow_redirects=True
+        ) as response:
+            if response.ok:
+                return True
+    except (OSError, requests.RequestException):
+        pass
+
+    # Some file servers reject HEAD or omit useful headers. Probe the actual
+    # download endpoint without buffering the artifact.
+    try:
+        with request_with_retries(
+            _get_url_session(),
+            "GET",
+            url,
+            headers={"Range": "bytes=0-0"},
+            stream=True,
+            timeout=(10, 30),
+            allow_redirects=True,
+        ) as response:
+            return response.ok
+    except (OSError, requests.RequestException):
+        return False
+
+
+def probe_artifact(path) -> ArtifactReference:
+    """Resolve a path and check remote availability without downloading."""
+    reference = artifact_reference(path)
+    if reference.local_path is not None or not reference.remote_path:
+        return reference
+    source = "remote" if remote_available(reference.remote_path) else "missing"
+    return replace(reference, source=source)
+
+
+def resolve_artifact(
+    path,
+    *,
+    downloader: Optional[Callable[[str], str]] = None,
+) -> str:
+    """Return a local path, downloading a remote artifact when needed."""
+    reference = artifact_reference(path)
+    if reference.local_path is not None:
+        return str(reference.local_path)
+    if reference.source == "url":
+        raise ValueError("URL artifacts require an explicit download destination")
+    if not reference.remote_path:
+        raise FileNotFoundError(f"Artifact not found: {path}")
+
+    fetch = downloader or download_file
+    downloaded = Path(fetch(reference.remote_path))
+    if not downloaded.is_file():
+        raise FileNotFoundError(
+            f"Downloaded artifact is not a file: {reference.remote_path}"
+        )
+    return str(downloaded.resolve())
 
 
 def resolve_model_file(path):
@@ -304,7 +299,7 @@ def resolve_model_file(path):
     ``multiple/models/`` are fetched through the Abraia model cache even when
     a copy is present in the source tree or installed package.
     """
-    return ARTIFACT_RESOLVER.resolve(path)
+    return resolve_artifact(path)
 
 
 def _load_url_content(url, timeout, scheduler):
@@ -350,10 +345,9 @@ def load_url_bytes(url, timeout=(10, 120)):
 
 __all__ = [
     "API_URL",
-    "ARTIFACT_RESOLVER",
     "ArtifactReference",
-    "ArtifactResolver",
     "HEADERS",
+    "artifact_reference",
     "create_session",
     "download_file",
     "download_url",
@@ -363,6 +357,9 @@ __all__ = [
     "load_url",
     "load_url_bytes",
     "request_with_retries",
+    "probe_artifact",
+    "remote_available",
+    "resolve_artifact",
     "resolve_model_file",
     "temporal_src",
     "url_path",

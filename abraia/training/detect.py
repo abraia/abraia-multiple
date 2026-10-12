@@ -12,7 +12,7 @@ os.environ['YOLO_VERBOSE'] = 'False'
 
 from ultralytics import YOLO
 
-from .core import (
+from .artifacts import (
     HAILO_EXPORT_TARGETS,
     _resolve_client,
     ensure_hailo_dfc,

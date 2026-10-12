@@ -80,6 +80,36 @@ additional dependency.
 Installing the package also installs the `abraia` command. Use
 `abraia --help` or `abraia COMMAND --help` for the complete option list.
 
+### Python SDK
+
+Use `Abraia` for remote files, metadata, and image operations. It reads the
+`ABRAIA_KEY` environment variable or the credentials saved by `abraia
+configure`; you can also pass the key directly:
+
+```python
+from abraia import Abraia, APIError
+
+client = Abraia()  # or Abraia(abraia_key="...")
+
+try:
+    files, folders = client.list_files("images/")
+    remote_path = client.upload_file("images/input.jpg", "examples/input.jpg")
+    local_path = client.download_file(remote_path, "downloads/input.jpg")
+    client.transform_image(
+        remote_path,
+        "downloads/input-small.jpg",
+        params={"width": 640},
+    )
+except APIError as error:
+    print(f"Abraia API error ({error.code}): {error}")
+```
+
+`list_files` returns `(files, folders)`, `upload_file` returns the remote path,
+and `download_file` returns the local cached or destination path. The client
+also provides `check_file`, `move_file`, `remove_file`, metadata operations,
+and load/save methods for files, JSON, and images. Image transforms write to
+the destination path.
+
 ### Authentication and file management
 
 Configure the SDK with the Abraia API key. The command only prompts for the
@@ -146,9 +176,10 @@ images, exposure issues, and invalid files:
 abraia curate PROJECT
 ```
 
-The command is a dry run by default and prints a JSON report. Apply duplicate,
-blur, and invalid-image recommendations with `--apply`; include outlier
-removals only after review with `--apply-outliers`. Use
+The command is a dry run by default and prints a JSON report; the report is not
+saved as a separate project file. Apply duplicate, blur, and invalid-image
+recommendations with `--apply`; include outlier removals only after review with
+`--apply-outliers`. Use
 `--duplicate-threshold`, `--blur-threshold`, or `--blur-percentile` to adjust
 the analysis. The default `--mode fast` uses bounded previews, sampled exact
 duplicate fingerprints, and perceptual hash buckets; it keeps the original
@@ -353,14 +384,14 @@ Face recognition uses a JSON index containing `name` and `vector` entries:
 ##### Face recognition
 
 Use `kind: "face"` to select the built-in face-recognition workflow. The
-pipeline keeps the source, model, index, stages, display, and accelerator
+pipeline keeps the source, model, index, steps, display, and accelerator
 selection in one configuration.
 
 ![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
 
 Hailo models use the asynchronous producer/consumer runtime internally. The
 pipeline keeps completed frames ordered before applying tracking and counting
-stages:
+steps:
 
 ```json
 "model": {

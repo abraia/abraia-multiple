@@ -4,8 +4,6 @@ import copy
 import time
 from collections import deque
 
-from .pipeline import CancellableSource
-
 
 def prepare_pipeline_display_frame(frame, max_size=(1280, 720)):
     """Bound a rendered frame's size before sending it to an application UI."""
@@ -112,7 +110,6 @@ def run_pipeline(
 
 
 __all__ = [
-    "CancellableSource",
     "prepare_pipeline_display_frame",
     "run_pipeline",
 ]

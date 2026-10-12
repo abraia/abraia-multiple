@@ -10,7 +10,7 @@ from torchvision import models, transforms, datasets
 
 from ..utils import temporal_src
 from ..tasks import normalize_model_size
-from .core import _resolve_client, save_versioned_model
+from .artifacts import _resolve_client, save_versioned_model
 from .splitting import DATASET_SPLITS, DEFAULT_EVALUATION_SPLIT
 
 

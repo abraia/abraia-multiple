@@ -52,14 +52,4 @@ def process_pose_output(
     return non_maximum_suppression(objects, iou_threshold)
 
 
-class PoseDecoder:
-    """Decode pose-estimation outputs for one model."""
-
-    def __init__(self, classes):
-        self.classes = list(classes)
-
-    def __call__(self, outputs, size, shape, **kwargs):
-        return process_pose_output(outputs, size, shape, self.classes, **kwargs)
-
-
-__all__ = ["PoseDecoder", "process_pose_output"]
+__all__ = ["process_pose_output"]

@@ -9,11 +9,20 @@ from importlib import import_module
 
 _LAZY_EXPORTS = {
     "available_accelerators": (".accelerators", "available_accelerators"),
-    "AnnotationModelRoute": (".annotation_policy", "AnnotationModelRoute"),
-    "GROUNDING_DINO_MODEL": (".annotation_policy", "GROUNDING_DINO_MODEL"),
-    "MOBILE_SAM_DISABLED_TASKS": (".annotation_policy", "MOBILE_SAM_DISABLED_TASKS"),
-    "MOBILE_SAM_MODEL": (".annotation_policy", "MOBILE_SAM_MODEL"),
-    "model_route": (".annotation_policy", "model_route"),
+    "AnnotationModelRoute": (
+        "abraia.dataset.annotation",
+        "AnnotationModelRoute",
+    ),
+    "GROUNDING_DINO_MODEL": (
+        "abraia.dataset.annotation",
+        "GROUNDING_DINO_MODEL",
+    ),
+    "MOBILE_SAM_DISABLED_TASKS": (
+        "abraia.dataset.annotation",
+        "MOBILE_SAM_DISABLED_TASKS",
+    ),
+    "MOBILE_SAM_MODEL": ("abraia.dataset.annotation", "MOBILE_SAM_MODEL"),
+    "model_route": ("abraia.dataset.annotation", "model_route"),
     "normalize_accelerator": (".accelerators", "normalize_accelerator"),
     "onnx_providers": (".accelerators", "onnx_providers"),
     "Model": (".models.detection", "Model"),
@@ -31,7 +40,6 @@ _LAZY_EXPORTS = {
     "Clip": (".models.clip", "Clip"),
     "InferenceService": (".service", "InferenceService"),
     "ModelSession": (".service", "ModelSession"),
-    "InferenceModel": (".contracts", "InferenceModel"),
     "create_model": (".registry", "create_model"),
     "register_model_factory": (".registry", "register_model_factory"),
     "ModelSpec": (".model_config", "ModelSpec"),
@@ -76,7 +84,6 @@ __all__ = [
     "Clip",
     "InferenceService",
     "ModelSession",
-    "InferenceModel",
     "create_model",
     "register_model_factory",
     "ModelSpec",

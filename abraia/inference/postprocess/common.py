@@ -35,7 +35,7 @@ def iou(box1, box2):
         )
     )
     union = np.prod(size1) + np.prod(size2) - intersection
-    return intersection / union
+    return intersection / union if union else 0.0
 
 
 def nms(dets, thresh):
