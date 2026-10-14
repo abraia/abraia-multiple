@@ -409,7 +409,7 @@ DEFAULT_DUPLICATE_THRESHOLD = 0.995
 DEFAULT_BLUR_THRESHOLD = 0.0015
 DEFAULT_DARK_THRESHOLD = 0.15
 DEFAULT_BRIGHT_THRESHOLD = 0.85
-_CACHE_SCHEMA_VERSION = 3
+_CACHE_SCHEMA_VERSION = 4
 
 _RGB_MIME_TYPES = frozenset({
     "image/jpeg", "image/png", "image/bmp", "image/webp",
@@ -569,8 +569,6 @@ def analyze_rgb_quality(
 ):
     """Find RGB images that are candidates for dataset removal."""
     records = list(images or [])
-    if any(not _is_rgb_record(image) for image in records):
-        raise ValueError("Dataset curation is available only for RGB image datasets")
 
     is_cancelled = is_cancelled or (lambda: False)
     if nearest_neighbors_k < 1:
@@ -617,6 +615,10 @@ def analyze_rgb_quality(
                 feature_extractor=feature_extractor,
             )
             height, width = image.shape[:2]
+            pixel_hash = hashlib.sha256(
+                np.asarray(image.shape, dtype=np.int64).tobytes()
+                + np.ascontiguousarray(image).tobytes()
+            ).hexdigest()
             quality_image = _prepare_quality_image(image)
             brightness = float(np.mean(quality_image))
             sharpness = _sharpness_image(quality_image)
@@ -635,6 +637,7 @@ def analyze_rgb_quality(
                 "quality_score": float(
                     sharpness * (0.5 + 0.5 * exposure_quality)
                 ),
+                "pixel_hash": pixel_hash,
             })
             analyses.append(ImageAnalysis(
                 record=record,

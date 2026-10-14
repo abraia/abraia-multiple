@@ -1,73 +1,422 @@
-"""Remote dataset adapter and project-level image operations."""
+"""Remote image dataset class and project-level operations."""
 
+import posixpath
 from concurrent.futures import ThreadPoolExecutor
-import copy
-import os
 from typing import Mapping
 
-from tqdm import tqdm
-
-from . import RemoteDataset, _resolve_client, canonical_filename
-from ..utils import load_image, load_url
+from ..client import Abraia
+from ..tasks import normalize_task
+from ..utils import load_image, load_url, url_path
 from ..utils.concurrency import DEFAULT_MAX_REMOTE_WORKERS, bounded_map
 from .annotation import Annotator, annotate_image as _annotate_image
-from .image_search import search_images
-from ..tasks import normalize_task
 
 
-def image_filename(image):
-    """Return the best comparable filename from an image record."""
-    return canonical_filename(image.get("name") or image.get("path"))
+def _resolve_client(client=None):
+    """Return an injected client or create one for this dataset operation."""
+    return client if client is not None else Abraia()
 
 
-def find_image(images, filename):
-    """Find an image record by name or path basename."""
-    key = canonical_filename(filename)
-    return next(
-        (image for image in images or [] if image_filename(image) == key),
-        None,
-    )
+class Dataset:
+    """Remote dataset containing standard image records."""
 
+    def __init__(self, project, client=None):
+        client = _resolve_client(client)
+        self.project = str(project or "").strip("/")
+        if not self.project:
+            raise ValueError("A remote dataset requires a project")
+        self.client = client
+        self.annotations = []
+        self.classes = []
+        self.task = ""
+        self.images = []
+        self.annotated = False
+        self.curation_findings = None
 
-def objects_for_image(dataset, path, display_name=""):
-    """Return saved annotation objects for an image record."""
-    if not dataset:
-        return []
-    filenames = {canonical_filename(display_name), canonical_filename(path)}
-    for annotation in dataset.annotations or []:
-        if canonical_filename(annotation.get("filename")) in filenames:
-            return annotation.get("objects") or []
-    return []
+    def load(self, validate=True):
+        """Load this dataset's images and annotations from the remote project."""
+        if validate and self.project not in list_datasets(self.client):
+            self.annotations = []
+            self.images = []
+            self.classes = []
+            self.task = ""
+            self.annotated = False
+            self.curation_findings = None
+            return self
 
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            annotations = executor.submit(self._load_annotations)
+            images = executor.submit(self._list_images)
+            self.annotations = annotations.result()
+            self.images = images.result()
+        self._invalidate_curation_findings()
+        self._refresh_annotation_metadata()
+        return self
 
-def annotation_counts(annotations):
-    """Return saved annotation object counts keyed by filename."""
-    counts = {}
-    for annotation in annotations or []:
-        filename = canonical_filename(annotation.get("filename"))
-        if filename:
-            counts[filename] = counts.get(filename, 0) + len(
-                annotation.get("objects") or []
+    def annotate(
+        self,
+        label,
+        segment=False,
+        callback=None,
+        *,
+        task=None,
+        include_empty=True,
+        progress_callback=None,
+        is_cancelled=None,
+    ):
+        """Annotate pending images, optionally reporting or canceling work."""
+        from tqdm import tqdm
+
+        annotated = {
+            self._annotation_path(item)
+            for item in self.annotations
+            if isinstance(item, Mapping)
+        }
+        pending = [
+            image for image in self.images
+            if self._image_path(image) not in annotated
+        ]
+        progress = (
+            tqdm(total=len(pending))
+            if callback is None and progress_callback is None
+            else None
+        )
+        is_cancelled = is_cancelled or (lambda: False)
+        classification = normalize_task(task or self.task) == "classification"
+        annotator = Annotator(segment=segment) if pending else None
+        try:
+            total = len(pending)
+            for index, image_data in enumerate(pending, start=1):
+                if is_cancelled():
+                    break
+                annotation = annotate_image(
+                    image_data,
+                    [label],
+                    segment=segment,
+                    annotator=annotator,
+                    include_empty=include_empty,
+                    classification=classification,
+                )
+                if annotation:
+                    annotation["path"] = self._image_path(image_data)
+                    self.annotations.append(annotation)
+                self.save()
+                if progress_callback:
+                    progress_callback(
+                        index,
+                        total,
+                        image_data["name"],
+                        len(annotation.get("objects") or []) if annotation else 0,
+                    )
+                if progress:
+                    progress.update(1)
+                    progress.set_description(f"Annotating {image_data['name']}")
+                if callback:
+                    callback({
+                        "current": index,
+                        "total": total,
+                        "filename": image_data["name"],
+                    })
+        finally:
+            if annotator is not None:
+                annotator.close()
+            if progress:
+                progress.close()
+        return self.annotations
+
+    def _invalidate_curation_findings(self):
+        """Clear findings when the dataset contents they describe change."""
+        self.curation_findings = None
+
+    def _relative_path(self, path):
+        """Normalize a dataset path and ensure it stays inside this project."""
+        path = str(path or "").strip().replace("\\", "/")
+        if path.startswith("/") or (len(path) > 1 and path[1] == ":"):
+            raise ValueError(f"Path must be relative to project {self.project!r}")
+        path = posixpath.normpath(path)
+        if path.startswith(f"{self.project}/"):
+            raise ValueError(
+                f"Pass paths relative to project {self.project!r}, without its prefix"
             )
-    return counts
+        if path in ("", ".", "..") or path.startswith("../"):
+            raise ValueError(f"Path must be relative to project {self.project!r}")
+        if "/" in path:
+            raise ValueError("Dataset files must be directly inside the project")
+        return path
 
+    def _listed_path(self, path):
+        """Convert a client listing key to the dataset-relative form."""
+        path = str(path or "").strip().replace("\\", "/").lstrip("/")
+        prefix = f"{self.project}/"
+        if path.startswith(prefix):
+            path = path[len(prefix):]
+        path = posixpath.normpath(path)
+        if path in ("", ".", "..") or path.startswith("../"):
+            raise ValueError(f"Path must be relative to project {self.project!r}")
+        return path
 
-def dataset_has_annotations(dataset):
-    """Return whether a dataset contains images and annotation metadata."""
-    return bool(dataset and dataset.images and dataset.annotations)
+    def _image_path(self, image):
+        """Return an image record's project-relative path."""
+        path = image.get("path") or image.get("name")
+        return self._relative_path(path) if path else ""
 
+    def _remote_path(self, path):
+        """Build a remote object key from a path relative to this project."""
+        return posixpath.join(self.project, self._relative_path(path))
 
-def _curation_progress(callback, offset, span):
-    if callback is None:
-        return None
+    def _refresh_annotation_metadata(self):
+        self.classes, self.task = self._process_annotations(self.annotations)
+        annotated_paths = {
+            self._annotation_path(annotation)
+            for annotation in self.annotations or []
+            if isinstance(annotation, dict)
+        }
+        images = [
+            image for image in self.images or [] if isinstance(image, dict)
+        ]
+        image_paths = [self._image_path(image) for image in images]
+        self.annotated = bool(images) and all(
+            path in annotated_paths for path in image_paths
+        )
 
-    def report(current, total, detail, completed):
-        total = max(1, int(total or 1))
-        current = max(0, min(int(current), total))
-        progress = offset + round(span * current / total)
-        callback(progress, 100, detail, completed)
+    def replace_annotations(self, annotations):
+        """Replace annotations and refresh metadata derived from them."""
+        updated = list(annotations or [])
+        changed = updated != (self.annotations or [])
+        self.annotations = updated
+        if changed:
+            self._invalidate_curation_findings()
+        self._refresh_annotation_metadata()
+        return changed
 
-    return report
+    def prune_orphaned_annotations(self):
+        """Remove annotations whose image is absent from the dataset."""
+        image_paths = {
+            self._image_path(image)
+            for image in self.images or []
+            if isinstance(image, dict)
+        }
+        remaining = [
+            annotation
+            for annotation in self.annotations or []
+            if isinstance(annotation, dict)
+            and self._annotation_path(annotation) in image_paths
+        ]
+        removed = len(self.annotations or []) - len(remaining)
+        if removed:
+            self.replace_annotations(remaining)
+        return removed
+
+    @staticmethod
+    def _process_annotations(annotations):
+        """Return class names and the canonical task inferred from objects."""
+        # Preserve first-seen order because this list is also the class-ID
+        # mapping written into detection labels and model metadata.
+        labels = {}
+        has_class_labels = False
+        has_boxes = False
+        has_polygons = False
+        for annotation in annotations or []:
+            if not isinstance(annotation, dict):
+                continue
+            for obj in annotation.get("objects", []) or []:
+                if not isinstance(obj, dict):
+                    continue
+                label = obj.get("label")
+                if label:
+                    labels.setdefault(label, None)
+                    has_class_labels = True
+                if obj.get("polygon") is not None:
+                    has_polygons = True
+                elif obj.get("box") is not None:
+                    has_boxes = True
+        task = (
+            "segmentation"
+            if has_polygons
+            else "detection"
+            if has_boxes
+            else "classification"
+            if has_class_labels
+            else ""
+        )
+        return list(labels), normalize_task(task)
+
+    def _load_annotations(self):
+        annotations = self.client.load_json(self._remote_path("annotations.json"))
+        for annotation in annotations:
+            filename = annotation.get("filename", "")
+            if filename:
+                path = self._relative_path(filename)
+                annotation["path"] = path
+                annotation["url"] = url_path(
+                    f"{self.client.userid}/{self._remote_path(path)}"
+                )
+        return annotations
+
+    def _list_images(self):
+        files = self.client.list_files(f"{self.project}/")[0]
+        flat_images = []
+        for image in files:
+            if image["type"] not in ("image/jpeg", "image/png"):
+                continue
+            path = image.get("path") or image.get("name")
+            relative_path = self._listed_path(path)
+            if "/" in relative_path:
+                continue
+            image["path"] = self._relative_path(relative_path)
+            image["url"] = url_path(
+                f"{self.client.userid}/{self._remote_path(image['path'])}"
+            )
+            flat_images.append(image)
+        return flat_images
+
+    def delete_images(
+        self,
+        image_paths,
+        *,
+        file_paths=None,
+        progress_callback=None,
+        is_cancelled=None,
+    ):
+        """Delete remote files and update this dataset's in-memory state.
+
+        file_paths may include companion files that are not image records.
+        """
+        image_paths = list(dict.fromkeys(
+            self._relative_path(path) for path in image_paths if path
+        ))
+        paths = list(dict.fromkeys(
+            self._relative_path(path)
+            for path in (file_paths if file_paths is not None else image_paths)
+            if path
+        ))
+        is_cancelled = is_cancelled or (lambda: False)
+        if progress_callback:
+            progress_callback(0, len(paths), "Preparing image deletion", False)
+        if not paths:
+            return self
+
+        for index, path in enumerate(paths, start=1):
+            if is_cancelled():
+                raise RuntimeError("Operation canceled")
+            if progress_callback:
+                progress_callback(index - 1, len(paths), path, False)
+            remote_path = self._remote_path(path)
+            self.client.remove_file(remote_path)
+            folder, name = posixpath.split(remote_path)
+            try:
+                self.client.remove_file(posixpath.join(folder, f"tb_{name}"))
+            except Exception:
+                pass
+            if progress_callback:
+                progress_callback(index, len(paths), path, True)
+
+        removed_paths = set(image_paths)
+        remaining_images = []
+        for image in self.images or []:
+            image_path = image.get("path") or image.get("name")
+            if image_path and self._relative_path(image_path) in removed_paths:
+                continue
+            remaining_images.append(image)
+        self.images = remaining_images
+        if removed_paths:
+            self._invalidate_curation_findings()
+
+        annotations = self.annotations or []
+        remaining_annotations = [
+            annotation
+            for annotation in annotations
+            if not (
+                isinstance(annotation, dict)
+                and self._annotation_path(annotation) in removed_paths
+            )
+        ]
+        if len(remaining_annotations) != len(annotations):
+            self.replace_annotations(remaining_annotations)
+            self.save()
+        else:
+            self._refresh_annotation_metadata()
+        return self
+
+    def _annotation_path(self, annotation):
+        """Return an annotation's project-relative image path."""
+        path = annotation.get("path") or annotation.get("filename")
+        return self._relative_path(path) if path else ""
+
+    def save(self):
+        """Persist annotations and refresh their derived dataset metadata."""
+        self.client.save_json(self._remote_path("annotations.json"), self.annotations)
+        self._invalidate_curation_findings()
+        self._refresh_annotation_metadata()
+
+    def curate(
+        self,
+        work_dir=None,
+        apply=False,
+        confirm=None,
+        progress_callback=None,
+        is_cancelled=None,
+        analyze_options=None,
+    ):
+        """Analyze dataset images and retain curation findings."""
+        from .curation import analyze_curation
+
+        project = self.project
+        client = self.client
+        images = self.images or []
+        annotated = {
+            self._annotation_path(annotation)
+            for annotation in self.annotations or []
+            if isinstance(annotation, Mapping)
+        }
+        records = []
+        for image in images:
+            record = dict(image)
+            path = self._image_path(image)
+            record["path"] = path
+            record["name"] = record.get("name") or path
+            records.append(record)
+        protected = [
+            record["path"] for record in records if record["path"] in annotated
+        ]
+        owner = str(getattr(client, "userid", "") or "").strip("/")
+        report_progress = None
+        if progress_callback:
+            report_progress = (
+                lambda current, total, detail, completed: progress_callback(
+                    round(100 * current / max(total, 1)), 100, detail, completed
+                )
+            )
+        report = analyze_curation(
+            records,
+            image_loader=lambda path: client.load_image(self._remote_path(path)),
+            work_dir=work_dir,
+            protected_paths=protected,
+            cache_namespace=f"{owner}/{str(project).strip('/')}",
+            progress_callback=report_progress,
+            is_cancelled=is_cancelled,
+            **(analyze_options or {}),
+        )
+        try:
+            if apply:
+                recommended_paths = report["recommended_paths"]
+                if recommended_paths and confirm is not None and not confirm(
+                    recommended_paths
+                ):
+                    return report
+                paths = list(dict.fromkeys(
+                    self._relative_path(path)
+                    for path in recommended_paths
+                ))
+                if paths:
+                    self.delete_images(paths, is_cancelled=is_cancelled)
+                report["deleted"] = paths
+        finally:
+            self.curation_findings = (
+                report.get("findings", []) if isinstance(report, dict) else []
+            )
+        if progress_callback:
+            progress_callback(100, 100, "Curation complete", True)
+        return report
 
 
 def annotate_image(
@@ -78,7 +427,6 @@ def annotate_image(
     include_empty=False,
     classification=False,
 ):
-    """Compatibility wrapper preserving patchable dataset-level loaders."""
     return _annotate_image(
         image_data,
         classes,
@@ -116,234 +464,60 @@ def list_datasets(client=None):
         ]
 
 
-class Dataset(RemoteDataset):
-    """Remote dataset containing standard image records."""
-
-    def __init__(self, project, client=None):
-        super().__init__(project, _resolve_client(client))
-
-    def load(self, validate=True):
-        if validate and self.project not in list_datasets(self.client):
-            return self.clear_contents()
-        return self.load_contents(parallel=True)
-
-    def _select_images(self, files):
-        return [
-            file_data
-            for file_data in files
-            if file_data["type"] in ["image/jpeg", "image/png"]
-        ]
-
-    def add_images(
-        self, files=(), *, query=None, progress_callback=None, is_cancelled=None
-    ):
-        """Add local files and optional web-search results to this dataset."""
-        files = list(files or ())
-        is_cancelled = is_cancelled or (lambda: False)
-        total = max(1, (50 if query else 0) + len(files))
-
-        search_callback = None
-        if query:
-            if progress_callback:
-                def report_search(event):
-                    progress_callback(
-                        event.get("current", 0),
-                        total,
-                        event.get("filename", "web image"),
-                        True,
-                    )
-                search_callback = report_search
-
-            search_images(
-                query,
-                f"{self.project}/",
-                limit=50,
-                client=self.client,
-                callback=search_callback,
-            )
-
-        completed = 50 if query else 0
-        for file_path in files:
-            if is_cancelled():
-                break
-            filename = os.path.basename(file_path)
-            if progress_callback:
-                progress_callback(completed, total, filename, False)
-            self.client.upload_file(file_path, f"{self.project}/")
-            completed += 1
-            if progress_callback:
-                progress_callback(completed, total, filename, True)
-
-        if progress_callback:
-            progress_callback(total, total, "Saving dataset", True)
-        self.refresh_images()
-        self.save()
-        return self
-
-    def curate(
-        self,
-        work_dir=None,
-        apply=False,
-        analyze_fn=None,
-        confirm=None,
-        progress_callback=None,
-        is_cancelled=None,
-    ):
-        """Analyze this dataset, return the report, and retain its findings."""
-        from .curation import analyze_curation
-
-        project = self.project
-        client = self.client
-        analyze_fn = analyze_fn or analyze_curation
-        images = list(self.images or [])
-        annotated = {
-            self._annotation_path(annotation)
-            for annotation in self.annotations or []
-            if isinstance(annotation, Mapping)
-        }
-        paths = []
-        for image in images:
-            paths.append(self._image_path(image))
-        protected = [path for path in paths if path in annotated]
-        total = len(paths)
-        downloaded = 0
-        report_download_progress = _curation_progress(
-            progress_callback, 0, 50
-        )
-
-        def path_loader(remote_path):
-            nonlocal downloaded
-            if is_cancelled and is_cancelled():
-                raise RuntimeError("Operation canceled")
-            if report_download_progress:
-                report_download_progress(
-                    downloaded, total, remote_path, False
-                )
-            local_path = client.download_file(self._remote_path(remote_path))
-            downloaded += 1
-            if report_download_progress:
-                report_download_progress(
-                    downloaded, total, remote_path, True
-                )
-            return local_path
-
-        owner = str(getattr(client, "userid", "") or "").strip("/")
-        report = analyze_fn(
-            paths,
-            path_loader=path_loader,
-            work_dir=work_dir,
-            protected_paths=protected,
-            cache_namespace=f"{owner}/{str(project).strip('/')}",
-            progress_callback=_curation_progress(
-                progress_callback, 50, 50
-            ),
-            is_cancelled=is_cancelled,
-        )
-        try:
-            if apply:
-                recommended_paths = report["recommended_paths"]
-                if recommended_paths and confirm is not None and not confirm(
-                    recommended_paths
-                ):
-                    return report
-                paths = list(dict.fromkeys(
-                    self._relative_path(path)
-                    for path in recommended_paths
-                ))
-                if paths:
-                    self.delete_images(paths, is_cancelled=is_cancelled)
-                report["deleted"] = paths
-        finally:
-            self.curation_findings = copy.deepcopy(
-                report.get("findings", []) if isinstance(report, dict) else []
-            )
-        if progress_callback:
-            progress_callback(100, 100, "Curation complete", True)
-        return report
-
-    def annotate(
-        self,
-        label,
-        segment=False,
-        callback=None,
-        *,
-        task=None,
-        include_empty=True,
-        progress_callback=None,
-        is_cancelled=None,
-    ):
-        """Annotate pending images, optionally reporting or canceling work."""
-        annotated = {
-            self._annotation_path(item)
-            for item in self.annotations
-            if isinstance(item, Mapping)
-        }
-        pending = [
-            image for image in self.images
-            if self._image_path(image) not in annotated
-        ]
-        progress = (
-            tqdm(total=len(pending))
-            if callback is None and progress_callback is None
-            else None
-        )
-        is_cancelled = is_cancelled or (lambda: False)
-        classification = normalize_task(task or self.task) == "classification"
-        annotator = Annotator(segment=segment) if pending else None
-        try:
-            total = len(pending)
-            for index, image_data in enumerate(pending, start=1):
-                if is_cancelled():
-                    break
-                annotation = annotate_image(
-                    image_data,
-                    [label],
-                    segment=segment,
-                    annotator=annotator,
-                    include_empty=include_empty,
-                    classification=classification,
-                )
-                if annotation:
-                    annotation["path"] = self._image_path(image_data)
-                    self.add_annotations([annotation])
-                self.save()
-                if progress_callback:
-                    progress_callback(
-                        index,
-                        total,
-                        image_data["name"],
-                        len(annotation.get("objects") or []) if annotation else 0,
-                    )
-                if progress:
-                    progress.update(1)
-                    progress.set_description(f"Annotating {image_data['name']}")
-                if callback:
-                    callback({
-                        "current": index,
-                        "total": total,
-                        "filename": image_data["name"],
-                    })
-        finally:
-            if annotator is not None:
-                annotator.close()
-            if progress:
-                progress.close()
-        return self.annotations
-
 def load_dataset(project, validate=True, client=None):
     """Load a remote standard-image dataset."""
     return Dataset(project, client=client).load(validate=validate)
 
 
+def delete_dataset(
+    project, client=None, progress_callback=None, is_cancelled=None
+):
+    """Remove every remote file belonging to a dataset project."""
+    client = _resolve_client(client)
+    root = str(project or "").strip("/")
+    if not root:
+        raise ValueError("A dataset project is required")
+    pending = [root]
+    files = []
+
+    while pending:
+        folder = pending.pop()
+        entries, child_folders = client.list_files(f"{folder}/")
+        files.extend(
+            entry.get("path") or posixpath.join(folder, entry.get("name", ""))
+            for entry in entries or []
+        )
+        pending.extend(
+            child.get("path") or posixpath.join(folder, child.get("name", ""))
+            for child in child_folders or []
+        )
+
+    if progress_callback:
+        progress_callback(0, len(files), "Preparing deletion", False)
+    for index, path in enumerate(files, start=1):
+        if is_cancelled and is_cancelled():
+            raise RuntimeError("Operation canceled")
+        if progress_callback:
+            progress_callback(index - 1, len(files), path, False)
+        client.remove_file(path)
+        if progress_callback:
+            progress_callback(index, len(files), path, True)
+    return root
+
+
+def create_dataset(project, client=None):
+    """Load a dataset and persist its initial annotations file."""
+    dataset = load_dataset(project, client=client)
+    dataset.save()
+    return dataset
+
+
 __all__ = [
     "Annotator",
     "Dataset",
-    "annotation_counts",
     "annotate_image",
-    "dataset_has_annotations",
-    "find_image",
-    "image_filename",
+    "create_dataset",
+    "delete_dataset",
     "list_datasets",
     "load_dataset",
-    "objects_for_image",
 ]

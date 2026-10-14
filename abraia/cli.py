@@ -208,9 +208,6 @@ def curate(
     mode,
 ):
     """Analyze an image dataset and optionally apply recommendations."""
-    from functools import partial
-
-    from .dataset.curation import analyze_curation
     from .dataset.remote import load_dataset
 
     def operation():
@@ -222,16 +219,15 @@ def curate(
         report = load_dataset(project).curate(
             work_dir=work_dir,
             apply=apply_changes,
-            analyze_fn=partial(
-                analyze_curation,
-                duplicate_threshold=duplicate_threshold,
-                blur_threshold=blur_threshold,
-                blur_percentile=blur_percentile,
-                nearest_neighbors_k=nearest_neighbors,
-                outlier_mode=outlier_mode,
-                mode=mode,
-                remove_outliers=apply_outliers,
-            ),
+            analyze_options={
+                "duplicate_threshold": duplicate_threshold,
+                "blur_threshold": blur_threshold,
+                "blur_percentile": blur_percentile,
+                "nearest_neighbors_k": nearest_neighbors,
+                "outlier_mode": outlier_mode,
+                "mode": mode,
+                "remove_outliers": apply_outliers,
+            },
             confirm=confirm,
         )
         click.echo(json.dumps(report, indent=2))
@@ -399,7 +395,7 @@ def process_dataset(project, anonymize_images=False, upscale_threshold=0):
 @click.option("--upscale", help="Upscale images smaller than threshold", type=int, default=0)
 def create(project, query, anonymize=False, upscale=0):
     """Create or update a dataset."""
-    from .dataset.image_search import search_images
+    from .dataset.search import search_images
     from .dataset.remote import load_dataset
 
     def operation():

@@ -9,10 +9,6 @@ from importlib import import_module
 
 _LAZY_EXPORTS = {
     "available_accelerators": (".accelerators", "available_accelerators"),
-    "AnnotationModelRoute": (
-        "abraia.dataset.annotation",
-        "AnnotationModelRoute",
-    ),
     "GROUNDING_DINO_MODEL": (
         "abraia.dataset.annotation",
         "GROUNDING_DINO_MODEL",
@@ -62,7 +58,6 @@ def __dir__():
 
 __all__ = [
     "available_accelerators",
-    "AnnotationModelRoute",
     "GROUNDING_DINO_MODEL",
     "MOBILE_SAM_DISABLED_TASKS",
     "MOBILE_SAM_MODEL",

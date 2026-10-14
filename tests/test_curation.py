@@ -11,6 +11,13 @@ def _write_image(path, value):
     Image.fromarray(np.full((32, 32, 3), value, dtype=np.uint8)).save(path)
 
 
+def _load_image(image_dir, path):
+    from PIL import Image
+
+    with Image.open(image_dir / path) as image:
+        return np.asarray(image.convert("RGB"))
+
+
 def test_native_analyzer_reports_exact_duplicates_and_quality_findings(tmp_path):
     image_dir = tmp_path / "images"
     image_dir.mkdir()
@@ -19,8 +26,8 @@ def test_native_analyzer_reports_exact_duplicates_and_quality_findings(tmp_path)
     (image_dir / "broken.jpg").write_bytes(b"not an image")
 
     report = analyze_curation(
-        [path.name for path in image_dir.iterdir()],
-        path_loader=lambda path: image_dir / path,
+        [{"name": path.name, "path": path.name} for path in image_dir.iterdir()],
+        image_loader=lambda path: _load_image(image_dir, path),
     )
 
     duplicate = next(
@@ -43,8 +50,11 @@ def test_native_analyzer_protects_annotated_duplicate(tmp_path):
     (image_dir / "b_copy.jpg").write_bytes((image_dir / "a_keep.jpg").read_bytes())
 
     report = analyze_curation(
-        ["a_keep.jpg", "b_copy.jpg"],
-        path_loader=lambda path: image_dir / path,
+        [
+            {"name": path, "path": path}
+            for path in ("a_keep.jpg", "b_copy.jpg")
+        ],
+        image_loader=lambda path: _load_image(image_dir, path),
         protected_paths=["b_copy.jpg"],
     )
 
@@ -71,8 +81,11 @@ def test_native_analyzer_keeps_highest_resolution_similar_image(tmp_path):
     Image.fromarray(small).save(image_dir / "b_low.png")
 
     report = analyze_curation(
-        ["a_high.png", "b_low.png"],
-        path_loader=lambda path: image_dir / path,
+        [
+            {"name": path, "path": path}
+            for path in ("a_high.png", "b_low.png")
+        ],
+        image_loader=lambda path: _load_image(image_dir, path),
     )
 
     duplicate = next(
@@ -104,13 +117,13 @@ def test_similarity_analysis_keeps_top_k_neighbor_edges():
     assert len(third["metrics"]["similar_neighbors"]) == 2
 
 
-def test_dataset_curate_applies_deletions_and_annotation_cleanup():
+def test_dataset_curate_applies_deletions_and_annotation_cleanup(monkeypatch):
     class FakeClient:
         def __init__(self):
             self.removals = []
             self.saved = None
 
-        def download_file(self, source):
+        def load_image(self, source):
             return source
 
         def remove_file(self, path):
@@ -137,14 +150,15 @@ def test_dataset_curate_applies_deletions_and_annotation_cleanup():
 
     analysis = {}
 
-    def fake_analyze(paths, **kwargs):
-        analysis["paths"] = paths
+    def fake_analyze(images, **kwargs):
+        analysis["paths"] = [image["path"] for image in images]
         analysis["protected_paths"] = kwargs["protected_paths"]
-        for path in paths:
-            kwargs["path_loader"](path)
+        for image in images:
+            kwargs["image_loader"](image["path"])
         return report
 
-    result = dataset.curate(apply=True, analyze_fn=fake_analyze)
+    monkeypatch.setattr("abraia.dataset.curation.analyze_curation", fake_analyze)
+    result = dataset.curate(apply=True)
 
     assert analysis["paths"] == ["keep.jpg", "copy.jpg"]
     assert analysis["protected_paths"] == ["keep.jpg", "copy.jpg"]

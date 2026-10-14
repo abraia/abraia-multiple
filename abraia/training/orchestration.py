@@ -1,6 +1,8 @@
 """Dataset preparation and model-training orchestration."""
 
 import gc
+import hashlib
+import json
 import os
 import posixpath
 import shutil
@@ -127,82 +129,111 @@ def dataset_split_summary(dataset, split_options=None):
     )
 
 
+def _split_cache_key(dataset, annotations, split_options):
+    """Return a stable key for the annotations and settings used in a split."""
+    payload = {
+        "annotations": annotations,
+        "classes": dataset.classes,
+        "task": normalize_task(dataset.task),
+        "split_options": _normalize_split_options(split_options),
+    }
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def prepare_dataset(dataset, force=False, callback=None, split_options=None):
-    """Download and split a dataset, optionally reporting each file."""
+    """Download and split a dataset, reusing files while its inputs are unchanged."""
     if dataset.prune_orphaned_annotations():
         dataset.save()
+    project = dataset.project
+    cache_path = os.path.join(project, ".training-split.json")
+    annotations = dataset.annotations
+    cache_key = _split_cache_key(dataset, annotations, split_options)
+    if not force and os.path.isfile(cache_path):
+        with open(cache_path, encoding="utf-8") as cache_file:
+            cached_key = json.load(cache_file).get("key")
+        if cached_key == cache_key and all(
+            os.path.isdir(os.path.join(project, split_name))
+            for split_name in DATASET_SPLITS
+        ):
+            return
+
     client = _resolve_client(getattr(dataset, "client", None))
-    if force or not os.path.exists(dataset.project):
-        if force:
-            # These are generated training artifacts. Remove only their
-            # explicit split directories so a changed UI split cannot retain
-            # files from a previous partition.
-            for split_name in DATASET_SPLITS:
-                split_path = os.path.join(dataset.project, split_name)
-                if os.path.isdir(split_path):
-                    shutil.rmtree(split_path)
-        annotations = dataset.annotations
-        split_values = split_dataset(annotations, split_options)
-        splits = list(zip(DATASET_SPLITS, split_values))
-        total = sum(len(split_annotations) for _, split_annotations in splits)
+    # Split folders are generated artifacts; replace only these when inputs
+    # changed, leaving unrelated files in the project untouched.
+    for split_name in DATASET_SPLITS:
+        split_path = os.path.join(project, split_name)
+        if os.path.isdir(split_path):
+            shutil.rmtree(split_path)
+    if os.path.isfile(cache_path):
+        os.remove(cache_path)
+    os.makedirs(project, exist_ok=True)
+    split_values = split_dataset(annotations, split_options)
+    splits = list(zip(DATASET_SPLITS, split_values))
+    total = sum(len(split_annotations) for _, split_annotations in splits)
 
-        def work_items():
-            for split_name, split_annotations in splits:
-                folder = os.path.join(dataset.project, split_name)
-                for annotation in split_annotations:
-                    yield annotation, folder
+    for split_name in DATASET_SPLITS:
+        os.makedirs(os.path.join(project, split_name), exist_ok=True)
 
-        def report(current, annotation):
-            if callback:
-                callback({
-                    "current": current,
-                    "total": total,
-                    "filename": annotation.get("filename", "image"),
-                })
+    def work_items():
+        for split_name, split_annotations in splits:
+            folder = os.path.join(project, split_name)
+            for annotation in split_annotations:
+                yield annotation, folder
 
+    def report(current, annotation):
         if callback:
             callback({
-                "current": 0,
+                "current": current,
                 "total": total,
-                "filename": "Starting download",
+                "filename": annotation.get("filename", "image"),
             })
-        worker_count = min(DEFAULT_MAX_REMOTE_WORKERS, max(1, total))
-        current = 0
-        progress_bar = (
-            tqdm(total=total, desc="Downloading images")
-            if callback is None else None
-        )
-        try:
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                def save_item(item):
-                    annotation, folder = item
-                    return save_data(
-                        annotation,
-                        folder,
-                        dataset.classes,
-                        dataset.task,
-                        client,
-                        remote_path=posixpath.join(
-                            str(dataset.project).strip("/"),
-                            annotation.get("path") or annotation["filename"],
-                        ),
-                    )
 
-                for (annotation, _folder), _result in bounded_as_completed(
-                    executor,
-                    save_item,
-                    work_items(),
-                    max_pending=worker_count * 2,
-                ):
-                    current += 1
-                    report(current, annotation)
-                    if progress_bar is not None:
-                        progress_bar.update(1)
-        finally:
-            if progress_bar is not None:
-                progress_bar.close()
-        if normalize_task(dataset.task) != "classification":
-            save_config(dataset.project, dataset.classes)
+    if callback:
+        callback({
+            "current": 0,
+            "total": total,
+            "filename": "Starting download",
+        })
+    worker_count = min(DEFAULT_MAX_REMOTE_WORKERS, max(1, total))
+    current = 0
+    progress_bar = (
+        tqdm(total=total, desc="Downloading images")
+        if callback is None else None
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            def save_item(item):
+                annotation, folder = item
+                return save_data(
+                    annotation,
+                    folder,
+                    dataset.classes,
+                    dataset.task,
+                    client,
+                    remote_path=posixpath.join(
+                        str(dataset.project).strip("/"),
+                        annotation.get("path") or annotation["filename"],
+                    ),
+                )
+
+            for (annotation, _folder), _result in bounded_as_completed(
+                executor,
+                save_item,
+                work_items(),
+                max_pending=worker_count * 2,
+            ):
+                current += 1
+                report(current, annotation)
+                if progress_bar is not None:
+                    progress_bar.update(1)
+    finally:
+        if progress_bar is not None:
+            progress_bar.close()
+    if normalize_task(dataset.task) != "classification":
+        save_config(project, dataset.classes)
+    with open(cache_path, "w", encoding="utf-8") as cache_file:
+        json.dump({"key": cache_key}, cache_file)
 
 
 class ModelTrainer:
@@ -322,7 +353,6 @@ def train_dataset(
         training_callback({"stage": "Preparing dataset"})
         prepare_dataset(
             dataset,
-            force=split_options is not None,
             split_options=split_options,
             callback=lambda event: training_callback(
                 {"stage": "Preparing dataset", **event}

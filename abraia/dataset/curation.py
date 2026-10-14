@@ -9,9 +9,8 @@ outliers and exposure issues remain review-only by default.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-import hashlib
+import json
 import os
-from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -23,9 +22,6 @@ from typing import (
     Union,
 )
 
-from PIL import Image
-
-from ..utils import load_image
 from .quality import (
     DEFAULT_DUPLICATE_THRESHOLD,
     DEFAULT_SIMILARITY_THRESHOLD,
@@ -61,7 +57,6 @@ def _finding(
 
 def _build_report(
     paths: List[str],
-    local_paths: Mapping[str, Path],
     exact_groups: Mapping[str, List[str]],
     quality_findings: List[Dict[str, Any]],
     protected: Set[str],
@@ -90,10 +85,10 @@ def _build_report(
         for first, second, _details in similar_edges
         for path in (first, second)
     )
-    source_resolutions = {}
-    for path in grouped_paths:
-        width, height = _image_dimensions(local_paths[path])
-        source_resolutions[path] = width * height
+    source_resolutions = {
+        path: int(metrics_by_path[path].get("resolution") or 0)
+        for path in grouped_paths
+    }
 
     for group_id, group in exact_groups.items():
         if len(group) < 2:
@@ -113,7 +108,7 @@ def _build_report(
                 neighbor=keeper,
                 recommended=_is_removable(path, protected),
                 details={
-                    "method": "sha256",
+                    "method": "pixels",
                     "keep": keeper,
                     "keep_resolution": source_resolutions[keeper],
                 },
@@ -208,9 +203,9 @@ def _build_report(
 
 
 def analyze_curation(
-    paths: Iterable[PathLike],
+    images: Iterable[Mapping[str, Any]],
     *,
-    path_loader=None,
+    image_loader,
     work_dir: Optional[PathLike] = None,
     protected_paths: Iterable[PathLike] = (),
     cache_namespace: Optional[str] = None,
@@ -227,13 +222,9 @@ def analyze_curation(
     remove_outliers: bool = False,
     remove_invalid: bool = True,
 ) -> Dict[str, Any]:
-    """Analyze image paths and return findings without changing the dataset.
-
-    ``mode='fast'`` uses bounded previews and hash-based candidate buckets.
-    ``mode='thorough'`` performs exhaustive comparisons and richer analysis.
-    """
-    if isinstance(paths, (str, bytes, os.PathLike)):
-        raise TypeError("paths must be an iterable of image paths")
+    """Analyze image records through an image loader without local files."""
+    if isinstance(images, (str, bytes, os.PathLike)):
+        raise TypeError("images must be an iterable of image records")
     if not 0 <= duplicate_threshold <= 1:
         raise ValueError("duplicate_threshold must be between 0 and 1")
     for name, percentile in (
@@ -253,55 +244,33 @@ def analyze_curation(
 
     thorough = mode == "thorough"
     is_cancelled = is_cancelled or (lambda: False)
-    paths = [os.fspath(path) for path in paths]
-    path_loader = path_loader or (lambda path: path)
-    local_paths = {
-        path: Path(path_loader(path)).resolve()
-        for path in paths
-    }
     records = []
-    for path in paths:
-        local_path = local_paths[path]
-        try:
-            file_size = local_path.stat().st_size
-        except OSError:
-            file_size = 0
-        records.append({
-            "name": path,
-            "path": path,
-            "file_size": file_size,
-            "cache_key": _file_cache_key(local_path),
-        })
-
-    exact_groups = (
-        _hash_groups(paths, local_paths, is_cancelled)
-        if thorough
-        else _quick_hash_groups(paths, local_paths, is_cancelled=is_cancelled)
-    )
-    hash_by_path = {
-        path: digest
-        for digest, group in exact_groups.items()
-        for path in group
-    }
-    for record in records:
-        record["cache_key"] = hash_by_path.get(
-            record["path"], record["cache_key"]
+    for image in images:
+        record = dict(image)
+        path = os.fspath(record.get("path") or record.get("name") or "")
+        record["path"] = path
+        record["name"] = record.get("name") or path
+        record.setdefault("file_size", record.get("size"))
+        record["cache_key"] = record.get("cache_key") or json.dumps(
+            {
+                key: record.get(key)
+                for key in ("etag", "checksum", "date", "updated_at")
+                if record.get(key) is not None
+            },
+            sort_keys=True,
+            default=str,
         )
-
-    def load_local_image(path):
-        max_size = None if thorough else 512
-        return load_image(local_paths[path], max_size=max_size)
+        records.append(record)
+    paths = [record["path"] for record in records]
 
     quality_findings = analyze_rgb_quality(
         records,
-        load_local_image,
+        image_loader,
         similarity_threshold=duplicate_threshold,
         duplicate_threshold=DEFAULT_DUPLICATE_THRESHOLD,
         blur_threshold=blur_threshold,
         blur_percentile=blur_percentile,
-        outlier_percentile=(
-            outlier_percentile if thorough else None
-        ),
+        outlier_percentile=outlier_percentile if thorough else None,
         nearest_neighbors_k=nearest_neighbors_k if thorough else 1,
         outlier_mode=outlier_mode,
         include_all=True,
@@ -317,117 +286,20 @@ def analyze_curation(
         progress_callback=progress_callback,
         is_cancelled=is_cancelled,
     )
-    protected = {os.fspath(path) for path in protected_paths}
+    exact_groups = defaultdict(list)
+    for candidate in quality_findings:
+        digest = candidate["metrics"].pop("pixel_hash", None)
+        if digest:
+            exact_groups[digest].append(candidate["path"])
     return _build_report(
         paths,
-        local_paths,
-        exact_groups,
+        dict(exact_groups),
         quality_findings,
-        protected,
+        {os.fspath(path) for path in protected_paths},
         remove_outliers=remove_outliers,
         remove_invalid=remove_invalid,
         work_dir=work_dir,
     )
-
-
-def _image_dimensions(path: Path):
-    try:
-        with Image.open(path) as opened:
-            return int(opened.width), int(opened.height)
-    except Exception:
-        return 0, 0
-
-
-def _hash_file(path: Path, is_cancelled) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while True:
-            if is_cancelled():
-                raise RuntimeError("Operation canceled")
-            chunk = stream.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _hash_groups(
-    paths: Iterable[str],
-    local_paths: Mapping[str, Path],
-    is_cancelled,
-) -> Dict[str, List[str]]:
-    groups = defaultdict(list)
-    for path in paths:
-        if is_cancelled():
-            raise RuntimeError("Operation canceled")
-        try:
-            digest = _hash_file(local_paths[path], is_cancelled)
-        except OSError:
-            continue
-        groups[digest].append(path)
-    return dict(groups)
-
-
-def _quick_hash_groups(
-    paths: Iterable[str],
-    local_paths: Mapping[str, Path],
-    sample_size: int = 65536,
-    is_cancelled=None,
-) -> Dict[str, List[str]]:
-    """Group files by a cheap size plus head/tail fingerprint.
-
-    The fingerprint is only used to find possible exact duplicates.  Candidate
-    groups are verified with a full SHA-256 read, so sampled-byte collisions
-    cannot produce a false duplicate recommendation.
-    """
-    candidates = defaultdict(list)
-    is_cancelled = is_cancelled or (lambda: False)
-    for source_path in paths:
-        if is_cancelled():
-            raise RuntimeError("Operation canceled")
-        path = local_paths[source_path]
-        try:
-            size = path.stat().st_size
-            with path.open("rb") as stream:
-                head = stream.read(sample_size)
-                if size > sample_size:
-                    stream.seek(max(0, size - sample_size))
-                    tail = stream.read(sample_size)
-                else:
-                    tail = b""
-            digest = hashlib.sha256(
-                str(size).encode("ascii") + head + tail
-            ).hexdigest()
-            candidates[digest].append(source_path)
-        except OSError:
-            continue
-
-    groups = {}
-    for fingerprint, candidate_paths in candidates.items():
-        if len(candidate_paths) < 2:
-            continue
-        verified = defaultdict(list)
-        for source_path in candidate_paths:
-            if is_cancelled():
-                raise RuntimeError("Operation canceled")
-            try:
-                digest = _hash_file(local_paths[source_path], is_cancelled)
-            except OSError:
-                continue
-            verified[digest].append(source_path)
-        for digest, source_paths in verified.items():
-            if len(source_paths) > 1:
-                groups[digest] = source_paths
-    return groups
-
-
-def _file_cache_key(path: Path) -> str:
-    """Return a cheap cache identity without reading the complete file."""
-    try:
-        stat = path.stat()
-        return "{}:{}".format(stat.st_size, stat.st_mtime_ns)
-    except OSError:
-        return "missing"
 
 
 def _choose_keeper(

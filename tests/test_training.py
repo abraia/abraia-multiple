@@ -1,3 +1,4 @@
+import os
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -5,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-from abraia.dataset import DatasetService, RemoteDataset
+from abraia.dataset import create_dataset, delete_dataset
 from abraia.dataset.annotation import Annotator, annotate_image
 from abraia.dataset.remote import Dataset
 
@@ -112,8 +113,8 @@ def test_dataset_load(mock_list_datasets, mock_list_images, mock_load_annotation
     assert ds.task == 'classification'
     assert ds.images == [{'name': 'test.jpg'}]
     mock_list_datasets.assert_called_once_with(ds.client)
-    mock_load_annotations.assert_called_once_with('test_project')
-    mock_list_images.assert_called_once_with('test_project')
+    mock_load_annotations.assert_called_once_with()
+    mock_list_images.assert_called_once_with()
 
 
 def test_model_metric_helpers_normalize_catalog_payloads():
@@ -214,17 +215,17 @@ def test_dataset_annotated_status():
     # Images present, all annotated
     ds.images = [{'name': 'img1.jpg'}, {'name': 'img2.jpg'}]
     ds.annotations = [{'filename': 'img1.jpg'}, {'filename': 'img2.jpg'}]
-    ds._update_annotated()
+    ds._refresh_annotation_metadata()
     assert ds.annotated is True
 
     # Images present, not all annotated
     ds.annotations = [{'filename': 'img1.jpg'}]
-    ds._update_annotated()
+    ds._refresh_annotation_metadata()
     assert ds.annotated is False
 
 
 def test_dataset_prunes_orphaned_annotations():
-    dataset = RemoteDataset("demo", client=object())
+    dataset = Dataset("demo", client=object())
     dataset.images = [{"name": "present.jpg"}]
     dataset.annotations = [
         {"filename": "present.jpg", "objects": []},
@@ -235,7 +236,7 @@ def test_dataset_prunes_orphaned_annotations():
     assert dataset.annotations == [{"filename": "present.jpg", "objects": []}]
 
 
-def test_prepare_dataset_reports_download_progress(monkeypatch):
+def test_prepare_dataset_reports_download_progress(tmp_path, monkeypatch):
     import abraia.training.orchestration as orchestration
 
     annotations = [
@@ -252,7 +253,7 @@ def test_prepare_dataset_reports_download_progress(monkeypatch):
         "Dataset",
         (),
         {
-            "project": "progress-test",
+            "project": str(tmp_path / "progress-test"),
             "images": [
                 {"name": "one.jpg"},
                 {"name": "two.jpg"},
@@ -283,8 +284,44 @@ def test_prepare_dataset_reports_download_progress(monkeypatch):
     assert all(event["total"] == 3 for event in events)
 
 
+def test_prepare_dataset_reuses_splits_until_annotations_change(tmp_path, monkeypatch):
+    import abraia.training.orchestration as orchestration
+
+    project = tmp_path / "cached-training"
+    annotation = {"filename": "one.jpg", "objects": []}
+    dataset = SimpleNamespace(
+        project=str(project),
+        annotations=[annotation],
+        classes=["cat"],
+        task="classification",
+        client=None,
+        prune_orphaned_annotations=lambda: 0,
+    )
+    downloads = []
+
+    def save_data(_annotation, folder, *_args, **_kwargs):
+        downloads.append(folder)
+        os.makedirs(folder, exist_ok=True)
+
+    monkeypatch.setattr(orchestration, "save_data", save_data)
+    monkeypatch.setattr(
+        orchestration,
+        "split_dataset",
+        lambda values, _options=None: (values, [], []),
+    )
+
+    prepare_dataset(dataset)
+    first_download_count = len(downloads)
+    prepare_dataset(dataset, split_options={"train_ratio": 0.7})
+    assert len(downloads) == first_download_count
+
+    dataset.annotations = [{"filename": "two.jpg", "objects": []}]
+    prepare_dataset(dataset)
+    assert len(downloads) == first_download_count + 1
+
+
 def test_dataset_preserves_first_seen_class_order():
-    classes, task = RemoteDataset._process_annotations(
+    classes, task = Dataset._process_annotations(
         [{"objects": [{"label": "dog"}, {"label": "cat"}, {"label": "dog"}]}]
     )
 
@@ -598,6 +635,7 @@ def test_training_service_reports_stage_transitions_before_backend_work(
         is_cancelled=is_cancelled,
     )
 
+    assert mock_prepare_dataset.call_args.kwargs.get("force", False) is False
     assert [event["stage"] for event in events] == [
         "Preparing dataset",
         "Loading model",
@@ -724,37 +762,52 @@ def test_normalize_custom_models_adds_project_scope_and_model_defaults():
     ]
 
 
-def test_dataset_service_saves_replacement_annotation_table():
+def test_remote_dataset_saves_its_current_annotations():
     saved = []
-    dataset = RemoteDataset("demo", SimpleNamespace())
-    dataset.save = lambda: saved.append(list(dataset.annotations))
-    service = DatasetService(
-        SimpleNamespace(), lambda _project: dataset
-    )
-    annotations = [{"filename": "photo.jpg", "objects": []}]
-
-    assert service.save_annotations("demo", annotations) is dataset
-    assert dataset.annotations == annotations
-    assert saved == [annotations]
-    assert dataset.annotations is not annotations
-
-
-def test_dataset_service_delegates_image_deletion_to_adapter():
-    calls = []
-
-    def delete_images(paths, **options):
-        calls.append((paths, options))
-        return dataset
-
-    dataset = SimpleNamespace(delete_images=delete_images)
-    service = DatasetService(SimpleNamespace(), lambda _project: dataset)
-    progress_callback = lambda *event: None
-
-    assert service.delete_images(
+    dataset = Dataset(
         "demo",
-        ["demo/scene.hdr"],
-        progress_callback=progress_callback,
-    ) is dataset
-    assert calls[0][0] == ["demo/scene.hdr"]
-    assert calls[0][1]["progress_callback"] is progress_callback
-    assert callable(calls[0][1]["is_cancelled"])
+        SimpleNamespace(save_json=lambda path, value: saved.append((path, value))),
+    )
+    dataset.annotations = [{"filename": "photo.jpg", "objects": []}]
+
+    dataset.save()
+
+    assert saved == [("demo/annotations.json", dataset.annotations)]
+
+
+@patch("abraia.dataset.remote.load_dataset")
+def test_create_dataset_uses_the_normal_loader_and_saves_annotations(mock_load):
+    calls = []
+    dataset = Dataset("demo", SimpleNamespace())
+    dataset.save = lambda: calls.append("saved")
+    mock_load.return_value = dataset
+    client = SimpleNamespace()
+    assert create_dataset("demo", client=client) is dataset
+    mock_load.assert_called_once_with("demo", client=client)
+    assert calls == ["saved"]
+
+
+def test_delete_dataset_removes_files_from_nested_project_folders():
+    files_by_folder = {
+        "demo/": (
+            [{"path": "demo/annotations.json"}],
+            [{"path": "demo/models", "name": "models"}],
+        ),
+        "demo/models/": ([{"path": "demo/models/model.onnx"}], []),
+    }
+    removed = []
+    progress = []
+    client = SimpleNamespace(
+        list_files=lambda path: files_by_folder[path],
+        remove_file=lambda path: removed.append(path),
+    )
+
+    assert delete_dataset(
+        "demo", client=client,
+        progress_callback=lambda *event: progress.append(event),
+    ) == "demo"
+    assert removed == [
+        "demo/annotations.json", "demo/models/model.onnx"
+    ]
+    assert progress[0] == (0, 2, "Preparing deletion", False)
+    assert progress[-1] == (2, 2, "demo/models/model.onnx", True)
