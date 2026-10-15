@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 import torch
 
 from abraia.dataset import create_dataset, delete_dataset
@@ -486,6 +487,7 @@ def test_model_trainer_passes_medium_size_to_classification_training(mock_classi
     mock_classify_model_cls.assert_called_once_with(
         client=None,
         model_size='medium',
+        imgsz=224,
     )
 
 
@@ -553,6 +555,57 @@ def test_ultralytics_model_compiles_native_hailo_bundle(tmp_path):
     assert result["hef"] == "project/yolov8n_v2_hailo8l.hef"
     assert result["target"] == "hailo8l"
     assert model.hailo_model == result
+
+
+def test_hailo_compile_stops_after_stage_when_cancelled(tmp_path, monkeypatch):
+    from types import ModuleType
+    from abraia.training.detect import Model
+
+    calls = []
+    cancelled = [False]
+
+    class FakeClientRunner:
+        def translate_onnx_model(self):
+            calls.append("translate")
+
+        def optimize(self):
+            calls.append("optimize")
+            cancelled[0] = True
+
+        def compile(self):
+            calls.append("compile")
+
+    fake_sdk = ModuleType("hailo_sdk_client")
+    fake_sdk.ClientRunner = FakeClientRunner
+    monkeypatch.setitem(sys.modules, "hailo_sdk_client", fake_sdk)
+
+    class FakeUltralyticsModel:
+        def export(self, **_options):
+            runner = FakeClientRunner()
+            runner.translate_onnx_model()
+            runner.optimize()
+            runner.compile()
+
+    model = object.__new__(Model)
+    model.model = FakeUltralyticsModel()
+    model.model_name = "yolov8n"
+    model.task = "detection"
+    model.imgsz = 640
+    model.client = object()
+    model.metrics = {}
+    progress = []
+
+    with patch("abraia.training.detect.ensure_hailo_dfc"), \
+            pytest.raises(RuntimeError, match="Hailo compilation canceled"):
+        model.compile(
+            "project",
+            ["cat"],
+            progress_callback=lambda *event: progress.append(event),
+            is_cancelled=lambda: cancelled[0],
+        )
+
+    assert calls == ["translate", "optimize"]
+    assert not any(event[2] == "Optimizing INT8 model complete" for event in progress)
 
 
 def test_hailo_dfc_wheels_match_target_generations():
@@ -714,6 +767,7 @@ def test_classification_dataset_includes_held_out_test_split(tmp_path):
 
     image_folder = SimpleNamespace(classes=["cat", "dog"])
     model = object.__new__(Model)
+    model.imgsz = 224
     model.transform = object()
 
     with patch(

@@ -62,74 +62,104 @@ def _target_counts(total, ratios):
     return counts
 
 
+def _annotation_class_counts(annotation):
+    """Count labeled objects by class in one image record."""
+    counts = defaultdict(int)
+    if isinstance(annotation, dict):
+        for obj in annotation.get("objects", []) or []:
+            if isinstance(obj, dict) and obj.get("label"):
+                counts[str(obj["label"])] += 1
+    return counts
+
+
 def _annotation_labels(annotation):
-    """Return the unique class labels represented by one annotation record."""
-    if not isinstance(annotation, dict):
-        return set()
-    labels = set()
-    for obj in annotation.get("objects", []) or []:
-        if not isinstance(obj, dict):
-            continue
-        label = obj.get("label")
-        if label:
-            labels.add(str(label))
-    return labels
+    """Return the unique class labels represented by one image."""
+    return set(_annotation_class_counts(annotation))
 
 
 def _assign_annotated_records(annotations, ratios, random_state):
-    """Assign labelled records while minimizing per-class ratio deficits."""
+    """Balance class coverage first and object counts second."""
     rng = random.Random(random_state)
-    records = [(annotation, _annotation_labels(annotation)) for annotation in annotations]
+    records = [
+        (annotation, _annotation_class_counts(annotation))
+        for annotation in annotations
+    ]
     records = [record for record in records if record[1]]
     if not records:
         return {name: [] for name in SPLIT_NAMES}
 
-    class_records = defaultdict(int)
-    for _annotation, labels in records:
-        for label in labels:
-            class_records[label] += 1
-    class_targets = {
+    image_totals = defaultdict(int)
+    object_totals = defaultdict(int)
+    for _annotation, counts in records:
+        for label, count in counts.items():
+            image_totals[label] += 1
+            object_totals[label] += count
+    image_targets = {
         label: _target_counts(total, ratios)
-        for label, total in class_records.items()
+        for label, total in image_totals.items()
+    }
+    object_targets = {
+        label: _target_counts(total, ratios)
+        for label, total in object_totals.items()
     }
     total_targets = _target_counts(len(records), ratios)
 
-    # Place rare and multi-label records first. The random tie breaker keeps
-    # the result reproducible while avoiding input-order bias.
     rng.shuffle(records)
-    records.sort(key=lambda item: (min(class_records[label] for label in item[1]),
-                                   -len(item[1])))
-
+    records.sort(
+        key=lambda item: (
+            min(image_totals[label] for label in item[1]),
+            -len(item[1]),
+        )
+    )
     assignments = {name: [] for name in SPLIT_NAMES}
-    class_counts = {
-        name: defaultdict(int)
-        for name in SPLIT_NAMES
-    }
-    for annotation, labels in records:
+    image_counts = {name: defaultdict(int) for name in SPLIT_NAMES}
+    object_counts = {name: defaultdict(int) for name in SPLIT_NAMES}
+    for annotation, counts in records:
         def score(split_name):
-            class_deficit = sum(
-                max(class_targets[label][split_name] - class_counts[split_name][label], 0)
-                for label in labels
+            image_deficit = sum(
+                max(
+                    image_targets[label][split_name]
+                    - image_counts[split_name][label],
+                    0,
+                )
+                for label in counts
             )
-            class_pressure = sum(
-                (class_targets[label][split_name] - class_counts[split_name][label])
-                / max(1, class_targets[label][split_name])
-                for label in labels
+            image_pressure = sum(
+                max(
+                    image_targets[label][split_name]
+                    - image_counts[split_name][label],
+                    0,
+                ) / max(1, image_targets[label][split_name])
+                for label in counts
             )
-            total_deficit = max(
-                total_targets[split_name] - len(assignments[split_name]), 0
+            object_improvement = sum(
+                abs(
+                    object_targets[label][split_name]
+                    - object_counts[split_name][label]
+                )
+                - abs(
+                    object_targets[label][split_name]
+                    - object_counts[split_name][label]
+                    - count
+                )
+                for label, count in counts.items()
             )
             return (
-                class_deficit,
-                class_pressure,
-                total_deficit,
+                image_deficit,
+                image_pressure,
+                object_improvement,
                 -len(assignments[split_name]),
             )
 
-        destination = max(SPLIT_NAMES, key=score)
+        candidates = [
+            name for name in SPLIT_NAMES
+            if len(assignments[name]) < total_targets[name]
+        ] or list(SPLIT_NAMES)
+        destination = max(candidates, key=score)
         assignments[destination].append(annotation)
-        for label in labels:
-            class_counts[destination][label] += 1
+        for label, count in counts.items():
+            image_counts[destination][label] += 1
+            object_counts[destination][label] += count
     return assignments
 
 
@@ -142,26 +172,36 @@ def split_annotation_records(
 ):
     """Return ``(train, validation, test)`` with class-balanced records.
 
-    Each annotated image is assigned once. Multi-label images contribute to
-    each represented class, while background images remain in training as in
-    the original training workflow.
+    Each image remains intact. Class coverage guides assignment first, object
+    instance counts second, and confirmed background images follow the requested
+    split ratios.
     """
     ratios = normalize_split_ratios(
         train_ratio, validation_ratio, test_ratio
     )
     annotations = list(annotations or [])
-    labelled = [annotation for annotation in annotations if _annotation_labels(annotation)]
+    labelled = [
+        annotation for annotation in annotations
+        if _annotation_labels(annotation)
+    ]
     backgrounds = [
         annotation for annotation in annotations
         if not _annotation_labels(annotation)
     ]
     assignments = _assign_annotated_records(labelled, ratios, random_state)
-    assignments["train"].extend(backgrounds)
+    rng = random.Random(random_state + 1)
+    rng.shuffle(backgrounds)
+    background_targets = _target_counts(len(backgrounds), ratios)
+    offset = 0
+    for name in SPLIT_NAMES:
+        count = background_targets[name]
+        assignments[name].extend(backgrounds[offset:offset + count])
+        offset += count
     return tuple(assignments[name] for name in SPLIT_NAMES)
 
 
 def summarize_split_records(splits, classes=None, ratios=None):
-    """Return class counts and split totals for a rendered balance chart."""
+    """Return image, object, and background counts for each split."""
     if len(splits) != len(SPLIT_NAMES):
         raise ValueError("Expected train, validation, and test splits")
     class_names = list(classes or [])
@@ -172,20 +212,32 @@ def summarize_split_records(splits, classes=None, ratios=None):
     class_names.extend(label for label in sorted(known) if label not in class_names)
 
     records = []
+    backgrounds = {}
+    totals = {}
+    for split_name, split in zip(SPLIT_NAMES, splits):
+        annotations = list(split or [])
+        totals[split_name] = len(annotations)
+        backgrounds[split_name] = sum(
+            not _annotation_labels(annotation) for annotation in annotations
+        )
     for class_name in class_names:
         counts = {}
         for split_name, split in zip(SPLIT_NAMES, splits):
+            annotations = list(split or [])
             counts[split_name] = sum(
                 class_name in _annotation_labels(annotation)
-                for annotation in split or []
+                for annotation in annotations
+            )
+            counts[f"{split_name}_objects"] = sum(
+                _annotation_class_counts(annotation).get(class_name, 0)
+                for annotation in annotations
             )
         records.append({"name": str(class_name), **counts})
     result = {
+        "mode": "training_split",
         "classes": records,
-        "totals": {
-            split_name: len(split or [])
-            for split_name, split in zip(SPLIT_NAMES, splits)
-        },
+        "totals": totals,
+        "backgrounds": backgrounds,
     }
     if ratios is not None:
         result["ratios"] = normalize_split_ratios(**ratios)

@@ -261,7 +261,9 @@ class ModelTrainer:
         if task == "classification":
             from . import classify
 
-            self.model = classify.Model(client=client, model_size=self.model_size)
+            self.model = classify.Model(
+                client=client, model_size=self.model_size, imgsz=imgsz
+            )
         else:
             from . import detect
 
@@ -320,6 +322,8 @@ class ModelTrainer:
         imgsz=None,
         conf=None,
         iou=None,
+        progress_callback=None,
+        is_cancelled=None,
     ):
         if self.task not in ("detection", "segmentation"):
             raise NotImplementedError(
@@ -336,11 +340,14 @@ class ModelTrainer:
             imgsz=imgsz,
             conf=conf,
             iou=iou,
+            progress_callback=progress_callback,
+            is_cancelled=is_cancelled,
         )
 
 def train_dataset(
     project, dataset, epochs, training_callback, is_cancelled,
-    model_size="small", split_options=None,
+    model_size="small", split_options=None, imgsz=None,
+    retain_trainer=False, analyze_thresholds=False,
 ):
     """Prepare, train, validate, and save a dataset model."""
     from . import ModelTrainer, prepare_dataset
@@ -362,6 +369,8 @@ def train_dataset(
             raise RuntimeError("Training canceled")
         training_callback({"stage": "Loading model"})
         trainer_kwargs = {"client": getattr(dataset, "client", None)}
+        if imgsz is not None:
+            trainer_kwargs["imgsz"] = imgsz
         if model_size != "small":
             trainer_kwargs["model_size"] = model_size
         trainer = ModelTrainer(project, task, dataset.classes, **trainer_kwargs)
@@ -384,16 +393,40 @@ def train_dataset(
             split=DEFAULT_EVALUATION_SPLIT,
             is_cancelled=is_cancelled,
         )
+        result = {"stats": stats, "epochs": epochs, "task": task}
+        if analyze_thresholds and task in ("detection", "segmentation"):
+            from .thresholds import detection_threshold_analysis
+
+            training_callback({"stage": "Analyzing validation thresholds"})
+            try:
+                threshold_analysis = detection_threshold_analysis(
+                    trainer,
+                    is_cancelled=is_cancelled,
+                )
+                if is_cancelled():
+                    raise RuntimeError("Training canceled")
+            except Exception as error:
+                if is_cancelled() or (
+                    isinstance(error, RuntimeError)
+                    and "cancel" in str(error).lower()
+                ):
+                    raise RuntimeError("Training canceled") from error
+                result["threshold_analysis_error"] = str(error)
+            else:
+                if threshold_analysis is None:
+                    result["threshold_analysis_error"] = (
+                        "No labeled validation predictions were available."
+                    )
+                else:
+                    stats["threshold_analysis"] = threshold_analysis
+                    trainer.model.metrics["threshold_analysis"] = threshold_analysis
         if is_cancelled():
             raise RuntimeError("Training canceled")
         training_callback({"stage": "Exporting model"})
-        saved_model = trainer.save()
-        return {
-            "stats": stats,
-            "epochs": epochs,
-            "task": task,
-            "saved_model": saved_model,
-        }
+        result["saved_model"] = trainer.save()
+        if retain_trainer and task in ("detection", "segmentation"):
+            result["hailo_trainer"] = trainer
+        return result
     finally:
         del trainer
         gc.collect()

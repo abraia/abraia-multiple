@@ -211,6 +211,8 @@ class Model:
         imgsz=None,
         conf=None,
         iou=None,
+        progress_callback=None,
+        is_cancelled=None,
     ):
         """Export the trained YOLO model to a versioned Hailo bundle.
 
@@ -248,10 +250,58 @@ class Model:
         if iou is not None:
             export_options["iou"] = iou
 
+        if progress_callback:
+            progress_callback(0, 100, "Checking Hailo compiler", "Running")
         ensure_hailo_dfc(target)
+        if is_cancelled and is_cancelled():
+            raise RuntimeError("Hailo compilation canceled")
+        if progress_callback:
+            progress_callback(
+                5, 100,
+                "Preparing calibration data and exporting ONNX",
+                "Running",
+            )
         try:
             with contextlib.redirect_stdout(io.StringIO()):
-                exported = self.model.export(**export_options)
+                if progress_callback:
+                    from contextlib import ExitStack
+                    from unittest.mock import patch
+                    from hailo_sdk_client import ClientRunner
+
+                    stages = (
+                        ("translate_onnx_model", 15, 25, "Parsing ONNX model"),
+                        ("optimize", 25, 85, "Optimizing INT8 model"),
+                        ("compile", 85, 95, "Compiling HEF"),
+                    )
+                    with ExitStack() as patches:
+                        for method_name, started, completed, label in stages:
+                            original = getattr(ClientRunner, method_name)
+
+                            def report_stage(
+                                runner, *args, _original=original,
+                                _started=started, _completed=completed, _label=label,
+                                **kwargs,
+                            ):
+                                if is_cancelled and is_cancelled():
+                                    raise RuntimeError("Hailo compilation canceled")
+                                progress_callback(_started, 100, _label, "Running")
+                                result = _original(runner, *args, **kwargs)
+                                if is_cancelled and is_cancelled():
+                                    raise RuntimeError(
+                                        "Hailo compilation canceled"
+                                    )
+                                progress_callback(
+                                    _completed, 100,
+                                    _label + " complete", "Complete",
+                                )
+                                return result
+
+                            patches.enter_context(
+                                patch.object(ClientRunner, method_name, report_stage)
+                            )
+                        exported = self.model.export(**export_options)
+                else:
+                    exported = self.model.export(**export_options)
         except AssertionError as error:
             message = str(error).lower()
             if "linux x86_64" in message:
@@ -302,6 +352,8 @@ class Model:
             "fraction": fraction,
             "quantize": 8,
         }
+        if progress_callback and is_cancelled and is_cancelled():
+            raise RuntimeError("Hailo compilation canceled")
         result = save_hailo_bundle(
             self.client,
             project,
@@ -310,6 +362,7 @@ class Model:
             target,
             version=version,
             metadata=manifest,
+            progress_callback=progress_callback,
         )
         result["localBundle"] = str(bundle_path)
         self.hailo_model = result

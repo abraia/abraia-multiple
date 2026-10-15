@@ -280,6 +280,7 @@ def save_hailo_bundle(
     target,
     version=None,
     metadata=None,
+    progress_callback=None,
 ):
     """Upload a native Ultralytics Hailo export and its sidecar files.
 
@@ -308,22 +309,43 @@ def save_hailo_bundle(
     remote_dir = f"{project}/{versioned_name}_{target}"
     remote_hef = f"{project}/{versioned_name}_{target}.hef"
     uploaded = []
+    saves_manifest = metadata is not None and callable(
+        getattr(client, "save_json", None)
+    )
+    total_uploads = len(files) + 1 + int(saves_manifest)
+    completed_uploads = 0
+    if progress_callback:
+        progress_callback(95, 100, "Uploading HEF bundle", "Running")
+
+    def report_upload(destination):
+        nonlocal completed_uploads
+        uploaded.append(destination)
+        completed_uploads += 1
+        if progress_callback:
+            current = 95 + round(5 * completed_uploads / total_uploads)
+            progress_callback(
+                current, 100,
+                f"Uploading Hailo artifacts {completed_uploads}/{total_uploads}",
+                "Running",
+            )
 
     for source in files:
         relative = source.relative_to(source_dir).as_posix()
         destination = f"{remote_dir}/{relative}"
         client.upload_file(str(source), destination)
-        uploaded.append(destination)
+        report_upload(destination)
 
     # Keep a flat HEF path compatible with paired_hailo_uri(). The complete
-    # bundle above remains available for Ultralytics' own Hailo loader.
+    # bundle above remains available for Ultralytics Hailo loading.
     client.upload_file(str(hef_files[0]), remote_hef)
-    uploaded.append(remote_hef)
+    report_upload(remote_hef)
 
     manifest_path = f"{remote_dir}/abraia.json"
-    if metadata is not None and callable(getattr(client, "save_json", None)):
+    if saves_manifest:
         client.save_json(manifest_path, metadata)
-        uploaded.append(manifest_path)
+        report_upload(manifest_path)
+    if progress_callback:
+        progress_callback(100, 100, "HEF bundle uploaded", "Complete")
 
     return {
         "format": "hailo",

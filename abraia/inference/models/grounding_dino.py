@@ -372,6 +372,25 @@ class GroundingDINOModel(OnnxSessionMixin):
         return values, offsets
 
     def _build_inputs(self, image, token_values, pixel_mask):
+        input_ids = token_values["input_ids"]
+        batch_size, length = input_ids.shape
+        special_token_ids = self.tokenizer.convert_tokens_to_ids(
+            ["[CLS]", "[SEP]", ".", "?"]
+        )
+        position_ids = np.zeros_like(input_ids)
+        text_self_attention_masks = np.repeat(
+            np.eye(length, dtype=np.bool_)[None, :, :], batch_size, axis=0
+        )
+        for row, row_ids in enumerate(input_ids):
+            previous_col = 0
+            for col in np.flatnonzero(np.isin(row_ids, special_token_ids)):
+                if col == 0 or col == length - 1:
+                    continue
+                start = previous_col + 1
+                stop = col + 1
+                position_ids[row, start:stop] = np.arange(stop - start)
+                text_self_attention_masks[row, start:stop, start:stop] = True
+                previous_col = col
         values = {
             "image": image,
             "pixel_mask": pixel_mask,
@@ -381,11 +400,9 @@ class GroundingDINOModel(OnnxSessionMixin):
         for name, input_info in self._inputs.items():
             kind = _input_kind(name)
             if kind == "position_ids":
-                length = token_values["input_ids"].shape[1]
-                value = np.arange(length, dtype=np.int64)[None, :]
+                value = position_ids
             elif kind == "text_self_attention_masks":
-                length = token_values["input_ids"].shape[1]
-                value = np.ones((1, length, length), dtype=np.bool_)
+                value = text_self_attention_masks
             elif kind in values:
                 value = values[kind]
             else:

@@ -103,17 +103,19 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
 
 
 class Model:
-    def __init__(self, client=None, model_size="small"):
+    def __init__(self, client=None, model_size="small", imgsz=224):
         self.model_size = normalize_model_size(model_size)
-        self.input_shape = [1, 3, 224, 224]
+        self.imgsz = int(imgsz)
+        self.input_shape = [1, 3, self.imgsz, self.imgsz]
         self.model_name = CLASSIFICATION_BACKBONES[self.model_size][0]
         self.metrics = {}
         self.device = default_device()
         self.client = _resolve_client(client)
         self.model_version = None
+        resize_size = round(self.imgsz * 256 / 224)
         self.transform = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize(resize_size),
+            transforms.CenterCrop(self.imgsz),
             transforms.ToTensor(),
             transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],
@@ -126,7 +128,7 @@ class Model:
         data_transforms = {
             'train': transforms.Compose([
                 transforms.RandomRotation(15),
-                transforms.RandomResizedCrop(224),
+                transforms.RandomResizedCrop(self.imgsz),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -205,7 +207,7 @@ class Model:
         self.device = target_device
         model_src = temporal_src(f"{dataset}/{self.model_name}.onnx")
         try:
-            dummy_input = torch.randn(1, 3, 224, 224, device=target_device)
+            dummy_input = torch.randn(1, 3, self.imgsz, self.imgsz, device=target_device)
             torch.onnx.export(self.model, dummy_input, model_src, export_params=True, opset_version=10, do_constant_folding=True, input_names=['input'], output_names=['output'])
             onnx_model = onnx.load(model_src)
             onnx.checker.check_model(onnx_model)

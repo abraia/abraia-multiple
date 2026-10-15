@@ -8,6 +8,7 @@ from .artifacts import (
     save_versioned_model,
     versioned_model_paths,
 )
+from .thresholds import detection_threshold_analysis
 from .orchestration import (
     ModelTrainer,
     dataset_split_summary,
@@ -51,6 +52,7 @@ __all__ = [
     "SPLIT_RATIO_KEYS",
     "download_file",
     "dataset_split_summary",
+    "detection_threshold_analysis",
     "list_models",
     "list_model_records",
     "metric_average",
