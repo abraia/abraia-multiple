@@ -33,6 +33,27 @@ Install the Abraia SDK from PyPI:
 pip install -U abraia
 ```
 
+The default install uses the CPU build of ONNX Runtime. To run ONNX demos on
+an NVIDIA GPU on Linux, replace it with the CUDA build in the same Python
+environment:
+
+```sh
+python -m pip uninstall -y onnxruntime
+python -m pip install onnxruntime-gpu
+```
+
+Check that ONNX Runtime sees CUDA before starting the demo:
+
+```sh
+python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+```
+
+The output should include `CUDAExecutionProvider`. Then run a demo with
+`--accelerator gpu`, for example `abraia run demo detect --accelerator gpu`.
+ONNX Runtime's GPU package must match the host's CUDA and cuDNN runtime; see
+the [ONNX Runtime CUDA provider requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)
+if CUDA is still missing from the provider list.
+
 For training and development, install the optional development extras:
 
 ```sh
@@ -63,15 +84,6 @@ abraia compile PROJECT --checkpoint path/to/best.pt --device hailo8l \
 The command uploads the HEF and the complete Ultralytics Hailo sidecar bundle
 to the project. Hailo-8/8L use DFC 3.33.1, while Hailo-10H/15H/15L use DFC
 5.2.0; select the target matching the deployment accelerator.
-
-Grounding DINO requires the optional tokenizer dependency:
-
-```sh
-pip install -U abraia[grounding-dino]
-```
-
-Dataset curation is included in the base SDK and does not require an
-additional dependency.
 
 ---
 

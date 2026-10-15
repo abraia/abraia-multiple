@@ -7,6 +7,7 @@ returns token-level scores, so its labels are determined at inference time.
 
 import os
 import re
+import unicodedata
 
 import cv2
 import numpy as np
@@ -24,6 +25,169 @@ COREML_PROVIDER = "CoreMLExecutionProvider"
 CPU_PROVIDER = "CPUExecutionProvider"
 IMAGE_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGE_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+
+class _BertWordPieceTokenizer:
+    """Small uncased BERT tokenizer for the Grounding DINO ONNX graph.
+
+    This implements the BasicTokenizer and greedy WordPiece steps used by
+    ``BertTokenizerFast`` without importing Transformers or its Rust backend.
+    Offsets are measured against the original prompt for phrase decoding.
+    """
+
+    def __init__(self, vocab_file, do_lower_case=True):
+        with open(vocab_file, encoding="utf-8") as vocab:
+            self.vocab = {token.rstrip("\n\r"): index
+                          for index, token in enumerate(vocab)}
+        self.ids_to_tokens = [None] * len(self.vocab)
+        for token, index in self.vocab.items():
+            self.ids_to_tokens[index] = token
+        self.do_lower_case = do_lower_case
+        self.unk_token = "[UNK]"
+        self.cls_token = "[CLS]"
+        self.sep_token = "[SEP]"
+        self.pad_token = "[PAD]"
+        for token in (self.unk_token, self.cls_token, self.sep_token,
+                      self.pad_token):
+            if token not in self.vocab:
+                raise ValueError(f"Tokenizer vocabulary is missing {token}")
+
+    @staticmethod
+    def _is_whitespace(char):
+        return char in " \t\n\r" or unicodedata.category(char) == "Zs"
+
+    @staticmethod
+    def _is_control(char):
+        return char not in "\t\n\r" and unicodedata.category(char) in {
+            "Cc", "Cf"
+        }
+
+    @staticmethod
+    def _is_punctuation(char):
+        code = ord(char)
+        return (33 <= code <= 47 or 58 <= code <= 64 or
+                91 <= code <= 96 or 123 <= code <= 126 or
+                unicodedata.category(char).startswith("P"))
+
+    @staticmethod
+    def _is_chinese_char(char):
+        code = ord(char)
+        return (
+            0x4E00 <= code <= 0x9FFF or 0x3400 <= code <= 0x4DBF or
+            0x20000 <= code <= 0x2A6DF or 0x2A700 <= code <= 0x2B73F or
+            0x2B740 <= code <= 0x2B81F or 0x2B820 <= code <= 0x2CEAF or
+            0xF900 <= code <= 0xFAFF or 0x2F800 <= code <= 0x2FA1F
+        )
+
+    def _normalized_chars(self, text):
+        """Return normalized characters paired with source character spans."""
+        chars = []
+        for index, source_char in enumerate(text):
+            if source_char == "\x00" or source_char == "\ufffd":
+                continue
+            if self._is_control(source_char):
+                continue
+            if self._is_whitespace(source_char):
+                chars.append((" ", index, index + 1))
+                continue
+            value = source_char.lower() if self.do_lower_case else source_char
+            if self.do_lower_case:
+                value = "".join(
+                    char for char in unicodedata.normalize("NFD", value)
+                    if unicodedata.category(char) != "Mn"
+                )
+            chars.extend((char, index, index + 1) for char in value)
+        return chars
+
+    def _basic_tokens(self, text):
+        chars = self._normalized_chars(text)
+        tokens = []
+        current = []
+
+        def flush():
+            if current:
+                tokens.append(current[:])
+                current.clear()
+
+        for char, start, end in chars:
+            if char == " ":
+                flush()
+            elif self._is_chinese_char(char) or self._is_punctuation(char):
+                flush()
+                tokens.append([(char, start, end)])
+            else:
+                current.append((char, start, end))
+        flush()
+        return tokens
+
+    def _wordpiece(self, chars):
+        word = "".join(char for char, _, _ in chars)
+        if len(word) > 100:
+            return [(self.unk_token, chars[0][1], chars[-1][2])]
+        pieces = []
+        start = 0
+        while start < len(word):
+            end = len(word)
+            piece = None
+            while start < end:
+                value = word[start:end]
+                if start:
+                    value = "##" + value
+                if value in self.vocab:
+                    piece = value
+                    break
+                end -= 1
+            if piece is None:
+                return [(self.unk_token, chars[0][1], chars[-1][2])]
+            pieces.append((piece, chars[start][1], chars[end - 1][2]))
+            start = end
+        return pieces
+
+    def __call__(self, text, padding="max_length", truncation=True,
+                 max_length=256, return_offsets_mapping=False):
+        pieces = [piece for token in self._basic_tokens(text)
+                  for piece in self._wordpiece(token)]
+        encoded = [(self.cls_token, 0, 0)] + pieces + [
+            (self.sep_token, len(text), len(text))
+        ]
+        if truncation and len(encoded) > max_length:
+            encoded = encoded[:max_length]
+            encoded[-1] = (self.sep_token, len(text), len(text))
+        ids = [self.vocab[token] for token, _, _ in encoded]
+        offsets = [(start, end) for _, start, end in encoded]
+        attention_mask = [1] * len(ids)
+        if padding == "max_length":
+            pad_count = max(0, max_length - len(ids))
+            ids.extend([self.vocab[self.pad_token]] * pad_count)
+            attention_mask.extend([0] * pad_count)
+            offsets.extend([(0, 0)] * pad_count)
+        result = {
+            "input_ids": ids,
+            "attention_mask": attention_mask,
+            "token_type_ids": [0] * len(ids),
+        }
+        if return_offsets_mapping:
+            result["offset_mapping"] = offsets
+        return result
+
+    def convert_tokens_to_ids(self, tokens):
+        if isinstance(tokens, str):
+            return self.vocab.get(tokens, self.vocab[self.unk_token])
+        return [self.convert_tokens_to_ids(token) for token in tokens]
+
+    def decode(self, token_ids, skip_special_tokens=False):
+        special = {self.unk_token, self.cls_token, self.sep_token,
+                   self.pad_token}
+        words = []
+        for token_id in token_ids:
+            token = self.ids_to_tokens[int(token_id)]
+            if token is None or (skip_special_tokens and token in special):
+                continue
+            if token.startswith("##") and words:
+                words[-1] += token[2:]
+            else:
+                words.append(token)
+        return " ".join(words)
 
 
 def _grounding_dino_providers(providers):
@@ -331,14 +495,8 @@ class GroundingDINOModel(OnnxSessionMixin):
 
     @staticmethod
     def _load_tokenizer(tokenizer_uri):
-        try:
-            from transformers import BertTokenizerFast
-        except ImportError as error:
-            raise ImportError(
-                "Grounding DINO requires the optional 'transformers' dependency"
-            ) from error
         vocab_path = _resolve_file(tokenizer_uri)
-        return BertTokenizerFast(vocab_file=vocab_path, do_lower_case=True)
+        return _BertWordPieceTokenizer(vocab_path, do_lower_case=True)
 
     def _tokenize(self, prompt):
         encoded = self.tokenizer(
