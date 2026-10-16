@@ -36,12 +36,13 @@ class FrameBatch:
 
 @dataclass(frozen=True)
 class FrameResult:
-    """Inference output associated with one source frame."""
+    """Inference output plus frame latency and backend inference time."""
 
     record: FrameRecord
     results: Any
     elapsed_ms: Optional[float] = None
     error: Optional[BaseException] = None
+    inference_ms: Optional[float] = None
 
 
 ResultEmitter = Callable[[FrameResult], bool]
@@ -254,6 +255,7 @@ class AsyncInferenceRunner:
                         item.elapsed_ms
                         if item.elapsed_ms is not None
                         else (time.perf_counter() - record.started) * 1000,
+                        inference_ms=item.inference_ms,
                     )
                     while next_frame in pending:
                         yield pending.pop(next_frame)

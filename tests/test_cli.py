@@ -59,14 +59,26 @@ def test_metadata_remove_does_not_reload_deleted_metadata(monkeypatch):
     assert "Removed metadata for project/image.jpg" in result.output
 
 
-def test_custom_run_closes_model(monkeypatch):
-    class FakeModel:
-        instances = []
+def test_custom_run_falls_back_to_best_model_and_closes_pipeline(monkeypatch):
+    from abraia.client import APIError
 
-        def __init__(self, path):
-            self.path = path
+    pipeline_config = {
+        "source": {"type": "video", "src": "camera.mp4"},
+        "steps": [{"model": {"kind": "yolov8", "uri": "builtin.onnx"}}],
+    }
+    calls = {}
+
+    class FakePipeline:
+        def __init__(self, config):
+            self.config = config
             self.closed = False
-            self.__class__.instances.append(self)
+            calls["pipeline"] = self
+
+        @classmethod
+        def from_dict(cls, config, accelerator):
+            calls["config"] = config
+            calls["accelerator"] = accelerator
+            return cls(config)
 
         def __enter__(self):
             return self
@@ -74,25 +86,41 @@ def test_custom_run_closes_model(monkeypatch):
         def __exit__(self, exc_type, exc_value, traceback):
             self.closed = True
 
-        def run(self, image):
-            return []
+        def run(self):
+            calls["ran"] = True
 
     monkeypatch.setattr(cli_module.abraia, "userid", "user")
-    with patch("abraia.training.list_models", return_value=["model.onnx"]):
+    with patch.object(
+        cli_module.abraia,
+        "load_json",
+        side_effect=APIError("Not found", code=404),
+    ):
         with patch(
-            "abraia.inference.models.detection.Model",
-            FakeModel,
-        ):
-            with patch("abraia.cli.process_media") as process_media:
-                result = CliRunner().invoke(
-                    cli,
-                    ["run", "project", "detect", "image.jpg"],
-                )
+            "abraia.training.list_model_records",
+            return_value=[
+                {"name": "model.onnx", "task": "segmentation", "kind": "rtmdet"}
+            ],
+        ) as list_models:
+            with patch("abraia.demo.resolve_pipeline", return_value=pipeline_config):
+                with patch("abraia.runtime.Pipeline", FakePipeline):
+                    result = CliRunner().invoke(
+                        cli,
+                        ["run", "project", "detect", "image.jpg"],
+                    )
 
-    assert result.exit_code == 0
-    assert process_media.called
-    assert FakeModel.instances[0].path == "user/project/model.onnx"
-    assert FakeModel.instances[0].closed is True
+    assert result.exit_code == 0, result.output
+    list_models.assert_called_once_with(
+        "project", client=cli_module.abraia, sort_by_accuracy=True
+    )
+    assert calls["config"]["steps"][0]["model"] == {
+        "kind": "rtmdet",
+        "task": "segmentation",
+        "uri": "user/project/model.onnx",
+    }
+    assert calls["config"]["source"] == {"type": "image", "src": "image.jpg"}
+    assert calls["accelerator"] == "auto"
+    assert calls["ran"] is True
+    assert calls["pipeline"].closed is True
 
 
 def test_configure_prompts_for_and_saves_only_the_api_key(monkeypatch, tmp_path):

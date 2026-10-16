@@ -51,7 +51,7 @@ def run_pipeline(
     show_display = bool(display_config.get("show", True))
     display_config["show"] = False
     events = deque(maxlen=max_events)
-    display_clock = [time.monotonic()]
+    display_clock = [None]
     frame_count = [0]
     accelerator = ["CPU"]
 
@@ -66,7 +66,11 @@ def run_pipeline(
                 from abraia.utils.draw import render_resolution, render_status
 
                 now = time.monotonic()
-                fps = 1 / (now - display_clock[0]) if now > display_clock[0] else 0
+                fps = (
+                    1 / (now - display_clock[0])
+                    if display_clock[0] is not None and now > display_clock[0]
+                    else 0
+                )
                 display_clock[0] = now
                 render_status(
                     display_frame,

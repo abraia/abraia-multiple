@@ -11,6 +11,7 @@ import sys
 
 from ..dataset import _resolve_client
 from ..tasks import normalize_task
+from .model_data import metric_average
 
 
 HAILO_EXPORT_TARGETS = (
@@ -62,33 +63,11 @@ def list_models(project, client=None, sort_by_accuracy=False):
     """
     client = _resolve_client(client)
     if sort_by_accuracy:
-        records = list_model_records(project, client)
-        models = [
-            record for record in records
+        records = list_model_records(project, client, sort_by_accuracy=True)
+        return [
+            record["name"] for record in records
             if str(record["name"]).lower().endswith(".onnx")
         ]
-
-        def accuracy(record):
-            metrics = record.get("metrics") or {}
-            for key in ("acc", "accuracy", "mAP"):
-                value = metrics.get(key)
-                if isinstance(value, (int, float)):
-                    return float(value)
-                if isinstance(value, (list, tuple)):
-                    values = [
-                        float(item) for item in value
-                        if isinstance(item, (int, float))
-                    ]
-                    if values:
-                        return sum(values) / len(values)
-            return None
-
-        ranked = [(accuracy(record), record) for record in models]
-        ranked.sort(key=lambda item: (
-            item[0] is None,
-            -(item[0] or 0.0),
-        ))
-        return [record["name"] for _, record in ranked]
 
     files = client.list_files(f"{project}/")[0]
     return [
@@ -98,8 +77,8 @@ def list_models(project, client=None, sort_by_accuracy=False):
     ]
 
 
-def list_model_records(project, client=None):
-    """Return model names with optional persisted evaluation metadata."""
+def list_model_records(project, client=None, sort_by_accuracy=False):
+    """Return model records with optional metadata and accuracy ordering."""
     client = _resolve_client(client)
     records = []
     files = client.list_files(f"{project}/")[0]
@@ -121,6 +100,8 @@ def list_model_records(project, client=None):
                     "metrics": metadata.get("metrics") or {},
                     "classes": metadata.get("classes") or [],
                     "task": normalize_task(metadata.get("task")),
+                    "kind": metadata.get("kind"),
+                    "backend": metadata.get("backend"),
                 })
                 if str(name).lower().endswith(".joblib"):
                     record["kind"] = metadata.get("kind") or "multispectral"
@@ -132,6 +113,18 @@ def list_model_records(project, client=None):
             record.setdefault("task", "classification")
             record.setdefault("kind", "multispectral")
         records.append(record)
+    if sort_by_accuracy:
+        def accuracy(record):
+            metrics = record.get("metrics") or {}
+            for key in ("acc", "accuracy", "mAP"):
+                score = metric_average(metrics.get(key))
+                if score is not None:
+                    return score
+            return None
+
+        ranked = [(accuracy(record), record) for record in records]
+        ranked.sort(key=lambda item: (item[0] is None, -(item[0] or 0.0)))
+        records = [record for _, record in ranked]
     return records
 
 
@@ -282,11 +275,10 @@ def save_hailo_bundle(
     metadata=None,
     progress_callback=None,
 ):
-    """Upload a native Ultralytics Hailo export and its sidecar files.
+    """Upload a Hailo export and its sidecar files.
 
-    The Hailo exporter returns a directory rather than a single model file.
-    Keep that directory intact for Ultralytics consumers, while also exposing
-    a flat HEF path for Abraia's existing Hailo runtime and model pairing.
+    Preserve the complete export directory and expose a flat HEF path for
+    Abraia's Hailo runtime and model pairing.
     """
     if target not in HAILO_EXPORT_TARGETS:
         choices = ", ".join(HAILO_EXPORT_TARGETS)

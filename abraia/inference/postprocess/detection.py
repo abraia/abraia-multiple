@@ -50,6 +50,145 @@ def prepare_input(img, shape, return_transform=False):
     return tensor
 
 
+def prepare_rtmdet_input(img, shape, return_transform=False):
+    """Prepare an image using the RTMDet training pipeline's fixed normalization."""
+    model_height, model_width = int(shape[2]), int(shape[3])
+    image_height, image_width = img.shape[:2]
+    scale = min(model_width / image_width, model_height / image_height)
+    resized_width = max(1, round(image_width * scale))
+    resized_height = max(1, round(image_height * scale))
+    resized = cv2.resize(
+        img, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR
+    )
+    resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+    mean = np.asarray([103.53, 116.28, 123.675], dtype=np.float32)
+    std = np.asarray([57.375, 57.12, 58.395], dtype=np.float32)
+    resized = (resized.astype(np.float32) - mean.reshape(1, 1, 3)) / std.reshape(1, 1, 3)
+    padded = np.zeros((model_height, model_width, 3), dtype=np.float32)
+    padded[:resized_height, :resized_width] = resized
+    tensor = padded.transpose((2, 0, 1))[None]
+    if return_transform:
+        return tensor, scale, (0, 0)
+    return tensor
+
+
+def _rtmdet_mask_to_original(
+    mask, image_shape, model_shape, resized_shape, padding, box, threshold
+):
+    """Resize an RTMDet mask to source coordinates and crop it to its box."""
+    image_height, image_width = image_shape
+    model_height, model_width = model_shape
+    resized_height, resized_width = resized_shape
+    x1, y1, x2, y2 = box
+    mask = np.squeeze(np.asarray(mask, dtype=np.float32))
+    if mask.ndim != 2:
+        return None
+    if mask.shape != (image_height, image_width):
+        if mask.shape != (model_height, model_width):
+            mask = cv2.resize(
+                mask, (model_width, model_height), interpolation=cv2.INTER_LINEAR
+            )
+        pad_x, pad_y = map(int, padding)
+        mask = mask[
+            pad_y:pad_y + resized_height,
+            pad_x:pad_x + resized_width,
+        ]
+        mask = cv2.resize(
+            mask, (image_width, image_height), interpolation=cv2.INTER_LINEAR
+        )
+    return (mask[y1:y2, x1:x2] > threshold).astype(np.uint8)
+
+
+def process_rtmdet_output(
+    outputs, output_names, size, shape, classes, conf_threshold=0.25,
+    iou_threshold=0.7, transform=None, task="detection",
+):
+    """Decode MMDeploy RTMDet ONNX outputs into Abraia detections."""
+    named_outputs = dict(zip(output_names, outputs))
+    dets = next(
+        (value for name, value in named_outputs.items() if "det" in name.lower()),
+        outputs[0] if outputs else None,
+    )
+    labels = next(
+        (value for name, value in named_outputs.items() if "label" in name.lower()),
+        outputs[1] if len(outputs) > 1 else None,
+    )
+    masks = next(
+        (value for name, value in named_outputs.items() if "mask" in name.lower()),
+        outputs[2] if len(outputs) > 2 else None,
+    )
+    if dets is None or labels is None:
+        raise ValueError("RTMDet ONNX output must include detections and labels")
+
+    dets = np.asarray(dets)
+    labels = np.asarray(labels)
+    if dets.ndim == 3:
+        dets = dets[0]
+    if labels.ndim > 1:
+        labels = labels[0]
+    if dets.ndim != 2 or dets.shape[-1] < 5:
+        raise ValueError(
+            "RTMDet ONNX detections must have shape [N, 5] with xyxy boxes and scores"
+        )
+    if labels.ndim != 1 or len(labels) != len(dets):
+        raise ValueError("RTMDet ONNX labels must have one class id per detection")
+
+    image_width, image_height = size
+    model_width, model_height = int(shape[3]), int(shape[2])
+    scale, padding = _transform_for_output(size, shape, transform)
+    mask_array = None if masks is None else np.asarray(masks)
+    if mask_array is not None:
+        while mask_array.ndim > 3 and mask_array.shape[0] == 1:
+            mask_array = mask_array[0]
+        if mask_array.ndim == 2:
+            mask_array = mask_array[None]
+    if task == "segmentation" and mask_array is None:
+        raise ValueError(
+            "RTMDet segmentation ONNX output must include a masks tensor"
+        )
+    results = []
+    for index, (detection, label) in enumerate(zip(dets, labels)):
+        x1, y1, x2, y2, score = [float(value) for value in detection[:5]]
+        class_id = int(label)
+        if score <= 0 or score < conf_threshold or not 0 <= class_id < len(classes):
+            continue
+        x1 = round((x1 - padding[0]) / scale)
+        y1 = round((y1 - padding[1]) / scale)
+        x2 = round((x2 - padding[0]) / scale)
+        y2 = round((y2 - padding[1]) / scale)
+        x1, x2 = max(0, min(image_width, x1)), max(0, min(image_width, x2))
+        y1, y2 = max(0, min(image_height, y1)), max(0, min(image_height, y2))
+        if x2 <= x1 or y2 <= y1:
+            continue
+        result = {
+            "label": classes[class_id],
+            "score": score,
+            "box": [x1, y1, x2 - x1, y2 - y1],
+            "class_id": class_id,
+        }
+        if mask_array is not None and index < len(mask_array):
+            mask = _rtmdet_mask_to_original(
+                mask_array[index],
+                (image_height, image_width),
+                (model_height, model_width),
+                (
+                    max(1, round(image_height * scale)),
+                    max(1, round(image_width * scale)),
+                ),
+                padding,
+                (x1, y1, x2, y2),
+                0.5,
+            )
+            if mask is not None:
+                result["mask"] = mask
+        results.append(result)
+    if task == "segmentation" and any("mask" not in item for item in results):
+        raise ValueError(
+            "RTMDet segmentation ONNX output must include per-detection masks"
+        )
+    return results
+
+
 def _transform_for_output(size, shape, transform):
     image_width, image_height = size
     model_width, model_height = int(shape[3]), int(shape[2])
@@ -155,6 +294,8 @@ def process_output(
 __all__ = [
     "get_mask",
     "prepare_input",
+    "prepare_rtmdet_input",
+    "process_rtmdet_output",
     "process_output",
     "validate_model_config",
 ]

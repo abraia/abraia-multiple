@@ -22,6 +22,12 @@ extras_require = {
     # The Hailo Dataflow Compiler is distributed separately by Hailo and
     # cannot be declared as a normal PyPI dependency.
     'hailo': ['ultralytics>=8.4.97,<9', 'PyYAML>=6.0'],
+    'rtmdet': [
+        'openmim>=0.3.9',
+        'mmdet>=3.3,<4',
+        'mmdeploy>=1.3.1,<2',
+        'onnx>=1.13',
+    ],
 }
 
 setup(

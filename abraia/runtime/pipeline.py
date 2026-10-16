@@ -144,11 +144,13 @@ class Pipeline:
                     raise TypeError("Async models must yield FrameResult instances")
                 frame_index = item.record.index
                 source_frame = item.record.frame
-                inference_ms = item.elapsed_ms
+                inference_ms = item.inference_ms
+                stream_elapsed_ms = item.elapsed_ms
             else:
                 frame_index = source_index
                 source_frame = item
                 inference_ms = None
+                stream_elapsed_ms = None
 
             frame, spectral_cube, spectral_metadata = _source_frame_parts(
                 source_frame
@@ -166,6 +168,8 @@ class Pipeline:
                 spectral_metadata=spectral_metadata,
                 current=frame,
             )
+            if inference_ms is not None:
+                context.metrics["inference_ms"] = inference_ms
 
             started = time.perf_counter()
             if streaming and first_step is not None:
@@ -178,6 +182,7 @@ class Pipeline:
                     inference_started = time.perf_counter()
                     results = self.model.run(source_frame, **self.model_kwargs)
                     inference_ms = (time.perf_counter() - inference_started) * 1000
+                    context.metrics["inference_ms"] = inference_ms
                 context.results = results
                 context.current = results
                 steps = ()
@@ -188,9 +193,9 @@ class Pipeline:
                 context = step(context) or context
             step_elapsed_ms = (time.perf_counter() - started) * 1000
             if single_model:
-                elapsed_ms = inference_ms
+                elapsed_ms = stream_elapsed_ms if streaming else inference_ms
             elif streaming:
-                elapsed_ms = (inference_ms or 0) + step_elapsed_ms
+                elapsed_ms = (stream_elapsed_ms or 0) + step_elapsed_ms
             else:
                 elapsed_ms = step_elapsed_ms
             if self.on_frame is not None and elapsed_ms is None:

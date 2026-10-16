@@ -55,6 +55,8 @@ def resolve_model_type(model_type, hef_path, task):
 def model_type_from_onnx_uri(onnx_uri):
     """Infer the Hailo postprocessor family from an ONNX model URI."""
     name = Path(os.fspath(onnx_uri)).stem.lower()
+    if "rtmdet" in name:
+        return "rtmdet"
     if "yolov5" in name:
         return "v5"
     if "yolov8" in name or "yolo11" in name:
@@ -139,7 +141,10 @@ def _model_json_candidates(hef_path):
         for variant in (stem, stem.replace("_seg", "-seg")):
             if variant not in variants:
                 variants.append(variant)
-    return tuple(path.with_name(f"{stem}.json") for stem in variants)
+    candidates = [path.with_name(f"{stem}.json") for stem in variants]
+    if path.suffix.lower() == HAILO_FILE_EXTENSION:
+        candidates.insert(0, path.with_suffix("") / "abraia.json")
+    return tuple(candidates)
 
 
 def load_hailo_model_config(hef_path):

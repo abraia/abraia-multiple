@@ -67,7 +67,10 @@ def _hailo_pair_task(kind, task, uri):
     model_name = str(uri).lower()
     if any(
         marker in model_name
-        for marker in ("-seg", "_seg", "-segment", "_segment")
+        for marker in (
+            "-seg", "_seg", "-segment", "_segment",
+            "rtmdet-ins", "rtmdet_ins",
+        )
     ):
         return "segmentation"
     if "_pose" in model_name:
@@ -128,7 +131,10 @@ def _create_hailo_model(spec, config, base_dir, session_options):
     # Class names are authoritative in the model JSON sidecar, matching the
     # ONNX adapter. Ignore the former runtime labels override if present.
     params.pop("labels", None)
-    params.setdefault("score_threshold", config.get("conf_threshold", 0.25))
+    if "conf_threshold" in config:
+        params.setdefault("score_threshold", config["conf_threshold"])
+    if "iou_threshold" in config:
+        params.setdefault("iou_threshold", config["iou_threshold"])
     return HailoPipelineModel(uri, task=spec.task, **params)
 
 

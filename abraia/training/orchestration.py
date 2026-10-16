@@ -248,6 +248,7 @@ class ModelTrainer:
         client=None,
         model_size="small",
         checkpoint=None,
+        backend="ultralytics",
     ):
         task = normalize_task(task)
         if task not in TRAINING_TASKS:
@@ -256,6 +257,16 @@ class ModelTrainer:
         self.task = task
         self.classes = classes
         self.model_size = normalize_model_size(model_size)
+        backend = str(backend).strip().lower()
+        if backend not in ("ultralytics", "rtmdet"):
+            raise ValueError(
+                "Unsupported training backend: "
+                f"{backend}. Choose 'ultralytics' or 'rtmdet'."
+            )
+        if backend == "rtmdet" and task == "classification":
+            raise ValueError(
+                "RTMDet supports detection and segmentation, not classification."
+            )
         self.pbar = None
         imgsz = imgsz or (224 if task == "classification" else 640)
         if task == "classification":
@@ -265,19 +276,32 @@ class ModelTrainer:
                 client=client, model_size=self.model_size, imgsz=imgsz
             )
         else:
-            from . import detect
+            if backend == "rtmdet":
+                from . import rtmdet
 
-            detect_kwargs = {
-                "imgsz": imgsz,
-                "client": client,
-                "model_size": self.model_size,
-            }
-            if checkpoint is not None:
-                detect_kwargs["checkpoint"] = checkpoint
-            self.model = detect.Model(
-                to_ultralytics_task(task),
-                **detect_kwargs,
-            )
+                self.model = rtmdet.Model(
+                    task,
+                    imgsz=imgsz,
+                    client=client,
+                    model_size=self.model_size,
+                    checkpoint=checkpoint,
+                    classes=classes,
+                )
+            else:
+                from . import detect
+
+                detect_kwargs = {
+                    "imgsz": imgsz,
+                    "client": client,
+                    "model_size": self.model_size,
+                }
+                if checkpoint is not None:
+                    detect_kwargs["checkpoint"] = checkpoint
+                self.model = detect.Model(
+                    to_ultralytics_task(task),
+                    **detect_kwargs,
+                )
+        self.backend = backend
 
     def _progress_callback(self, progress):
         if self.pbar is None:
@@ -327,8 +351,8 @@ class ModelTrainer:
     ):
         if self.task not in ("detection", "segmentation"):
             raise NotImplementedError(
-                "Hailo compilation is only implemented for Ultralytics "
-                "detection and segmentation models."
+                "Hailo compilation is only implemented for detection and "
+                "segmentation models."
             )
         return self.model.compile(
             self.project,
@@ -347,12 +371,14 @@ class ModelTrainer:
 def train_dataset(
     project, dataset, epochs, training_callback, is_cancelled,
     model_size="small", split_options=None, imgsz=None,
-    retain_trainer=False, analyze_thresholds=False,
+    retain_trainer=False, analyze_thresholds=False, backend="ultralytics",
+    checkpoint=None,
 ):
     """Prepare, train, validate, and save a dataset model."""
     from . import ModelTrainer, prepare_dataset
 
     task = normalize_task(dataset.task)
+    backend = str(backend).strip().lower()
     trainer = None
     try:
         if is_cancelled():
@@ -369,6 +395,10 @@ def train_dataset(
             raise RuntimeError("Training canceled")
         training_callback({"stage": "Loading model"})
         trainer_kwargs = {"client": getattr(dataset, "client", None)}
+        if backend != "ultralytics":
+            trainer_kwargs["backend"] = backend
+        if checkpoint is not None:
+            trainer_kwargs["checkpoint"] = checkpoint
         if imgsz is not None:
             trainer_kwargs["imgsz"] = imgsz
         if model_size != "small":
@@ -394,7 +424,11 @@ def train_dataset(
             is_cancelled=is_cancelled,
         )
         result = {"stats": stats, "epochs": epochs, "task": task}
-        if analyze_thresholds and task in ("detection", "segmentation"):
+        if (
+            analyze_thresholds
+            and backend == "ultralytics"
+            and task in ("detection", "segmentation")
+        ):
             from .thresholds import detection_threshold_analysis
 
             training_callback({"stage": "Analyzing validation thresholds"})
@@ -424,7 +458,11 @@ def train_dataset(
             raise RuntimeError("Training canceled")
         training_callback({"stage": "Exporting model"})
         result["saved_model"] = trainer.save()
-        if retain_trainer and task in ("detection", "segmentation"):
+        if (
+            retain_trainer
+            and backend == "ultralytics"
+            and task in ("detection", "segmentation")
+        ):
             result["hailo_trainer"] = trainer
         return result
     finally:

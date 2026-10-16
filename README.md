@@ -60,6 +60,31 @@ For training and development, install the optional development extras:
 pip install -U abraia[dev]
 ```
 
+To train RTMDet detection or instance-segmentation models, install the optional
+extra and MMDetection's compiled MMCV dependency:
+
+```sh
+pip install -U openmim
+mim install mmengine
+mim install "mmcv>=2.0.0,<2.2.0"
+mim install mmdet
+pip install -U abraia[rtmdet]
+abraia train PROJECT --backend rtmdet
+```
+
+RTMDet training uses OpenMMLab's pretrained checkpoints by default. Custom
+checkpoints can be supplied with `--checkpoint` or `checkpoint=` in Python.
+The trained model is exported and saved as a versioned ONNX artifact for
+Abraia's model catalog. ONNX export requires a compatible MMDeploy build and
+its deployment configs; set `MMDEPLOY_DIR` to the MMDeploy source directory if
+the configs are not installed with the package. RTMDet can be compiled to Hailo
+from its trained checkpoint; this creates a temporary ONNX graph for the DFC
+and removes it after compilation. MMDeploy post-processing operators may
+require a Hailo-specific graph cut or may not be supported by the installed DFC
+version. Unlike the Ultralytics YOLO path, RTMDet compilation does not inject
+Hailo NMS; its detection HEF uses RTMDet host-side decoding and NMS in Abraia's
+Hailo inference path.
+
 To export Ultralytics detection or segmentation models to Hailo HEF, install
 the Hailo extra:
 
@@ -164,20 +189,32 @@ abraia annotate PROJECT LABEL [--segment]
 
 ### Training and Hailo compilation
 
-Prepare and train a model on a dataset, then compile a trained Ultralytics
-checkpoint to a Hailo HEF bundle:
+Prepare and train a model on a dataset. Detection and segmentation can use
+Ultralytics (the default) or RTMDet. Ultralytics models can be compiled to a
+Hailo HEF bundle:
 
 ```sh
 abraia train PROJECT [EPOCHS]
+abraia train PROJECT [EPOCHS] --backend rtmdet
 
 abraia compile PROJECT --checkpoint path/to/best.pt \
   --device hailo8l --calibration-data PROJECT/data.yaml
+
+abraia compile PROJECT --backend rtmdet \
+  --checkpoint PROJECT/.rtmdet/detection/small/work_dirs/final.pth \
+  --device hailo8l --calibration-data PROJECT/train/images
 ```
 
 Compilation supports `hailo8`, `hailo8l`, `hailo10h`, `hailo15h`, and
-`hailo15l`. Optional compilation controls include `--fraction`, `--imgsz`,
-`--conf`, `--iou`, and `--version`. On Linux x86_64, the matching Hailo DFC
-wheel is installed automatically when it is required and available.
+`hailo15l`. RTMDet compilation exports a temporary ONNX graph from the trained
+checkpoint, uses it for Hailo compilation, then removes it. The normal
+versioned ONNX export remains available separately. The DFC may reject
+MMDeploy operators, especially for instance segmentation. Detection HEFs use
+host-side confidence filtering and NMS. Segmentation HEFs require `dets`,
+`labels`, and `masks` outputs in the compiled graph.
+Optional compilation controls include `--fraction`, `--imgsz`, `--conf`,
+`--iou`, and `--version` for Ultralytics. On Linux x86_64, the matching Hailo
+DFC wheel is installed automatically when it is required and available.
 
 ### Dataset curation and pruning
 
@@ -216,9 +253,11 @@ abraia search PROJECT [QUERY]
 ```
 
 The `--accelerator` option applies to demos and can be `auto`, `onnx`, `cpu`,
-`gpu`, or `hailo`. Custom trained-project inference currently uses the
-standard ONNX model path. `search` accepts a text query or a local image path;
-when omitted, the query defaults to `man with red shirt`.
+`gpu`, or `hailo`. For a project, `abraia run` executes a saved version-two
+pipeline JSON when one is present in the project; otherwise it selects the
+project's highest-scoring ONNX model and runs it as a one-model pipeline.
+`search` accepts a text query or a local image path; when omitted, the query
+defaults to `man with red shirt`.
 
 ---
 
@@ -246,9 +285,10 @@ when omitted, the query defaults to `man with red shirt`.
 ### 4. Training & Dataset Operations (`abraia.training`)
 - Tools for training custom classification, detection, and segmentation models, along with dataset preprocessing utilities (`dataset`, `ops`).
   Training supports small, medium, and large model sizes; detection and
-  segmentation use YOLOv8n/m/l, while classification uses ResNet18/50/101.
-  Ultralytics detection and segmentation models can be exported to Hailo HEF
-  through `ModelTrainer.compile()` or the `abraia compile` command.
+  segmentation can use Ultralytics YOLOv8n/m/l or the optional RTMDet backend,
+  while classification uses ResNet18/50/101. Ultralytics detection and
+  segmentation models can be exported to Hailo HEF through
+  `ModelTrainer.compile()` or the `abraia compile` command.
 - Dataset curation and pruning use the SDK's built-in Pillow and NumPy image
   analysis, with no external curation service required.
 
@@ -319,10 +359,10 @@ abraia run demo people people-walking.mp4 --accelerator auto
 ![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.jpg)
 
 For model-backed entries, `kind` identifies the model architecture or family
-(`yolov8`, `yolov5`, or `yolo11`), while `task` identifies the operation
+(`yolov8`, `yolov5`, `yolo11`, or `rtmdet`), while `task` identifies the operation
 (`detection`, `segmentation`, `pose`, or `classification`). The runtime selects
-ONNX or Hailo from the model URI (`.onnx` or `.hef`); Hailo is available for
-the supported detection, segmentation, and pose targets.
+ONNX or Hailo from the model URI (`.onnx` or `.hef`). RTMDet supports detection
+and segmentation, including host-side Hailo postprocessing.
 
 Built-in detectors do not require a model URI. For example:
 
@@ -424,6 +464,19 @@ from the managed model cache. Demo pipelines derive the
 architecture-specific HEF URI from the canonical ONNX URI; explicit local
 paths remain supported. Hailo no longer resolves external Model Zoo downloads
 or bare logical model names.
+
+Custom RTMDet ONNX models can be selected directly:
+
+```json
+"model": {
+  "kind": "rtmdet",
+  "task": "detection",
+  "uri": "project/rtmdet_small_v1.onnx"
+}
+```
+
+RTMDet uses fixed model-specific preprocessing in Abraia. Its HEF bundles use
+their `abraia.json` sidecar for labels and host-side NMS settings.
 
 ---
 

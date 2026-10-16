@@ -1,6 +1,7 @@
 """Interactive demo runners backed by the shared pipeline catalog."""
 
 import os
+import time
 from copy import deepcopy
 
 from abraia.inference import FaceRecognizer, FaceAttribute
@@ -411,9 +412,27 @@ def monitor_objects(
     src = _prepare_source(selected, src, resolution)
     _ensure_video_available(src)
 
+    previous_frame = [None]
+
     def report(context, elapsed_ms):
+        now = time.perf_counter()
+        throughput_fps = (
+            1 / (now - previous_frame[0])
+            if previous_frame[0] is not None and now > previous_frame[0]
+            else 0
+        )
+        previous_frame[0] = now
+        inference_ms = context.metrics.get("inference_ms")
+        inference = (
+            f"inference {inference_ms:.1f}ms "
+            f"({1000 / inference_ms:.1f} FPS equivalent)"
+            if inference_ms and inference_ms > 0
+            else "inference timing unavailable"
+        )
         print(
-            f"#{context.frame_index} {round(elapsed_ms, 1)}ms "
+            f"#{context.frame_index} {inference} | "
+            f"frame {elapsed_ms:.1f}ms | "
+            f"throughput {throughput_fps:.1f} FPS "
             f"{count_objects(context.results)}"
         )
 

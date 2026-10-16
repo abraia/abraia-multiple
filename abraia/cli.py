@@ -55,19 +55,6 @@ def process_map(
         return results
 
 
-def process_media(src, callback):
-    """Apply a callback to an image or each frame of a video source."""
-    from .runtime import Video
-    from .utils import get_type, load_image, show_image
-
-    if get_type(str(src)).startswith("image"):
-        show_image(callback(load_image(src)))
-        return
-    with Video(src) as video:
-        for frame in video:
-            video.show(callback(frame))
-
-
 def list_files(folder):
     return abraia.list_files(folder)
 
@@ -431,7 +418,19 @@ def annotate(project, label, segment=False):
 @cli.command()
 @click.argument("project")
 @click.argument("epochs", type=int, required=False, default=None)
-def train(project, epochs):
+@click.option(
+    "--backend",
+    type=click.Choice(["ultralytics", "rtmdet"], case_sensitive=False),
+    default="ultralytics",
+    show_default=True,
+    help="Detection and segmentation training backend.",
+)
+@click.option(
+    "--checkpoint",
+    default=None,
+    help="Optional pretrained model checkpoint.",
+)
+def train(project, epochs, backend, checkpoint):
     """Train a model on the specified dataset."""
     from .dataset.remote import load_dataset
     from .training import ModelTrainer, prepare_dataset
@@ -441,7 +440,13 @@ def train(project, epochs):
         dataset = load_dataset(project)
         prepare_dataset(dataset)
         click.echo("Training model...")
-        training_session = ModelTrainer(project, dataset.task, dataset.classes)
+        training_session = ModelTrainer(
+            project,
+            dataset.task,
+            dataset.classes,
+            backend=backend,
+            checkpoint=checkpoint,
+        )
         training_session.train(epochs)
         click.echo("Evaluating metrics...")
         click.echo(json.dumps(training_session.test(), indent=2))
@@ -464,7 +469,14 @@ def train(project, epochs):
     "--checkpoint",
     type=click.Path(exists=True, dir_okay=False),
     required=True,
-    help="The trained Ultralytics .pt checkpoint to compile.",
+    help="Ultralytics .pt checkpoint or RTMDet .pth checkpoint (.onnx also accepted).",
+)
+@click.option(
+    "--backend",
+    type=click.Choice(["ultralytics", "rtmdet"]),
+    default="ultralytics",
+    show_default=True,
+    help="Training backend used to produce the model.",
 )
 @click.option(
     "--calibration-data",
@@ -481,6 +493,7 @@ def compile_model_command(
     project,
     device,
     checkpoint,
+    backend,
     calibration_data,
     fraction,
     imgsz,
@@ -488,7 +501,7 @@ def compile_model_command(
     iou,
     version,
 ):
-    """Compile a trained Ultralytics model to a Hailo HEF bundle."""
+    """Compile a trained model to a Hailo HEF bundle."""
     from .dataset.remote import load_dataset
     from .training import ModelTrainer, prepare_dataset
 
@@ -501,6 +514,7 @@ def compile_model_command(
             project,
             dataset.task,
             dataset.classes,
+            backend=backend,
             checkpoint=checkpoint,
         ).compile(
             device=device,
@@ -535,10 +549,10 @@ def search(project, query):
     type=click.Choice(["auto", "onnx", "cpu", "gpu", "hailo"]),
     default="auto",
     show_default=True,
-    help="Accelerator for demos; auto prefers a compatible Hailo device.",
+    help="Inference accelerator; auto prefers a compatible Hailo device.",
 )
 def run(project, classes, src, accelerator):
-    """Run a demo or a custom trained model."""
+    """Run a project's saved pipeline or its most accurate model."""
     if project == "demo":
         if classes == "faces":
             from .demo import track_faces
@@ -554,23 +568,58 @@ def run(project, classes, src, accelerator):
             "The separate Hailo demo mode was removed; use "
             "`run demo <name> --accelerator hailo`."
         )
+
     def operation():
-        from .inference.models.detection import Model
-        from .training import list_models
-        from .utils import render_results
+        from .demo import resolve_pipeline
+        from .runtime import Pipeline
+        from .sources import infer_source_type
+        from .training import list_model_records, normalize_custom_models
 
-        models = list_models(project)
-        if not models:
-            click.echo(f"No trained model found in project '{project}'")
-            return
-        source = src if src is not None else (
-            classes if classes not in ("", "faces") else 0
+        source_override = src if src is not None else (
+            classes if classes not in ("", "faces") else None
         )
-        with Model(f"{abraia.userid}/{project}/{models[0]}") as model:
-            def callback(image):
-                return render_results(image, model.run(image))
+        try:
+            pipeline_config = abraia.load_json(f"{project}/pipeline.json")
+        except APIError as error:
+            if error.code != 404:
+                raise
+            pipeline_config = None
+        if pipeline_config is None:
+            models = normalize_custom_models(
+                (
+                    record
+                    for record in list_model_records(
+                        project, client=abraia, sort_by_accuracy=True
+                    )
+                    if str(record["name"]).lower().endswith(".onnx")
+                ),
+                project=project,
+                userid=abraia.userid,
+            )
+            if not models:
+                click.echo(f"No trained model found in project '{project}'")
+                return
+            model = models[0]
+            pipeline_config = resolve_pipeline("detect", accelerator="onnx")
+            model_config = pipeline_config["steps"][0]["model"]
+            model_config.update({
+                "kind": model["kind"],
+                "task": model["task"],
+                "uri": model["uri"],
+            })
+            click.echo(f"No saved pipeline found; using {model['name']}")
 
-            process_media(source, callback)
+        if source_override is not None:
+            source_config = pipeline_config.setdefault("source", {})
+            source_config["src"] = source_override
+            inferred_type = infer_source_type(source_override)
+            if inferred_type:
+                source_config["type"] = inferred_type
+        with Pipeline.from_dict(
+            pipeline_config,
+            accelerator=accelerator,
+        ) as pipeline:
+            pipeline.run()
 
     _run_remote(operation)
 

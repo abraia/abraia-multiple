@@ -285,7 +285,7 @@ def test_hailo_capabilities_are_explicitly_narrower_than_generic_catalog():
         "segmentation",
         "pose",
     }
-    assert "iou_threshold" not in capabilities["hailo_constructor_options"]
+    assert "iou_threshold" in capabilities["hailo_constructor_options"]
     assert "batch_size" in capabilities["hailo_constructor_options"]
     assert "model_type" in capabilities["hailo_constructor_options"]
 

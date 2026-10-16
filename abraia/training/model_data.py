@@ -42,17 +42,35 @@ def normalize_custom_models(models, project="", userid="", task=""):
         uri = str(record.get("uri", "") or "").strip()
         if not uri:
             uri = f"{prefix}/{name}" if prefix else name
-        model_task = normalize_task(record.get("task"), default=default_task)
+        model_task = normalize_task(record.get("task"))
+        model_kind = record.get("kind")
+        name_lower = name.lower()
         if not model_task:
-            model_task = "detection"
+            if any(marker in name_lower for marker in ("_seg", "-seg")):
+                model_task = "segmentation"
+            elif model_kind == "resnet":
+                model_task = "classification"
+            else:
+                model_task = default_task
+        if model_kind not in ("yolov5", "yolov8", "yolo11", "rtmdet", "resnet"):
+            if str(record.get("backend", "")).lower() == "rtmdet":
+                model_kind = "rtmdet"
+            elif model_task == "classification":
+                model_kind = "resnet"
+            else:
+                model_kind = next(
+                    (
+                        candidate
+                        for candidate in ("yolov5", "yolov8", "yolo11")
+                        if name_lower.startswith(candidate)
+                    ),
+                    "yolov8",
+                )
         record.update({
             "name": name,
             "uri": uri,
             "task": model_task,
-            "kind": record.get(
-                "kind",
-                "resnet" if model_task == "classification" else "yolov8",
-            ),
+            "kind": model_kind,
         })
         normalized.append(record)
     return normalized

@@ -15,6 +15,10 @@ import cv2
 import numpy as np
 
 from ..postprocess.common import nms, sigmoid, softmax
+from ..postprocess.detection import (
+    _rtmdet_mask_to_original,
+    prepare_rtmdet_input,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -148,6 +152,12 @@ def default_preprocess(image: np.ndarray, model_w: int, model_h: int) -> np.ndar
     return padded_image
 
 
+def rtmdet_preprocess(image, model_w, model_h):
+    """Apply RTMDet's fixed preprocessing and return an HWC Hailo input."""
+    tensor = prepare_rtmdet_input(image, (1, 3, model_h, model_w))
+    return tensor[0].transpose((1, 2, 0))
+
+
 def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image):
     """Validate and resize a Hailo byte-mask ROI to its original-image box."""
     try:
@@ -170,6 +180,163 @@ def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image
         )
     except Exception:
         return None
+
+
+def rtmdet_postprocess(
+    outputs, image, model_shape, classes, output_roles=None,
+    conf_threshold=0.25, iou_threshold=0.7, center_point_box=0,
+    max_detections=300, task="detection", mask_threshold=0.45,
+):
+    """Decode RTMDet outputs on the host."""
+    if not isinstance(outputs, dict):
+        raise ValueError("RTMDet Hailo outputs must be named tensors")
+    output_roles = output_roles or {}
+    image_height, image_width = image.shape[:2]
+    model_height, model_width = int(model_shape[0]), int(model_shape[1])
+    scale = min(model_width / image_width, model_height / image_height)
+    letterbox = LetterboxTransform(
+        image_height,
+        image_width,
+        model_height,
+        model_width,
+        scale,
+        max(1, round(image_height * scale)),
+        max(1, round(image_width * scale)),
+        0,
+        0,
+    )
+
+    def get_output(role):
+        wanted = output_roles.get(role)
+        if wanted in outputs:
+            return np.asarray(outputs[wanted])
+        for name, value in outputs.items():
+            if role in str(name).lower():
+                return np.asarray(value)
+        return None
+
+    dets = get_output("dets")
+    labels = get_output("labels")
+    masks = get_output("masks")
+    if dets is not None and labels is not None:
+        dets = np.asarray(dets)
+        while dets.ndim > 2 and dets.shape[0] == 1:
+            dets = dets[0]
+        labels = np.squeeze(labels)
+        if dets.ndim == 1:
+            dets = dets.reshape(1, -1)
+        if dets.ndim != 2 or dets.shape[-1] < 5:
+            raise ValueError("RTMDet detections must have shape [N, 5]")
+        labels = np.reshape(labels, (-1,))
+        if masks is not None:
+            masks = np.asarray(masks)
+            while masks.ndim > 3 and masks.shape[0] == 1:
+                masks = masks[0]
+            if masks.ndim == 2:
+                masks = masks[None]
+        if task == "segmentation" and masks is None:
+            raise ValueError(
+                "RTMDet segmentation HEF outputs must include per-detection masks"
+            )
+        detections = []
+        for index, (det, label) in enumerate(zip(dets, labels)):
+            x1, y1, x2, y2, score = [float(value) for value in det[:5]]
+            class_id = int(label)
+            if score < conf_threshold or not 0 <= class_id < len(classes):
+                continue
+            x1, y1, x2, y2 = letterbox.box_to_original([x1, y1, x2, y2])
+            if x2 <= x1 or y2 <= y1:
+                continue
+            detection = {
+                "label": classes[class_id], "score": score,
+                "box": [x1, y1, x2 - x1, y2 - y1],
+                "class_id": class_id,
+            }
+            if masks is not None and masks.ndim >= 3 and index < len(masks):
+                mask = _rtmdet_mask_to_original(
+                    masks[index],
+                    (image_height, image_width),
+                    (model_height, model_width),
+                    (letterbox.resized_height, letterbox.resized_width),
+                    (letterbox.pad_x, letterbox.pad_y),
+                    (x1, y1, x2, y2),
+                    mask_threshold,
+                )
+                if mask is not None:
+                    detection["mask"] = mask
+            detections.append(detection)
+        if task == "segmentation" and any("mask" not in item for item in detections):
+            raise ValueError(
+                "RTMDet segmentation HEF outputs must include per-detection masks"
+            )
+        return detections
+
+    boxes = get_output("boxes")
+    scores = get_output("scores")
+    if boxes is None or scores is None:
+        raise ValueError(
+            "RTMDet HEF needs outputRoles mapping its box and score tensors"
+        )
+    boxes = np.asarray(boxes)
+    while boxes.ndim > 2 and boxes.shape[0] == 1:
+        boxes = boxes[0]
+    scores = np.asarray(scores)
+    while scores.ndim > 2 and scores.shape[0] == 1:
+        scores = scores[0]
+    if boxes.ndim != 2 or boxes.shape[-1] != 4:
+        raise ValueError("RTMDet box tensor must have shape [N, 4]")
+    if scores.ndim != 2:
+        raise ValueError("RTMDet score tensor must have two dimensions")
+    class_count = len(classes)
+    if scores.shape[1] == class_count:
+        pass
+    elif scores.shape[0] == class_count:
+        scores = scores.T
+    else:
+        raise ValueError(
+            "RTMDet score tensor dimensions do not match the model classes"
+        )
+    if len(boxes) != len(scores):
+        raise ValueError("RTMDet box and score tensors have different candidates")
+    if not np.isfinite(scores).all():
+        scores = np.nan_to_num(scores, nan=0.0, posinf=1.0, neginf=0.0)
+    if scores.size and (scores.min() < 0.0 or scores.max() > 1.0):
+        scores = sigmoid(scores)
+    if int(center_point_box) == 0:
+        boxes = boxes[:, [1, 0, 3, 2]]
+    else:
+        center_x, center_y, width, height = boxes.T
+        boxes = np.column_stack((
+            center_x - width / 2,
+            center_y - height / 2,
+            center_x + width / 2,
+            center_y + height / 2,
+        ))
+
+    detections = []
+    for class_id in range(class_count):
+        class_scores = scores[:, class_id]
+        selected = np.flatnonzero(class_scores >= conf_threshold)
+        if not len(selected):
+            continue
+        candidates = np.column_stack((boxes[selected], class_scores[selected]))
+        keep = nms(candidates.astype(np.float32), iou_threshold)[:max_detections]
+        for index in keep:
+            x1, y1, x2, y2 = letterbox.box_to_original(candidates[index, :4])
+            if x2 <= x1 or y2 <= y1:
+                continue
+            detections.append({
+                "label": classes[class_id],
+                "score": float(candidates[index, 4]),
+                "box": [x1, y1, x2 - x1, y2 - y1],
+                "class_id": class_id,
+            })
+    detections.sort(key=lambda result: result["score"], reverse=True)
+    if task == "segmentation":
+        raise ValueError(
+            "RTMDet segmentation HEF requires dets, labels, and masks outputs"
+        )
+    return detections[:max_detections]
 
 
 def convert_nms_box_from_normalized(normalized_box, model_dim, original_dim):

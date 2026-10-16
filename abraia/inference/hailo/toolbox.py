@@ -1,6 +1,7 @@
 import os
 import logging
 import collections
+import time
 import numpy as np
 
 from functools import partial
@@ -195,9 +196,14 @@ if HAILO_AVAILABLE:
             self.configured_model.wait_for_async_ready(timeout_ms=10000)
 
             # Launch async inference and attach the result handler
+            inference_started = time.perf_counter()
             self.last_infer_job = self.configured_model.run_async(
                 bindings_list,
-                partial(inference_callback_fn, bindings_list=bindings_list)
+                partial(
+                    inference_callback_fn,
+                    bindings_list=bindings_list,
+                    inference_started=inference_started,
+                ),
             )
             self.pending_jobs.append(self.last_infer_job)
             return self.last_infer_job
@@ -302,7 +308,7 @@ if HAILO_AVAILABLE:
 
 if HAILO_AVAILABLE:
     class ModelInference(HailoInfer):
-        def __init__(self, hef_path: str, task: str, labels: list, batch_size: int = 1, score_threshold: float = 0.25, mask_threshold: float = 0.45, model_type: str = 'v8'):
+        def __init__(self, hef_path: str, task: str, labels: list, batch_size: int = 1, score_threshold: float = 0.25, mask_threshold: float = 0.45, iou_threshold: float = 0.7, model_type: str = 'v8', model_config=None):
             task = normalize_task(task)
             backend_task = to_hailo_task(task)
             hef_path = models.resolve_hef_path(hef_path, backend_task)
@@ -313,12 +319,20 @@ if HAILO_AVAILABLE:
             # using a HEF's native UINT8/UINT16 stream type makes those values
             # invalid for host-side softmax, box decoding, and NMS. Hailo's
             # byte-mask NMS path is still handled by HailoInfer itself.
-            super().__init__(hef_path, batch_size, output_type="FLOAT32")
+            input_type = "FLOAT32" if model_type == "rtmdet" else None
+            super().__init__(
+                hef_path,
+                batch_size,
+                input_type=input_type,
+                output_type="FLOAT32",
+            )
             self.task = backend_task
             self.labels = labels
             self.score_threshold = score_threshold
             self.mask_threshold = mask_threshold
+            self.iou_threshold = iou_threshold
             self.model_type = model_type
+            self.model_config = model_config or {}
             self._postprocessors = {
                 "detect": self._process_detect_results,
                 "segment": self._process_segment_results,
@@ -330,6 +344,20 @@ if HAILO_AVAILABLE:
             if self.labels and 0 <= class_id < len(self.labels):
                 return self.labels[class_id]
             return str(class_id)
+
+        def _process_rtmdet_results(self, outputs, image, task="detection"):
+            return postprocess.rtmdet_postprocess(
+                outputs,
+                image,
+                self.get_input_shape()[:2],
+                self.labels,
+                output_roles=self.model_config.get("outputRoles"),
+                conf_threshold=self.score_threshold,
+                iou_threshold=self.iou_threshold,
+                center_point_box=self.model_config.get("centerPointBox", 0),
+                task=task,
+                mask_threshold=self.mask_threshold,
+            )
 
         def _get_results(self, bindings):
             if len(bindings._output_names) == 1:
@@ -404,6 +432,8 @@ if HAILO_AVAILABLE:
             return detections
 
         def _process_detect_results(self, result, image):
+            if self.model_type == "rtmdet":
+                return self._process_rtmdet_results(result, image)
             infer_results = result if isinstance(result, list) else [result]
             oh, ow = image.shape[:2]
             mh, mw, _ = self.get_input_shape()
@@ -423,6 +453,10 @@ if HAILO_AVAILABLE:
             return detections
         
         def _process_segment_results(self, raw_detections, image):
+            if self.model_type == "rtmdet":
+                return self._process_rtmdet_results(
+                    raw_detections, image, task="segmentation"
+                )
             oh, ow = image.shape[:2]
             mh, mw, _ = self.get_input_shape()
             arch_cfg = postprocess.SEGMENT_CONFIG[self.model_type]
@@ -526,13 +560,25 @@ if HAILO_AVAILABLE:
             output_callback,
             image_batch=None,
             stop_event=None,
+            inference_started=None,
         ) -> None:
             image_batch = image_batch if image_batch is not None else input_batch
+            inference_completed = time.perf_counter()
+
+            def inference_elapsed_ms():
+                if inference_started is None:
+                    return None
+                return (inference_completed - inference_started) * 1000
 
             def emit_result(index, result=None, error=None):
                 if stop_event is not None and stop_event.is_set():
                     return False
-                return output_callback(index, result, error) is not False
+                return output_callback(
+                    index,
+                    result,
+                    error=error,
+                    inference_ms=inference_elapsed_ms(),
+                ) is not False
 
             if completion_info.exception:
                 logger.error("Hailo inference failed: %s", completion_info.exception)

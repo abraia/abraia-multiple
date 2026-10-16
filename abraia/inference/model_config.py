@@ -19,7 +19,7 @@ class ModelDescriptor:
     runtime_options: bool = False
 
 
-_MODEL_ARCHITECTURE_ORDER = ("yolov5", "yolov8", "yolo11")
+_MODEL_ARCHITECTURE_ORDER = ("yolov5", "yolov8", "yolo11", "rtmdet")
 MODEL_ARCHITECTURES = frozenset(_MODEL_ARCHITECTURE_ORDER)
 MODEL_RUN_OPTIONS = (
     "labels",
@@ -78,7 +78,11 @@ PIPELINE_HAILO_TASKS = HAILO_TASKS
 MODEL_DESCRIPTORS = MappingProxyType({
     **{
         kind: ModelDescriptor(
-            frozenset({"detection", "segmentation", "pose"}),
+            frozenset(
+                {"detection", "segmentation"}
+                if kind == "rtmdet"
+                else {"detection", "segmentation", "pose"}
+            ),
             uri_based=True,
             runtime_options=True,
         )
@@ -125,11 +129,18 @@ class ModelSpec:
             raise ValueError("Pipeline model must be an object")
 
         kind = str(config.get("kind", "")).strip().lower()
+        raw_uri = config.get("uri", "")
+        uri_name = str(raw_uri or "").lower()
+        default_task = (
+            "segmentation"
+            if kind == "rtmdet"
+            and any(marker in uri_name for marker in ("rtmdet_ins", "rtmdet-ins"))
+            else "classification" if kind == "resnet" else "detection"
+        )
         task = normalize_task(
             config.get("task"),
-            default="classification" if kind == "resnet" else "detection",
+            default=default_task,
         )
-        raw_uri = config.get("uri", "")
         if raw_uri is None:
             uri = ""
         else:

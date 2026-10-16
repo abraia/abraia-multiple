@@ -20,7 +20,7 @@ from .models import (
     load_hailo_metadata,
     resolve_model_type,
 )
-from .postprocess import default_preprocess
+from .postprocess import default_preprocess, rtmdet_preprocess
 
 
 class HailoPipelineModel:
@@ -38,8 +38,9 @@ class HailoPipelineModel:
         hef_path: str,
         task: str = "detection",
         batch_size: int = 1,
-        score_threshold: float = 0.25,
+        score_threshold: Optional[float] = None,
         mask_threshold: float = 0.45,
+        iou_threshold: Optional[float] = None,
         model_type: Optional[str] = None,
     ):
         if not HAILO_AVAILABLE or ModelInference is None:
@@ -51,6 +52,14 @@ class HailoPipelineModel:
             raise ValueError("batch_size must be at least 1")
 
         model_config = load_hailo_model_config(hef_path)
+        score_threshold = (
+            model_config.get("confidenceThreshold", 0.25)
+            if score_threshold is None else score_threshold
+        )
+        iou_threshold = (
+            model_config.get("iouThreshold", 0.7)
+            if iou_threshold is None else iou_threshold
+        )
         labels = labels_from_model_config(model_config)
         metadata = load_hailo_metadata(hef_path)
         metadata_task = normalize_task(
@@ -63,8 +72,13 @@ class HailoPipelineModel:
         self.accelerator = "HAILO"
         self.labels = labels
         if model_type is None:
-            model_type = resolve_model_type(None, hef_path, task)
-        self.metadata = metadata
+            model_type = (
+                "rtmdet"
+                if str(model_config.get("backend", metadata.get("backend", ""))).lower()
+                == "rtmdet"
+                else resolve_model_type(None, hef_path, task)
+            )
+        self.model_type = model_type
         self.inference = ModelInference(
             hef_path,
             task=task,
@@ -72,7 +86,9 @@ class HailoPipelineModel:
             batch_size=batch_size,
             score_threshold=score_threshold,
             mask_threshold=mask_threshold,
+            iou_threshold=iou_threshold,
             model_type=model_type or "v8",
+            model_config=model_config,
         )
         self.batch_size = batch_size
         self.input_height, self.input_width, _ = self.inference.get_input_shape()
@@ -82,8 +98,13 @@ class HailoPipelineModel:
     def _infer_batch(self, batch: FrameBatch, emit, stop_event):
         """Submit one runtime batch and adapt Hailo callbacks to FrameResult."""
 
-        def emit_result(index, results, error=None):
-            return emit(FrameResult(batch.records[index], results, error=error))
+        def emit_result(index, results, error=None, inference_ms=None):
+            return emit(FrameResult(
+                batch.records[index],
+                results,
+                error=error,
+                inference_ms=inference_ms,
+            ))
 
         self.inference.infer_batch(
             batch.processed_frames,
@@ -91,6 +112,15 @@ class HailoPipelineModel:
             stop_event=stop_event,
             image_batch=[record.frame for record in batch.records],
         )
+
+    def _preprocess_frame(self, frame):
+        if self.model_type == "rtmdet":
+            return rtmdet_preprocess(
+                frame,
+                self.input_width,
+                self.input_height,
+            )
+        return default_preprocess(frame, self.input_width, self.input_height)
 
     def iter_inference(self, source: Iterable, **_model_kwargs):
         """Yield :class:`FrameResult` objects for ``source``."""
@@ -100,9 +130,7 @@ class HailoPipelineModel:
         runner = AsyncInferenceRunner(
             source=source,
             inference=self._infer_batch,
-            preprocess=lambda frame: default_preprocess(
-                frame, self.input_width, self.input_height
-            ),
+            preprocess=self._preprocess_frame,
             batch_size=self.batch_size,
             flush=getattr(self.inference, "wait", None),
         )

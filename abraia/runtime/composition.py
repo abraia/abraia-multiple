@@ -1,6 +1,7 @@
 """Composable inference steps for multi-model runtime pipelines."""
 
 from dataclasses import dataclass, field
+import time
 from typing import Any, Iterable, Mapping, Optional
 
 from abraia.inference.geometry import point_in_polygon, segments_intersect
@@ -258,6 +259,11 @@ def _map_region_result(value, source_box):
     return mapped
 
 
+def _record_inference_time(context, started):
+    elapsed = (time.perf_counter() - started) * 1000
+    context.metrics["inference_ms"] = context.metrics.get("inference_ms", 0) + elapsed
+
+
 class CompositionStep:
     """Base class for a named step in a composed pipeline."""
 
@@ -284,17 +290,22 @@ class ModelStep(CompositionStep):
     def __call__(self, context):
         inputs = context.current
         if inputs is context.frame:
+            started = time.perf_counter()
+            results = self.model.run(inputs, **self.model_kwargs)
+            _record_inference_time(context, started)
             return self.apply_results(
                 context,
-                self.model.run(inputs, **self.model_kwargs),
+                results,
             )
 
         if not isinstance(inputs, Iterable) or isinstance(inputs, (str, bytes)):
             raise ValueError(f"Model step '{self.step_id}' requires region inputs")
         regions = list(inputs)
+        started = time.perf_counter()
         output = _run_regions(
             self.step_id, self.model, self.model_kwargs, regions
         )
+        _record_inference_time(context, started)
         context.artifacts[f"{self.step_id}.results"] = output
         self._set_current(context, output, update_results=True)
         return context
@@ -365,9 +376,11 @@ class BoundModelStep(CompositionStep):
                 parent_id=parent_id,
                 metadata=dict(value),
             ))
+        started = time.perf_counter()
         output = _run_regions(
             self.step_id, self.model, self.model_kwargs, regions
         )
+        _record_inference_time(context, started)
         by_id = {
             str(value.get("id")): value
             for value in values

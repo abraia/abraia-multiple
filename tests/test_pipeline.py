@@ -1304,16 +1304,23 @@ def test_cli_rejects_the_legacy_hailo_demo_mode():
     assert "run demo <name> --accelerator hailo" in result.output
 
 
-def test_cli_process_media_uses_runtime_video_and_image_helpers():
+def test_cli_run_uses_the_saved_pipeline():
     from importlib.machinery import SourceFileLoader
 
-    module = SourceFileLoader("workspace_cli_media", "scripts/abraia").load_module()
-    with patch("abraia.utils.get_type", return_value="image/jpeg"), \
-            patch("abraia.utils.load_image", return_value="decoded"), \
-            patch("abraia.utils.show_image") as show_image:
-        module.process_media("image.jpg", lambda image: ("processed", image))
+    module = SourceFileLoader("workspace_cli_saved_pipeline", "scripts/abraia").load_module()
+    config = {
+        "source": {"type": "video", "src": "saved.mp4"},
+        "steps": [{"model": {"kind": "yolov8", "uri": "model.onnx"}}],
+    }
+    with patch.object(module.abraia, "load_json", return_value=config) as load_json, \
+            patch("abraia.training.list_model_records") as list_models, \
+            patch("abraia.runtime.Pipeline") as pipeline:
+        module.run.callback("project", "", None, "auto")
 
-    show_image.assert_called_once_with(("processed", "decoded"))
+    load_json.assert_called_once_with("project/pipeline.json")
+    list_models.assert_not_called()
+    pipeline.from_dict.assert_called_once_with(config, accelerator="auto")
+    pipeline.from_dict.return_value.__enter__.return_value.run.assert_called_once_with()
 
 
 def test_cli_process_map_bounds_repeat_iterators():
@@ -1347,21 +1354,22 @@ def test_cli_anonymize_dataset_passes_the_worker_callable():
     )
 
 
-def test_cli_custom_run_prefers_explicit_source_argument():
+def test_cli_custom_run_overrides_the_saved_pipeline_source():
     from importlib.machinery import SourceFileLoader
 
     module = SourceFileLoader("workspace_cli_source", "scripts/abraia").load_module()
-    original_userid = module.abraia.userid
-    module.abraia.userid = "user"
-    try:
-        with patch("abraia.training.list_models", return_value=["model.onnx"]), \
-                patch("abraia.inference.models.detection.Model"), \
-                patch("abraia.cli.process_media") as process_media:
-            module.run.callback("project", "cat", "image.jpg", "auto")
-    finally:
-        module.abraia.userid = original_userid
+    config = {
+        "source": {"type": "video", "src": "saved.mp4"},
+        "steps": [{"model": {"kind": "yolov8", "uri": "model.onnx"}}],
+    }
+    with patch.object(module.abraia, "load_json", return_value=config), \
+            patch("abraia.training.list_model_records") as list_models, \
+            patch("abraia.runtime.Pipeline") as pipeline:
+        module.run.callback("project", "cat", "image.jpg", "auto")
 
-    assert process_media.call_args.args[0] == "image.jpg"
+    list_models.assert_not_called()
+    passed_config = pipeline.from_dict.call_args.args[0]
+    assert passed_config["source"] == {"type": "image", "src": "image.jpg"}
 
 
 

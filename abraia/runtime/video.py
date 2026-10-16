@@ -585,7 +585,7 @@ class Video(FrameSource):
         except Exception:
             super().close()
             raise
-        self.t0 = time.time()
+        self.t0 = None
 
     def __len__(self):
         return self.frames
@@ -610,11 +610,11 @@ class Video(FrameSource):
 
     def show(self, frame):
         """Render runtime overlays, then write and/or display the frame."""
-        t1 = time.time()
+        t1 = time.perf_counter()
         display_frame = frame.copy()
         render_status(
             display_frame,
-            fps=1 / (t1 - self.t0) if t1 > self.t0 else 0,
+            fps=1 / (t1 - self.t0) if self.t0 is not None and t1 > self.t0 else 0,
             accelerator=getattr(self, "accelerator", None),
         )
         render_resolution(display_frame)
