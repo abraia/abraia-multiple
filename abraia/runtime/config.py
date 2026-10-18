@@ -34,6 +34,7 @@ from abraia.tasks import normalize_task
 
 MODEL_DEFAULT_THRESHOLDS = {
     ("yolov8", "detection"): (0.25, 0.45),
+    ("yolo9", "detection"): (0.25, 0.45),
     ("yolov8", "segmentation"): (0.25, 0.7),
     ("yolov8", "pose"): (0.25, 0.7),
     ("rtmdet", "detection"): (0.25, 0.7),
@@ -58,6 +59,7 @@ def _sized_model_options(kind, label, task):
 
 SUPPORTED_MODEL_OPTIONS = (
     *_sized_model_options("yolov8", "Object detection", "detection"),
+    *_sized_model_options("yolo9", "YOLOv9 object detection", "detection"),
     *_sized_model_options("yolov8", "Instance segmentation", "segmentation"),
     *_sized_model_options("yolov8", "Pose estimation", "pose"),
     *_sized_model_options("rtmdet", "RTMDet object detection", "detection"),

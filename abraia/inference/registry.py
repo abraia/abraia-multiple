@@ -8,6 +8,7 @@ from ..tasks import HAILO_TASKS
 from ..utils.remote import is_url
 from .model_config import (
     MODEL_ARCHITECTURES,
+    HAILO_MODEL_ARCHITECTURES,
     MODEL_RUN_OPTIONS,
     MODEL_SIZE_URIS,
     MODEL_DESCRIPTORS,
@@ -63,7 +64,7 @@ def _select_hailo_pair(config, spec, uri, accelerator):
     """Build a paired Hailo config when the requested hardware can use it."""
     if (
         accelerator not in ("auto", "hailo")
-        or spec.kind not in MODEL_ARCHITECTURES
+        or spec.kind not in HAILO_MODEL_ARCHITECTURES
     ):
         return None
 

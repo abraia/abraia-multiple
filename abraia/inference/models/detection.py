@@ -492,6 +492,56 @@ def process_output(
     return results
 
 
+def process_libreyolo_output(
+    outputs, size, shape, classes, conf_threshold=0.25, iou_threshold=0.45,
+    approx=0.001, labels=None, transform=None,
+):
+    """Decode LibreYOLO YOLOv9 ONNX output with embedded NMS."""
+    del approx
+    detections = np.asarray(outputs[0], dtype=np.float32)
+    if detections.ndim == 3:
+        detections = detections[0]
+    if detections.ndim != 2 or detections.shape[1] < 6:
+        raise ValueError(
+            "LibreYOLO YOLOv9 ONNX output must have shape [N, 6] "
+            "with xyxy boxes, score, and class id"
+        )
+
+    image_width, image_height = size
+    scale, padding = _transform_for_output(size, shape, transform)
+    grouped = {}
+    for detection in detections:
+        x1, y1, x2, y2, score = [float(value) for value in detection[:5]]
+        class_id = int(detection[5])
+        if (
+            score <= 0
+            or score < conf_threshold
+            or not 0 <= class_id < len(classes)
+        ):
+            continue
+        label = classes[class_id]
+        if labels and label not in labels:
+            continue
+        x1 = max(0, min(image_width, round((x1 - padding[0]) / scale)))
+        y1 = max(0, min(image_height, round((y1 - padding[1]) / scale)))
+        x2 = max(0, min(image_width, round((x2 - padding[0]) / scale)))
+        y2 = max(0, min(image_height, round((y2 - padding[1]) / scale)))
+        if x2 <= x1 or y2 <= y1:
+            continue
+        grouped.setdefault(class_id, []).append({
+            "label": label,
+            "score": score,
+            "box": [x1, y1, x2 - x1, y2 - y1],
+            "class_id": class_id,
+        })
+
+    results = []
+    for objects in grouped.values():
+        results.extend(non_maximum_suppression(objects, iou_threshold))
+    results.sort(key=lambda item: item["score"], reverse=True)
+    return results
+
+
 def process_pose_output(
     outputs, size, shape, classes, conf_threshold=0.25, iou_threshold=0.7,
     approx=0.001, labels=None, transform=None,
@@ -568,6 +618,11 @@ class Model(OnnxSessionMixin):
                 task=self.task,
                 config=config,
             )
+        elif self.backend == "libreyolo":
+            self.decoder = partial(
+                process_libreyolo_output,
+                classes=list(self.classes),
+            )
         else:
             decoder = process_pose_output if self.task == "pose" else process_output
             self.decoder = partial(decoder, classes=list(self.classes))
@@ -610,5 +665,6 @@ class Model(OnnxSessionMixin):
 __all__ = [
     "Model", "get_mask", "prepare_input", "prepare_rtmdet_input",
     "process_output", "process_pose_output",
-    "process_rtmdet_output", "validate_model_config",
+    "process_libreyolo_output", "process_rtmdet_output",
+    "validate_model_config",
 ]

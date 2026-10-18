@@ -526,16 +526,13 @@ def test_ultralytics_model_compiles_native_hailo_bundle(tmp_path):
     model.metrics = {"mAP": 0.8}
     model.model_version = 2
 
-    with patch("abraia.training.detect.ensure_hailo_dfc") as ensure_dfc:
-        result = model.compile(
-            "project",
-            ["cat"],
-            device="hailo8l",
-            conf=0.3,
-            iou=0.6,
-        )
-
-    ensure_dfc.assert_called_once_with("hailo8l")
+    result = model.compile(
+        "project",
+        ["cat"],
+        device="hailo8l",
+        conf=0.3,
+        iou=0.6,
+    )
 
     assert model.model.options == {
         "format": "hailo",
@@ -589,8 +586,7 @@ def test_hailo_compile_stops_after_stage_when_cancelled(tmp_path, monkeypatch):
     model.metrics = {}
     progress = []
 
-    with patch("abraia.training.detect.ensure_hailo_dfc"), \
-            pytest.raises(RuntimeError, match="Hailo compilation canceled"):
+    with pytest.raises(RuntimeError, match="Hailo compilation canceled"):
         model.compile(
             "project",
             ["cat"],
@@ -600,58 +596,6 @@ def test_hailo_compile_stops_after_stage_when_cancelled(tmp_path, monkeypatch):
 
     assert calls == ["translate", "optimize"]
     assert not any(event[2] == "Optimizing INT8 model complete" for event in progress)
-
-
-def test_hailo_dfc_wheels_match_target_generations():
-    assert artifacts.HAILO_DFC_WHEELS["hailo8"].startswith("multiple/hailo8/")
-    assert artifacts.HAILO_DFC_WHEELS["hailo8l"].endswith(
-        "3.33.1-py3-none-linux_x86_64.whl"
-    )
-    assert artifacts.HAILO_DFC_WHEELS["hailo10h"].startswith("multiple/hailo15/")
-    assert artifacts.HAILO_DFC_VERSIONS["hailo15h"] == "5.2.0"
-
-
-def test_ensure_hailo_dfc_skips_matching_installation():
-    with patch.object(artifacts, "_supports_hailo_dfc", return_value=True), \
-            patch.object(artifacts, "_installed_dfc_version", return_value="3.33.1"), \
-            patch.object(artifacts, "_dfc_import_available", return_value=True), \
-            patch("abraia.utils.remote.download_file") as download, \
-            patch.object(artifacts.subprocess, "run") as run:
-        assert artifacts.ensure_hailo_dfc("hailo8l") is False
-
-    download.assert_not_called()
-    run.assert_not_called()
-
-
-def test_ensure_hailo_dfc_downloads_and_installs_missing_compiler():
-    with patch.object(artifacts, "_supports_hailo_dfc", return_value=True), \
-            patch.object(artifacts, "_installed_dfc_version", return_value=None), \
-            patch.object(artifacts, "_dfc_import_available", side_effect=[False, True]), \
-            patch("abraia.utils.remote.download_file", return_value="/tmp/dfc.whl") as download, \
-            patch.object(artifacts.subprocess, "run") as run:
-        run.return_value.returncode = 0
-
-        assert artifacts.ensure_hailo_dfc("hailo15h") is True
-
-    download.assert_called_once_with(
-        "multiple/hailo15/"
-        "hailo_dataflow_compiler-5.2.0-py3-none-linux_x86_64.whl"
-    )
-    assert run.call_args.args[0] == [
-        artifacts.sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "/tmp/dfc.whl",
-    ]
-
-
-def test_ensure_hailo_dfc_does_not_download_on_unsupported_host():
-    with patch.object(artifacts, "_supports_hailo_dfc", return_value=False), \
-            patch("abraia.utils.remote.download_file") as download:
-        assert artifacts.ensure_hailo_dfc("hailo8") is False
-
-    download.assert_not_called()
 
 
 @patch('abraia.dataset.preparation.prepare_dataset')

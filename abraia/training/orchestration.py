@@ -1,6 +1,7 @@
 """Model-training orchestration."""
 
 import gc
+from pathlib import Path
 from typing import Any, Dict
 
 from tqdm import tqdm
@@ -37,15 +38,17 @@ class ModelTrainer:
         self.classes = classes
         self.model_size = normalize_model_size(model_size)
         backend = str(backend).strip().lower()
-        if backend not in ("ultralytics", "rtmdet"):
+        if backend not in ("ultralytics", "rtmdet", "libreyolo"):
             raise ValueError(
                 "Unsupported training backend: "
-                f"{backend}. Choose 'ultralytics' or 'rtmdet'."
+                f"{backend}. Choose 'ultralytics', 'rtmdet', or 'libreyolo'."
             )
         if backend == "rtmdet" and task == "classification":
             raise ValueError(
                 "RTMDet supports detection and segmentation, not classification."
             )
+        if backend == "libreyolo" and task != "detection":
+            raise ValueError("LibreYOLO YOLOv9 supports detection training only.")
         self.pbar = None
         imgsz = imgsz or (224 if task == "classification" else 640)
         if task == "classification":
@@ -64,6 +67,15 @@ class ModelTrainer:
                     client=client,
                     model_size=self.model_size,
                     classes=classes,
+                )
+            elif backend == "libreyolo":
+                from . import libreyolo
+
+                self.model = libreyolo.Model(
+                    project=project,
+                    imgsz=imgsz,
+                    client=client,
+                    model_size=self.model_size,
                 )
             else:
                 from . import detect
@@ -107,7 +119,19 @@ class ModelTrainer:
     def test(self, split: str = DEFAULT_EVALUATION_SPLIT, is_cancelled=None) -> Dict[str, Any]:
         return self.model.test(split=split, is_cancelled=is_cancelled)
 
-    def save(self, device="cpu") -> Dict[str, Any]:
+    def save(self, device="cpu", publish_common=False) -> Dict[str, Any]:
+        if publish_common and self.backend != "libreyolo":
+            raise NotImplementedError(
+                "Publishing to the common model repository is implemented "
+                "for LibreYOLO models only."
+            )
+        if publish_common:
+            return self.model.save(
+                self.project,
+                self.classes,
+                device=device,
+                publish_common=True,
+            )
         return self.model.save(self.project, self.classes, device=device)
 
     def run(self, img):
@@ -150,7 +174,18 @@ def _compile_checkpoint(
     model_size = normalize_model_size(model_size)
     if task not in ("detection", "segmentation"):
         raise ValueError("Hailo compilation supports detection and segmentation only.")
-    if backend == "rtmdet":
+    if backend == "libreyolo":
+        from .libreyolo import Model
+
+        model = Model(
+            project=project,
+            imgsz=imgsz,
+            client=client,
+            model_size=model_size,
+        )
+        model.checkpoint_path = Path(checkpoint)
+        model.model_version = model_version
+    elif backend == "rtmdet":
         from .rtmdet import Model
 
         model = Model(
@@ -178,6 +213,8 @@ def _compile_checkpoint(
         return model.compile(
             project, classes, config_path=config_path, **options
         )
+    if backend == "libreyolo":
+        return model.compile(project, classes, **options)
     return model.compile(project, classes, **options)
 
 

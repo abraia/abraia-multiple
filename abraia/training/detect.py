@@ -15,7 +15,6 @@ from ultralytics import YOLO
 from .artifacts import (
     HAILO_EXPORT_TARGETS,
     _resolve_client,
-    ensure_hailo_dfc,
     save_hailo_bundle,
     save_versioned_model,
 )
@@ -264,7 +263,6 @@ class Model:
 
         if progress_callback:
             progress_callback(0, 100, "Checking Hailo compiler", "Running")
-        ensure_hailo_dfc(target)
         if is_cancelled and is_cancelled():
             raise RuntimeError("Hailo compilation canceled")
         if progress_callback:

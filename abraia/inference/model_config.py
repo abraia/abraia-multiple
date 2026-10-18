@@ -19,8 +19,11 @@ class ModelDescriptor:
     runtime_options: bool = False
 
 
-_MODEL_ARCHITECTURE_ORDER = ("yolov5", "yolov8", "yolo11", "rtmdet")
+_MODEL_ARCHITECTURE_ORDER = ("yolov5", "yolov8", "yolo9", "yolo11", "rtmdet")
 MODEL_ARCHITECTURES = frozenset(_MODEL_ARCHITECTURE_ORDER)
+HAILO_MODEL_ARCHITECTURES = frozenset(
+    ("yolov5", "yolov8", "yolo11", "rtmdet")
+)
 MODEL_RUN_OPTIONS = (
     "labels",
     "conf_threshold",
@@ -65,6 +68,13 @@ MODEL_SIZE_URIS = {
             "large": "multiple/models/rtmdet_ins_large_v1.onnx",
         },
     },
+    "yolo9": {
+        "detection": {
+            "small": "multiple/models/yolo9t.onnx",
+            "medium": "multiple/models/yolo9s.onnx",
+            "large": "multiple/models/yolo9c.onnx",
+        },
+    },
     "resnet": {
         "classification": {
             "small": "multiple/models/resnet18.onnx",
@@ -91,9 +101,13 @@ MODEL_DESCRIPTORS = MappingProxyType({
     **{
         kind: ModelDescriptor(
             frozenset(
-                {"detection", "segmentation"}
-                if kind == "rtmdet"
-                else {"detection", "segmentation", "pose"}
+                {"detection"}
+                if kind == "yolo9"
+                else (
+                    {"detection", "segmentation"}
+                    if kind == "rtmdet"
+                    else {"detection", "segmentation", "pose"}
+                )
             ),
             uri_based=True,
             runtime_options=True,
@@ -219,7 +233,7 @@ class ModelSpec:
 
         descriptor = self.descriptor
         if self.backend == "hailo":
-            if self.kind not in MODEL_ARCHITECTURES:
+            if self.kind not in HAILO_MODEL_ARCHITECTURES:
                 raise ValueError("Hailo models require a supported model architecture kind")
             if self.task not in HAILO_TASKS:
                 raise ValueError(f"Unsupported Hailo pipeline task: {self.task}")

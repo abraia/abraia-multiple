@@ -52,9 +52,13 @@ def normalize_custom_models(models, project="", userid="", task=""):
                 model_task = "classification"
             else:
                 model_task = default_task
-        if model_kind not in ("yolov5", "yolov8", "yolo11", "rtmdet", "resnet"):
+        if model_kind not in (
+            "yolov5", "yolov8", "yolo9", "yolo11", "rtmdet", "resnet"
+        ):
             if str(record.get("backend", "")).lower() == "rtmdet":
                 model_kind = "rtmdet"
+            elif str(record.get("backend", "")).lower() == "libreyolo":
+                model_kind = "yolo9"
             elif model_task == "classification":
                 model_kind = "resnet"
             else:

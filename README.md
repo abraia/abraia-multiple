@@ -81,6 +81,38 @@ uses MMDeploy to create its temporary DFC graph. Unlike the Ultralytics YOLO
 path, RTMDet compilation does not inject Hailo NMS; its detection HEF uses
 RTMDet host-side decoding and NMS in Abraia's Hailo inference path.
 
+LibreYOLO requires Python 3.10 or newer. To fine-tune its YOLOv9 detection
+models, install the optional extra:
+
+```sh
+pip install -U 'abraia[libreyolo]'
+abraia train PROJECT --backend libreyolo
+```
+
+The Python API accepts `backend="libreyolo"` in `ModelTrainer`. It uses the
+MIT YOLOv9-t, YOLOv9-s, and YOLOv9-c checkpoints for Abraia's small, medium,
+and large sizes, then saves a versioned ONNX model and its training checkpoint.
+LibreYOLO YOLOv9 exports can also be used by `abraia.runtime` and pipeline
+configuration with kind `yolo9`; the shared small, medium, and large URIs are
+`multiple/models/yolo9t.onnx`, `yolo9s.onnx`, and `yolo9c.onnx`.
+
+To compile a trained checkpoint to Hailo, install both extras and select a
+supported target:
+
+```sh
+pip install -U 'abraia[libreyolo,hailo]'
+abraia compile PROJECT --device hailo8
+```
+
+The compile step exports static ONNX and uses the Hailo DFC for Hailo-8,
+Hailo-8L, or Hailo-10H. It produces a HEF with raw YOLOv9 detection heads;
+Abraia's Hailo runtime does not yet decode those outputs. LibreYOLO notes that
+YOLOv9 compilation has not been validated end to end on a running Hailo device.
+After fine-tuning with the `multiple` account configured in `.env`, publish the
+trained model and its inference metadata with `trainer.save(publish_common=True)`
+or pass `--publish-common` to `abraia train`. Existing shared files are never
+overwritten.
+
 To export Ultralytics detection or segmentation models to Hailo HEF, install
 the Hailo extra:
 
@@ -88,11 +120,10 @@ the Hailo extra:
 pip install -U abraia[hailo]
 ```
 
-On a Linux x86_64 host, the compile command automatically downloads and
-installs the matching DFC wheel from the global `multiple` namespace when the
-required `hailo_sdk_client` package is missing or belongs to another compiler
-generation. Hailo-8/8L use DFC 3.33.1; Hailo-10H/15H/15L use DFC 5.2.0.
-Compilation on other hosts still requires a compatible external environment.
+The Hailo Dataflow Compiler is not installed by Abraia. Install the matching
+DFC separately using Hailo's instructions before compiling: Hailo-8/8L use
+DFC 3.33.1; Hailo-10H/15H/15L use DFC 5.2.0. Compilation requires a compatible
+Linux x86_64 environment.
 
 Hailo compilation runs on Linux x86_64. After preparing a dataset, compile a
 trained checkpoint with:
@@ -185,8 +216,8 @@ abraia annotate PROJECT LABEL [--segment]
 ### Training and Hailo compilation
 
 Prepare and train a model on a dataset. Detection and segmentation can use
-Ultralytics (the default) or RTMDet. Ultralytics models can be compiled to a
-Hailo HEF bundle:
+Ultralytics (the default) or RTMDet; detection can also use LibreYOLO YOLOv9.
+Ultralytics models can be compiled to a Hailo HEF bundle:
 
 ```sh
 abraia train PROJECT [EPOCHS]
@@ -211,8 +242,8 @@ Pass `--conf` and `--iou` to set confidence and NMS IoU thresholds; both
 accept values from 0 to 1 and otherwise use the compiler defaults. RTMDet
 compilation uses the input size embedded in its ONNX file and calibration
 images from the project's training split. Ultralytics uses the project's
-`data.yaml`. On Linux x86_64, the matching Hailo
-DFC wheel is installed automatically when it is required and available.
+`data.yaml`. Abraia uses the DFC already installed in the environment and
+does not download or install compiler wheels.
 
 ### Dataset curation and pruning
 
@@ -292,9 +323,10 @@ plate, and open-vocabulary models, plus tracking and region operations. Use
 Train custom classification, detection, and segmentation models through
 `abraia.training.ModelTrainer` or the `abraia train` command. Training supports
 small, medium, and large model sizes; detection and segmentation can use
-Ultralytics YOLOv8n/m/l or the optional RTMDet backend, while classification
-uses ResNet18/50/101. Ultralytics detection and segmentation models can be
-exported to Hailo HEF through `ModelTrainer.compile()` or `abraia compile`.
+Ultralytics YOLOv8n/m/l or the optional RTMDet backend, LibreYOLO YOLOv9
+supports detection, and classification uses ResNet18/50/101. Ultralytics
+detection and segmentation models can be exported to Hailo HEF through
+`ModelTrainer.compile()` or `abraia compile`.
 Dataset creation and deletion are available from `abraia.dataset`. Dataset
 curation and pruning use built-in Pillow and NumPy image analysis.
 

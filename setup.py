@@ -28,6 +28,7 @@ extras_require = {
         'mmengine>=0.10,<1',
         'onnx>=1.13',
     ],
+    'libreyolo': ['libreyolo[onnx]>=1.6.0,<2'],
 }
 
 setup(

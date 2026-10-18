@@ -351,10 +351,12 @@ def annotate(project, label, segment=False):
 @click.argument("epochs", type=int, required=False, default=None)
 @click.option(
     "--backend",
-    type=click.Choice(["ultralytics", "rtmdet"], case_sensitive=False),
+    type=click.Choice(
+        ["ultralytics", "rtmdet", "libreyolo"], case_sensitive=False
+    ),
     default="ultralytics",
     show_default=True,
-    help="Detection and segmentation training backend.",
+    help="Training backend; LibreYOLO supports detection only.",
 )
 @click.option(
     "--imgsz",
@@ -368,7 +370,12 @@ def annotate(project, label, segment=False):
     show_default=True,
     help="Model size to train.",
 )
-def train(project, epochs, imgsz, model_size, backend):
+@click.option(
+    "--publish-common",
+    is_flag=True,
+    help="Publish a LibreYOLO ONNX model to multiple/models/ after training.",
+)
+def train(project, epochs, imgsz, model_size, backend, publish_common):
     """Train a model on the specified dataset."""
     from .dataset import load_dataset
     from .dataset.preparation import prepare_dataset
@@ -391,7 +398,7 @@ def train(project, epochs, imgsz, model_size, backend):
         click.echo("Evaluating metrics...")
         click.echo(json.dumps(training_session.test(), indent=2))
         click.echo("Saving model...")
-        training_session.save()
+        training_session.save(publish_common=publish_common)
 
     _run_remote(operation)
 
