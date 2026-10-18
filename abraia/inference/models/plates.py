@@ -1,10 +1,10 @@
 import cv2
 import numpy as np
 
-from ...utils import download_file
+from ...utils.remote import download_file
 from .detection import Model
 from .ocr import TextSystem
-from ..postprocess.common import non_maximum_suppression
+from ..geometry import non_maximum_suppression
 from ..session import OnnxSessionMixin, ResourceGroup
 
 

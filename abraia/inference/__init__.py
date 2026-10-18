@@ -1,85 +1,11 @@
-"""Public inference API with lazy model imports.
+"""Public inference API."""
 
-Importing :mod:`abraia.inference` should not initialize every model backend.
-Each public class is loaded only when it is first accessed.
-"""
-
-from importlib import import_module
+from .registry import create_model as _create_model, register_model_factory
 
 
-_LAZY_EXPORTS = {
-    "available_accelerators": (".accelerators", "available_accelerators"),
-    "GROUNDING_DINO_MODEL": (
-        "abraia.dataset.annotation",
-        "GROUNDING_DINO_MODEL",
-    ),
-    "MOBILE_SAM_DISABLED_TASKS": (
-        "abraia.dataset.annotation",
-        "MOBILE_SAM_DISABLED_TASKS",
-    ),
-    "MOBILE_SAM_MODEL": ("abraia.dataset.annotation", "MOBILE_SAM_MODEL"),
-    "model_route": ("abraia.dataset.annotation", "model_route"),
-    "normalize_accelerator": (".accelerators", "normalize_accelerator"),
-    "onnx_providers": (".accelerators", "onnx_providers"),
-    "Model": (".models.detection", "Model"),
-    "ResNetClassifier": (".models.classification", "ResNetClassifier"),
-    "GroundingDINOModel": (".models.grounding_dino", "GroundingDINOModel"),
-    "Tracker": (".tracker", "Tracker"),
-    "FaceRecognizer": (".models.faces", "FaceRecognizer"),
-    "FaceAttribute": (".models.faces", "FaceAttribute"),
-    "PlateDetector": (".models.plates", "PlateDetector"),
-    "PlateRecognizer": (".models.plates", "PlateRecognizer"),
-    "TextSystem": (".models.ocr", "TextSystem"),
-    "ImageSearch": (".search", "ImageSearch"),
-    "SAM": (".models.sam", "SAM"),
-    "InteractiveSAM": (".models.sam", "InteractiveSAM"),
-    "Clip": (".models.clip", "Clip"),
-    "InferenceService": (".service", "InferenceService"),
-    "ModelSession": (".service", "ModelSession"),
-    "create_model": (".registry", "create_model"),
-    "register_model_factory": (".registry", "register_model_factory"),
-    "ModelSpec": (".model_config", "ModelSpec"),
-}
+def load_model(config):
+    """Load a configured model using its kind, task, and model URI."""
+    return _create_model(config)
 
 
-def __getattr__(name):
-    target = _LAZY_EXPORTS.get(name)
-    if target is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    module_name, attribute = target
-    value = getattr(import_module(module_name, __name__), attribute)
-    globals()[name] = value
-    return value
-
-
-def __dir__():
-    return sorted(set(globals()) | set(_LAZY_EXPORTS))
-
-
-__all__ = [
-    "available_accelerators",
-    "GROUNDING_DINO_MODEL",
-    "MOBILE_SAM_DISABLED_TASKS",
-    "MOBILE_SAM_MODEL",
-    "model_route",
-    "normalize_accelerator",
-    "onnx_providers",
-    "Model",
-    "ResNetClassifier",
-    "GroundingDINOModel",
-    "Tracker",
-    "FaceRecognizer",
-    "FaceAttribute",
-    "PlateDetector",
-    "PlateRecognizer",
-    "TextSystem",
-    "ImageSearch",
-    "SAM",
-    "InteractiveSAM",
-    "Clip",
-    "InferenceService",
-    "ModelSession",
-    "create_model",
-    "register_model_factory",
-    "ModelSpec",
-]
+__all__ = ["load_model", "register_model_factory"]

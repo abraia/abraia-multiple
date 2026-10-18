@@ -53,6 +53,18 @@ MODEL_SIZE_URIS = {
             "large": "multiple/models/yolov8l_pose.onnx",
         },
     },
+    "rtmdet": {
+        "detection": {
+            "small": "multiple/models/rtmdet_small_v1.onnx",
+            "medium": "multiple/models/rtmdet_medium_v1.onnx",
+            "large": "multiple/models/rtmdet_large_v1.onnx",
+        },
+        "segmentation": {
+            "small": "multiple/models/rtmdet_ins_small_v1.onnx",
+            "medium": "multiple/models/rtmdet_ins_medium_v1.onnx",
+            "large": "multiple/models/rtmdet_ins_large_v1.onnx",
+        },
+    },
     "resnet": {
         "classification": {
             "small": "multiple/models/resnet18.onnx",

@@ -88,7 +88,7 @@ def request_with_retries(
 
 
 def is_url(url):
-    return str(url).startswith(("http://", "https://"))
+    return str(url).lower().startswith(("http://", "https://"))
 
 
 def url_path(path):

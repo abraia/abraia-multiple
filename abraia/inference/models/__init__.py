@@ -1,2 +1,2 @@
-"""Model-specific inference adapters."""
+"""Inference model implementations."""
 

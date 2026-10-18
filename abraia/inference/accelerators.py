@@ -5,8 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from ..utils import get_providers
-from ..utils.remote import is_managed_model_path, probe_artifact
+from ..utils.remote import is_managed_model_path, is_url, probe_artifact
 
 
 CPU_PROVIDER = "CPUExecutionProvider"
@@ -18,6 +17,19 @@ GPU_PROVIDER_MARKERS = (
     "MIGRAPHX",
     "COREML",
 )
+
+
+def get_providers():
+    """Return ONNX Runtime providers in preferred order."""
+    import onnxruntime as ort
+
+    preferred = (
+        "CUDAExecutionProvider",
+        "CoreMLExecutionProvider",
+        "CPUExecutionProvider",
+    )
+    available = set(ort.get_available_providers())
+    return [provider for provider in preferred if provider in available]
 
 def normalize_accelerator(value):
     """Normalize a requested accelerator name without selecting hardware."""
@@ -99,7 +111,7 @@ def hailo_model_available(config, architecture):
     path = os.fspath(uri)
     if (os.path.isfile(path) or os.path.isdir(path)) and not is_managed_model_path(path):
         return True
-    if path.lower().startswith(("http://", "https://")):
+    if is_url(path):
         return False
     if os.path.dirname(path):
         return probe_artifact(path).available
@@ -119,7 +131,7 @@ def paired_hailo_uri(onnx_uri, task, architecture=None):
     if not onnx_uri:
         return None
     value = os.fspath(onnx_uri)
-    if value.lower().startswith(("http://", "https://")):
+    if is_url(value):
         return None
 
     path = Path(value)

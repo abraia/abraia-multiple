@@ -35,6 +35,51 @@ def test_next_model_version_starts_at_one():
     ) == 1
 
 
+def test_save_versioned_model_uploads_checkpoint_with_metadata(tmp_path):
+    checkpoint = tmp_path / "last.pt"
+    checkpoint.write_bytes(b"weights")
+
+    class SavingClient:
+        def __init__(self):
+            self.uploads = []
+            self.metadata = []
+
+        def list_files(self, path):
+            return ([], [])
+
+        def check_file(self, path):
+            return False
+
+        def upload_file(self, source, path):
+            self.uploads.append((source, path))
+
+        def save_json(self, path, value):
+            self.metadata.append((path, value))
+
+    client = SavingClient()
+    save_versioned_model(
+        client,
+        "project",
+        "yolov8n",
+        "exported.onnx",
+        {"backend": "ultralytics", "task": "detection"},
+        artifacts={"checkpoint": checkpoint},
+    )
+
+    assert client.uploads == [
+        ("exported.onnx", "project/yolov8n_v1.onnx"),
+        (str(checkpoint), "project/yolov8n_v1.pt"),
+    ]
+    assert client.metadata == [(
+        "project/yolov8n_v1.json",
+        {
+            "backend": "ultralytics",
+            "task": "detection",
+            "artifacts": {"checkpoint": "project/yolov8n_v1.pt"},
+        },
+    )]
+
+
 def test_save_versioned_model_skips_a_remote_collision():
     class SavingClient:
         def __init__(self):

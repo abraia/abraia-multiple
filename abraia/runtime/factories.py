@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from abraia.inference.model_config import ModelSpec
+from abraia.sources import SPECTRAL_SUFFIXES, infer_source_type
 
 from .composition import (
     BoundModelStep,
@@ -28,18 +29,11 @@ from .pipeline_schema import (
 )
 
 
-def _is_remote_source(source: str) -> bool:
-    source = source.lower()
-    return source.startswith(("http://", "https://", "rtsp://"))
-
-
 def _is_spectral_source(source: Any) -> bool:
     """Return whether a source path identifies a spectral capture."""
     if not isinstance(source, str):
         return False
-    return source.lower().endswith(
-        (".tif", ".tiff", ".hdr", ".raw", ".img")
-    )
+    return source.lower().endswith(SPECTRAL_SUFFIXES)
 
 
 _SPECTRAL_SOURCE_FACTORY = None
@@ -57,18 +51,19 @@ def _prepare_source(source_config, display_config, root: Path):
     """Normalize source configuration into a source and constructor kwargs."""
     source = source_config["src"]
     source_type = source_config.get("type")
+    numeric_source = infer_source_type(source) == "camera"
     camera_source = (
         source_type in ("camera", "usb_camera")
         or isinstance(source, int)
-        or (
-            isinstance(source, str)
-            and source.strip().isdigit()
-            and source_type != "image"
-        )
+        or (numeric_source and source_type != "image")
     )
-    if camera_source and isinstance(source, str) and source.strip().isdigit():
+    if camera_source and isinstance(source, str) and numeric_source:
         source = int(source.strip())
-    if isinstance(source, str) and not camera_source and not _is_remote_source(source):
+    if (
+        isinstance(source, str)
+        and not camera_source
+        and infer_source_type(source) != "stream"
+    ):
         source_path = Path(source)
         if not source_path.is_absolute():
             source = str(root / source_path)
@@ -183,9 +178,8 @@ def _build_pipeline(
             f"Step {index}: {step_type} requires an earlier tracker."
         )
 
-    pipeline_steps = steps_config
-    for step in pipeline_steps:
-        if not step.is_mapping or not step.is_active:
+    for step in steps_config:
+        if not step.is_active:
             continue
         if step.type not in SUPPORTED_STEP_TYPES:
             raise ValueError(f"Unknown composed pipeline step type: {step.type}")
@@ -195,21 +189,17 @@ def _build_pipeline(
             raise ValueError(f"{step.type} requires a 'polygon'")
 
     model_plans = []
-    for step in pipeline_steps:
-        if not step.is_mapping or not step.is_active or step.type != "model":
+    for step in steps_config:
+        if not step.is_active or step.type != "model":
             continue
-        model_config = step.get("model") or {}
-        if not isinstance(model_config, dict):
-            raise ValueError(
-                f"Model step '{step.id}' must define an object 'model'"
-            )
+        model_config = step.get("model")
         model_spec = ModelSpec.from_config(model_config)
         model_spec.require_runtime_valid()
         model_plans.append((step, model_config, model_spec))
 
-    from ..inference.registry import create_model, get_model_run_kwargs
+    from ..inference.registry import _create_model_from_spec, get_model_run_kwargs
     from ..inference.session import get_model_accelerator
-    from ..inference import Tracker
+    from ..inference.tracker import Tracker
 
     root = Path(base_dir or os.getcwd())
     source, video_kwargs = _prepare_source(source_config, display_config, root)
@@ -227,9 +217,10 @@ def _build_pipeline(
             created = []
             try:
                 for _step, model_config, model_spec in model_plans:
-                    model_kwargs = get_model_run_kwargs(model_config)
+                    model_kwargs = get_model_run_kwargs(model_config, model_spec)
                     result_field = model_spec.result_field
-                    model = create_model(
+                    model = _create_model_from_spec(
+                        model_spec,
                         model_config,
                         base_dir=root,
                         accelerator=accelerator,
@@ -266,9 +257,7 @@ def _build_pipeline(
 
         model_iter = iter(created_models)
         model_index = 0
-        for index, step in enumerate(pipeline_steps, 1):
-            if not step.is_mapping:
-                raise ValueError(f"Pipeline step {index} must be an object")
+        for step in steps_config:
             step_id = step.id
             if not step.is_active:
                 continue
@@ -323,8 +312,6 @@ def _build_pipeline(
                 region_timer = RegionTimer(step.get("polygon"))
                 steps.append(ProcessorStep(step_id, region_timer, step_type))
                 components["region_timer"] = region_timer
-            else:
-                raise ValueError(f"Unknown composed pipeline step type: {step_type}")
         video.accelerator = (
             get_model_accelerator(models[0]) if models else "CPU"
         )

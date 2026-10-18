@@ -62,10 +62,7 @@ def infer_source_type(
         return "camera"
     if lowered.startswith(("rtsp://", "http://", "https://")):
         return "stream"
-    if lowered.endswith(IMAGE_SUFFIXES):
-        if not require_exists or os.path.isfile(value):
-            return image_type
-    if lowered.endswith(SPECTRAL_SUFFIXES):
+    if lowered.endswith(IMAGE_SUFFIXES + SPECTRAL_SUFFIXES):
         if not require_exists or os.path.isfile(value):
             return image_type
     if lowered.endswith(VIDEO_SUFFIXES):

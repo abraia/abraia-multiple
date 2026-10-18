@@ -101,7 +101,7 @@ def is_raspberry_pi() -> bool:
 
 def is_stream_url(src: Any) -> bool:
     """Return whether ``src`` looks like a supported network stream URL."""
-    return str(src).lower().startswith(("rtsp://", "http://", "https://"))
+    return infer_media_source_type(src) == "stream"
 
 
 def is_image(src: Any) -> bool:
@@ -112,7 +112,7 @@ def is_image(src: Any) -> bool:
 
 def is_camera(src: Any) -> bool:
     """Return whether ``src`` identifies a camera device."""
-    return str(src).strip().isdigit()
+    return infer_media_source_type(src) == "camera"
 
 
 def infer_source_type(src: Any) -> Optional[str]:
@@ -131,9 +131,10 @@ def open_capture(
     fps: float = 30,
 ) -> Any:
     """Open a camera, video file, or network stream."""
-    source_type = source_type or ("camera" if is_camera(src) else None)
+    camera_index = int(str(src).strip()) if is_camera(src) else None
+    source_type = source_type or ("camera" if camera_index is not None else None)
     if source_type in ("camera", "rpi_camera"):
-        camera_src = int(str(src).strip()) if is_camera(src) else src
+        camera_src = src if camera_index is None else camera_index
         capture = Camera(camera_src, resolution=resolution, fps=fps)
     else:
         if source_type == "video" and not os.path.exists(src):
@@ -171,8 +172,9 @@ class Camera:
         self.cap = None
         self._opened = False
         self._io_lock = threading.Lock()
+        camera_index = int(str(src).strip()) if is_camera(src) else None
 
-        if is_raspberry_pi() and is_camera(src) and int(str(src).strip()) == 0:
+        if is_raspberry_pi() and camera_index == 0:
             try:
                 from picamera2 import Picamera2
 
@@ -199,9 +201,9 @@ class Camera:
                 self._opened = False
 
         if not self._opened:
-            cap_src = int(str(src).strip()) if is_camera(src) else src
+            cap_src = src if camera_index is None else camera_index
             self.cap = cv2.VideoCapture(cap_src)
-            if is_camera(src):
+            if camera_index is not None:
                 self.cap.set(cv2.CAP_PROP_FPS, fps)
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
@@ -424,7 +426,7 @@ class FrameSource:
 
     @property
     def has_images(self) -> bool:
-        return self.images is not None and len(self.images) > 0
+        return self.images is not None
 
     def isOpened(self):
         if self.has_images:
@@ -461,7 +463,7 @@ class FrameSource:
         camera_source = source_type in ("camera", "usb_camera", "rpi_camera", "stream")
         video_source = source_type == "video"
         target_fps = max(
-            float(getattr(self, "target_fps", None) or self.frame_rate or 0),
+            float(self.target_fps or self.frame_rate or 0),
             0,
         )
         source_fps = self.source_fps or 0
@@ -599,7 +601,7 @@ class Video(FrameSource):
     def close(self):
         """Release capture, writer, and any display window."""
         super().close()
-        output, self._output = getattr(self, "_output", None), None
+        output, self._output = self._output, None
         if output is not None:
             output.close()
 
@@ -626,13 +628,12 @@ class Video(FrameSource):
 
     @property
     def quit(self):
-        return bool(getattr(getattr(self, "_output", None), "quit", False))
+        return self._output is not None and self._output.quit
 
     @quit.setter
     def quit(self, value):
-        output = getattr(self, "_output", None)
-        if output is not None:
-            output.quit = bool(value)
+        if self._output is not None:
+            self._output.quit = bool(value)
 
 
 if __name__ == "__main__":

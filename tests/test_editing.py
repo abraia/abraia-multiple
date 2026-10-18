@@ -1,10 +1,15 @@
 import os
 
-from abraia.utils import load_image
+from abraia.utils.image import load_image
 import numpy as np
 import pytest
 
-from abraia.editing import build_mask, detect_faces, detect_plates, detect_smartcrop
+from abraia.editing.operations import (
+    build_mask,
+    detect_faces,
+    detect_plates,
+    detect_smartcrop,
+)
 from abraia.editing.inpaint import stitching
 from abraia.editing.removebg import BackgroundRemover
 from abraia.editing.smartcrop import best_crop_area

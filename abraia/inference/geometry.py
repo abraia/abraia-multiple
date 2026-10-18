@@ -1,7 +1,79 @@
-"""Geometry helpers shared by inference and runtime components."""
+"""Geometry and numerical helpers shared by inference and runtime components."""
 
 import cv2
 import numpy as np
+
+
+def normalize(img, mean, std):
+    """Normalize an image using mean and standard deviation."""
+    return ((img / 255 - np.array(mean)) / np.array(std)).astype(np.float32)
+
+
+def sigmoid(x):
+    """Compute the sigmoid activation function."""
+    return 1 / (1 + np.exp(-x))
+
+
+def softmax(x, axis=-1):
+    """Compute softmax values along an axis."""
+    values = np.exp(x - np.max(x, axis=axis, keepdims=True))
+    return values / values.sum(axis=axis, keepdims=True)
+
+
+def iou(box1, box2):
+    """Calculate intersection-over-union for two ``xywh`` boxes."""
+    top_left1 = [box1[0], box1[1]]
+    size1 = [box1[2], box1[3]]
+    bottom_right1 = [box1[0] + box1[2], box1[1] + box1[3]]
+    top_left2 = [box2[0], box2[1]]
+    size2 = [box2[2], box2[3]]
+    bottom_right2 = [box2[0] + box2[2], box2[1] + box2[3]]
+    intersection = np.prod(
+        np.maximum(
+            np.minimum(bottom_right1, bottom_right2)
+            - np.maximum(top_left1, top_left2),
+            0,
+        )
+    )
+    union = np.prod(size1) + np.prod(size2) - intersection
+    return intersection / union if union else 0.0
+
+
+def nms(dets, thresh):
+    """Run vectorized NMS on ``[x1, y1, x2, y2, score]`` detections."""
+    if dets.shape[0] == 0:
+        return np.array([], dtype=np.int64)
+    x1, y1 = dets[:, 0], dets[:, 1]
+    x2, y2 = dets[:, 2], dets[:, 3]
+    scores = dets[:, 4]
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+    keep = []
+    while order.size > 0:
+        index = order[0]
+        keep.append(index)
+        xx1 = np.maximum(x1[index], x1[order[1:]])
+        yy1 = np.maximum(y1[index], y1[order[1:]])
+        xx2 = np.minimum(x2[index], x2[order[1:]])
+        yy2 = np.minimum(y2[index], y2[order[1:]])
+        width = np.maximum(0.0, xx2 - xx1 + 1)
+        height = np.maximum(0.0, yy2 - yy1 + 1)
+        overlap = width * height
+        ratios = overlap / (areas[index] + areas[order[1:]] - overlap)
+        order = order[np.where(ratios <= thresh)[0] + 1]
+    return np.array(keep, dtype=np.int64)
+
+
+def non_maximum_suppression(objects, iou_threshold):
+    """Apply NMS to result dictionaries containing ``box`` and ``score``."""
+    detections = []
+    for obj in objects:
+        x, y, width, height = obj["box"]
+        detections.append([x, y, x + width, y + height, obj["score"]])
+    if not detections:
+        return []
+    indices = nms(np.array(detections), iou_threshold)
+    return [objects[index] for index in indices]
 
 
 def is_clockwise(contour):
@@ -94,15 +166,54 @@ def polygon_to_box(polygon):
     return cv2.boundingRect(np.array(polygon, dtype=np.int32))
 
 
+def mask_to_polygon(mask, origin=(0, 0), approx=0.001):
+    """Return the largest polygon extracted from a segmentation mask."""
+    mask = np.asarray(mask)
+    if mask.ndim > 2:
+        mask = np.squeeze(mask)
+    if mask.ndim != 2:
+        raise ValueError("Segmentation masks must be two-dimensional")
+    if mask.dtype != np.uint8:
+        mask = (mask > 0).astype(np.uint8)
+    mask = np.ascontiguousarray(mask)
+    contours, hierarchies = cv2.findContours(
+        mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if not contours:
+        return []
+    outer_areas = [
+        cv2.contourArea(contour) if hierarchy[3] < 0 else 0.0
+        for contour, hierarchy in zip(contours, hierarchies[0])
+    ]
+    contours = [approx_contour(contour, approx) for contour in contours]
+    parent_indexes = [int(hierarchy[3]) for hierarchy in hierarchies[0]]
+    parents = [
+        contour if parent < 0 and len(contour) >= 3 else []
+        for contour, parent in zip(contours, parent_indexes)
+    ]
+    for contour, parent in zip(contours, parent_indexes):
+        if parent >= 0 and len(contour) >= 3 and len(parents[parent]):
+            parents[parent] = merge_with_parent(parents[parent], contour)
+    if max(outer_areas) <= 0:
+        return []
+    selected = int(np.argmax(outer_areas))
+    if len(parents[selected]) < 3:
+        return []
+    return (parents[selected] + np.array(origin)).tolist()
+
+
+def mask_to_box(mask):
+    """Calculate an ``xywh`` bounding box from a segmentation mask."""
+    polygon = mask_to_polygon(mask)
+    if not polygon:
+        return (0, 0, 0, 0)
+    return cv2.boundingRect(np.array(polygon, dtype=np.int32))
+
+
 __all__ = [
-    "approx_contour",
-    "approximate_polygon",
-    "get_merge_point_idx",
-    "is_clockwise",
-    "merge_contours",
-    "merge_with_parent",
-    "point_in_polygon",
-    "polygon_to_box",
-    "segments_intersect",
-    "triplet_orientation",
+    "iou", "mask_to_box", "mask_to_polygon", "nms",
+    "non_maximum_suppression", "normalize", "sigmoid", "softmax",
+    "approx_contour", "approximate_polygon", "get_merge_point_idx",
+    "is_clockwise", "merge_contours", "merge_with_parent", "point_in_polygon",
+    "polygon_to_box", "segments_intersect", "triplet_orientation",
 ]

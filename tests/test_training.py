@@ -7,20 +7,19 @@ import numpy as np
 import pytest
 import torch
 
-from abraia.dataset import create_dataset, delete_dataset
 from abraia.dataset.annotation import Annotator, annotate_image
+from abraia.dataset import create_dataset, delete_dataset
 from abraia.dataset.remote import Dataset
 
-from abraia.training import (
-    ModelTrainer,
-    artifacts,
+from abraia.training import ModelTrainer
+from abraia.training import artifacts
+from abraia.training.model_data import (
     metric_average,
     normalize_custom_models,
     normalize_model_record,
-    prepare_dataset,
-    split_dataset,
-    train_dataset,
 )
+from abraia.dataset.preparation import prepare_dataset, split_dataset
+from abraia.training.orchestration import train_dataset
 from abraia.training.classify import train_model
 
 
@@ -238,7 +237,7 @@ def test_dataset_prunes_orphaned_annotations():
 
 
 def test_prepare_dataset_reports_download_progress(tmp_path, monkeypatch):
-    import abraia.training.orchestration as orchestration
+    import abraia.dataset.preparation as preparation
 
     annotations = [
         {"filename": "one.jpg"},
@@ -267,14 +266,14 @@ def test_prepare_dataset_reports_download_progress(tmp_path, monkeypatch):
             "prune_orphaned_annotations": lambda self: 0,
         },
     )()
-    monkeypatch.setattr(orchestration.os.path, "exists", lambda _path: False)
+    monkeypatch.setattr(preparation.os.path, "exists", lambda _path: False)
     monkeypatch.setattr(
-        orchestration,
+        preparation,
         "split_dataset",
         lambda values, _options=None: (values[:1], values[1:2], values[2:]),
     )
     monkeypatch.setattr(
-        orchestration, "save_data", lambda *args, **kwargs: None
+        preparation, "save_data", lambda *args, **kwargs: None
     )
     events = []
 
@@ -286,7 +285,7 @@ def test_prepare_dataset_reports_download_progress(tmp_path, monkeypatch):
 
 
 def test_prepare_dataset_reuses_splits_until_annotations_change(tmp_path, monkeypatch):
-    import abraia.training.orchestration as orchestration
+    import abraia.dataset.preparation as preparation
 
     project = tmp_path / "cached-training"
     annotation = {"filename": "one.jpg", "objects": []}
@@ -304,9 +303,9 @@ def test_prepare_dataset_reuses_splits_until_annotations_change(tmp_path, monkey
         downloads.append(folder)
         os.makedirs(folder, exist_ok=True)
 
-    monkeypatch.setattr(orchestration, "save_data", save_data)
+    monkeypatch.setattr(preparation, "save_data", save_data)
     monkeypatch.setattr(
-        orchestration,
+        preparation,
         "split_dataset",
         lambda values, _options=None: (values, [], []),
     )
@@ -494,8 +493,6 @@ def test_model_trainer_passes_medium_size_to_classification_training(mock_classi
 def test_ultralytics_model_compiles_native_hailo_bundle(tmp_path):
     from abraia.training.detect import Model
 
-    calibration_data = tmp_path / "data.yaml"
-    calibration_data.write_text("train: images\n")
     bundle = tmp_path / "yolov8n_hailo_model"
     bundle.mkdir()
     (bundle / "yolov8n.hef").write_bytes(b"hef")
@@ -534,8 +531,6 @@ def test_ultralytics_model_compiles_native_hailo_bundle(tmp_path):
             "project",
             ["cat"],
             device="hailo8l",
-            calibration_data=calibration_data,
-            fraction=0.5,
             conf=0.3,
             iou=0.6,
         )
@@ -547,8 +542,7 @@ def test_ultralytics_model_compiles_native_hailo_bundle(tmp_path):
         "name": "hailo8l",
         "quantize": 8,
         "imgsz": 640,
-        "data": str(calibration_data),
-        "fraction": 0.5,
+        "data": "project/data.yaml",
         "conf": 0.3,
         "iou": 0.6,
     }
@@ -660,8 +654,8 @@ def test_ensure_hailo_dfc_does_not_download_on_unsupported_host():
     download.assert_not_called()
 
 
-@patch('abraia.training.prepare_dataset')
-@patch('abraia.training.ModelTrainer')
+@patch('abraia.dataset.preparation.prepare_dataset')
+@patch('abraia.training.orchestration.ModelTrainer')
 def test_training_service_reports_stage_transitions_before_backend_work(
     mock_trainer_cls, mock_prepare_dataset
 ):

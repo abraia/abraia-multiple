@@ -11,8 +11,8 @@ import requests
 from PIL import Image
 from tqdm import tqdm
 
-from ..utils import HEADERS
-from . import _resolve_client
+from ..utils.remote import HEADERS
+from .remote import _resolve_client
 
 
 GOOGLE_BASE_URL = "https://www.google.com/search?q="

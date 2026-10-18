@@ -1,5 +1,3 @@
-"""Hailo-backed inference runtime and postprocessing helpers."""
+"""Internal Hailo-backed inference runtime and postprocessing helpers."""
 
-from .pipeline import HailoPipelineModel
-
-__all__ = ["HailoPipelineModel"]
+__all__ = []

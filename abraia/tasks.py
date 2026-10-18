@@ -42,9 +42,7 @@ def normalize_task(value, default=None):
     """Normalize accepted task spellings to one canonical task value."""
     if value is None:
         value = default
-    if value is None:
-        return ""
-    normalized = str(value).strip().lower()
+    normalized = str(value if value is not None else "").strip().lower()
     return TASK_ALIASES.get(normalized, normalized)
 
 

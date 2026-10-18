@@ -14,12 +14,12 @@ The **Abraia Vision SDK** is a high-performance, edge-ready Python library and t
 - [Installation](#-installation)
 - [Command-Line Interface](#-command-line-interface)
 - [Core Modules & Features](#-core-modules--features)
-  - [1. Image Editing & Enhancement](#1-image-editing--enhancement-abraia-editing)
-  - [2. Inference & Computer Vision](#2-inference--computer-vision-abraia-inference)
-  - [3. Edge AI & Hardware Acceleration (Hailo)](#3-edge-ai--hardware-acceleration-abraia-inference-hailo)
-  - [4. Training & Dataset Operations](#4-training--dataset-operations-abraia-training)
-  - [5. Runtime & Video Processing](#5-runtime--video-processing-abraia-runtime)
-    - [Object Processing Pipelines](#object-processing-pipelines)
+  - [Public Python APIs](#public-python-apis)
+  - [Image Editing & Enhancement](#image-editing--enhancement)
+  - [Inference & Computer Vision](#inference--computer-vision)
+  - [Training & Dataset Operations](#training--dataset-operations)
+  - [Edge AI & Hardware Acceleration](#edge-ai--hardware-acceleration)
+  - [Object Processing Pipelines](#object-processing-pipelines)
 - [Real-Time Edge Object Counter](#real-time-edge-object-counter-on-raspberry-pi-with-hailo-npu)
 - [License](#-license)
 
@@ -72,18 +72,14 @@ pip install -U abraia[rtmdet]
 abraia train PROJECT --backend rtmdet
 ```
 
-RTMDet training uses OpenMMLab's pretrained checkpoints by default. Custom
-checkpoints can be supplied with `--checkpoint` or `checkpoint=` in Python.
+RTMDet training uses OpenMMLab's pretrained checkpoints by default.
 The trained model is exported and saved as a versioned ONNX artifact for
-Abraia's model catalog. ONNX export requires a compatible MMDeploy build and
-its deployment configs; set `MMDEPLOY_DIR` to the MMDeploy source directory if
-the configs are not installed with the package. RTMDet can be compiled to Hailo
-from its trained checkpoint; this creates a temporary ONNX graph for the DFC
-and removes it after compilation. MMDeploy post-processing operators may
-require a Hailo-specific graph cut or may not be supported by the installed DFC
-version. Unlike the Ultralytics YOLO path, RTMDet compilation does not inject
-Hailo NMS; its detection HEF uses RTMDet host-side decoding and NMS in Abraia's
-Hailo inference path.
+Abraia's model catalog. ONNX export uses PyTorch and does not require MMDeploy;
+Abraia decodes the exported raw RTMDet heads at inference time. RTMDet can also
+be compiled to Hailo from its trained checkpoint; that separate path still
+uses MMDeploy to create its temporary DFC graph. Unlike the Ultralytics YOLO
+path, RTMDet compilation does not inject Hailo NMS; its detection HEF uses
+RTMDet host-side decoding and NMS in Abraia's Hailo inference path.
 
 To export Ultralytics detection or segmentation models to Hailo HEF, install
 the Hailo extra:
@@ -102,8 +98,7 @@ Hailo compilation runs on Linux x86_64. After preparing a dataset, compile a
 trained checkpoint with:
 
 ```sh
-abraia compile PROJECT --checkpoint path/to/best.pt --device hailo8l \
-  --calibration-data PROJECT/data.yaml
+abraia compile PROJECT --device hailo8l
 ```
 
 The command uploads the HEF and the complete Ultralytics Hailo sidecar bundle
@@ -197,23 +192,26 @@ Hailo HEF bundle:
 abraia train PROJECT [EPOCHS]
 abraia train PROJECT [EPOCHS] --backend rtmdet
 
-abraia compile PROJECT --checkpoint path/to/best.pt \
-  --device hailo8l --calibration-data PROJECT/data.yaml
-
-abraia compile PROJECT --backend rtmdet \
-  --checkpoint PROJECT/.rtmdet/detection/small/work_dirs/final.pth \
-  --device hailo8l --calibration-data PROJECT/train/images
+abraia compile PROJECT \
+  --device hailo8l \
+  --conf 0.25 \
+  --iou 0.7
 ```
 
-Compilation supports `hailo8`, `hailo8l`, `hailo10h`, `hailo15h`, and
+Compilation uses the checkpoint saved with the latest versioned training
+model in the project, downloading it from cloud storage as needed. It supports
+`hailo8`, `hailo8l`, `hailo10h`, `hailo15h`, and
 `hailo15l`. RTMDet compilation exports a temporary ONNX graph from the trained
 checkpoint, uses it for Hailo compilation, then removes it. The normal
 versioned ONNX export remains available separately. The DFC may reject
 MMDeploy operators, especially for instance segmentation. Detection HEFs use
 host-side confidence filtering and NMS. Segmentation HEFs require `dets`,
 `labels`, and `masks` outputs in the compiled graph.
-Optional compilation controls include `--fraction`, `--imgsz`, `--conf`,
-`--iou`, and `--version` for Ultralytics. On Linux x86_64, the matching Hailo
+Pass `--conf` and `--iou` to set confidence and NMS IoU thresholds; both
+accept values from 0 to 1 and otherwise use the compiler defaults. RTMDet
+compilation uses the input size embedded in its ONNX file and calibration
+images from the project's training split. Ultralytics uses the project's
+`data.yaml`. On Linux x86_64, the matching Hailo
 DFC wheel is installed automatically when it is required and available.
 
 ### Dataset curation and pruning
@@ -225,18 +223,10 @@ images, exposure issues, and invalid files:
 abraia curate PROJECT
 ```
 
-The command is a dry run by default and prints a JSON report; the report is not
-saved as a separate project file. Apply duplicate, blur, and invalid-image
-recommendations with `--apply`; include outlier removals only after review with
-`--apply-outliers`. Use
-`--duplicate-threshold`, `--blur-threshold`, or `--blur-percentile` to adjust
-the analysis. The default `--mode fast` uses bounded previews, sampled exact
-duplicate fingerprints, and perceptual hash buckets; it keeps the original
-low-cost quality/outlier checks for regular scans. Use `--mode thorough` for
-exhaustive full-resolution comparisons, NN outlier scoring, and richer image
-statistics. Use `--nearest-neighbors` and `--outlier-mode` to control the
-thorough graph/outlier policy, and `--work-dir` to reuse cached features. Use
-`--yes` with `--apply` to skip the deletion confirmation in automation.
+The command is a dry run by default and prints a JSON report. Apply duplicate,
+blur, and invalid-image recommendations with `--apply`; include outlier
+removals only after review with `--apply-outliers`. Use `--yes` with `--apply`
+to skip the deletion confirmation in automation.
 
 ### Demos and inference
 
@@ -263,39 +253,54 @@ defaults to `man with red shirt`.
 
 ## 🚀 Core Modules & Features
 
-### 1. Image Editing & Enhancement (`abraia.editing`)
-- **Upscaling**: Super-resolution image enhancement (`upscale_image`).
-- **Smart Cropping**: Intelligent content-aware cropping (`smartcrop_image`).
-- **Background Removal**: Foreground segmentation and background removal (`remove_background`).
-- **Inpainting**: Image restoration and object removal (`inpaint_image`).
+### Public Python APIs
 
-### 2. Inference & Computer Vision (`abraia.inference`)
-- **Object Detection**: Fast ONNX/YOLO-based object detection (`abraia.inference.Model`).
-- **Open-Vocabulary Detection**: Grounding DINO ONNX inference with text prompts (`abraia.inference.GroundingDINOModel`).
-- **Segmentation (SAM)**: Segment Anything Model integration for precise image masking (`abraia.inference.SAM`).
-- **Object Tracking & People Flow**: Advanced multi-object tracking (`Tracker`), line crossing counters (`LineCounter`), and region duration timers (`RegionTimer`).
-- **Face Recognition**: Identify and match faces in images and streams (`FaceRecognizer`).
-- **License Plate Recognition (ALPR)**: Automatic license plate detection and text recognition (`PlateRecognizer`).
-- **OCR**: Extract text from images (`TextSystem`).
-- **Semantic Image Search**: CLIP embeddings and project search for text or image queries (`Clip`, `ImageSearch`).
+The package keeps a small set of supported entry points at its public module
+boundaries:
 
-### 3. Edge AI & Hardware Acceleration (`abraia.inference.hailo`)
-- Optimized runtime support and toolboxes for Hailo NPU hardware acceleration (`abraia.inference.hailo`).
+- `abraia` exports `Abraia`, `APIError`, and `config` for remote file and image
+  operations.
+- `abraia.editing` exports `anonymize_image`, `blur_background`,
+  `clean_image`, `inpaint_image`, `remove_background`, `smartcrop_image`, and
+  `upscale_image`.
+- `abraia.inference` exports `load_model` and `register_model_factory` for
+  configured model adapters.
+- `abraia.runtime` exports `Pipeline`, the Python entry point for saved
+  inference workflows.
+- `abraia.training` exports `ModelTrainer` for custom model training.
+- `abraia.dataset` exports `create_dataset`, `delete_dataset`,
+  `list_datasets`, and `load_dataset`.
 
-### 4. Training & Dataset Operations (`abraia.training`)
-- Tools for training custom classification, detection, and segmentation models, along with dataset preprocessing utilities (`dataset`, `ops`).
-  Training supports small, medium, and large model sizes; detection and
-  segmentation can use Ultralytics YOLOv8n/m/l or the optional RTMDet backend,
-  while classification uses ResNet18/50/101. Ultralytics detection and
-  segmentation models can be exported to Hailo HEF through
-  `ModelTrainer.compile()` or the `abraia compile` command.
-- Dataset curation and pruning use the SDK's built-in Pillow and NumPy image
-  analysis, with no external curation service required.
+Use imports from these module boundaries in applications. Implementation
+modules such as `abraia.runtime.video`, `abraia.inference.hailo`, and
+`abraia.utils` are internal and do not define the supported package-level API.
 
-### 5. Runtime & Video Processing (`abraia.runtime`)
-- Robust video frame iteration and manipulation (`Video`).
-- Annotation and rendering tools (`render_results`, `render_counter`, `render_region`).
-- Compression and sketch generation utilities.
+### Image Editing & Enhancement
+
+`abraia.editing` provides super-resolution upscaling, smart cropping,
+background removal, inpainting, anonymization, blur, and image cleanup.
+
+### Inference & Computer Vision
+
+The `run` command executes saved pipelines and built-in model workflows.
+Pipeline JSON selects detection, segmentation, classification, OCR, face,
+plate, and open-vocabulary models, plus tracking and region operations. Use
+`abraia.runtime.Pipeline` to run the same workflows from Python.
+
+### Training & Dataset Operations
+
+Train custom classification, detection, and segmentation models through
+`abraia.training.ModelTrainer` or the `abraia train` command. Training supports
+small, medium, and large model sizes; detection and segmentation can use
+Ultralytics YOLOv8n/m/l or the optional RTMDet backend, while classification
+uses ResNet18/50/101. Ultralytics detection and segmentation models can be
+exported to Hailo HEF through `ModelTrainer.compile()` or `abraia compile`.
+Dataset creation and deletion are available from `abraia.dataset`. Dataset
+curation and pruning use built-in Pillow and NumPy image analysis.
+
+### Edge AI & Hardware Acceleration
+
+The optional Hailo runtime is used internally by configured pipelines.
 
 #### Object Processing Pipelines
 
@@ -465,15 +470,20 @@ architecture-specific HEF URI from the canonical ONNX URI; explicit local
 paths remain supported. Hailo no longer resolves external Model Zoo downloads
 or bare logical model names.
 
-Custom RTMDet ONNX models can be selected directly:
+The built-in RTMDet ONNX models use the same managed model paths as other
+Abraia inference models. Select a detection or segmentation size in a pipeline:
 
 ```json
 "model": {
   "kind": "rtmdet",
   "task": "detection",
-  "uri": "project/rtmdet_small_v1.onnx"
+  "size": "small"
 }
 ```
+
+Detection models are `multiple/models/rtmdet_{small,medium,large}_v1.onnx`;
+segmentation models use `multiple/models/rtmdet_ins_{small,medium,large}_v1.onnx`.
+Custom RTMDet ONNX files can still be selected with an explicit `uri`.
 
 RTMDet uses fixed model-specific preprocessing in Abraia. Its HEF bundles use
 their `abraia.json` sidecar for labels and host-side NMS settings.
@@ -482,7 +492,7 @@ their `abraia.json` sidecar for labels and host-side NMS settings.
 
 ## 🍓 Real-Time Edge Object Counter on Raspberry Pi with Hailo NPU
 
-Deploy high-performance real-time object detection and counting on a Raspberry Pi equipped with a Hailo AI expansion board (such as Hailo-8 or Hailo-8L). This pipeline combines hardware-accelerated model inference (`abraia.inference.hailo`), multi-object tracking (`abraia.inference.Tracker`), line crossing counters (`LineCounter`), and region timers (`RegionTimer`) through the shared `abraia.runtime.Pipeline`.
+Deploy high-performance real-time object detection and counting on a Raspberry Pi equipped with a Hailo AI expansion board (such as Hailo-8 or Hailo-8L). This pipeline combines hardware-accelerated model inference, tracking, line crossing counts, and region timers through the shared `abraia.runtime.Pipeline`.
 
 ### Implementation Guide
 

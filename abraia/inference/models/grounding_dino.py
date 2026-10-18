@@ -12,9 +12,11 @@ import unicodedata
 import cv2
 import numpy as np
 
-from ..postprocess.common import iou
+from ..geometry import iou
+from ..accelerators import get_providers
 from ..session import OnnxSessionMixin
-from ...utils import get_providers, load_json, resolve_model_file
+from ...utils.filesystem import load_json
+from ...utils.remote import resolve_model_file
 
 
 DEFAULT_MODEL_URI = "multiple/models/grounding_dino_tiny.onnx"
@@ -427,7 +429,7 @@ def decode_outputs(
             "class_id": int(index),
         })
 
-    if iou_threshold is None or len(candidates) < 2:
+    if iou_threshold is None:
         return candidates
     return _nms_by_phrase(candidates, float(iou_threshold))
 

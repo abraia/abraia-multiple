@@ -36,6 +36,8 @@ MODEL_DEFAULT_THRESHOLDS = {
     ("yolov8", "detection"): (0.25, 0.45),
     ("yolov8", "segmentation"): (0.25, 0.7),
     ("yolov8", "pose"): (0.25, 0.7),
+    ("rtmdet", "detection"): (0.25, 0.7),
+    ("rtmdet", "segmentation"): (0.25, 0.7),
     ("resnet", "classification"): (0.25, 0.0),
     ("grounding_dino", "detection"): (0.25, 0.45),
     ("face", "detection"): (0.75, 0.5),
@@ -58,6 +60,8 @@ SUPPORTED_MODEL_OPTIONS = (
     *_sized_model_options("yolov8", "Object detection", "detection"),
     *_sized_model_options("yolov8", "Instance segmentation", "segmentation"),
     *_sized_model_options("yolov8", "Pose estimation", "pose"),
+    *_sized_model_options("rtmdet", "RTMDet object detection", "detection"),
+    *_sized_model_options("rtmdet", "RTMDet instance segmentation", "segmentation"),
     *_sized_model_options("resnet", "ResNet classification", "classification"),
     ("face_detection", "Face detection", "face", "detection", ""),
     ("face_recognition", "Face recognition", "face", "recognition", ""),
@@ -206,13 +210,13 @@ class PipelineDraft:
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> "PipelineDraft":
-        return parse_pipeline_draft(config)
+        return _parse_pipeline_draft(config)
 
     def to_dict(self) -> Dict[str, Any]:
-        return serialize_pipeline_draft(self)
+        return _serialize_pipeline_draft(self)
 
     def validation_errors(self) -> List[str]:
-        return validate_pipeline_draft(self)
+        return _validate_pipeline_draft(self)
 
 
 def default_step(step_type):
@@ -244,7 +248,7 @@ def _number(value, default, cast=float):
         return default
 
 
-def parse_pipeline_draft(config: Dict[str, Any]):
+def _parse_pipeline_draft(config: Dict[str, Any]):
     """Build a :class:`PipelineDraft` from a versioned pipeline document."""
     if not isinstance(config, dict):
         raise ValueError("Pipeline configuration must be a JSON object")
@@ -296,7 +300,7 @@ def parse_pipeline_draft(config: Dict[str, Any]):
     )
 
 
-def serialize_pipeline_draft(draft) -> Dict[str, Any]:
+def _serialize_pipeline_draft(draft) -> Dict[str, Any]:
     """Serialize a pipeline draft as a version-two document."""
     source_value = "" if draft.source is None else str(draft.source).strip()
     source_type = infer_source_type(
@@ -337,7 +341,7 @@ def serialize_pipeline_draft(draft) -> Dict[str, Any]:
     }
 
 
-def validate_pipeline_draft(draft):
+def _validate_pipeline_draft(draft):
     """Return user-facing validation messages for a pipeline draft."""
     errors = []
     source_value = "" if draft.source is None else str(draft.source).strip()
@@ -347,7 +351,7 @@ def validate_pipeline_draft(draft):
     ) or "camera"
     if not source_value:
         errors.append("Choose a source file, camera, or stream.")
-    elif source_type == "camera" and not source_value.isdigit():
+    elif source_type == "camera" and infer_source_type(source_value) != "camera":
         errors.append("Camera source must be a numeric camera index.")
     try:
         resolution_valid = len(draft.resolution) == 2 and all(
@@ -373,8 +377,8 @@ def validate_pipeline_draft(draft):
         if not step.is_mapping or not step.is_active:
             continue
         step_type = step.type
-        if step_type == "model" and isinstance(step.get("model"), dict):
-            model = step.get("model")
+        model = step.get("model") if step_type == "model" else None
+        if isinstance(model, dict):
             spec = ModelSpec.from_config(model)
             errors.extend(model_pipeline_errors(spec))
             editor_values = model_editor_values(spec, model)
@@ -419,7 +423,4 @@ __all__ = [
     "model_control_visibility",
     "model_defaults",
     "parse_points",
-    "parse_pipeline_draft",
-    "serialize_pipeline_draft",
-    "validate_pipeline_draft",
 ]

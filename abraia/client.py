@@ -374,16 +374,6 @@ class Abraia:
         image = self.load_image(path)
         return image, self.load_metadata(path)
 
-    def load_image_preview(self, path, size=144, bands=(0, 1, 2)):
-        """Return a generic preview through the shared source contract.
-
-        Standard Abraia images do not have spectral band selection, so the
-        size and bands hints are accepted for API compatibility and the normal
-        image loader supplies the preview-sized representation.
-        """
-        del size, bands
-        return self.load_image_details(path)
-
     def save_image(self, path, im):
         src = temporal_src(path)
         save_image(im, src)

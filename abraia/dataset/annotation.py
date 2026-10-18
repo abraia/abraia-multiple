@@ -7,7 +7,8 @@ import sys
 
 from PIL import Image
 
-from ..utils import load_image, load_url
+from ..utils.image import load_image
+from ..utils.remote import load_url
 
 
 DEFAULT_MODEL = "IDEA-Research/grounding-dino-tiny"
@@ -103,7 +104,7 @@ class Annotator:
         self.pipe = None
 
     def segment(self, img, objects):
-        from abraia.inference.postprocess.masks import mask_to_polygon
+        from abraia.inference.geometry import mask_to_polygon
 
         self.sam.encode(img)
         for result in objects:

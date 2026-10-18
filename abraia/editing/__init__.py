@@ -3,11 +3,7 @@
 from .operations import (
     anonymize_image,
     blur_background,
-    build_mask,
     clean_image,
-    detect_faces,
-    detect_plates,
-    detect_smartcrop,
     inpaint_image,
     remove_background,
     smartcrop_image,
@@ -15,15 +11,11 @@ from .operations import (
 )
 
 __all__ = [
-    'anonymize_image',
-    'blur_background',
-    'build_mask',
-    'clean_image',
-    'detect_faces',
-    'detect_plates',
-    'detect_smartcrop',
-    'inpaint_image',
-    'remove_background',
-    'smartcrop_image',
-    'upscale_image',
+    "anonymize_image",
+    "blur_background",
+    "clean_image",
+    "inpaint_image",
+    "remove_background",
+    "smartcrop_image",
+    "upscale_image",
 ]

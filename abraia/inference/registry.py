@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import Any, Dict
 
 from ..tasks import HAILO_TASKS
+from ..utils.remote import is_url
 from .model_config import (
     MODEL_ARCHITECTURES,
     MODEL_RUN_OPTIONS,
     MODEL_SIZE_URIS,
     MODEL_DESCRIPTORS,
     ModelSpec,
-    PIPELINE_MODEL_KINDS,
 )
 from .accelerators import (
     hailo_device_arch,
@@ -21,26 +21,9 @@ from .accelerators import (
 )
 
 
-def supports_runtime_options(kind):
-    """Return whether a model kind accepts generic run-time options."""
-    normalized = str(kind or "").strip().lower()
-    descriptor = MODEL_DESCRIPTORS.get(normalized)
-    return bool(descriptor and descriptor.runtime_options)
-
-
-def model_backend(config):
-    """Resolve the execution backend from the model URI."""
-    if not isinstance(config, dict):
-        return "onnx"
-    return ModelSpec.from_config(config).backend
-
-
-def get_model_run_kwargs(config):
+def get_model_run_kwargs(config, spec):
     """Extract run-time options accepted by the configured model kind."""
-    if not isinstance(config, dict):
-        return {}
-    spec = ModelSpec.from_config(config)
-    if spec.backend == "hailo" or not supports_runtime_options(spec.kind):
+    if spec.backend == "hailo" or not MODEL_DESCRIPTORS[spec.kind].runtime_options:
         return {}
     return {
         key: config[key]
@@ -51,10 +34,8 @@ def get_model_run_kwargs(config):
 
 def _resolve_model_uri(uri, base_dir=None):
     """Resolve a local model URI relative to a pipeline configuration."""
-    if uri is None:
-        return uri
     uri = os.fspath(uri)
-    if uri.lower().startswith(("http://", "https://")):
+    if is_url(uri):
         return uri
     candidate = Path(uri)
     if not candidate.is_absolute() and base_dir is not None:
@@ -125,8 +106,6 @@ def _create_hailo_model(spec, config, base_dir, session_options):
     from .hailo.pipeline import HailoPipelineModel
 
     uri = _resolve_model_uri(spec.uri, base_dir=base_dir)
-    if not uri:
-        raise ValueError("A Hailo pipeline model requires a model 'uri'")
     params = spec.params_copy()
     # Class names are authoritative in the model JSON sidecar, matching the
     # ONNX adapter. Ignore the former runtime labels override if present.
@@ -166,15 +145,21 @@ def _create_yolo_model(spec, config, base_dir, session_options, accelerator=None
     from .models.detection import Model
 
     uri = spec.resolved_uri
-    if not uri:
-        raise ValueError(f"A {spec.kind} model requires a model 'uri'")
     if spec.params:
         raise ValueError("Model options belong directly in 'model'")
 
     resolved_uri = _resolve_model_uri(uri, base_dir=base_dir)
     paired = _select_hailo_pair(config, spec, resolved_uri, accelerator)
     if paired is not None:
-        return create_model(
+        paired_spec = ModelSpec(
+            kind=spec.kind,
+            task=paired["task"],
+            uri=paired["uri"],
+            size=spec.size,
+            params=paired["params"],
+        )
+        return _create_model_from_spec(
+            paired_spec,
             paired,
             base_dir=base_dir,
             accelerator="hailo",
@@ -237,22 +222,28 @@ _MODEL_FACTORIES = {
 
 
 def register_model_factory(kind, factory):
-    """Register an application supplied factory for a supported model kind."""
-    normalized = str(kind or "").strip().lower()
-    if normalized not in PIPELINE_MODEL_KINDS:
-        raise ValueError(f"Unsupported pipeline model kind: {kind}")
+    """Register a model adapter factory for a configured model kind."""
+    if not isinstance(kind, str) or not kind:
+        raise ValueError("model factory kind must be a non-empty string")
     if not callable(factory):
-        raise TypeError("Model factory must be callable")
-    _MODEL_FACTORIES[normalized] = factory
+        raise TypeError("model factory must be callable")
+    _MODEL_FACTORIES[kind] = factory
 
 
 def create_model(config: Dict[str, Any], base_dir=None, accelerator=None):
     """Create a configured model using the registered model adapters."""
-    if not isinstance(config, dict):
-        raise ValueError("Pipeline model must be an object")
-
     spec = ModelSpec.from_config(config)
     spec.require_runtime_valid()
+    return _create_model_from_spec(
+        spec,
+        config,
+        base_dir=base_dir,
+        accelerator=accelerator,
+    )
+
+
+def _create_model_from_spec(spec, config, base_dir=None, accelerator=None):
+    """Create an adapter from a model spec validated by its caller."""
     providers = onnx_providers(accelerator)
     session_options = {} if providers is None else {"providers": providers}
 
@@ -278,10 +269,7 @@ __all__ = [
     "MODEL_RUN_OPTIONS",
     "MODEL_SIZE_URIS",
     "MODEL_ARCHITECTURES",
-    "PIPELINE_MODEL_KINDS",
     "create_model",
     "register_model_factory",
     "get_model_run_kwargs",
-    "model_backend",
-    "supports_runtime_options",
 ]

@@ -5,24 +5,27 @@ import cv2
 import numpy as np
 import pytest
 from unittest.mock import patch
-from abraia.inference import Clip
+from abraia.inference.models.clip import Clip
 from abraia.inference.session import (
     OnnxSessionBundle,
     ResourceGroup,
     accelerator_from_providers,
 )
 from abraia.inference.accelerators import onnx_providers
-from abraia.runtime import AsyncInferenceRunner, FrameResult
-from abraia.inference.postprocess.classification import postprocess, preprocess
-from abraia.inference.postprocess.detection import prepare_input, process_output
-from abraia.inference.postprocess.pose import process_pose_output
-from abraia.inference.postprocess.common import softmax
-from abraia.inference.postprocess.masks import mask_to_polygon
+from abraia.runtime.inference import AsyncInferenceRunner, FrameResult
+from abraia.inference.models.classification import postprocess, preprocess
+from abraia.inference.models.detection import (
+    prepare_input,
+    process_output,
+    process_pose_output,
+    process_rtmdet_output,
+)
+from abraia.inference.geometry import mask_to_polygon, softmax
 from abraia.inference.vectors import search_vectors
 from abraia.inference.models.ocr import BaseRecLabelDecode, TextRecognizer, TextSystem
 from abraia.inference.models.sam import SAM
-from abraia.inference.service import InferenceService
 from abraia.inference.models.classification import ResNetClassifier, preprocess_resnet
+from abraia.inference import load_model
 from abraia.inference.registry import create_model
 
 
@@ -163,32 +166,6 @@ def test_load_images(tmp_path):
     assert images_dir[0].shape == (10, 10, 3)
 
 
-def test_inference_service_reuses_and_closes_backend_sessions():
-    instances = []
-
-    class FakeModel:
-        def __init__(self, uri):
-            self.uri = uri
-            self.closed = False
-            instances.append(self)
-
-        def run(self, image):
-            return self.uri, image.shape
-
-        def close(self):
-            self.closed = True
-
-    service = InferenceService({"fake": FakeModel})
-    image = np.zeros((4, 5, 3), dtype=np.uint8)
-
-    assert service.run("model-a", image, backend="fake") == ("model-a", (4, 5, 3))
-    assert service.run("model-a", image, backend="fake") == ("model-a", (4, 5, 3))
-    assert len(instances) == 1
-
-    service.close()
-    assert instances[0].closed
-
-
 def test_classifier_preprocess_returns_fixed_input_shape_for_wide_images():
     image = np.zeros((720, 1280, 3), dtype=np.uint8)
 
@@ -215,6 +192,27 @@ def test_detection_decoder_reverses_centered_letterbox_transform():
         transform=(scale, padding),
     )
     assert result[0]["box"] == [80, 30, 40, 40]
+
+
+def test_rtmdet_decoder_accepts_model_run_arguments_and_filters_labels():
+    detections = np.array([[[10, 20, 50, 60, 0.9], [20, 30, 40, 50, 0.8]]])
+    class_ids = np.array([[0, 1]], dtype=np.int64)
+
+    result = process_rtmdet_output(
+        [detections, class_ids],
+        size=(100, 100),
+        shape=(1, 3, 100, 100),
+        classes=["person", "car"],
+        output_names=["dets", "labels"],
+        conf_threshold=0.25,
+        iou_threshold=0.7,
+        approx=0.001,
+        labels=["car"],
+        transform=(1.0, (0, 0)),
+    )
+
+    assert [item["label"] for item in result] == ["car"]
+    assert result[0]["box"] == [20, 30, 20, 20]
 
 
 def test_classification_decoder_supports_top_k():
@@ -276,74 +274,6 @@ def test_resource_group_closes_in_reverse_order_and_only_once():
     group.close()
 
     assert closed == ["second", "first"]
-
-
-def test_sam_cache_uses_image_content_not_object_identity():
-    class FakeSAM:
-        def __init__(self):
-            self.encode_calls = 0
-
-        def encode(self, image):
-            self.encode_calls += 1
-
-        def predict(self, image, prompt):
-            return np.zeros(image.shape[:2], dtype=np.uint8)
-
-        def close(self):
-            pass
-
-    service = InferenceService()
-    service._sam = FakeSAM()
-    image = np.zeros((8, 8, 3), dtype=np.uint8)
-    service.sam_predict(image, [[1, 1, 1]])
-    service.sam_predict(image.copy(), [[2, 2, 1]])
-    assert service._sam.encode_calls == 1
-    image[0, 0, 0] = 1
-    service.sam_predict(image, [[2, 2, 1]])
-    assert service._sam.encode_calls == 2
-
-
-def test_sam_box_prompt_uses_xywh_coordinates():
-    class FakeSAM:
-        def encode(self, image):
-            pass
-
-        def predict(self, image, prompt):
-            self.prompt = json.loads(prompt)
-            return np.zeros(image.shape[:2], dtype=np.uint8)
-
-        def close(self):
-            pass
-
-    service = InferenceService()
-    service._sam = FakeSAM()
-    image = np.zeros((8, 10, 3), dtype=np.uint8)
-
-    service.sam_predict_box(image, [2, 3, 4, 5])
-
-    assert service._sam.prompt == [{
-        "type": "rectangle",
-        "data": [2.0, 3.0, 6.0, 8.0],
-    }]
-
-
-def test_grounding_dino_sam_prediction_returns_polygons():
-    service = InferenceService()
-    image = np.zeros((12, 16, 3), dtype=np.uint8)
-    mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    mask[2:8, 4:11] = 1
-    service.grounding_dino_predict = lambda _image, _prompt: [
-        {"label": "cat", "box": [4, 2, 7, 6], "score": 0.9},
-    ]
-    service.sam_predict_box = lambda _image, _box: mask
-
-    result = service.grounding_dino_sam_predict(image, "cat")
-
-    assert len(result) == 1
-    assert result[0]["label"] == "cat"
-    assert result[0]["score"] == 0.9
-    assert result[0]["polygon"]
-    assert "box" not in result[0]
 
 
 def test_pose_output_decodes_boxes_and_keypoints():
@@ -549,3 +479,19 @@ def test_registry_defaults_resnet_to_classification_task(monkeypatch):
 
     assert isinstance(model, FakeResNet)
     assert captured == ["trained_classifier.onnx"]
+
+
+def test_public_load_model_uses_configured_model_adapter(monkeypatch):
+    class FakeResNet:
+        def __init__(self, uri):
+            self.uri = uri
+
+    monkeypatch.setattr(
+        "abraia.inference.models.classification.ResNetClassifier",
+        FakeResNet,
+    )
+
+    model = load_model({"kind": "resnet", "uri": "trained_classifier.onnx"})
+
+    assert isinstance(model, FakeResNet)
+    assert model.uri == "trained_classifier.onnx"

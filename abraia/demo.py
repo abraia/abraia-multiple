@@ -4,14 +4,17 @@ import os
 import time
 from copy import deepcopy
 
-from abraia.inference import FaceRecognizer, FaceAttribute
+from abraia.inference.models.faces import FaceRecognizer, FaceAttribute
+from abraia.inference.models.sam import InteractiveSAM
+from abraia.inference.search import ImageSearch
 from abraia.inference.models.faces import find_pose
 from abraia.runtime.composition import count_objects
 from abraia.runtime import Pipeline
 from abraia.runtime.pipeline_schema import is_primary_model_step
 from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
-from abraia.runtime import Video
-from abraia.utils import download_url, load_image
+from abraia.runtime.video import Video
+from abraia.utils.image import load_image
+from abraia.utils.remote import download_url
 from abraia.inference.accelerators import (
     hailo_device_arch as _hailo_device_arch,
     hailo_model_available as _hailo_model_available,
@@ -486,7 +489,6 @@ def track_faces(src=None, resolution=(1280, 720), accelerator='auto'):
 
 def search_images(project, query="man with red shirt"):
     """Search for images using a text query or an image path (with click object selection) via ImageSearch."""
-    from abraia.inference import ImageSearch, InteractiveSAM
 
     search = ImageSearch(project)
     print("Searching for images...")

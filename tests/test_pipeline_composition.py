@@ -1,7 +1,8 @@
 import numpy as np
 from unittest.mock import patch
 
-from abraia.runtime import FrameContext, Pipeline
+from abraia.runtime import Pipeline
+from abraia.runtime.pipeline import FrameContext
 from abraia.runtime.config import PipelineDraft
 from abraia.runtime.composition import (
     BoundModelStep,

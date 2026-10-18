@@ -3,6 +3,7 @@
 import itertools
 import json
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from glob import glob
 
@@ -20,17 +21,11 @@ abraia = Abraia()
 
 
 def process_map(
-    task, *values, desc="", max_workers=DEFAULT_MAX_REMOTE_WORKERS
+    task, values, *iterables, desc=""
 ):
-    """Apply a task concurrently while reporting progress.
-
-    Network operations use threads so workers share no copied client process
-    state. Iterators such as ``itertools.repeat`` are bounded by the first
-    finite input length.
-    """
-    if not values:
-        return []
-    lengths = [len(value) for value in values if hasattr(value, "__len__")]
+    """Apply a task concurrently, bounded by the finite inputs."""
+    inputs = (values,) + iterables
+    lengths = [len(value) for value in inputs if hasattr(value, "__len__")]
     if not lengths:
         raise ValueError("At least one process_map input must have a length")
     total = lengths[0]
@@ -38,16 +33,16 @@ def process_map(
         raise ValueError("All process_map iterables must have the same length")
     prepared = [
         value if hasattr(value, "__len__") else itertools.islice(value, total)
-        for value in values
+        for value in inputs
     ]
-    worker_count = min(max(1, int(max_workers)), DEFAULT_MAX_REMOTE_WORKERS)
-    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+    with ThreadPoolExecutor(max_workers=DEFAULT_MAX_REMOTE_WORKERS) as executor:
         results = []
-        jobs = zip(*prepared)
-        apply_task = lambda args: task(*args)
         with tqdm(total=total, desc=desc) as progress:
             for result in bounded_map(
-                executor, apply_task, jobs, max_pending=worker_count * 2
+                executor,
+                lambda args: task(*args),
+                zip(*prepared),
+                max_pending=DEFAULT_MAX_REMOTE_WORKERS * 2,
             ):
                 progress.set_postfix_str(str(result))
                 progress.update(1)
@@ -119,12 +114,6 @@ def configure():
 @cli.command()
 @click.argument("project")
 @click.option(
-    "--work-dir",
-    type=click.Path(file_okay=False),
-    default=None,
-    help="Cache extracted features and statistics in this directory.",
-)
-@click.option(
     "--apply",
     "apply_changes",
     is_flag=True,
@@ -141,61 +130,14 @@ def configure():
     is_flag=True,
     help="Also delete outliers; review them carefully first.",
 )
-@click.option(
-    "--duplicate-threshold",
-    type=click.FloatRange(0.0, 1.0),
-    default=0.96,
-    show_default=True,
-)
-@click.option(
-    "--blur-threshold",
-    type=float,
-    default=None,
-    help="Absolute blur score threshold; lower scores are blurrier.",
-)
-@click.option(
-    "--blur-percentile",
-    type=click.FloatRange(0.0, 1.0, min_open=True),
-    default=0.05,
-    show_default=True,
-    help="Flag the lowest fraction of blur scores.",
-)
-@click.option(
-    "--nearest-neighbors",
-    type=click.IntRange(min=1),
-    default=2,
-    show_default=True,
-    help="Number of nearest neighbors used for similarity and outlier checks.",
-)
-@click.option(
-    "--outlier-mode",
-    type=click.Choice(["one", "all"]),
-    default="one",
-    show_default=True,
-    help="Require distance from the closest neighbor or all selected neighbors.",
-)
-@click.option(
-    "--mode",
-    type=click.Choice(["fast", "thorough"]),
-    default="fast",
-    show_default=True,
-    help="Use hash-bucket previews or exhaustive full-resolution analysis.",
-)
 def curate(
     project,
-    work_dir,
     apply_changes,
     assume_yes,
     apply_outliers,
-    duplicate_threshold,
-    blur_threshold,
-    blur_percentile,
-    nearest_neighbors,
-    outlier_mode,
-    mode,
 ):
     """Analyze an image dataset and optionally apply recommendations."""
-    from .dataset.remote import load_dataset
+    from .dataset import load_dataset
 
     def operation():
         confirm = None
@@ -204,17 +146,8 @@ def curate(
                 f"Delete {len(paths)} recommended remote file(s)?"
             )
         report = load_dataset(project).curate(
-            work_dir=work_dir,
             apply=apply_changes,
-            analyze_options={
-                "duplicate_threshold": duplicate_threshold,
-                "blur_threshold": blur_threshold,
-                "blur_percentile": blur_percentile,
-                "nearest_neighbors_k": nearest_neighbors,
-                "outlier_mode": outlier_mode,
-                "mode": mode,
-                "remove_outliers": apply_outliers,
-            },
+            analyze_options={"remove_outliers": apply_outliers},
             confirm=confirm,
         )
         click.echo(json.dumps(report, indent=2))
@@ -324,13 +257,13 @@ def metadata(path, remove):
 @cli.command("list")
 def list_datasets_command():
     """List available datasets."""
-    from .dataset.remote import list_datasets
+    from .dataset import list_datasets
 
     _run_remote(lambda: click.echo(json.dumps(list_datasets(), indent=2)))
 
 
 def convert_to_jpg(src):
-    from .utils import load_image, save_image
+    from .utils.image import load_image, save_image
 
     image = load_image(src)
     save_image(image, f"{os.path.splitext(src)[0]}.jpg")
@@ -339,14 +272,14 @@ def convert_to_jpg(src):
 
 def anonymize(src):
     from .editing import anonymize_image
-    from .utils import load_image, save_image
+    from .utils.image import load_image, save_image
 
     save_image(anonymize_image(load_image(src)), src)
 
 
 def upscale(src, threshold):
     from .editing import upscale_image
-    from .utils import load_image, save_image
+    from .utils.image import load_image, save_image
 
     image = load_image(src)
     if max(image.shape) < threshold:
@@ -354,7 +287,7 @@ def upscale(src, threshold):
 
 
 def process_dataset(project, anonymize_images=False, upscale_threshold=0):
-    from .utils import get_type
+    from .utils.filesystem import get_type
 
     files = input_files(project)
     heics = [file for file in files if get_type(file) == "image/heic"]
@@ -383,7 +316,7 @@ def process_dataset(project, anonymize_images=False, upscale_threshold=0):
 def create(project, query, anonymize=False, upscale=0):
     """Create or update a dataset."""
     from .dataset.search import search_images
-    from .dataset.remote import load_dataset
+    from .dataset import load_dataset
 
     def operation():
         dataset = load_dataset(project)
@@ -404,13 +337,11 @@ def create(project, query, anonymize=False, upscale=0):
 
 @cli.command()
 @click.argument("project")
-@click.argument("label", type=str, required=False, default="")
+@click.argument("label")
 @click.option("--segment", help="Segment objects from boxes", is_flag=True)
 def annotate(project, label, segment=False):
     """Annotate a dataset using Grounding Dino."""
-    if not label:
-        raise click.UsageError("A label is required for annotation")
-    from .dataset.remote import load_dataset
+    from .dataset import load_dataset
 
     _run_remote(lambda: load_dataset(project).annotate(label, segment=segment))
 
@@ -426,14 +357,22 @@ def annotate(project, label, segment=False):
     help="Detection and segmentation training backend.",
 )
 @click.option(
-    "--checkpoint",
-    default=None,
-    help="Optional pretrained model checkpoint.",
+    "--imgsz",
+    type=int,
+    help="Training image size in pixels.",
 )
-def train(project, epochs, backend, checkpoint):
+@click.option(
+    "--model-size",
+    type=click.Choice(["small", "medium", "large"], case_sensitive=False),
+    default="small",
+    show_default=True,
+    help="Model size to train.",
+)
+def train(project, epochs, imgsz, model_size, backend):
     """Train a model on the specified dataset."""
-    from .dataset.remote import load_dataset
-    from .training import ModelTrainer, prepare_dataset
+    from .dataset import load_dataset
+    from .dataset.preparation import prepare_dataset
+    from .training.orchestration import ModelTrainer
 
     def operation():
         click.echo("Loading dataset...")
@@ -444,8 +383,9 @@ def train(project, epochs, backend, checkpoint):
             project,
             dataset.task,
             dataset.classes,
+            imgsz=imgsz,
             backend=backend,
-            checkpoint=checkpoint,
+            model_size=model_size,
         )
         training_session.train(epochs)
         click.echo("Evaluating metrics...")
@@ -466,64 +406,64 @@ def train(project, epochs, backend, checkpoint):
     show_default=True,
 )
 @click.option(
-    "--checkpoint",
-    type=click.Path(exists=True, dir_okay=False),
-    required=True,
-    help="Ultralytics .pt checkpoint or RTMDet .pth checkpoint (.onnx also accepted).",
+    "--conf",
+    type=click.FloatRange(0, 1),
+    help="Confidence threshold for the compiled model.",
 )
 @click.option(
-    "--backend",
-    type=click.Choice(["ultralytics", "rtmdet"]),
-    default="ultralytics",
-    show_default=True,
-    help="Training backend used to produce the model.",
+    "--iou",
+    type=click.FloatRange(0, 1),
+    help="IoU threshold for NMS in the compiled model.",
 )
-@click.option(
-    "--calibration-data",
-    type=click.Path(exists=True),
-    default=None,
-    help="Representative dataset YAML or directory for INT8 calibration.",
-)
-@click.option("--fraction", type=float, default=None, help="Calibration data fraction.")
-@click.option("--imgsz", type=int, default=None, help="Fixed Hailo input size.")
-@click.option("--conf", type=float, default=None, help="Hailo NMS confidence threshold.")
-@click.option("--iou", type=float, default=None, help="Hailo NMS IoU threshold.")
-@click.option("--version", type=int, default=None, help="Existing Abraia model version.")
-def compile_model_command(
-    project,
-    device,
-    checkpoint,
-    backend,
-    calibration_data,
-    fraction,
-    imgsz,
-    conf,
-    iou,
-    version,
-):
+def compile_model_command(project, device, conf, iou):
     """Compile a trained model to a Hailo HEF bundle."""
-    from .dataset.remote import load_dataset
-    from .training import ModelTrainer, prepare_dataset
+    from .training.orchestration import _compile_checkpoint
+    from .training.artifacts import list_model_records
 
     def operation():
-        click.echo("Loading dataset...")
-        dataset = load_dataset(project)
-        prepare_dataset(dataset)
+        records = list_model_records(project, client=abraia)
+        records = [
+            record for record in records
+            if record.get("artifacts", {}).get("checkpoint")
+        ]
+        if not records:
+            raise click.ClickException(
+                "No cloud training checkpoint is available for this project. "
+                "Train and save a model before compiling it."
+            )
+        def version(record):
+            match = re.search(r"_v(\d+)\.onnx$", record["name"])
+            return int(match.group(1)) if match else 0
+
+        record = max(records, key=version)
+        model_version = version(record) or None
+        task = record["task"]
+        classes = record["classes"]
+        backend = record["backend"]
+        model_size = record["modelSize"]
+        input_shape = record.get("inputShape") or [1, 3, 640, 640]
+        imgsz = input_shape[-1]
+        checkpoint = abraia.download_file(
+            record["artifacts"]["checkpoint"]
+        )
+        config_path = None
+        if backend == "rtmdet":
+            config_path = abraia.download_file(record["artifacts"]["config"])
         click.echo("Compiling model...")
-        result = ModelTrainer(
+        result = _compile_checkpoint(
             project,
-            dataset.task,
-            dataset.classes,
-            backend=backend,
-            checkpoint=checkpoint,
-        ).compile(
-            device=device,
-            version=version,
-            calibration_data=calibration_data,
-            fraction=fraction,
+            task,
+            classes,
+            checkpoint,
+            backend,
+            model_size=model_size,
             imgsz=imgsz,
+            client=abraia,
+            device=device,
             conf=conf,
             iou=iou,
+            config_path=config_path,
+            model_version=model_version,
         )
         click.echo(json.dumps(result, indent=2))
 
@@ -563,17 +503,12 @@ def run(project, classes, src, accelerator):
 
             monitor_objects(src, classes or "detect", accelerator=accelerator)
         return
-    if project == "hailo":
-        raise click.UsageError(
-            "The separate Hailo demo mode was removed; use "
-            "`run demo <name> --accelerator hailo`."
-        )
-
     def operation():
         from .demo import resolve_pipeline
         from .runtime import Pipeline
         from .sources import infer_source_type
-        from .training import list_model_records, normalize_custom_models
+        from .training.artifacts import list_model_records
+        from .training.model_data import normalize_custom_models
 
         source_override = src if src is not None else (
             classes if classes not in ("", "faces") else None
@@ -629,7 +564,7 @@ def main():
     return cli()
 
 
-__all__ = [name for name in globals() if not name.startswith("_")]
+__all__ = ["cli", "main"]
 
 
 if __name__ == "__main__":

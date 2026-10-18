@@ -7,15 +7,14 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from abraia.runtime import (
+from abraia.runtime import Pipeline
+from abraia.runtime.composition import ModelStep, ProcessorStep
+from abraia.runtime.pipeline import FrameContext
+from abraia.runtime.inference import (
     AsyncInferenceRunner,
     FrameBatch,
-    FrameContext,
     FrameRecord,
     FrameResult,
-    ModelStep,
-    Pipeline,
-    ProcessorStep,
 )
 
 
@@ -370,7 +369,7 @@ def test_composed_pipeline_builds_stateful_processing_steps():
 
     with patch("abraia.runtime.video.Video", Video), \
          patch("abraia.inference.models.detection.Model", Detector), \
-         patch("abraia.inference.Tracker", Tracker):
+         patch("abraia.inference.tracker.Tracker", Tracker):
         pipeline = Pipeline.from_dict(config)
         context = pipeline.run()
 
@@ -487,7 +486,7 @@ def test_pipeline_from_file_builds_components_and_resolves_paths():
 
         with patch("abraia.runtime.video.Video", FakeVideo), \
              patch("abraia.inference.models.detection.Model", FakeModel), \
-             patch("abraia.inference.Tracker", FakeTracker):
+             patch("abraia.inference.tracker.Tracker", FakeTracker):
             pipeline = Pipeline.from_file(str(config_path))
 
         assert pipeline.source.src == str(Path(temp_dir) / "frame.jpg")
@@ -799,6 +798,29 @@ def test_pipeline_factory_uses_default_architecture_model_uris():
     assert segmentation_detector.uri == "multiple/models/yolov8n-seg.onnx"
 
 
+def test_pipeline_factory_uses_default_rtmdet_model_uris():
+    class FakeModel:
+        def __init__(self, uri):
+            self.uri = uri
+
+    with patch("abraia.inference.models.detection.Model", FakeModel):
+        from abraia.inference.registry import create_model
+
+        detector = create_model({
+            "kind": "rtmdet",
+            "task": "detection",
+            "size": "medium",
+        })
+        segmenter = create_model({
+            "kind": "rtmdet",
+            "task": "segmentation",
+            "size": "large",
+        })
+
+    assert detector.uri == "multiple/models/rtmdet_medium_v1.onnx"
+    assert segmenter.uri == "multiple/models/rtmdet_ins_large_v1.onnx"
+
+
 def test_pipeline_factory_uses_architecture_kind_with_task_for_default_uri():
     class FakeModel:
         def __init__(self, uri):
@@ -960,7 +982,7 @@ def test_pipeline_from_dict_passes_pose_options_to_onnx_model():
         "display": {"show": False, "render_results": False},
     }
 
-    with patch("abraia.inference.registry.create_model", return_value=model), \
+    with patch("abraia.inference.registry._create_model_from_spec", return_value=model), \
          patch("abraia.runtime.video.Video", FakeVideo):
         pipeline = Pipeline.from_dict(config)
         pipeline.run()
@@ -1253,10 +1275,9 @@ def test_hailo_pipeline_definitions_use_pipeline_schema():
 
 
 def test_cli_search_command_routes_to_search_images():
-    from importlib.machinery import SourceFileLoader
     from click.testing import CliRunner
+    import abraia.cli as module
 
-    module = SourceFileLoader("workspace_cli", "scripts/abraia").load_module()
     with patch("abraia.demo.search_images") as search:
         result = CliRunner().invoke(
             module.cli,
@@ -1268,10 +1289,9 @@ def test_cli_search_command_routes_to_search_images():
 
 
 def test_cli_routes_demo_accelerator_to_shared_monitor():
-    from importlib.machinery import SourceFileLoader
     from click.testing import CliRunner
+    import abraia.cli as module
 
-    module = SourceFileLoader("workspace_cli_accelerator", "scripts/abraia").load_module()
     with patch("abraia.demo.monitor_objects") as monitor:
         result = CliRunner().invoke(
             module.cli,
@@ -1293,27 +1313,15 @@ def test_cli_routes_demo_accelerator_to_shared_monitor():
     )
 
 
-def test_cli_rejects_the_legacy_hailo_demo_mode():
-    from importlib.machinery import SourceFileLoader
-    from click.testing import CliRunner
-
-    module = SourceFileLoader("workspace_cli_legacy_hailo", "scripts/abraia").load_module()
-    result = CliRunner().invoke(module.cli, ["run", "hailo", "tomato"])
-
-    assert result.exit_code != 0
-    assert "run demo <name> --accelerator hailo" in result.output
-
-
 def test_cli_run_uses_the_saved_pipeline():
-    from importlib.machinery import SourceFileLoader
+    import abraia.cli as module
 
-    module = SourceFileLoader("workspace_cli_saved_pipeline", "scripts/abraia").load_module()
     config = {
         "source": {"type": "video", "src": "saved.mp4"},
         "steps": [{"model": {"kind": "yolov8", "uri": "model.onnx"}}],
     }
     with patch.object(module.abraia, "load_json", return_value=config) as load_json, \
-            patch("abraia.training.list_model_records") as list_models, \
+            patch("abraia.training.artifacts.list_model_records") as list_models, \
             patch("abraia.runtime.Pipeline") as pipeline:
         module.run.callback("project", "", None, "auto")
 
@@ -1324,25 +1332,21 @@ def test_cli_run_uses_the_saved_pipeline():
 
 
 def test_cli_process_map_bounds_repeat_iterators():
-    from importlib.machinery import SourceFileLoader
     import itertools
-
-    module = SourceFileLoader("workspace_cli_map", "scripts/abraia").load_module()
+    import abraia.cli as module
 
     assert module.process_map(
         lambda value, suffix: value + suffix,
         [1, 2],
         itertools.repeat(10),
-        max_workers=1,
     ) == [11, 12]
 
 
 def test_cli_anonymize_dataset_passes_the_worker_callable():
-    from importlib.machinery import SourceFileLoader
+    import abraia.cli as module
 
-    module = SourceFileLoader("workspace_cli_anonymize", "scripts/abraia").load_module()
     with patch("abraia.cli.input_files", return_value=["project/image.jpg"]), \
-            patch("abraia.utils.get_type", return_value="image/jpeg"), \
+            patch("abraia.utils.filesystem.get_type", return_value="image/jpeg"), \
                 patch("abraia.cli.process_map") as process_map:
         files = module.process_dataset("project", anonymize_images=True)
 
@@ -1355,84 +1359,17 @@ def test_cli_anonymize_dataset_passes_the_worker_callable():
 
 
 def test_cli_custom_run_overrides_the_saved_pipeline_source():
-    from importlib.machinery import SourceFileLoader
+    import abraia.cli as module
 
-    module = SourceFileLoader("workspace_cli_source", "scripts/abraia").load_module()
     config = {
         "source": {"type": "video", "src": "saved.mp4"},
         "steps": [{"model": {"kind": "yolov8", "uri": "model.onnx"}}],
     }
     with patch.object(module.abraia, "load_json", return_value=config), \
-            patch("abraia.training.list_model_records") as list_models, \
+            patch("abraia.training.artifacts.list_model_records") as list_models, \
             patch("abraia.runtime.Pipeline") as pipeline:
         module.run.callback("project", "cat", "image.jpg", "auto")
 
     list_models.assert_not_called()
     passed_config = pipeline.from_dict.call_args.args[0]
     assert passed_config["source"] == {"type": "image", "src": "image.jpg"}
-
-
-
-def test_pipeline_runner_passes_renderer_factory_and_reports_bounded_events(
-    monkeypatch,
-):
-    from types import SimpleNamespace
-
-    import abraia.runtime as runtime
-    from abraia.runtime.runner import run_pipeline
-
-    calls = {}
-
-    class FakePipeline:
-        model = None
-        render = None
-
-        def __init__(self, on_frame):
-            self.on_frame = on_frame
-
-        @classmethod
-        def from_dict(cls, config, *, on_frame, renderer_factory):
-            calls["config"] = config
-            calls["renderer_factory"] = renderer_factory
-            return cls(on_frame)
-
-        def run(self, is_cancelled):
-            context = SimpleNamespace(
-                frame_index=0,
-                results=[{"label": "plant"}],
-                metrics={"count": 1},
-                frame=np.zeros((2, 3, 3), dtype=np.uint8),
-            )
-            self.on_frame(context, 12.345)
-
-    monkeypatch.setattr(runtime, "Pipeline", FakePipeline)
-    original_config = {"display": {"show": True}}
-    renderer_factory = object()
-    callback_events = []
-    statuses = []
-    result = run_pipeline(
-        original_config,
-        frame_callback=callback_events.append,
-        max_events=1,
-        renderer_factory=renderer_factory,
-        status_callback=statuses.append,
-    )
-
-    assert calls["renderer_factory"] is renderer_factory
-    assert calls["config"]["display"]["show"] is False
-    assert original_config["display"]["show"] is True
-    assert result["frame_count"] == 1
-    assert result["events"] == callback_events
-    assert result["events"][0]["elapsed_ms"] == 12.35
-    assert result["events"][0]["accelerator"] == "CPU"
-    assert statuses and statuses[0].startswith("Model and source ready in ")
-
-
-def test_prepare_pipeline_display_frame_only_downscales():
-    from abraia.runtime import prepare_pipeline_display_frame
-
-    frame = np.zeros((1440, 2560, 3), dtype=np.uint8)
-    resized = prepare_pipeline_display_frame(frame)
-
-    assert resized.shape == (720, 1280, 3)
-    assert prepare_pipeline_display_frame(frame[:10, :20]).shape == (10, 20, 3)

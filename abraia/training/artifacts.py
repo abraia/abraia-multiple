@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from ..dataset import _resolve_client
+from ..dataset.remote import _resolve_client
 from ..tasks import normalize_task
 from .model_data import metric_average
 
@@ -102,6 +102,9 @@ def list_model_records(project, client=None, sort_by_accuracy=False):
                     "task": normalize_task(metadata.get("task")),
                     "kind": metadata.get("kind"),
                     "backend": metadata.get("backend"),
+                    "artifacts": metadata.get("artifacts") or {},
+                    "inputShape": metadata.get("inputShape"),
+                    "modelSize": metadata.get("modelSize"),
                 })
                 if str(name).lower().endswith(".joblib"):
                     record["kind"] = metadata.get("kind") or "multispectral"
@@ -238,28 +241,56 @@ def versioned_model_paths(client, project, model_name):
     }
 
 
-def save_versioned_model(client, project, model_name, source, metadata):
-    """Upload an ONNX file and matching metadata using a safe version name."""
+def save_versioned_model(
+    client, project, model_name, source, metadata, artifacts=None
+):
+    """Upload a versioned ONNX model, companion artifacts, and metadata."""
     check_file = getattr(client, "check_file", None)
     for _attempt in range(3):
         paths = versioned_model_paths(client, project, model_name)
+        metadata = dict(metadata)
+        artifact_paths = {}
+        for name, artifact_source in (artifacts or {}).items():
+            suffix = Path(artifact_source).suffix
+            artifact_paths[name] = (
+                f"{project}/{Path(paths['name']).stem}{suffix}"
+            )
+        if artifact_paths:
+            metadata["artifacts"] = artifact_paths
+        uploaded = []
         try:
             client.upload_file(source, paths["onnx"])
         except Exception:
             # A concurrent save may win the preflight check between version
             # allocation and upload. Retry only when the target now exists.
-            if not callable(check_file) or not check_file(paths["onnx"]):
-                raise
-            continue
+            if callable(check_file) and check_file(paths["onnx"]):
+                continue
+            raise
+        uploaded.append(paths["onnx"])
+        try:
+            for name, artifact_source in (artifacts or {}).items():
+                destination = artifact_paths[name]
+                client.upload_file(str(artifact_source), destination)
+                uploaded.append(destination)
+        except Exception:
+            remove_file = getattr(client, "remove_file", None)
+            if callable(remove_file):
+                for uploaded_path in uploaded:
+                    try:
+                        remove_file(uploaded_path)
+                    except Exception:
+                        pass
+            raise
         try:
             client.save_json(paths["metadata"], metadata)
         except Exception:
             remove_file = getattr(client, "remove_file", None)
             if callable(remove_file):
-                try:
-                    remove_file(paths["onnx"])
-                except Exception:
-                    pass
+                for uploaded_path in uploaded:
+                    try:
+                        remove_file(uploaded_path)
+                    except Exception:
+                        pass
             raise
         return paths
     raise RuntimeError("Could not allocate a unique model version")

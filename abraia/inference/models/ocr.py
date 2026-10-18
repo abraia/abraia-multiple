@@ -17,7 +17,7 @@ import cv2
 import math
 import numpy as np
 
-from ...utils import download_file
+from ...utils.remote import download_file
 from ..session import OnnxSessionMixin, ResourceGroup
 
 
@@ -356,10 +356,7 @@ class TextSystem():
 
     def _detect_text_regions(self, img):
         """Detect text and prepare recognition crops for one image."""
-        dt_boxes = self.text_detector(img)
-        if not len(dt_boxes):
-            return [], []
-        dt_boxes = sorted_boxes(dt_boxes)
+        dt_boxes = sorted_boxes(self.text_detector(img))
         return dt_boxes, [
             self.get_rotate_crop_image(img, box) for box in dt_boxes
         ]

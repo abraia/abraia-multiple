@@ -237,10 +237,6 @@ class AsyncInferenceRunner:
                         completed = True
                         cancelled = self.stop_event.is_set()
                         break
-                    if not isinstance(item, FrameResult):
-                        raise TypeError(
-                            "Inference runners only consume FrameResult instances"
-                        )
                     record = item.record
                     if record.index in seen_indices:
                         raise RuntimeError(

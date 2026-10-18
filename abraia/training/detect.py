@@ -1,5 +1,5 @@
-from ..tasks import normalize_model_size, normalize_task
-from .splitting import DEFAULT_EVALUATION_SPLIT
+from ..tasks import normalize_task
+from ..dataset.splitting import DEFAULT_EVALUATION_SPLIT
 
 import os
 import io
@@ -59,7 +59,6 @@ def _metric_value(metrics, key, default=0.0):
 
 
 def build_model_name(model_name, task):
-    task = normalize_task(task)
     if task == 'segmentation':
         model_name = f"{model_name}-seg"
     return model_name
@@ -69,11 +68,6 @@ class Model:
     def __init__(self, task, model_type=None, imgsz=640, client=None,
                  model_size="small", checkpoint=None):
         task = normalize_task(task)
-        if task not in ("detection", "segmentation"):
-            raise ValueError(
-                "Ultralytics detection models support detection or segmentation"
-            )
-        model_size = normalize_model_size(model_size)
         if checkpoint and model_type is None:
             model_type = Path(checkpoint).stem
             if task == "segmentation" and model_type.endswith("-seg"):
@@ -126,7 +120,16 @@ class Model:
             self._training_callbacks['on_train_batch_end'] = on_train_batch_end
             self.model.add_callback('on_train_batch_end', on_train_batch_end)
         data = f"{project}/data.yaml"
-        train_options = {'data': data, 'batch': batch, 'epochs': epochs, 'imgsz': self.imgsz}
+        output_dir = Path(project) / ".abraia" / "training" / self.task / self.model_size
+        train_options = {
+            'data': data,
+            'batch': batch,
+            'epochs': epochs,
+            'imgsz': self.imgsz,
+            'project': str(output_dir),
+            'name': 'train',
+            'exist_ok': True,
+        }
         if sys.platform == 'darwin':
             # Ultralytics workers inherit locks when training is launched by
             # Studio's Python worker thread. A single loader is safer on macOS.
@@ -158,6 +161,10 @@ class Model:
     def save(self, project, classes, device='cpu', half=False):
         out = io.StringIO()
         model_src = None
+        checkpoint = (
+            Path(project) / ".abraia" / "training" / self.task
+            / self.model_size / "train" / "weights" / "last.pt"
+        )
         try:
             with contextlib.redirect_stdout(out):
                 model_src = self.model.export(
@@ -169,11 +176,14 @@ class Model:
                 self.model_name,
                 model_src,
                 {
+                    'backend': 'ultralytics',
                     'task': self.task,
                     'inputShape': [1, 3, self.imgsz, self.imgsz],
                     'classes': classes,
                     'metrics': self.metrics,
+                    'modelSize': self.model_size,
                 },
+                artifacts={'checkpoint': checkpoint},
             )
             self.model_version = result["version"]
             return result
@@ -205,46 +215,31 @@ class Model:
         project,
         classes,
         device="hailo8",
-        version=None,
-        calibration_data=None,
-        fraction=None,
-        imgsz=None,
         conf=None,
         iou=None,
         progress_callback=None,
         is_cancelled=None,
     ):
-        """Export the trained YOLO model to a versioned Hailo bundle.
+        """Export the loaded YOLO model to a versioned Hailo bundle.
 
         Ultralytics performs the ONNX conversion, INT8 calibration, Hailo
-        parsing, and HEF compilation in one export operation. This method
-        must be called on the trained model instance; it deliberately does
-        not download an ONNX file and construct a fresh base model.
+        parsing, and HEF compilation in one export operation. The model may
+        be trained in this process or loaded from its saved checkpoint.
         """
         target = str(device or "hailo8").strip().lower()
         if target not in HAILO_EXPORT_TARGETS:
             choices = ", ".join(HAILO_EXPORT_TARGETS)
             raise ValueError(f"Unsupported Hailo target '{target}'. Use: {choices}")
 
-        if calibration_data is None:
-            default_data = os.path.join(project, "data.yaml")
-            calibration_data = default_data if os.path.isfile(default_data) else None
-        elif not os.path.exists(calibration_data):
-            raise FileNotFoundError(
-                f"Hailo calibration data does not exist: {calibration_data}"
-            )
+        calibration_data = os.path.join(project, "data.yaml")
 
-        compile_imgsz = self.imgsz if imgsz is None else imgsz
         export_options = {
             "format": "hailo",
             "name": target,
             "quantize": 8,
-            "imgsz": compile_imgsz,
+            "imgsz": self.imgsz,
         }
-        if calibration_data is not None:
-            export_options["data"] = os.fspath(calibration_data)
-        if fraction is not None:
-            export_options["fraction"] = fraction
+        export_options["data"] = calibration_data
         if conf is not None:
             export_options["conf"] = conf
         if iou is not None:
@@ -336,11 +331,10 @@ class Model:
         if bundle_path.is_file():
             bundle_path = bundle_path.parent
 
-        version = self.model_version if version is None else version
-        if isinstance(compile_imgsz, (list, tuple)):
-            input_shape = [1, 3, *compile_imgsz]
+        if isinstance(self.imgsz, (list, tuple)):
+            input_shape = [1, 3, *self.imgsz]
         else:
-            input_shape = [1, 3, compile_imgsz, compile_imgsz]
+            input_shape = [1, 3, self.imgsz, self.imgsz]
         manifest = {
             "format": "hailo",
             "target": target,
@@ -349,7 +343,6 @@ class Model:
             "classes": classes,
             "metrics": self.metrics,
             "calibrationData": os.fspath(calibration_data) if calibration_data else None,
-            "fraction": fraction,
             "quantize": 8,
         }
         if progress_callback and is_cancelled and is_cancelled():
@@ -360,7 +353,7 @@ class Model:
             self.model_name,
             bundle_path,
             target,
-            version=version,
+            version=self.model_version,
             metadata=manifest,
             progress_callback=progress_callback,
         )

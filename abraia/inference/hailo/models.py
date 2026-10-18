@@ -149,7 +149,8 @@ def _model_json_candidates(hef_path):
 
 def load_hailo_model_config(hef_path):
     """Load the JSON sidecar used to configure the corresponding ONNX model."""
-    from ...utils import load_json, resolve_model_file
+    from ...utils.filesystem import load_json
+    from ...utils.remote import resolve_model_file
 
     for candidate in _model_json_candidates(hef_path):
         try:
@@ -173,7 +174,7 @@ def labels_from_model_config(config):
 
 def _download_artifact(path) -> Path:
     """Resolve a local or remote artifact through the shared resolver."""
-    from ...utils import download_file
+    from ...utils.remote import download_file
 
     return Path(resolve_artifact(path, downloader=download_file))
 

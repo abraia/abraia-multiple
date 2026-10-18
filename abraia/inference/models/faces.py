@@ -4,8 +4,9 @@ import math
 import numpy as np
 
 from ..session import OnnxSessionMixin, ResourceGroup
-from ...utils import download_file, load_json
-from ..postprocess.common import non_maximum_suppression, softmax
+from ...utils.filesystem import load_json
+from ...utils.remote import download_file
+from ..geometry import non_maximum_suppression, softmax
 from ..vectors import search_vectors
 
 

@@ -8,10 +8,9 @@ import numpy as np
 
 from torchvision import models, transforms, datasets
 
-from ..utils import temporal_src
-from ..tasks import normalize_model_size
+from ..utils.remote import temporal_src
 from .artifacts import _resolve_client, save_versioned_model
-from .splitting import DATASET_SPLITS, DEFAULT_EVALUATION_SPLIT
+from ..dataset.splitting import DATASET_SPLITS, DEFAULT_EVALUATION_SPLIT
 
 
 CLASSIFICATION_BACKBONES = {
@@ -28,7 +27,6 @@ def default_device():
 
 def create_model(class_names, pretrained=True, device=None, model_size="small"):
     device = device or default_device()
-    model_size = normalize_model_size(model_size)
     _name, model_factory, weights_enum = CLASSIFICATION_BACKBONES[model_size]
     model = model_factory(
         weights=weights_enum.IMAGENET1K_V1 if pretrained else None
@@ -104,7 +102,7 @@ def train_model(model, dataloaders, criterion=None, optimizer=None, scheduler=No
 
 class Model:
     def __init__(self, client=None, model_size="small", imgsz=224):
-        self.model_size = normalize_model_size(model_size)
+        self.model_size = model_size
         self.imgsz = int(imgsz)
         self.input_shape = [1, 3, self.imgsz, self.imgsz]
         self.model_name = CLASSIFICATION_BACKBONES[self.model_size][0]

@@ -149,12 +149,11 @@ def test_disabled_dependency_steps_do_not_require_a_tracker():
 
 
 def test_runtime_exports_pipeline_step_schema_metadata():
-    from abraia.runtime import (
-        PIPELINE_STEP_DEFINITIONS,
-        PipelineStep as PublicPipelineStep,
-    )
+    import abraia.runtime as runtime
+    from abraia.runtime.pipeline_schema import PIPELINE_STEP_DEFINITIONS
 
-    assert PublicPipelineStep is PipelineStep
+    assert runtime.__all__ == ["Pipeline"]
+    assert not hasattr(runtime, "PipelineStep")
     assert set(PIPELINE_STEP_DEFINITIONS) == {
         "model",
         "filter",

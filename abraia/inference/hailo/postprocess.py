@@ -14,8 +14,8 @@ from typing import Dict, List, Tuple
 import cv2
 import numpy as np
 
-from ..postprocess.common import nms, sigmoid, softmax
-from ..postprocess.detection import (
+from ..geometry import nms, sigmoid, softmax
+from ..models.detection import (
     _rtmdet_mask_to_original,
     prepare_rtmdet_input,
 )

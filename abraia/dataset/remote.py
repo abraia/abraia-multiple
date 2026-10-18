@@ -6,7 +6,8 @@ from typing import Mapping
 
 from ..client import Abraia
 from ..tasks import normalize_task
-from ..utils import load_image, load_url, url_path
+from ..utils.image import load_image
+from ..utils.remote import load_url, url_path
 from ..utils.concurrency import DEFAULT_MAX_REMOTE_WORKERS, bounded_map
 from .annotation import Annotator, annotate_image as _annotate_image
 
@@ -167,12 +168,10 @@ class Dataset:
         self.classes, self.task = self._process_annotations(self.annotations)
         annotated_paths = {
             self._annotation_path(annotation)
-            for annotation in self.annotations or []
+            for annotation in self.annotations
             if isinstance(annotation, dict)
         }
-        images = [
-            image for image in self.images or [] if isinstance(image, dict)
-        ]
+        images = self.images
         image_paths = [self._image_path(image) for image in images]
         self.annotated = bool(images) and all(
             path in annotated_paths for path in image_paths
@@ -180,8 +179,8 @@ class Dataset:
 
     def replace_annotations(self, annotations):
         """Replace annotations and refresh metadata derived from them."""
-        updated = list(annotations or [])
-        changed = updated != (self.annotations or [])
+        updated = list(annotations)
+        changed = updated != self.annotations
         self.annotations = updated
         if changed:
             self._invalidate_curation_findings()
@@ -192,16 +191,15 @@ class Dataset:
         """Remove annotations whose image is absent from the dataset."""
         image_paths = {
             self._image_path(image)
-            for image in self.images or []
-            if isinstance(image, dict)
+            for image in self.images
         }
         remaining = [
             annotation
-            for annotation in self.annotations or []
+            for annotation in self.annotations
             if isinstance(annotation, dict)
             and self._annotation_path(annotation) in image_paths
         ]
-        removed = len(self.annotations or []) - len(remaining)
+        removed = len(self.annotations) - len(remaining)
         if removed:
             self.replace_annotations(remaining)
         return removed
@@ -215,7 +213,7 @@ class Dataset:
         has_class_labels = False
         has_boxes = False
         has_polygons = False
-        for annotation in annotations or []:
+        for annotation in annotations:
             if not isinstance(annotation, dict):
                 continue
             for obj in annotation.get("objects", []) or []:
@@ -238,7 +236,7 @@ class Dataset:
             if has_class_labels
             else ""
         )
-        return list(labels), normalize_task(task)
+        return list(labels), task
 
     def _load_annotations(self):
         annotations = self.client.load_json(self._remote_path("annotations.json"))
@@ -262,7 +260,7 @@ class Dataset:
             relative_path = self._listed_path(path)
             if "/" in relative_path:
                 continue
-            image["path"] = self._relative_path(relative_path)
+            image["path"] = relative_path
             image["url"] = url_path(
                 f"{self.client.userid}/{self._remote_path(image['path'])}"
             )
@@ -284,11 +282,13 @@ class Dataset:
         image_paths = list(dict.fromkeys(
             self._relative_path(path) for path in image_paths if path
         ))
-        paths = list(dict.fromkeys(
-            self._relative_path(path)
-            for path in (file_paths if file_paths is not None else image_paths)
-            if path
-        ))
+        paths = (
+            image_paths
+            if file_paths is None
+            else list(dict.fromkeys(
+                self._relative_path(path) for path in file_paths if path
+            ))
+        )
         is_cancelled = is_cancelled or (lambda: False)
         if progress_callback:
             progress_callback(0, len(paths), "Preparing image deletion", False)
@@ -312,7 +312,7 @@ class Dataset:
 
         removed_paths = set(image_paths)
         remaining_images = []
-        for image in self.images or []:
+        for image in self.images:
             image_path = image.get("path") or image.get("name")
             if image_path and self._relative_path(image_path) in removed_paths:
                 continue
@@ -321,7 +321,7 @@ class Dataset:
         if removed_paths:
             self._invalidate_curation_findings()
 
-        annotations = self.annotations or []
+        annotations = self.annotations
         remaining_annotations = [
             annotation
             for annotation in annotations
@@ -331,7 +331,7 @@ class Dataset:
             )
         ]
         if len(remaining_annotations) != len(annotations):
-            self.replace_annotations(remaining_annotations)
+            self.annotations = remaining_annotations
             self.save()
         else:
             self._refresh_annotation_metadata()
@@ -362,10 +362,10 @@ class Dataset:
 
         project = self.project
         client = self.client
-        images = self.images or []
+        images = self.images
         annotated = {
             self._annotation_path(annotation)
-            for annotation in self.annotations or []
+            for annotation in self.annotations
             if isinstance(annotation, Mapping)
         }
         records = []
@@ -373,7 +373,6 @@ class Dataset:
             record = dict(image)
             path = self._image_path(image)
             record["path"] = path
-            record["name"] = record.get("name") or path
             records.append(record)
         protected = [
             record["path"] for record in records if record["path"] in annotated
@@ -411,9 +410,7 @@ class Dataset:
                     self.delete_images(paths, is_cancelled=is_cancelled)
                 report["deleted"] = paths
         finally:
-            self.curation_findings = (
-                report.get("findings", []) if isinstance(report, dict) else []
-            )
+            self.curation_findings = report.get("findings", [])
         if progress_callback:
             progress_callback(100, 100, "Curation complete", True)
         return report

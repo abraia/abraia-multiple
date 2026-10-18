@@ -25,7 +25,7 @@ extras_require = {
     'rtmdet': [
         'openmim>=0.3.9',
         'mmdet>=3.3,<4',
-        'mmdeploy>=1.3.1,<2',
+        'mmengine>=0.10,<1',
         'onnx>=1.13',
     ],
 }

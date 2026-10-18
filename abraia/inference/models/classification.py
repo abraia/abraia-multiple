@@ -1,11 +1,49 @@
-"""Inference adapter for classification models exported by training."""
+"""Preprocessing and decoding for image-classification models."""
 
 import cv2
 import numpy as np
 
-from ..postprocess.classification import postprocess
-from ..postprocess.detection import validate_model_config
+from ..geometry import normalize, softmax
+from .detection import validate_model_config
 from ..session import OnnxSessionMixin, load_onnx_model_config
+
+
+def preprocess(img, size=224):
+    """Resize and center-crop an image to a classifier input size."""
+    if isinstance(size, (tuple, list)):
+        target_height, target_width = map(int, size)
+    else:
+        target_height = target_width = int(size)
+    scale = max(target_width / img.shape[1], target_height / img.shape[0])
+    width = max(target_width, round(scale * img.shape[1]))
+    height = max(target_height, round(scale * img.shape[0]))
+    img = cv2.resize(img, (width, height), interpolation=cv2.INTER_LINEAR)
+    left = (width - target_width) // 2
+    top = (height - target_height) // 2
+    img = img[top:top + target_height, left:left + target_width]
+    img = normalize(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    return np.expand_dims(img.transpose((2, 0, 1)), axis=0)
+
+
+def postprocess(outputs, classes, top_k=1, score_threshold=None, labels=None):
+    """Decode classification logits into sorted class predictions."""
+    logits = np.asarray(outputs[0]).reshape(-1)
+    probs = softmax(logits)
+    order = np.argsort(probs)[::-1]
+    results = []
+    for idx in order[:int(top_k)]:
+        class_id = int(idx)
+        score = float(probs[idx])
+        if score_threshold is not None and score < score_threshold:
+            continue
+        if labels and classes[class_id] not in labels:
+            continue
+        results.append({
+            "label": classes[class_id],
+            "score": score,
+            "class_id": class_id,
+        })
+    return results
 
 
 def preprocess_resnet(img, input_shape=(1, 3, 224, 224), resize_size=256):
@@ -16,8 +54,7 @@ def preprocess_resnet(img, input_shape=(1, 3, 224, 224), resize_size=256):
     if image.ndim != 3 or image.shape[2] < 3:
         raise ValueError("ResNet classification expects an image with three channels")
     image = image[:, :, :3]
-    if image.dtype != np.uint8:
-        image = np.clip(image, 0, 255).astype(np.uint8)
+    image = np.clip(image, 0, 255).astype(np.uint8)
 
     target_height, target_width = map(int, input_shape[2:4])
     resize_size = int(resize_size)
@@ -34,10 +71,9 @@ def preprocess_resnet(img, input_shape=(1, 3, 224, 224), resize_size=256):
     top = max(0, (resized_height - target_height) // 2)
     left = max(0, (resized_width - target_width) // 2)
     image = image[top:top + target_height, left:left + target_width]
-    if image.shape[:2] != (target_height, target_width):
-        image = cv2.resize(
-            image, (target_width, target_height), interpolation=cv2.INTER_LINEAR
-        )
+    image = cv2.resize(
+        image, (target_width, target_height), interpolation=cv2.INTER_LINEAR
+    )
     image = image.astype(np.float32) / 255
     image = (image - np.array([0.485, 0.456, 0.406])) / np.array(
         [0.229, 0.224, 0.225]
@@ -77,4 +113,4 @@ class ResNetClassifier(OnnxSessionMixin):
             labels=labels,
         )
 
-__all__ = ["ResNetClassifier", "preprocess_resnet"]
+__all__ = ["ResNetClassifier", "postprocess", "preprocess", "preprocess_resnet"]

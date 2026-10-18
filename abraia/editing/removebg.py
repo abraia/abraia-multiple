@@ -3,7 +3,7 @@ import numpy as np
 
 from PIL import Image
 
-from ..utils import download_file
+from ..utils.remote import download_file
 from ..inference.session import OnnxSessionMixin
 
 

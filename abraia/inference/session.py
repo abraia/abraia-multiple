@@ -3,9 +3,11 @@
 import logging
 import os
 
-from ..utils import get_providers, load_json, resolve_model_file
+from ..utils.filesystem import load_json
+from ..utils.remote import resolve_model_file
 from .accelerators import (
     available_accelerators,
+    get_providers,
     onnx_providers,
 )
 
@@ -235,18 +237,17 @@ class OnnxSessionMixin:
         self._closed = False
 
     def _ensure_open(self):
-        if getattr(self, "_closed", False):
+        if self._closed:
             raise RuntimeError("Inference model has already been closed")
 
     def close(self):
-        if getattr(self, "_closed", False):
+        if self._closed:
             return
-        resources = getattr(self, "_resources", None)
+        resources = self._resources
         self._resources = None
         self.session = None
         self._closed = True
-        if resources is not None:
-            resources.close()
+        resources.close()
 
     def __enter__(self):
         self._ensure_open()

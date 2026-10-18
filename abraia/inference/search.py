@@ -4,7 +4,7 @@ from abraia import Abraia
 from abraia.client import APIError
 from abraia.inference.models.clip import Clip
 from abraia.inference.vectors import search_vector
-from abraia.utils import show_image
+from abraia.utils.image import show_image
 
 
 class ImageSearch:

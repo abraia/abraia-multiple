@@ -10,8 +10,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from ..inference.postprocess.detection import prepare_rtmdet_input
-from ..tasks import normalize_model_size, normalize_task
+from ..inference.models.detection import prepare_rtmdet_input
 from .artifacts import (
     HAILO_EXPORT_TARGETS,
     _resolve_client,
@@ -20,7 +19,7 @@ from .artifacts import (
     save_versioned_model,
 )
 from .model_data import metric_average
-from .splitting import DEFAULT_EVALUATION_SPLIT
+from ..dataset.splitting import DEFAULT_EVALUATION_SPLIT
 
 
 MODEL_CONFIGS = {
@@ -119,7 +118,7 @@ def _deploy_config_path(task):
         roots.extend((package_dir, package_dir / ".mim", package_dir.parent))
     except ImportError as error:
         raise RuntimeError(
-            "RTMDet ONNX export requires MMDeploy. Install a compatible "
+            "RTMDet Hailo compilation requires MMDeploy. Install a compatible "
             "MMDeploy build and set MMDEPLOY_DIR to its source directory if "
             "its deployment configs are not installed with the package."
         ) from error
@@ -129,10 +128,78 @@ def _deploy_config_path(task):
         if candidate.is_file():
             return candidate
     raise RuntimeError(
-        "Could not find the MMDeploy ONNX Runtime deployment config. "
+        "Could not find the MMDeploy ONNX Runtime config needed for Hailo. "
         "Install MMDeploy with its configs or set MMDEPLOY_DIR to the "
         "MMDeploy source directory."
     )
+
+
+def _export_raw_onnx(model, task, imgsz, destination):
+    """Export RTMDet's raw heads with PyTorch's ONNX exporter."""
+    import torch
+
+    class RawRTMDet(torch.nn.Module):
+        def __init__(self, detector, segmentation):
+            super().__init__()
+            self.detector = detector
+            self.segmentation = segmentation
+
+        def forward(self, image):
+            features = self.detector.extract_feat(image)
+            outputs = self.detector.bbox_head(features)
+            class_scores, box_distances = outputs[:2]
+            values = list(class_scores) + list(box_distances)
+            if self.segmentation:
+                mask_kernels, mask_features = outputs[2:]
+                values.extend(mask_kernels)
+                values.append(mask_features)
+            return tuple(values)
+
+    model.eval()
+    wrapper = RawRTMDet(model, task == "segmentation").eval()
+    strides = [int(value[0]) for value in model.bbox_head.prior_generator.strides]
+    num_levels = len(strides)
+    output_names = (
+        [f"cls_{index}" for index in range(num_levels)]
+        + [f"bbox_{index}" for index in range(num_levels)]
+    )
+    if task == "segmentation":
+        output_names += [f"kernel_{index}" for index in range(num_levels)]
+        output_names.append("mask_features")
+
+    sample = torch.zeros((1, 3, imgsz, imgsz), dtype=torch.float32)
+    with torch.no_grad():
+        outputs = wrapper(sample)
+    torch.onnx.export(
+        wrapper,
+        sample,
+        str(destination),
+        input_names=["input"],
+        output_names=output_names,
+        opset_version=17,
+        do_constant_folding=True,
+        dynamo=False,
+    )
+    layout = {
+        "classScores": output_names[:num_levels],
+        "boxDistances": output_names[num_levels:2 * num_levels],
+        "strides": strides,
+        "bboxDistancesScaled": True,
+        "scoreThreshold": 0.001,
+        "nmsPre": 30000,
+        "nmsThreshold": 0.65,
+        "maxDetections": 300,
+    }
+    if task == "segmentation":
+        kernel_start = 2 * num_levels
+        layout.update({
+            "maskKernels": output_names[kernel_start:kernel_start + num_levels],
+            "maskFeatures": output_names[-1],
+            "dyconvChannels": int(model.bbox_head.dyconv_channels),
+            "dyconvLayers": int(model.bbox_head.num_dyconvs),
+            "maskFeatureStride": int(imgsz // outputs[-1].shape[-1]),
+        })
+    return output_names, layout
 
 
 def _xywh_from_polygon(points):
@@ -270,10 +337,8 @@ class Model:
         self, task, imgsz=640, client=None, model_size="small", checkpoint=None,
         classes=None,
     ):
-        self.task = normalize_task(task)
-        if self.task not in ("detection", "segmentation"):
-            raise ValueError("RTMDet supports detection and segmentation only.")
-        self.model_size = normalize_model_size(model_size)
+        self.task = task
+        self.model_size = model_size
         self.imgsz = int(imgsz)
         self.client = _resolve_client(client)
         self.checkpoint = checkpoint
@@ -408,42 +473,76 @@ class Model:
             save_optimizer=False,
             save_param_scheduler=False,
         )
-        image_path = next(
-            (
-                path
-                for split in ("train", "val", "test")
-                for path in sorted((Path(project) / split / "images").glob("*"))
-                if path.is_file()
-            ),
-            None,
+        return self.export_onnx(
+            project,
+            classes,
+            checkpoint=checkpoint_path,
+            config_path=config_path,
+            model=self.runner.model,
+            upload_project=project,
         )
-        if image_path is None:
-            raise RuntimeError("RTMDet ONNX export requires a dataset image.")
+
+    def export_onnx(
+        self,
+        project,
+        classes,
+        checkpoint=None,
+        config_path=None,
+        model=None,
+        upload_project=None,
+    ):
+        """Export a trained or pretrained RTMDet checkpoint with PyTorch."""
         try:
-            from mmdeploy.apis import torch2onnx
+            import onnx
+            from mmengine.config import Config
+            from mmdet.utils import register_all_modules
+            from mmdet.registry import MODELS
         except ImportError as error:
             raise RuntimeError(
-                "RTMDet ONNX export requires the MMDeploy conversion API. "
-                "Install a compatible MMDeploy build and ONNX dependencies."
+                "RTMDet ONNX export requires PyTorch, MMDetection, MMCV, "
+                "MMEngine, and ONNX."
             ) from error
 
-        onnx_path = work_dir / "end2end.onnx"
-        torch2onnx(
-            str(image_path),
-            str(work_dir),
-            onnx_path.name,
-            str(_deploy_config_path(self.task)),
-            str(config_path),
-            str(checkpoint_path),
-            device=device,
-        )
-        if not onnx_path.is_file():
-            raise RuntimeError(
-                f"MMDeploy did not produce the expected ONNX model: {onnx_path}"
+        project_dir = Path(project)
+        model_dir = project_dir / ".rtmdet" / self.task / self.model_size
+        if config_path is None or checkpoint is None:
+            config_path, pretrained_checkpoint = _download_config(
+                MODEL_CONFIGS[self.task][self.model_size], model_dir
             )
+            checkpoint = checkpoint or self.checkpoint or pretrained_checkpoint
+        config_path = Path(config_path)
+        checkpoint = Path(checkpoint)
+        if not config_path.is_file():
+            raise FileNotFoundError(f"RTMDet config does not exist: {config_path}")
+        if not checkpoint.is_file():
+            raise FileNotFoundError(f"RTMDet checkpoint does not exist: {checkpoint}")
+
+        config = Config.fromfile(str(config_path))
+        register_all_modules(init_default_scope=True)
+        if model is None:
+            model = MODELS.build(config.model)
+            import torch
+
+            try:
+                checkpoint_data = torch.load(
+                    str(checkpoint), map_location="cpu", weights_only=False
+                )
+            except TypeError:
+                checkpoint_data = torch.load(str(checkpoint), map_location="cpu")
+            model.load_state_dict(
+                checkpoint_data.get("state_dict", checkpoint_data), strict=False
+            )
+        model.to("cpu").eval()
+        work_dir = Path(model_dir) / "work_dirs"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        onnx_path = work_dir / "end2end.onnx"
+        output_names, raw_layout = _export_raw_onnx(
+            model, self.task, self.imgsz, onnx_path
+        )
+        onnx.checker.check_model(onnx.load(str(onnx_path)))
         result = save_versioned_model(
             self.client,
-            project,
+            upload_project or project,
             self.model_name,
             str(onnx_path),
             {
@@ -453,6 +552,13 @@ class Model:
                 "inputShape": [1, 3, self.imgsz, self.imgsz],
                 "classes": classes,
                 "metrics": self.metrics,
+                "rawOutputs": raw_layout,
+                "outputNames": output_names,
+                "modelSize": self.model_size,
+            },
+            artifacts={
+                "checkpoint": checkpoint,
+                "config": config_path,
             },
         )
         self.model_version = result["version"]
@@ -460,9 +566,9 @@ class Model:
         return result
 
     def compile(
-        self, project, classes, device="hailo8", version=None,
-        calibration_data=None, fraction=None, imgsz=None,
+        self, project, classes, device="hailo8",
         conf=None, iou=None, progress_callback=None, is_cancelled=None,
+        config_path=None,
     ):
         """Compile a trained RTMDet checkpoint through the Hailo DFC."""
         if conf is not None and not 0 <= float(conf) <= 1:
@@ -477,30 +583,15 @@ class Model:
         project_dir = Path(project)
         model_dir = project_dir / ".rtmdet" / self.task / self.model_size
         model_work_dir = model_dir / "work_dirs"
-        source = None
-        temporary_export = None
-        checkpoint_path = Path(self.checkpoint) if self.checkpoint else None
-        # Preserve compatibility with callers that explicitly provide ONNX,
-        # while making the normal RTMDet flow compile from its trained .pth.
-        if checkpoint_path and checkpoint_path.suffix.lower() == ".onnx":
-            source = checkpoint_path
-        else:
-            if checkpoint_path is None:
-                checkpoint_path = model_work_dir / "final.pth"
-            config_path = model_work_dir / "final.py"
-            if not checkpoint_path.is_file() or not config_path.is_file():
-                raise FileNotFoundError(
-                    "RTMDet Hailo compilation requires the trained final.pth "
-                    "and final.py. Save the trained model first, or pass the "
-                    "trained .pth checkpoint."
-                )
+        checkpoint_path = Path(self.checkpoint or model_work_dir / "final.pth")
+        config_path = Path(config_path or model_work_dir / "final.py")
+        if not checkpoint_path.is_file() or not config_path.is_file():
+            raise FileNotFoundError(
+                "RTMDet Hailo compilation requires the trained final.pth "
+                "and final.py. Save the trained model first."
+            )
 
-        image_dirs = []
-        if calibration_data and Path(calibration_data).is_dir():
-            image_dirs.append(Path(calibration_data))
-        image_dirs.extend(
-            Path(project) / split / "images" for split in ("train", "val")
-        )
+        image_dirs = [project_dir / split / "images" for split in ("train", "val")]
         image_paths = []
         for image_dir in image_dirs:
             if image_dir.is_dir():
@@ -513,7 +604,7 @@ class Model:
         if not image_paths:
             raise ValueError(
                 "RTMDet Hailo compilation needs calibration images in the "
-                "calibration-data directory or the project's train/images split."
+                "project's train or validation split."
             )
 
         if progress_callback:
@@ -531,47 +622,43 @@ class Model:
                 "matching Hailo Dataflow Compiler."
             ) from error
 
-        if source is None:
-            try:
-                from mmdeploy.apis import torch2onnx
-            except ImportError as error:
-                raise RuntimeError(
-                    "RTMDet Hailo compilation requires MMDeploy to create a "
-                    "temporary ONNX graph from the trained checkpoint."
-                ) from error
-            sample_image = next(
-                (
-                    path
-                    for split in ("train", "val", "test")
-                    for path in sorted((project_dir / split / "images").glob("*"))
-                    if path.is_file()
-                ),
-                None,
+        try:
+            from mmdeploy.apis import torch2onnx
+        except ImportError as error:
+            raise RuntimeError(
+                "RTMDet Hailo compilation requires MMDeploy to create a "
+                "temporary ONNX graph from the trained checkpoint."
+            ) from error
+        sample_image = next(
+            (
+                path
+                for split in ("train", "val", "test")
+                for path in sorted((project_dir / split / "images").glob("*"))
+                if path.is_file()
+            ),
+            None,
+        )
+        if sample_image is None:
+            raise RuntimeError("RTMDet ONNX export requires a dataset image.")
+        temporary_export = tempfile.TemporaryDirectory(
+            prefix="abraia-rtmdet-hailo-"
+        )
+        temporary_dir = Path(temporary_export.name)
+        source = temporary_dir / "compile.onnx"
+        torch2onnx(
+            str(sample_image),
+            str(temporary_dir),
+            source.name,
+            str(_deploy_config_path(self.task)),
+            str(config_path),
+            str(checkpoint_path),
+            device="cpu",
+        )
+        if not source.is_file():
+            raise RuntimeError(
+                "MMDeploy did not produce the temporary ONNX graph needed "
+                "for Hailo compilation."
             )
-            if sample_image is None:
-                raise RuntimeError(
-                    "RTMDet ONNX export requires a dataset image."
-                )
-            temporary_export = tempfile.TemporaryDirectory(
-                prefix="abraia-rtmdet-hailo-"
-            )
-            temporary_dir = Path(temporary_export.name)
-            temporary_onnx = temporary_dir / "compile.onnx"
-            torch2onnx(
-                str(sample_image),
-                str(temporary_dir),
-                temporary_onnx.name,
-                str(_deploy_config_path(self.task)),
-                str(config_path),
-                str(checkpoint_path),
-                device="cpu",
-            )
-            if not temporary_onnx.is_file():
-                raise RuntimeError(
-                    "MMDeploy did not produce the temporary ONNX graph "
-                    "needed for Hailo compilation."
-                )
-            source = temporary_onnx
 
         graph = onnx.load(str(source)).graph
         graph_inputs = [
@@ -595,21 +682,9 @@ class Model:
                 "Hailo RTMDet compilation requires an ONNX input shaped "
                 "[1, 3, height, width]."
             )
-        if imgsz is not None and (int(imgsz) != height or int(imgsz) != width):
-            raise ValueError(
-                f"The exported ONNX input is {height}x{width}; imgsz={imgsz} "
-                "cannot be applied without exporting a new ONNX model."
-            )
-
         work_dir = model_dir / "hailo" / target
         work_dir.mkdir(parents=True, exist_ok=True)
-        selected_paths = image_paths
-        if fraction is not None:
-            fraction = float(fraction)
-            if not 0 < fraction <= 1:
-                raise ValueError("Calibration fraction must be in (0, 1].")
-            selected_paths = selected_paths[:max(1, round(len(selected_paths) * fraction))]
-        selected_paths = selected_paths[:128]
+        selected_paths = image_paths[:128]
         calibration = []
         for image_path in selected_paths:
             image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
@@ -732,7 +807,7 @@ class Model:
             self.model_name,
             bundle_dir,
             target,
-            version=version or self.model_version,
+            version=self.model_version,
             metadata=manifest,
             progress_callback=progress_callback,
         )

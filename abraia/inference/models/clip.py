@@ -8,7 +8,7 @@ import regex as re
 
 from PIL import Image
 
-from ...utils import download_file
+from ...utils.remote import download_file
 from ..session import OnnxSessionBundle
 
 
@@ -91,8 +91,6 @@ class Clip:
         embeddings = []
         for batch in to_batches(images, self._batch_size):
             imgs = [preprocess_image(image) for image in batch]
-            if not imgs:
-                return self._get_empty_embedding()
             batch_arr = np.concatenate(imgs)
             embeddings.append(self.image_model.run(None, {"IMAGE": batch_arr})[0])
         if not embeddings:
@@ -112,8 +110,6 @@ class Clip:
         embeddings = []
         for batch in to_batches(texts, self._batch_size):
             text = self._tokenizer.encode_text(batch)
-            if len(text) == 0:
-                return self._get_empty_embedding()
             embeddings.append(self.text_model.run(None, {"TEXT": text})[0])
         if not embeddings:
             return self._get_empty_embedding()

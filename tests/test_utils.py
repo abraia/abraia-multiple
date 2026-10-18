@@ -5,14 +5,13 @@ import numpy as np
 
 from abraia import APIError
 from abraia import Abraia
-from abraia.utils import (
+from abraia.utils.filesystem import load_json, save_json
+from abraia.utils.remote import (
     artifact_reference,
-    load_json,
+    is_managed_model_path,
     remote_available,
     resolve_model_file,
-    save_json,
 )
-from abraia.utils.remote import is_managed_model_path
 
 
 def test_save_json_uses_destination_first_and_encodes_numpy_values(tmp_path):
@@ -24,7 +23,7 @@ def test_save_json_uses_destination_first_and_encodes_numpy_values(tmp_path):
 
 
 def test_documented_rendering_helpers_are_available_from_utils():
-    from abraia.utils import render_counter, render_region
+    from abraia.utils.draw import render_counter, render_region
 
     assert callable(render_counter)
     assert callable(render_region)

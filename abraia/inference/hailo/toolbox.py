@@ -8,7 +8,7 @@ from functools import partial
 from typing import Dict, List, Optional, Tuple
 
 from ...tasks import normalize_task, to_hailo_task
-from ..postprocess.common import nms, sigmoid
+from ..geometry import nms, sigmoid
 from . import models, postprocess
 
 logger = logging.getLogger(__name__)

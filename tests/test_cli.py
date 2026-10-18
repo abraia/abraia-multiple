@@ -20,7 +20,7 @@ def test_curate_requires_confirmation_before_applying_changes():
         return SimpleNamespace(curate=fake_curate)
 
     with patch(
-        "abraia.dataset.remote.load_dataset",
+        "abraia.dataset.load_dataset",
         side_effect=fake_load_dataset,
     ):
         result = CliRunner().invoke(
@@ -57,6 +57,76 @@ def test_metadata_remove_does_not_reload_deleted_metadata(monkeypatch):
     assert result.exit_code == 0
     assert removed == ["project/image.jpg"]
     assert "Removed metadata for project/image.jpg" in result.output
+
+
+def test_compile_accepts_thresholds_as_arguments(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with patch(
+        "abraia.training.artifacts.list_model_records",
+        return_value=[{
+            "name": "yolov8m_v2.onnx",
+            "task": "detection",
+            "classes": ["object"],
+            "backend": "ultralytics",
+            "modelSize": "medium",
+            "inputShape": [1, 3, 512, 512],
+            "artifacts": {"checkpoint": "project/yolov8m_v2.pt"},
+        }],
+    ), patch.object(
+        cli_module.abraia,
+        "download_file",
+        return_value="/cache/yolov8m_v2.pt",
+    ) as download_file, patch(
+        "abraia.training.orchestration._compile_checkpoint",
+        return_value={"hef": "project/model.hef"},
+    ) as compile_checkpoint:
+        result = CliRunner().invoke(
+            cli,
+            [
+                "compile", "project", "--device", "hailo8l",
+                "--conf", "0.4", "--iou", "0.3",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    download_file.assert_called_once_with("project/yolov8m_v2.pt")
+    assert compile_checkpoint.call_args.args[1:3] == (
+        "detection",
+        ["object"],
+    )
+    assert compile_checkpoint.call_args.args[3] == "/cache/yolov8m_v2.pt"
+    assert compile_checkpoint.call_args.args[4] == "ultralytics"
+    assert compile_checkpoint.call_args.kwargs["model_size"] == "medium"
+    assert compile_checkpoint.call_args.kwargs["imgsz"] == 512
+    assert compile_checkpoint.call_args.kwargs["device"] == "hailo8l"
+    assert compile_checkpoint.call_args.kwargs["conf"] == 0.4
+    assert compile_checkpoint.call_args.kwargs["iou"] == 0.3
+    assert compile_checkpoint.call_args.kwargs["config_path"] is None
+    assert compile_checkpoint.call_args.kwargs["model_version"] == 2
+
+
+def test_train_passes_image_size_to_trainer(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    dataset = SimpleNamespace(task="detection", classes=["object"])
+    trainer = SimpleNamespace(
+        train=lambda epochs: None,
+        test=lambda: {},
+        save=lambda: None,
+    )
+    with patch(
+        "abraia.dataset.load_dataset", return_value=dataset
+    ), patch("abraia.dataset.preparation.prepare_dataset"), patch(
+        "abraia.training.orchestration.ModelTrainer", return_value=trainer
+    ) as model_trainer:
+        result = CliRunner().invoke(
+            cli,
+            ["train", "project", "--imgsz", "512", "--model-size", "large"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert model_trainer.call_args.kwargs["imgsz"] == 512
+    assert model_trainer.call_args.kwargs["model_size"] == "large"
+    assert not (tmp_path / "project" / ".abraia" / "training.json").exists()
 
 
 def test_custom_run_falls_back_to_best_model_and_closes_pipeline(monkeypatch):
@@ -96,7 +166,7 @@ def test_custom_run_falls_back_to_best_model_and_closes_pipeline(monkeypatch):
         side_effect=APIError("Not found", code=404),
     ):
         with patch(
-            "abraia.training.list_model_records",
+            "abraia.training.artifacts.list_model_records",
             return_value=[
                 {"name": "model.onnx", "task": "segmentation", "kind": "rtmdet"}
             ],
