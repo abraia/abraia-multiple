@@ -83,6 +83,7 @@ class Model:
         self.client = _resolve_client(client)
         self._training_callbacks = {}
         self.model_version = None
+        self.checkpoint_path = None
 
     def _remove_training_callbacks(self):
         for event, callback in self._training_callbacks.items():
@@ -120,7 +121,10 @@ class Model:
             self._training_callbacks['on_train_batch_end'] = on_train_batch_end
             self.model.add_callback('on_train_batch_end', on_train_batch_end)
         data = f"{project}/data.yaml"
-        output_dir = Path(project) / ".abraia" / "training" / self.task / self.model_size
+        output_dir = (
+            Path(project).resolve()
+            / ".abraia" / "training" / self.task / self.model_size
+        )
         train_options = {
             'data': data,
             'batch': batch,
@@ -137,6 +141,18 @@ class Model:
         try:
             self.model.train(**train_options)
         finally:
+            trainer = getattr(self.model, "trainer", None)
+            last_checkpoint = getattr(trainer, "last", None)
+            save_dir = getattr(trainer, "save_dir", None)
+            self.checkpoint_path = (
+                Path(last_checkpoint).resolve()
+                if last_checkpoint is not None
+                else (
+                    Path(save_dir).resolve() / "weights" / "last.pt"
+                    if save_dir is not None
+                    else output_dir / "train" / "weights" / "last.pt"
+                )
+            )
             self._remove_training_callbacks()
 
     def test(self, split=DEFAULT_EVALUATION_SPLIT, is_cancelled=None):
@@ -161,9 +177,10 @@ class Model:
     def save(self, project, classes, device='cpu', half=False):
         out = io.StringIO()
         model_src = None
-        checkpoint = (
-            Path(project) / ".abraia" / "training" / self.task
-            / self.model_size / "train" / "weights" / "last.pt"
+        checkpoint = self.checkpoint_path or (
+            Path(project).resolve()
+            / ".abraia" / "training" / self.task / self.model_size
+            / "train" / "weights" / "last.pt"
         )
         try:
             with contextlib.redirect_stdout(out):
