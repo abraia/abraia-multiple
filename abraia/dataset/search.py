@@ -1,6 +1,7 @@
 """Remote image search and upload helpers."""
 
 import io
+import itertools
 import os
 import re
 import tempfile
@@ -137,40 +138,41 @@ def search_images(query, save_output, limit=100, callback=None, client=None):
     ends = [False] * len(links)
     progress = tqdm(total=limit, desc="Downloading images") if callback is None else None
     try:
-        while download_count < limit and not all(ends):
-            for index, links_from_source in enumerate(links):
-                if ends[index] or download_count >= limit:
-                    continue
-                try:
-                    link = next(links_from_source)
-                except StopIteration:
-                    ends[index] = True
-                    continue
-                if link in seen:
-                    continue
-                seen.add(link)
-                try:
-                    uploaded, filename = save_image_file(
-                        link,
-                        save_output,
-                        existing_filenames=existing_filenames,
-                        client=client,
-                    )
-                except Exception:
-                    continue
-                if uploaded:
-                    existing_filenames.add(filename)
-                    download_count += 1
-                    event = {
-                        "current": download_count,
-                        "total": limit,
-                        "filename": filename,
-                    }
-                    if callback:
-                        callback(event)
-                    elif progress:
-                        progress.set_description(f"Downloaded {filename}")
-                        progress.update(1)
+        for link_index in itertools.cycle(range(len(links))):
+            try:
+                link = next(links[link_index])
+            except StopIteration:
+                ends[link_index] = True
+                if set(ends) == {True}:
+                    break
+                continue
+            if link in seen:
+                continue
+            seen.add(link)
+            if download_count >= limit:
+                break
+            try:
+                uploaded, filename = save_image_file(
+                    link,
+                    save_output,
+                    existing_filenames=existing_filenames,
+                    client=client,
+                )
+            except Exception:
+                continue
+            if uploaded:
+                existing_filenames.add(filename)
+                download_count += 1
+                event = {
+                    "current": download_count,
+                    "total": limit,
+                    "filename": filename,
+                }
+                if callback:
+                    callback(event)
+                elif progress:
+                    progress.set_description(f"Downloaded {filename}")
+                    progress.update(1)
     finally:
         if progress:
             progress.close()
