@@ -30,6 +30,17 @@ class Training:
         self._client = client
         self._train_operation = train_operation or train_dataset
 
+    @staticmethod
+    def resolve_defaults(task):
+        """Return the standard epoch and image-size defaults for a task."""
+        task = normalize_task(task)
+        if task not in TRAINING_TASKS:
+            return {"epochs": 1, "image_size": 32}
+        return {
+            "epochs": DEFAULT_TRAINING_EPOCHS[task],
+            "image_size": DEFAULT_TRAINING_IMAGE_SIZE[task],
+        }
+
     def list_models(self, project):
         records = list_model_records(
             project, client=self._client, sort_by_accuracy=True
