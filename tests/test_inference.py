@@ -135,6 +135,32 @@ def test_mask_to_polygon_accepts_boolean_masks():
     assert len(polygon) >= 3
 
 
+def test_mask_to_polygon_does_not_mutate_mask_when_filling_tiny_holes():
+    mask = np.zeros((40, 40), dtype=np.uint8)
+    mask[5:35, 5:35] = 1
+    mask[15:18, 15:18] = 0
+    original = mask.copy()
+
+    polygon = mask_to_polygon(mask)
+
+    assert len(polygon) == 4
+    assert np.array_equal(mask, original)
+
+
+def test_mask_to_polygon_hole_cleanup_scales_with_object_area():
+    for size, object_bounds, hole_bounds in (
+        (120, (5, 105), (50, 53)),
+        (320, (5, 305), (150, 159)),
+    ):
+        mask = np.zeros((size, size), dtype=np.uint8)
+        left, right = object_bounds
+        mask[left:right, left:right] = 1
+        hole_left, hole_right = hole_bounds
+        mask[hole_left:hole_right, hole_left:hole_right] = 0
+
+        assert len(mask_to_polygon(mask)) == 4
+
+
 def test_mask_to_polygon_selects_largest_outer_component_by_area():
     mask = np.zeros((128, 128), dtype=np.uint8)
     mask[10:100, 10:100] = 1

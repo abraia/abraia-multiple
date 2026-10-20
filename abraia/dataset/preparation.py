@@ -14,14 +14,7 @@ from ..tasks import normalize_task
 from ..utils.filesystem import save_text
 from ..utils.concurrency import DEFAULT_MAX_REMOTE_WORKERS, bounded_as_completed
 from .remote import _resolve_client
-from .splitting import (
-    DATASET_SPLITS,
-    DEFAULT_EVALUATION_SPLIT,
-    DEFAULT_SPLIT_OPTIONS,
-    SPLIT_RATIO_KEYS,
-    split_annotation_records,
-    summarize_split_records,
-)
+from .splitting import DATASET_SPLITS, DEFAULT_EVALUATION_SPLIT
 
 def download_file(path, folder, client=None):
     """Download one remote training file when it is not already local."""
@@ -94,40 +87,19 @@ def save_config(dataset, classes):
     save_text(os.path.join(dataset, "data.yaml"), yaml_content)
 
 
-def _normalize_split_options(split_options=None):
-    return {**DEFAULT_SPLIT_OPTIONS, **(split_options or {})}
-
-
-def split_dataset(annotations, split_options=None):
-    """Split records with a deterministic, class-balanced policy."""
-    options = _normalize_split_options(split_options)
-    return split_annotation_records(annotations, **options)
-
-
-def dataset_split_summary(dataset, split_options=None):
-    """Return the split preview data used by Studio and training clients."""
-    options = _normalize_split_options(split_options)
-    splits = split_annotation_records(dataset.annotations, **options)
-    return summarize_split_records(
-        splits,
-        classes=getattr(dataset, "classes", None),
-        ratios={key: options[key] for key in SPLIT_RATIO_KEYS},
-    )
-
-
-def _split_cache_key(dataset, annotations, split_options, task):
+def _split_cache_key(dataset, annotations, options, task):
     """Return a stable key for the annotations and settings used in a split."""
     payload = {
         "annotations": annotations,
         "classes": dataset.classes,
         "task": task,
-        "split_options": _normalize_split_options(split_options),
+        "split_options": options,
     }
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def prepare_dataset(dataset, force=False, callback=None, split_options=None):
+def prepare_dataset(dataset, force=False, callback=None):
     """Download and split a dataset, reusing files while its inputs are unchanged."""
     if dataset.prune_orphaned_annotations():
         dataset.save()
@@ -135,7 +107,8 @@ def prepare_dataset(dataset, force=False, callback=None, split_options=None):
     task = normalize_task(dataset.task)
     cache_path = os.path.join(project, ".training-split.json")
     annotations = dataset.annotations
-    cache_key = _split_cache_key(dataset, annotations, split_options, task)
+    options = dataset.split.options
+    cache_key = _split_cache_key(dataset, annotations, options, task)
     if not force and os.path.isfile(cache_path):
         with open(cache_path, encoding="utf-8") as cache_file:
             cached_key = json.load(cache_file).get("key")
@@ -155,7 +128,7 @@ def prepare_dataset(dataset, force=False, callback=None, split_options=None):
     if os.path.isfile(cache_path):
         os.remove(cache_path)
     os.makedirs(project, exist_ok=True)
-    split_values = split_dataset(annotations, split_options)
+    split_values = dataset.split.assignments()
     splits = list(zip(DATASET_SPLITS, split_values))
     total = sum(len(split_annotations) for _, split_annotations in splits)
 

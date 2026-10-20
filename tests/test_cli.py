@@ -105,27 +105,19 @@ def test_compile_accepts_thresholds_as_arguments(tmp_path, monkeypatch):
     assert compile_checkpoint.call_args.kwargs["model_version"] == 2
 
 
-def test_train_passes_image_size_to_trainer(tmp_path, monkeypatch):
+def test_train_passes_image_size_to_training_service(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    dataset = SimpleNamespace(task="detection", classes=["object"])
-    trainer = SimpleNamespace(
-        train=lambda epochs: None,
-        test=lambda: {},
-        save=lambda: None,
-    )
-    with patch(
-        "abraia.dataset.load_dataset", return_value=dataset
-    ), patch("abraia.dataset.preparation.prepare_dataset"), patch(
-        "abraia.training.orchestration.ModelTrainer", return_value=trainer
-    ) as model_trainer:
+    with patch("abraia.training.Training") as training_cls:
+        training_cls.return_value.train.return_value = {"stats": {"acc": 0.9}}
         result = CliRunner().invoke(
             cli,
             ["train", "project", "--imgsz", "512", "--model-size", "large"],
         )
 
     assert result.exit_code == 0, result.output
-    assert model_trainer.call_args.kwargs["imgsz"] == 512
-    assert model_trainer.call_args.kwargs["model_size"] == "large"
+    training_cls.return_value.train.assert_called_once()
+    assert training_cls.return_value.train.call_args.kwargs["image_size"] == 512
+    assert training_cls.return_value.train.call_args.kwargs["model_size"] == "large"
     assert not (tmp_path / "project" / ".abraia" / "training.json").exists()
 
 

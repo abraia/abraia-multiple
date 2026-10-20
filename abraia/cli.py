@@ -377,28 +377,35 @@ def annotate(project, label, segment=False):
 )
 def train(project, epochs, imgsz, model_size, backend, publish_common):
     """Train a model on the specified dataset."""
-    from .dataset import load_dataset
-    from .dataset.preparation import prepare_dataset
-    from .training.orchestration import ModelTrainer
+    from .training import Training
 
     def operation():
         click.echo("Loading dataset...")
-        dataset = load_dataset(project)
-        prepare_dataset(dataset)
-        click.echo("Training model...")
-        training_session = ModelTrainer(
+        messages = {
+            "Loading model": "Training model...",
+            "Validating model": "Evaluating metrics...",
+            "Exporting model": "Saving model...",
+        }
+        reported = set()
+
+        def report_progress(event):
+            stage = event.get("stage")
+            if stage in messages and stage not in reported:
+                click.echo(messages[stage])
+                reported.add(stage)
+
+        result = Training(abraia).train(
             project,
-            dataset.task,
-            dataset.classes,
-            imgsz=imgsz,
-            backend=backend,
+            epochs,
+            report_progress,
+            lambda: False,
             model_size=model_size,
+            image_size=imgsz,
+            backend=backend,
+            publish_common=publish_common,
+            analyze_thresholds=False,
         )
-        training_session.train(epochs)
-        click.echo("Evaluating metrics...")
-        click.echo(json.dumps(training_session.test(), indent=2))
-        click.echo("Saving model...")
-        training_session.save(publish_common=publish_common)
+        click.echo(json.dumps(result["stats"], indent=2))
 
     _run_remote(operation)
 
@@ -424,11 +431,11 @@ def train(project, epochs, imgsz, model_size, backend, publish_common):
 )
 def compile_model_command(project, device, conf, iou):
     """Compile a trained model to a Hailo HEF bundle."""
-    from .training.orchestration import _compile_checkpoint
-    from .training.artifacts import list_model_records
+    from .training import Training
 
     def operation():
-        records = list_model_records(project, client=abraia)
+        training = Training(abraia)
+        records = training.list_models(project)
         records = [
             record for record in records
             if record.get("artifacts", {}).get("checkpoint")
@@ -444,33 +451,13 @@ def compile_model_command(project, device, conf, iou):
 
         record = max(records, key=version)
         model_version = version(record) or None
-        task = record["task"]
-        classes = record["classes"]
-        backend = record["backend"]
-        model_size = record["modelSize"]
-        input_shape = record.get("inputShape") or [1, 3, 640, 640]
-        imgsz = input_shape[-1]
-        checkpoint = abraia.download_file(
-            record["artifacts"]["checkpoint"]
-        )
-        config_path = None
-        if backend == "rtmdet":
-            config_path = abraia.download_file(record["artifacts"]["config"])
         click.echo("Compiling model...")
-        result = _compile_checkpoint(
+        result = training.compile(
+            device,
             project,
-            task,
-            classes,
-            checkpoint,
-            backend,
-            model_size=model_size,
-            imgsz=imgsz,
-            client=abraia,
-            device=device,
+            record,
             conf=conf,
             iou=iou,
-            config_path=config_path,
-            model_version=model_version,
         )
         click.echo(json.dumps(result, indent=2))
 

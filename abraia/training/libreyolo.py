@@ -40,7 +40,8 @@ def _metric(metrics, *names):
 class Model:
     """Train and export a LibreYOLO YOLOv9 detection model."""
 
-    def __init__(self, project, imgsz=640, client=None, model_size="small"):
+    def __init__(self, project, imgsz=640, client=None, model_size="small",
+                 checkpoint=None):
         try:
             from libreyolo import LibreYOLO
         except ImportError as error:
@@ -50,7 +51,7 @@ class Model:
             ) from error
 
         size = MODEL_SIZE_TYPES[model_size]
-        self.model = LibreYOLO(f"LibreYOLO9{size}.pt")
+        self.model = LibreYOLO(checkpoint or f"LibreYOLO9{size}.pt")
         self.model_name = f"yolo9{size}"
         self.task = "detection"
         self.model_size = model_size

@@ -244,7 +244,45 @@ def summarize_split_records(splits, classes=None, ratios=None):
     return result
 
 
+class DatasetSplit:
+    """Split configuration and operations for one dataset."""
+
+    DEFAULT_OPTIONS = DEFAULT_SPLIT_OPTIONS
+
+    def __init__(self, dataset, options=None):
+        self.dataset = dataset
+        self._options = dict(self.DEFAULT_OPTIONS)
+        if options:
+            self.set_options(options)
+
+    @property
+    def options(self):
+        """Return a copy of this dataset's train/validation/test settings."""
+        return dict(self._options)
+
+    def set_options(self, options):
+        """Update this dataset's split settings."""
+        self._options.update(options or {})
+        return self.options
+
+    def assignments(self, options=None):
+        """Return annotations assigned to train, validation, and test."""
+        resolved = {**self._options, **(options or {})}
+        return split_annotation_records(self.dataset.annotations, **resolved)
+
+    def summary(self, options=None):
+        """Summarize this dataset's annotation split using its options."""
+        resolved = {**self._options, **(options or {})}
+        splits = split_annotation_records(self.dataset.annotations, **resolved)
+        return summarize_split_records(
+            splits,
+            classes=self.dataset.classes,
+            ratios={key: resolved[key] for key in SPLIT_RATIO_KEYS},
+        )
+
+
 __all__ = [
+    "DatasetSplit",
     "DATASET_SPLITS",
     "DEFAULT_EVALUATION_SPLIT",
     "DEFAULT_SPLIT_RATIOS",

@@ -11,15 +11,15 @@ from abraia.dataset.annotation import Annotator, annotate_image
 from abraia.dataset import create_dataset, delete_dataset
 from abraia.dataset.remote import Dataset
 
-from abraia.training import ModelTrainer
+from abraia.training import Training
 from abraia.training import artifacts
 from abraia.training.model_data import (
     metric_average,
     normalize_custom_models,
     normalize_model_record,
 )
-from abraia.dataset.preparation import prepare_dataset, split_dataset
-from abraia.training.orchestration import train_dataset
+from abraia.dataset.preparation import prepare_dataset
+from abraia.dataset.splitting import split_annotation_records
 from abraia.training.classify import train_model
 
 
@@ -244,34 +244,24 @@ def test_prepare_dataset_reports_download_progress(tmp_path, monkeypatch):
         {"filename": "two.jpg"},
         {"filename": "three.jpg"},
     ]
-    client = type(
-        "Client",
-        (),
-        {"check_file": lambda self, _path: False},
-    )()
+    client = object()
     dataset = type(
         "Dataset",
         (),
         {
             "project": str(tmp_path / "progress-test"),
-            "images": [
-                {"name": "one.jpg"},
-                {"name": "two.jpg"},
-                {"name": "three.jpg"},
-            ],
             "annotations": annotations,
             "classes": ["cat"],
             "task": "classification",
             "client": client,
+            "split": SimpleNamespace(
+                options={},
+                assignments=lambda: (annotations[:1], annotations[1:2], annotations[2:]),
+            ),
             "prune_orphaned_annotations": lambda self: 0,
         },
     )()
-    monkeypatch.setattr(preparation.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(
-        preparation,
-        "split_dataset",
-        lambda values, _options=None: (values[:1], values[1:2], values[2:]),
-    )
+    monkeypatch.setattr(preparation, "_resolve_client", lambda _client: client)
     monkeypatch.setattr(
         preparation, "save_data", lambda *args, **kwargs: None
     )
@@ -295,6 +285,10 @@ def test_prepare_dataset_reuses_splits_until_annotations_change(tmp_path, monkey
         classes=["cat"],
         task="classification",
         client=None,
+        split=SimpleNamespace(
+            options={},
+            assignments=lambda: (dataset.annotations, [], []),
+        ),
         prune_orphaned_annotations=lambda: 0,
     )
     downloads = []
@@ -304,15 +298,11 @@ def test_prepare_dataset_reuses_splits_until_annotations_change(tmp_path, monkey
         os.makedirs(folder, exist_ok=True)
 
     monkeypatch.setattr(preparation, "save_data", save_data)
-    monkeypatch.setattr(
-        preparation,
-        "split_dataset",
-        lambda values, _options=None: (values, [], []),
-    )
+    monkeypatch.setattr(preparation, "_resolve_client", lambda _client: object())
 
     prepare_dataset(dataset)
     first_download_count = len(downloads)
-    prepare_dataset(dataset, split_options={"train_ratio": 0.7})
+    prepare_dataset(dataset)
     assert len(downloads) == first_download_count
 
     dataset.annotations = [{"filename": "two.jpg", "objects": []}]
@@ -355,35 +345,26 @@ def test_dataset_uses_injected_client_without_global_client_calls():
     assert dataset.images[0]["url"]
 
 
-def test_split_dataset_does_not_change_numpy_global_rng_state():
-    values = [{"objects": [{"label": "cat"}]} for _ in range(8)]
-    np.random.seed(7)
-    expected = np.random.random()
-    np.random.seed(7)
-
-    split_dataset(values)
-
-    assert np.random.random() == expected
-
-
-def test_split_dataset_balances_each_class_using_requested_ratios():
+def test_split_annotation_records_are_balanced_deterministic_and_local_rng():
     annotations = [
         {"filename": f"cat-{index}.jpg", "objects": [{"label": "cat"}]}
         for index in range(10)
     ] + [
         {"filename": f"dog-{index}.jpg", "objects": [{"label": "dog"}]}
         for index in range(10)
-    ]
+    ] + [{"filename": "background.jpg", "objects": []}]
 
-    train, validation, test = split_dataset(
-        annotations,
-        {
-            "train_ratio": 0.6,
-            "validation_ratio": 0.2,
-            "test_ratio": 0.2,
-            "random_state": 9,
-        },
-    )
+    options = {
+        "train_ratio": 0.6,
+        "validation_ratio": 0.2,
+        "test_ratio": 0.2,
+        "random_state": 9,
+    }
+    np.random.seed(7)
+    expected_random_value = np.random.random()
+    np.random.seed(7)
+
+    train, validation, test = split_annotation_records(annotations, **options)
 
     for split in (train, validation, test):
         assert len({item["filename"] for item in split}) == len(split)
@@ -400,18 +381,9 @@ def test_split_dataset_balances_each_class_using_requested_ratios():
         )
         assert counts == expected
 
-
-def test_split_dataset_is_reproducible_and_keeps_background_in_train():
-    annotations = [
-        {"filename": f"cat-{index}.jpg", "objects": [{"label": "cat"}]}
-        for index in range(8)
-    ] + [{"filename": "background.jpg", "objects": []}]
-
-    first = split_dataset(annotations)
-    second = split_dataset(annotations)
-
-    assert first == second
-    assert any(item["filename"] == "background.jpg" for item in first[0])
+    assert split_annotation_records(annotations, **options) == (train, validation, test)
+    assert any(item["filename"] == "background.jpg" for item in train)
+    assert np.random.random() == expected_random_value
 
 
 @patch("abraia.dataset.remote.annotate_image")
@@ -445,49 +417,33 @@ def test_dataset_annotate_uses_explicit_classification_task(
     mock_save.assert_called_once_with()
 
 
-@patch('abraia.training.classify.Model')
-def test_model_trainer_test(mock_classify_model_cls):
-    mock_model = mock_classify_model_cls.return_value
-    mock_model.test.return_value = {'acc': 0.95, 'confusionMatrix': [[10, 0], [1, 9]]}
-    
-    trainer = ModelTrainer('test_proj', 'classification', ['cat', 'dog'])
-    metrics = trainer.test('val')
-    
-    assert metrics['acc'] == 0.95
-    mock_model.test.assert_called_once_with(split='val', is_cancelled=None)
+def test_training_uses_public_training_workflow_defaults(monkeypatch):
+    from abraia.training import service
 
+    client = object()
+    dataset = type(
+        "Dataset",
+        (),
+        {"task": "classification", "classes": ["cat"], "client": client},
+    )()
+    operation_calls = []
 
-@patch('abraia.training.detect.Model')
-def test_model_trainer_passes_large_size_to_detection_training(mock_detect_model_cls):
-    ModelTrainer(
-        'test_proj',
-        'segmentation',
-        ['cat'],
-        model_size='large',
-    )
+    def train_operation(*args, **options):
+        operation_calls.append((args, options))
+        return {"stats": {"acc": 0.95}, "saved_model": {"name": "model_v1.onnx"}}
 
-    mock_detect_model_cls.assert_called_once_with(
-        'segment',
-        imgsz=640,
-        client=None,
-        model_size='large',
-    )
+    monkeypatch.setattr(service, "load_dataset", lambda project, client: dataset)
+    training = Training(client, train_operation=train_operation)
+    training.list_models = lambda project: []
 
+    result = training.train("test_proj", model_size="medium")
 
-@patch('abraia.training.classify.Model')
-def test_model_trainer_passes_medium_size_to_classification_training(mock_classify_model_cls):
-    ModelTrainer(
-        'test_proj',
-        'classification',
-        ['cat'],
-        model_size='medium',
-    )
-
-    mock_classify_model_cls.assert_called_once_with(
-        client=None,
-        model_size='medium',
-        imgsz=224,
-    )
+    args, options = operation_calls[0]
+    assert args[:3] == ("test_proj", dataset, service.DEFAULT_TRAINING_EPOCHS["classification"])
+    assert options["model_size"] == "medium"
+    assert options["imgsz"] == service.DEFAULT_TRAINING_IMAGE_SIZE["classification"]
+    assert result["stats"]["acc"] == 0.95
+    assert result["model_name"] == "model_v1.onnx"
 
 
 def test_ultralytics_model_compiles_native_hailo_bundle(tmp_path):
@@ -598,14 +554,14 @@ def test_hailo_compile_stops_after_stage_when_cancelled(tmp_path, monkeypatch):
     assert not any(event[2] == "Optimizing INT8 model complete" for event in progress)
 
 
-@patch('abraia.dataset.preparation.prepare_dataset')
-@patch('abraia.training.orchestration.ModelTrainer')
+@patch("abraia.dataset.preparation.prepare_dataset")
+@patch("abraia.training.classify.Model")
 def test_training_service_reports_stage_transitions_before_backend_work(
-    mock_trainer_cls, mock_prepare_dataset
+    mock_model_cls, _mock_prepare_dataset, monkeypatch
 ):
-    trainer = mock_trainer_cls.return_value
-    trainer.test.return_value = {"acc": 1.0}
-    trainer.save.return_value = {
+    model = mock_model_cls.return_value
+    model.test.return_value = {"acc": 1.0}
+    model.save.return_value = {
         "onnx": "project/yolov8n_v1.onnx",
         "metadata": "project/yolov8n_v1.json",
         "version": 1,
@@ -615,18 +571,22 @@ def test_training_service_reports_stage_transitions_before_backend_work(
         (),
         {"task": "classification", "classes": ["cat"], "client": object()},
     )()
+    from abraia.training import service
+
+    monkeypatch.setattr(service, "load_dataset", lambda _project, client: dataset)
     events = []
     is_cancelled = lambda: False
+    training = Training(dataset.client)
+    training.list_models = lambda _project: []
 
-    result = train_dataset(
+    result = training.train(
         "project",
-        dataset,
         epochs=2,
         training_callback=events.append,
         is_cancelled=is_cancelled,
+        analyze_thresholds=False,
     )
 
-    assert mock_prepare_dataset.call_args.kwargs.get("force", False) is False
     assert [event["stage"] for event in events] == [
         "Preparing dataset",
         "Loading model",
@@ -634,13 +594,11 @@ def test_training_service_reports_stage_transitions_before_backend_work(
         "Validating model",
         "Exporting model",
     ]
-    trainer.test.assert_called_once_with(
+    model.test.assert_called_once_with(
         split="test",
         is_cancelled=is_cancelled,
     )
-    mock_trainer_cls.assert_called_once_with(
-        "project", "classification", ["cat"], client=dataset.client
-    )
+    model.save.assert_called_once_with("project", ["cat"], device="cpu")
     assert result["saved_model"]["onnx"] == "project/yolov8n_v1.onnx"
 
 

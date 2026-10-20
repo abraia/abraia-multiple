@@ -89,7 +89,7 @@ pip install -U 'abraia[libreyolo]'
 abraia train PROJECT --backend libreyolo
 ```
 
-The Python API accepts `backend="libreyolo"` in `ModelTrainer`. It uses the
+The Python API accepts `backend="libreyolo"` in `Training.train()`. It uses the
 MIT YOLOv9-t, YOLOv9-s, and YOLOv9-c checkpoints for Abraia's small, medium,
 and large sizes, then saves a versioned ONNX model and its training checkpoint.
 LibreYOLO YOLOv9 exports can also be used by `abraia.runtime` and pipeline
@@ -109,9 +109,9 @@ Hailo-8L, or Hailo-10H. It produces a HEF with raw YOLOv9 detection heads;
 Abraia's Hailo runtime does not yet decode those outputs. LibreYOLO notes that
 YOLOv9 compilation has not been validated end to end on a running Hailo device.
 After fine-tuning with the `multiple` account configured in `.env`, publish the
-trained model and its inference metadata with `trainer.save(publish_common=True)`
-or pass `--publish-common` to `abraia train`. Existing shared files are never
-overwritten.
+trained model and its inference metadata by passing `publish_common=True` to
+`Training.train()` or `--publish-common` to `abraia train`. Existing shared
+files are never overwritten.
 
 To export Ultralytics detection or segmentation models to Hailo HEF, install
 the Hailo extra:
@@ -298,7 +298,8 @@ boundaries:
   configured model adapters.
 - `abraia.runtime` exports `Pipeline`, the Python entry point for saved
   inference workflows.
-- `abraia.training` exports `ModelTrainer` for custom model training.
+- `abraia.training` exports `Training` for model training, evaluation, listing,
+  and compilation.
 - `abraia.dataset` exports `create_dataset`, `delete_dataset`,
   `list_datasets`, and `load_dataset`.
 
@@ -320,13 +321,25 @@ plate, and open-vocabulary models, plus tracking and region operations. Use
 
 ### Training & Dataset Operations
 
-Train custom classification, detection, and segmentation models through
-`abraia.training.ModelTrainer` or the `abraia train` command. Training supports
+Train custom classification, detection, and segmentation models with the
+`Training` service or the `abraia train` command:
+
+```python
+from abraia import Abraia
+from abraia.training import Training
+
+training = Training(Abraia())
+result = training.train("PROJECT", model_size="medium")
+print(result["stats"])
+```
+
+`Training.list_models()` lists saved models, and `Training.evaluate()` and
+`Training.compile()` operate on a selected saved model. Training supports
 small, medium, and large model sizes; detection and segmentation can use
 Ultralytics YOLOv8n/m/l or the optional RTMDet backend, LibreYOLO YOLOv9
 supports detection, and classification uses ResNet18/50/101. Ultralytics
 detection and segmentation models can be exported to Hailo HEF through
-`ModelTrainer.compile()` or `abraia compile`.
+`Training.compile()` or `abraia compile`.
 Dataset creation and deletion are available from `abraia.dataset`. Dataset
 curation and pruning use built-in Pillow and NumPy image analysis.
 

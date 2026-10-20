@@ -10,6 +10,7 @@ from ..utils.image import load_image
 from ..utils.remote import load_url, url_path
 from ..utils.concurrency import DEFAULT_MAX_REMOTE_WORKERS, bounded_map
 from .annotation import Annotator, annotate_image as _annotate_image
+from .splitting import DatasetSplit
 
 
 def _resolve_client(client=None):
@@ -32,6 +33,7 @@ class Dataset:
         self.images = []
         self.annotated = False
         self.curation_findings = None
+        self.split = DatasetSplit(self)
 
     def load(self, validate=True):
         """Load this dataset's images and annotations from the remote project."""

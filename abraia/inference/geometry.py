@@ -166,21 +166,36 @@ def polygon_to_box(polygon):
     return cv2.boundingRect(np.array(polygon, dtype=np.int32))
 
 
-def mask_to_polygon(mask, origin=(0, 0), approx=0.001):
-    """Return the largest polygon extracted from a segmentation mask."""
+def mask_to_polygon(
+    mask, origin=(0, 0), approx=0.001, min_hole_area=16,
+    min_hole_ratio=0.0015,
+):
+    """Convert the largest mask component to a polygon, filling tiny holes.
+
+    A hole is filled when its contour area is below the larger of
+    ``min_hole_area`` and ``min_hole_ratio`` times its containing object area.
+    """
     mask = np.asarray(mask)
     if mask.ndim > 2:
         mask = np.squeeze(mask)
     if mask.ndim != 2:
         raise ValueError("Segmentation masks must be two-dimensional")
-    if mask.dtype != np.uint8:
-        mask = (mask > 0).astype(np.uint8)
-    mask = np.ascontiguousarray(mask)
+    mask = np.ascontiguousarray(mask > 0, dtype=np.uint8)
     contours, hierarchies = cv2.findContours(
         mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
     )
     if not contours:
         return []
+    small_holes = set()
+    for index, (contour, hierarchy) in enumerate(zip(contours, hierarchies[0])):
+        parent = int(hierarchy[3])
+        if parent < 0:
+            continue
+        threshold = max(
+            min_hole_area, cv2.contourArea(contours[parent]) * min_hole_ratio
+        )
+        if cv2.contourArea(contour) < threshold:
+            small_holes.add(index)
     outer_areas = [
         cv2.contourArea(contour) if hierarchy[3] < 0 else 0.0
         for contour, hierarchy in zip(contours, hierarchies[0])
@@ -191,7 +206,9 @@ def mask_to_polygon(mask, origin=(0, 0), approx=0.001):
         contour if parent < 0 and len(contour) >= 3 else []
         for contour, parent in zip(contours, parent_indexes)
     ]
-    for contour, parent in zip(contours, parent_indexes):
+    for index, (contour, parent) in enumerate(zip(contours, parent_indexes)):
+        if index in small_holes:
+            continue
         if parent >= 0 and len(contour) >= 3 and len(parents[parent]):
             parents[parent] = merge_with_parent(parents[parent], contour)
     if max(outer_areas) <= 0:

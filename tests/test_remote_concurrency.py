@@ -117,3 +117,23 @@ def test_load_url_holds_the_limiter_through_the_response_body():
 
     assert stream.read() == b"image bytes"
     stream.close()
+
+
+def test_request_scheduler_spaces_request_starts():
+    from time import monotonic
+
+    scheduler = RemoteRequestScheduler(max_concurrent=2, min_interval=0.005)
+    starts = []
+    lock = Lock()
+
+    def work():
+        with lock:
+            starts.append(monotonic())
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        list(executor.map(lambda _value: scheduler.run(work), range(6)))
+
+    assert all(
+        later - earlier >= 0.004
+        for earlier, later in zip(starts, starts[1:])
+    )

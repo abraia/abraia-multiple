@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from ..tasks import (
     DEFAULT_TRAINING_EPOCHS,
+    DEFAULT_TRAINING_IMAGE_SIZE,
     TRAINING_TASKS,
     normalize_model_size,
     normalize_task,
@@ -29,6 +30,7 @@ class ModelTrainer:
         client=None,
         model_size="small",
         backend="ultralytics",
+        checkpoint=None,
     ):
         task = normalize_task(task)
         if task not in TRAINING_TASKS:
@@ -50,7 +52,7 @@ class ModelTrainer:
         if backend == "libreyolo" and task != "detection":
             raise ValueError("LibreYOLO YOLOv9 supports detection training only.")
         self.pbar = None
-        imgsz = imgsz or (224 if task == "classification" else 640)
+        imgsz = imgsz or DEFAULT_TRAINING_IMAGE_SIZE[task]
         if task == "classification":
             from . import classify
 
@@ -67,6 +69,7 @@ class ModelTrainer:
                     client=client,
                     model_size=self.model_size,
                     classes=classes,
+                    checkpoint=checkpoint,
                 )
             elif backend == "libreyolo":
                 from . import libreyolo
@@ -76,6 +79,7 @@ class ModelTrainer:
                     imgsz=imgsz,
                     client=client,
                     model_size=self.model_size,
+                    checkpoint=checkpoint,
                 )
             else:
                 from . import detect
@@ -84,7 +88,12 @@ class ModelTrainer:
                     "imgsz": imgsz,
                     "client": client,
                     "model_size": self.model_size,
+                    "checkpoint": checkpoint,
                 }
+                if checkpoint is not None:
+                    detect_kwargs["model_type"] = (
+                        detect.MODEL_SIZE_TYPES[self.model_size]
+                    )
                 self.model = detect.Model(
                     to_ultralytics_task(task),
                     **detect_kwargs,
@@ -220,8 +229,9 @@ def _compile_checkpoint(
 
 def train_dataset(
     project, dataset, epochs, training_callback, is_cancelled,
-    model_size="small", split_options=None, imgsz=None,
+    model_size="small", imgsz=None,
     retain_trainer=False, analyze_thresholds=False, backend="ultralytics",
+    checkpoint=None, publish_common=False,
 ):
     """Prepare, train, validate, and save a dataset model."""
     trainer = None
@@ -231,7 +241,6 @@ def train_dataset(
         training_callback({"stage": "Preparing dataset"})
         preparation.prepare_dataset(
             dataset,
-            split_options=split_options,
             callback=lambda event: training_callback(
                 {"stage": "Preparing dataset", **event}
             ),
@@ -242,6 +251,8 @@ def train_dataset(
         trainer_kwargs = {"client": getattr(dataset, "client", None)}
         if backend != "ultralytics":
             trainer_kwargs["backend"] = backend
+        if checkpoint is not None:
+            trainer_kwargs["checkpoint"] = checkpoint
         if imgsz is not None:
             trainer_kwargs["imgsz"] = imgsz
         if model_size != "small":
@@ -303,7 +314,7 @@ def train_dataset(
         if is_cancelled():
             raise RuntimeError("Training canceled")
         training_callback({"stage": "Exporting model"})
-        result["saved_model"] = trainer.save()
+        result["saved_model"] = trainer.save(publish_common=publish_common)
         if (
             retain_trainer
             and trainer.backend == "ultralytics"
@@ -316,7 +327,4 @@ def train_dataset(
         gc.collect()
 
 
-__all__ = [
-    "ModelTrainer",
-    "train_dataset",
-]
+__all__ = ["train_dataset"]

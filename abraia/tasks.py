@@ -14,6 +14,11 @@ DEFAULT_TRAINING_EPOCHS = {
     "detection": 300,
     "segmentation": 300,
 }
+DEFAULT_TRAINING_IMAGE_SIZE = {
+    "classification": 224,
+    "detection": 640,
+    "segmentation": 640,
+}
 MODEL_SIZES = ("small", "medium", "large")
 HAILO_TASKS = ("detection", "segmentation", "pose")
 
@@ -84,6 +89,7 @@ __all__ = [
     "HAILO_BACKEND_TASKS",
     "HAILO_TASKS",
     "DEFAULT_TRAINING_EPOCHS",
+    "DEFAULT_TRAINING_IMAGE_SIZE",
     "MODEL_SIZES",
     "PIPELINE_TASKS",
     "TASK_ALIASES",

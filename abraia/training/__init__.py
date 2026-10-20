@@ -1,5 +1,5 @@
-"""Public model training API used by the CLI and Python callers."""
+"""Public client-facing training workflow API."""
 
-from .orchestration import ModelTrainer
+from .service import Training
 
-__all__ = ["ModelTrainer"]
+__all__ = ["Training"]

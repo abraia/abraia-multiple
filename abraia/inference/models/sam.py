@@ -90,8 +90,8 @@ class SAM:
                           "mask_input": onnx_mask_input,
                           "has_mask_input": onnx_has_mask_input,
                           "orig_im_size": np.array(self.input_size, dtype=np.float32)}
-        masks, _, _ = self.decoder.run(None, decoder_inputs)
-        return masks[0]
+        masks, scores, _ = self.decoder.run(None, decoder_inputs)
+        return masks[0], scores[0]
 
     def predict(self, img, prompt="[]"):
         if self._closed:
@@ -111,14 +111,17 @@ class SAM:
 
         input_points, input_labels = get_input_points(prompt)
         input_points = input_points * scale
-        masks = self.decode(self.image_embedding, input_points, input_labels)
+        masks, scores = self.decode(
+            self.image_embedding, input_points, input_labels
+        )
 
         inv_transform_matrix = np.linalg.inv(transform_matrix)
-        mask = np.zeros((height, width), dtype=np.uint8)
-        for m in masks:
-            m = cv2.warpAffine(m, inv_transform_matrix[:2], (width, height), flags=cv2.INTER_LINEAR)
-            mask[m > 0.0] = 255
-        return mask
+        mask = masks[int(np.argmax(scores))]
+        mask = cv2.warpAffine(
+            mask, inv_transform_matrix[:2], (width, height),
+            flags=cv2.INTER_LINEAR,
+        )
+        return (mask > 0.0).astype(np.uint8) * 255
 
     def close(self):
         """Release the encoder and decoder sessions."""
