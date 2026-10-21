@@ -1,7 +1,6 @@
 """Remote image search and upload helpers."""
 
 import io
-import itertools
 import os
 import re
 import tempfile
@@ -134,23 +133,19 @@ def search_images(query, save_output, limit=100, callback=None, client=None):
     except Exception:
         existing_filenames = set()
 
-    links = [search_google(query), search_bing(query)]
-    ends = [False] * len(links)
+    sources = [search_google(query), search_bing(query)]
     progress = tqdm(total=limit, desc="Downloading images") if callback is None else None
     try:
-        for link_index in itertools.cycle(range(len(links))):
+        while sources and download_count < limit:
+            source = sources.pop(0)
             try:
-                link = next(links[link_index])
+                link = next(source)
             except StopIteration:
-                ends[link_index] = True
-                if set(ends) == {True}:
-                    break
                 continue
+            sources.append(source)
             if link in seen:
                 continue
             seen.add(link)
-            if download_count >= limit:
-                break
             try:
                 uploaded, filename = save_image_file(
                     link,
@@ -180,13 +175,5 @@ def search_images(query, save_output, limit=100, callback=None, client=None):
 
 
 __all__ = [
-    "convert_to_jpg",
-    "dhash",
-    "download_page",
-    "save_image_file",
-    "scan_bing_page",
-    "scan_google_page",
-    "search_bing",
-    "search_google",
     "search_images",
 ]

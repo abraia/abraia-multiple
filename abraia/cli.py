@@ -485,17 +485,27 @@ def search(project, query):
     show_default=True,
     help="Inference accelerator; auto prefers a compatible Hailo device.",
 )
-def run(project, classes, src, accelerator):
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False),
+    help="Save rendered video frames to this local file.",
+)
+def run(project, classes, src, accelerator, output=None):
     """Run a project's saved pipeline or its most accurate model."""
     if project == "demo":
         if classes == "faces":
             from .demo import track_faces
 
-            track_faces(src, accelerator=accelerator)
+            track_faces(src, accelerator=accelerator, output=output)
         else:
             from .demo import monitor_objects
 
-            monitor_objects(src, classes or "detect", accelerator=accelerator)
+            monitor_objects(
+                src,
+                classes or "detect",
+                accelerator=accelerator,
+                output=output,
+            )
         return
     def operation():
         from .demo import resolve_pipeline
@@ -544,6 +554,8 @@ def run(project, classes, src, accelerator):
             inferred_type = infer_source_type(source_override)
             if inferred_type:
                 source_config["type"] = inferred_type
+        if output is not None:
+            pipeline_config.setdefault("display", {})["dest"] = output
         with Pipeline.from_dict(
             pipeline_config,
             accelerator=accelerator,

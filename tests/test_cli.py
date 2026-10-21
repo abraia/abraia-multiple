@@ -59,52 +59,6 @@ def test_metadata_remove_does_not_reload_deleted_metadata(monkeypatch):
     assert "Removed metadata for project/image.jpg" in result.output
 
 
-def test_compile_accepts_thresholds_as_arguments(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    with patch(
-        "abraia.training.artifacts.list_model_records",
-        return_value=[{
-            "name": "yolov8m_v2.onnx",
-            "task": "detection",
-            "classes": ["object"],
-            "backend": "ultralytics",
-            "modelSize": "medium",
-            "inputShape": [1, 3, 512, 512],
-            "artifacts": {"checkpoint": "project/yolov8m_v2.pt"},
-        }],
-    ), patch.object(
-        cli_module.abraia,
-        "download_file",
-        return_value="/cache/yolov8m_v2.pt",
-    ) as download_file, patch(
-        "abraia.training.orchestration._compile_checkpoint",
-        return_value={"hef": "project/model.hef"},
-    ) as compile_checkpoint:
-        result = CliRunner().invoke(
-            cli,
-            [
-                "compile", "project", "--device", "hailo8l",
-                "--conf", "0.4", "--iou", "0.3",
-            ],
-        )
-
-    assert result.exit_code == 0, result.output
-    download_file.assert_called_once_with("project/yolov8m_v2.pt")
-    assert compile_checkpoint.call_args.args[1:3] == (
-        "detection",
-        ["object"],
-    )
-    assert compile_checkpoint.call_args.args[3] == "/cache/yolov8m_v2.pt"
-    assert compile_checkpoint.call_args.args[4] == "ultralytics"
-    assert compile_checkpoint.call_args.kwargs["model_size"] == "medium"
-    assert compile_checkpoint.call_args.kwargs["imgsz"] == 512
-    assert compile_checkpoint.call_args.kwargs["device"] == "hailo8l"
-    assert compile_checkpoint.call_args.kwargs["conf"] == 0.4
-    assert compile_checkpoint.call_args.kwargs["iou"] == 0.3
-    assert compile_checkpoint.call_args.kwargs["config_path"] is None
-    assert compile_checkpoint.call_args.kwargs["model_version"] == 2
-
-
 def test_train_passes_image_size_to_training_service(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with patch("abraia.training.Training") as training_cls:

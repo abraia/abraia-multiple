@@ -99,11 +99,18 @@ PIPELINES = {
                 'model': {
                     'task': 'detection',
                     'kind': 'yolov8',
-                    'uri': 'multiple/strawberry/yolov8n.onnx',
+                    'uri': 'multiple/strawberry/yolov8n-seg.onnx',
                     'labels': ['strawberry'],
                 },
             },
             {'type': 'tracker'},
+            {
+                'type': 'line_counter',
+                'line': [
+                    [1280, 0],
+                    [1280, 1080],
+                ],
+            },
         ],
         'display': {'show': True},
     },
@@ -408,10 +415,13 @@ def monitor_objects(
     demo='detect',
     resolution=(1280, 720),
     accelerator='auto',
+    output=None,
 ):
     """Monitor, count, or just detect objects in a video stream."""
     print(f"Available demos: {', '.join(PIPELINE_DEVICES.keys())}")
     selected = resolve_pipeline(demo, accelerator=accelerator)
+    if output is not None:
+        selected.setdefault('display', {})['dest'] = output
     src = _prepare_source(selected, src, resolution)
     _ensure_video_available(src)
 
@@ -459,32 +469,32 @@ def monitor_objects(
         )
 
 
-def track_faces(src=None, resolution=(1280, 720), accelerator='auto'):
+def track_faces(src=None, resolution=(1280, 720), accelerator='auto', output=None):
     """Track faces in a video stream from a file or webcam."""
     providers = onnx_providers(accelerator)
     recognition = FaceRecognizer(providers=providers)
     attribute = FaceAttribute(providers=providers)
     index = []
     src = src or 0
-    video = Video(src, resolution=resolution)
-    for frame in video:
-        results = recognition.detect_faces(frame)
-        faces = recognition.extract_faces(frame, results)
-        results = recognition.identify_faces(frame, results, index)
-        for k, (face, result) in enumerate(zip(faces, results)):
-            (h, w), (fh, fw) = frame.shape[:2], face.shape[:2]
-            frame = draw_overlay(frame, face, [w - fw, k * fh, fw, fh])
-            roll, yaw, pitch = find_pose(result['keypoints'])
-            draw_text_multiline(frame, [f"Roll: {roll} degrees",
-                                        f"Pitch: {pitch} degrees",
-                                        f"Yaw: {yaw} degrees"], (10, 140), text_color=(255, 0, 0), text_scale=0.6)
-            if result['label'] == 'unknown':
-                index.append({'name': f"face_{len(index)}", 'vector': result['vector']})
-            gender, age, score = attribute.predict(face)
-            print(f"{gender[0]} {age}, {score}")
-            result['label'] = f"{gender[0]} {age} ({result['label']})"
-        frame = render_results(frame, results)
-        video.show(frame)
+    with Video(src, resolution=resolution, dest=output) as video:
+        for frame in video:
+            results = recognition.detect_faces(frame)
+            faces = recognition.extract_faces(frame, results)
+            results = recognition.identify_faces(frame, results, index)
+            for k, (face, result) in enumerate(zip(faces, results)):
+                (h, w), (fh, fw) = frame.shape[:2], face.shape[:2]
+                frame = draw_overlay(frame, face, [w - fw, k * fh, fw, fh])
+                roll, yaw, pitch = find_pose(result['keypoints'])
+                draw_text_multiline(frame, [f"Roll: {roll} degrees",
+                                            f"Pitch: {pitch} degrees",
+                                            f"Yaw: {yaw} degrees"], (10, 140), text_color=(255, 0, 0), text_scale=0.6)
+                if result['label'] == 'unknown':
+                    index.append({'name': f"face_{len(index)}", 'vector': result['vector']})
+                gender, age, score = attribute.predict(face)
+                print(f"{gender[0]} {age}, {score}")
+                result['label'] = f"{gender[0]} {age} ({result['label']})"
+            frame = render_results(frame, results)
+            video.show(frame)
 
 
 def search_images(project, query="man with red shirt"):

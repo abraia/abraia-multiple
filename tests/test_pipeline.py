@@ -1212,9 +1212,10 @@ def test_plate_demo_is_available_to_monitor_objects():
             return None
 
     with patch("abraia.demo.Pipeline", FakePipeline):
-        demo.monitor_objects("camera", demo="plates")
+        demo.monitor_objects("camera", demo="plates", output="rendered.avi")
 
     assert FakePipeline.received["source"]["src"] == "camera"
+    assert FakePipeline.received["display"]["dest"] == "rendered.avi"
     model = next(
         step["model"] for step in FakePipeline.received["steps"]
         if step["type"] == "model"
@@ -1302,6 +1303,8 @@ def test_cli_routes_demo_accelerator_to_shared_monitor():
                 "video.mp4",
                 "--accelerator",
                 "hailo",
+                "--output",
+                "rendered.avi",
             ],
         )
 
@@ -1310,7 +1313,62 @@ def test_cli_routes_demo_accelerator_to_shared_monitor():
         "video.mp4",
         "tomato",
         accelerator="hailo",
+        output="rendered.avi",
     )
+
+
+def test_cli_routes_face_demo_output_to_tracker():
+    from click.testing import CliRunner
+    import abraia.cli as module
+
+    with patch("abraia.demo.track_faces") as track_faces:
+        result = CliRunner().invoke(
+            module.cli,
+            ["run", "demo", "faces", "video.mp4", "--output", "rendered.avi"],
+        )
+
+    assert result.exit_code == 0, result.output
+    track_faces.assert_called_once_with(
+        "video.mp4", accelerator="auto", output="rendered.avi"
+    )
+
+
+def test_cli_routes_project_output_to_pipeline_config():
+    from click.testing import CliRunner
+    import abraia.cli as module
+
+    class FakePipeline:
+        config = None
+
+        @classmethod
+        def from_dict(cls, config, accelerator="auto"):
+            cls.config = config
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self):
+            return None
+
+    config = {
+        "version": 2,
+        "source": {"type": "video", "src": "input.mp4"},
+        "steps": [],
+        "display": {"show": True},
+    }
+    with patch.object(module.abraia, "load_json", return_value=config), \
+            patch("abraia.runtime.Pipeline", FakePipeline):
+        result = CliRunner().invoke(
+            module.cli,
+            ["run", "my-project", "--output", "rendered.avi"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert FakePipeline.config["display"]["dest"] == "rendered.avi"
 
 
 def test_cli_run_uses_the_saved_pipeline():

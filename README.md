@@ -267,16 +267,26 @@ demos include `detect`, `segment`, `pose`, `people`, `queue`, `escalator`,
 face-tracking demo:
 
 ```sh
-abraia run demo DEMO_NAME [SOURCE] [--accelerator auto]
-abraia run demo faces [SOURCE] [--accelerator auto]
-abraia run PROJECT [CLASSES] [SOURCE] [--accelerator auto]
+abraia run demo DEMO_NAME [SOURCE] [--accelerator auto] [--output FILE]
+abraia run demo faces [SOURCE] [--accelerator auto] [--output FILE]
+abraia run PROJECT [SOURCE] [--accelerator auto] [--output FILE]
 abraia search PROJECT [QUERY]
 ```
 
-The `--accelerator` option applies to demos and can be `auto`, `onnx`, `cpu`,
-`gpu`, or `hailo`. For a project, `abraia run` executes a saved version-two
+The `--accelerator` option can be `auto`, `onnx`, `cpu`, `gpu`, or `hailo`.
+For a project, `abraia run` executes a saved version-two
 pipeline JSON when one is present in the project; otherwise it selects the
 project's highest-scoring ONNX model and runs it as a one-model pipeline.
+Pass `SOURCE` to override the configured input for that run. Use `--output FILE`
+to save the rendered video on the local machine for either a demo or project
+run. For example:
+
+```sh
+abraia run demo people input.mp4 --output result.avi
+abraia run demo faces input.mp4 --output result.avi
+abraia run PROJECT input.mp4 --output result.avi
+```
+
 `search` accepts a text query or a local image path; when omitted, the query
 defaults to `man with red shirt`.
 
