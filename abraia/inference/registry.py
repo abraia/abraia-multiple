@@ -13,6 +13,7 @@ from .model_config import (
     MODEL_SIZE_URIS,
     MODEL_DESCRIPTORS,
     ModelSpec,
+    _MODEL_DESCRIPTORS,
 )
 from .accelerators import (
     hailo_device_arch,
@@ -204,12 +205,21 @@ _MODEL_FACTORIES = {
 }
 
 
-def register_model_factory(kind, factory):
-    """Register a model adapter factory for a configured model kind."""
+def register_model_factory(kind, factory, *, descriptor=None):
+    """Register a model adapter and optional capabilities for a new kind.
+
+    Factories receive ``(spec, config, base_dir, session_options)`` and return
+    models implementing ``run(input, **options)`` and ``close()``. ``descriptor``
+    is a public ``ModelDescriptor`` used by runtime and editor validation.
+    Registration is process-local and replacing the same kind is supported.
+    Factories may run concurrently with source construction.
+    """
     if not isinstance(kind, str) or not kind:
         raise ValueError("model factory kind must be a non-empty string")
     if not callable(factory):
         raise TypeError("model factory must be callable")
+    if descriptor is not None:
+        _MODEL_DESCRIPTORS[kind] = descriptor
     _MODEL_FACTORIES[kind] = factory
 
 

@@ -59,6 +59,7 @@ class ModelDescriptor:
     uri_based: bool = False
     explicit_uri: bool = False
     runtime_options: bool = False
+    follow_up: bool = False
 
 
 _MODEL_ARCHITECTURE_ORDER = ("yolov5", "yolov8", "yolo9", "yolo11", "rtmdet")
@@ -139,7 +140,7 @@ DEFAULT_MODEL_URIS = {
 
 PIPELINE_MODEL_TASKS = PIPELINE_TASKS
 PIPELINE_HAILO_TASKS = HAILO_TASKS
-MODEL_DESCRIPTORS = MappingProxyType({
+_MODEL_DESCRIPTORS = {
     **{
         kind: ModelDescriptor(
             frozenset(
@@ -168,13 +169,9 @@ MODEL_DESCRIPTORS = MappingProxyType({
     "face": ModelDescriptor(frozenset({"detection", "recognition"})),
     "license_plate": ModelDescriptor(frozenset({"detection", "recognition"})),
     "ocr": ModelDescriptor(frozenset({"recognition"})),
-    "multispectral": ModelDescriptor(
-        frozenset({"classification"}),
-        uri_based=True,
-        explicit_uri=True,
-    ),
-})
-# The descriptor catalog is the supported pipeline model list.
+}
+MODEL_DESCRIPTORS = MappingProxyType(_MODEL_DESCRIPTORS)
+# Built-in kinds; registered extension kinds are validated through the catalog.
 PIPELINE_MODEL_KINDS = tuple(MODEL_DESCRIPTORS)
 
 
@@ -269,8 +266,8 @@ class ModelSpec:
         """Return the first invalid model field and its validation message."""
         if not self.kind:
             return "kind", "Pipeline model must define a model 'kind'"
-        if self.kind not in PIPELINE_MODEL_KINDS:
-            available = ", ".join(PIPELINE_MODEL_KINDS)
+        if self.kind not in MODEL_DESCRIPTORS:
+            available = ", ".join(MODEL_DESCRIPTORS)
             return (
                 "kind",
                 f"Unknown detector kind '{self.kind}'. Available detectors: {available}",
@@ -283,7 +280,6 @@ class ModelSpec:
                 "resnet": "Classification models require the classification task.",
                 "grounding_dino": "Grounding DINO models require the detection task.",
                 "ocr": "OCR models only support the recognition task.",
-                "multispectral": "Multispectral models require the classification task.",
             }.get(self.kind, f"{self.kind} models do not support the {self.task} task.")
             return "task", message
         if descriptor and descriptor.explicit_uri and not self.uri:

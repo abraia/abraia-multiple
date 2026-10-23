@@ -10,18 +10,18 @@ from pathlib import Path
 import threading
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional
+from collections.abc import Mapping
 
 from abraia.inference.model_config import ModelSpec
 
 from .composition import (
-    BoundModelStep,
     CropStep,
     FilterStep,
     LineCounter,
-    ModelStep,
     ProcessorStep,
     RegionTimer,
     filter_region,
+    create_model_step,
 )
 from .config import (
     SUPPORTED_STEP_TYPES,
@@ -30,7 +30,7 @@ from .config import (
     steps_missing_tracker,
     validate_step_structure,
 )
-from .sources import SPECTRAL_SUFFIXES, create_source, infer_source_type
+from .sources import create_source, infer_source_type
 
 
 logger = logging.getLogger(__name__)
@@ -128,13 +128,18 @@ def _make_pipeline_renderer(components, render_results=True, render_metrics=True
 
 @dataclass
 class FrameContext:
-    """State passed between pipeline steps for one frame."""
+    """State passed between pipeline steps for one frame.
+
+    ``frame`` is the display/model image; ``data`` is opaque source extension
+    data whose interpretation belongs to the extension. Steps read/write
+    ``current``, publish detections through ``results`` and may store named
+    intermediate values in ``artifacts`` or timings in ``metrics``.
+    """
 
     frame: Any
     frame_index: int
     frame_time: float
-    spectral_cube: Any = None
-    spectral_metadata: Any = None
+    data: Dict[str, Any] = field(default_factory=dict)
     results: List[dict] = field(default_factory=list)
     current: Any = None
     artifacts: Dict[str, Any] = field(default_factory=dict)
@@ -147,14 +152,10 @@ class FrameContext:
 
 
 def _source_frame_parts(source_frame):
-    """Return the RGB frame and optional backing spectral data."""
-    if hasattr(source_frame, "rgb") and hasattr(source_frame, "cube"):
-        return (
-            source_frame.rgb,
-            source_frame.cube,
-            getattr(source_frame, "metadata", None),
-        )
-    return source_frame, None, None
+    """Unpack an image and opaque extension data from a source item."""
+    if isinstance(source_frame, Mapping):
+        return source_frame["frame"], source_frame["data"]
+    return source_frame, {}
 
 
 class Pipeline:
@@ -275,7 +276,7 @@ class Pipeline:
                 inference_ms = None
                 stream_elapsed_ms = None
 
-            frame, spectral_cube, spectral_metadata = _source_frame_parts(
+            frame, data = _source_frame_parts(
                 source_frame
             )
             frame_time = (
@@ -287,8 +288,7 @@ class Pipeline:
                 frame,
                 frame_index,
                 frame_time,
-                spectral_cube=spectral_cube,
-                spectral_metadata=spectral_metadata,
+                data=data,
                 current=frame,
             )
             if inference_ms is not None:
@@ -303,7 +303,7 @@ class Pipeline:
                     results = item.results
                 else:
                     inference_started = time.perf_counter()
-                    results = self.model.run(source_frame, **self.model_kwargs)
+                    results = self.model.run(frame, **self.model_kwargs)
                     inference_ms = (time.perf_counter() - inference_started) * 1000
                     context.metrics["inference_ms"] = inference_ms
                 context.results = results
@@ -420,12 +420,6 @@ class Pipeline:
 
         root = Path(base_dir or os.getcwd())
         source, video_kwargs = _prepare_source(source_config, display_config, root)
-        spectral_source = (
-            isinstance(source, str) and source.lower().endswith(SPECTRAL_SUFFIXES)
-        ) or any(
-            model_spec.kind == "multispectral"
-            for _model_config, model_spec in model_plans
-        )
         video = None
         steps = []
         created_models = []
@@ -436,14 +430,13 @@ class Pipeline:
                 try:
                     for model_config, model_spec in model_plans:
                         model_kwargs = get_model_run_kwargs(model_config, model_spec)
-                        result_field = model_spec.result_field
                         model = _create_model_from_spec(
                             model_spec,
                             model_config,
                             base_dir=root,
                             accelerator=accelerator,
                         )
-                        created.append((model, model_kwargs, result_field))
+                        created.append((model, model_kwargs, model_spec))
                     return created
                 except Exception:
                     _close_resources([model for model, _kwargs, _field in created])
@@ -454,7 +447,7 @@ class Pipeline:
             # serially while keeping each resource owned by this build operation.
             with ThreadPoolExecutor(max_workers=2) as executor:
                 source_future = executor.submit(
-                    create_source, source, video_kwargs, spectral=spectral_source
+                    create_source, source, video_kwargs
                 )
                 models_future = executor.submit(create_models)
                 try:
@@ -479,20 +472,11 @@ class Pipeline:
                     continue
                 step_type = step.type
                 if step_type == "model":
-                    model, model_kwargs, result_field = next(model_iter)
-                    if model_index > 0:
-                        steps.append(BoundModelStep(
-                            step_id,
-                            model,
-                            field=result_field,
-                            model_kwargs=model_kwargs,
-                        ))
-                    else:
-                        steps.append(ModelStep(
-                            step_id,
-                            model,
-                            model_kwargs=model_kwargs,
-                        ))
+                    model, model_kwargs, model_spec = next(model_iter)
+                    steps.append(create_model_step(
+                        step_id, model, model_spec, model_kwargs,
+                        primary=model_index == 0,
+                    ))
                     model_index += 1
                 elif step_type == "filter":
                     steps.append(FilterStep(

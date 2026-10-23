@@ -237,7 +237,8 @@ def test_empty_segmentation_result_preserves_mask_dimensions():
     assert result["detection_scores"].shape == (0,)
 
 
-def test_hailo_pipeline_adapter_reorders_async_results(tmp_path):
+@pytest.mark.parametrize("with_data", (False, True))
+def test_hailo_pipeline_adapter_reorders_async_results(tmp_path, with_data):
     from abraia.inference.hailo import pipeline as hailo_pipeline
     from abraia.runtime import Pipeline
 
@@ -255,6 +256,7 @@ def test_hailo_pipeline_adapter_reorders_async_results(tmp_path):
             return 2, 2, 3
 
         def infer_batch(self, input_batch, emit, stop_event, image_batch=None):
+            assert all(isinstance(image, np.ndarray) for image in image_batch)
             for index in reversed(range(len(input_batch))):
                 emit(index, [{"value": int(input_batch[index][0, 0, 0])}])
 
@@ -265,6 +267,11 @@ def test_hailo_pipeline_adapter_reorders_async_results(tmp_path):
         np.full((4, 4, 3), value, dtype=np.uint8)
         for value in (1, 2, 3)
     ]
+    if with_data:
+        frames = [
+            {"frame": frame, "data": {"extension_value": index}}
+            for index, frame in enumerate(frames)
+        ]
 
     with patch.object(hailo_pipeline, "HAILO_AVAILABLE", True), \
          patch.object(hailo_pipeline, "ModelInference", FakeInference):
@@ -276,6 +283,7 @@ def test_hailo_pipeline_adapter_reorders_async_results(tmp_path):
     assert last.frame_index == 2
     assert last.results == [{"value": 3}]
     assert model.inference.closed
+    assert last.data == ({"extension_value": 2} if with_data else {})
 
 
 def test_hailo_pipeline_adapter_uses_model_json_labels(tmp_path):

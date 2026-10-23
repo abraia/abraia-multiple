@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Iterable, Optional
 
 from ..model_config import normalize_task
@@ -100,10 +101,16 @@ class HailoPipelineModel:
             batch.processed_frames,
             emit_result,
             stop_event=stop_event,
-            image_batch=[record.frame for record in batch.records],
+            image_batch=[
+                record.frame["frame"] if isinstance(record.frame, Mapping)
+                else record.frame
+                for record in batch.records
+            ],
         )
 
     def _preprocess_frame(self, frame):
+        if isinstance(frame, Mapping):
+            frame = frame["frame"]
         if self.model_type == "rtmdet":
             return rtmdet_preprocess(
                 frame,

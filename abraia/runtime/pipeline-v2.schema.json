@@ -22,7 +22,7 @@
       "type": "object",
       "required": ["src"],
       "properties": {
-        "type": {"enum": ["camera", "image", "video", "stream"]},
+        "type": {"type": "string", "minLength": 1},
         "src": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
         "resolution": {
           "type": "array",

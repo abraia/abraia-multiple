@@ -18,7 +18,6 @@ Inference runs through ONNX Runtime or a compatible Hailo accelerator.
 - [Python API](#python-api)
 - [Pipelines](#pipelines)
 - [Hardware acceleration](#hardware-acceleration)
-- [Development](#development)
 - [License](#license)
 
 ## Installation
@@ -39,7 +38,6 @@ The command shows where to obtain your key and saves it for future commands.
 You can also set the `ABRAIA_KEY` environment variable. Python applications
 use the same credentials or accept a key through `Abraia(abraia_key="...")`.
 
-For installation from a checkout, see [Development](#development).
 
 ## Quick start
 
@@ -242,6 +240,8 @@ with Pipeline.from_file("pipeline.json") as pipeline:
     pipeline.run()
 ```
 
+![People detected and counted](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.jpg)
+
 Use `Pipeline.from_dict(config)` to supply a Python dictionary instead of a
 file. For processing without a display window, set `display.show` to `false`;
 `display.dest` can still save the rendered video.
@@ -277,6 +277,8 @@ license plates and read their text:
 ```
 
 Run it with `Pipeline.from_file("plate_ocr.json").run()`.
+
+![License plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
 ### Choosing a model
 
@@ -314,6 +316,8 @@ To use Grounding DINO, replace a detection step's `model` object with:
 For face recognition, use `kind: "face"`, `task: "recognition"`, and
 `params: {"index": "faces.json", "threshold": 0.45}`. The index contains
 `name` and `vector` entries.
+
+![Face recognition results](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
 
 The full pipeline schema is packaged at
 [`abraia/runtime/pipeline-v2.schema.json`](abraia/runtime/pipeline-v2.schema.json).
@@ -400,27 +404,6 @@ Use `kind` in ONNX sidecars as well. Move model-family values such as
 `"backend": "rtmdet"` to `"kind": "rtmdet"`. Decoder selection follows
 `kind` and `task`; `model_type` overrides are no longer needed in pipeline
 parameters. A pipeline's explicit `kind` takes precedence over the sidecar.
-
-## Development
-
-From the repository root, install the complete dependency set and the SDK in
-editable mode. `requirements.txt` includes runtime, test, and coverage tools:
-
-```sh
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m pip install -e .
-```
-
-Run tests with coverage:
-
-```sh
-pytest -v tests/ --cov=abraia
-```
-
-Live service and model tests are skipped by default. To enable them, configure
-API credentials and set `ABRAIA_RUN_LIVE_TESTS=1`.
 
 ## License
 

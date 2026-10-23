@@ -7,7 +7,6 @@ from typing import Any, Optional
 
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".bmp")
 VIDEO_SUFFIXES = (".mp4", ".avi", ".mov", ".mkv")
-SPECTRAL_SUFFIXES = (".tif", ".tiff", ".hdr", ".raw", ".img")
 SOURCE_TYPE_ALIASES = {
     "images": "image",
     "usb_camera": "camera",
@@ -40,7 +39,7 @@ def infer_source_type(
         return "camera"
     if lowered.startswith(("rtsp://", "http://", "https://")):
         return "stream"
-    if lowered.endswith(IMAGE_SUFFIXES + SPECTRAL_SUFFIXES):
+    if lowered.endswith(IMAGE_SUFFIXES + tuple(_SOURCE_SUFFIXES)):
         if not require_exists or os.path.isfile(value):
             return image_type
     if lowered.endswith(VIDEO_SUFFIXES):
@@ -51,23 +50,41 @@ def infer_source_type(
     return fallback
 
 
-_SPECTRAL_SOURCE_FACTORY = None
+_SOURCE_FACTORIES = {}
+_SOURCE_SUFFIXES = {}
 
 
-def register_spectral_source(factory):
-    """Register the application supplied source for spectral data."""
+def register_source_factory(source_type, factory, *, suffixes=()):
+    """Register a source constructor and optional file suffixes.
+
+    The factory receives ``(path, **source_options)``. Sources yield images or
+    mappings with ``frame`` and ``data`` keys. Data is an opaque mapping passed
+    to ``FrameContext.data``. Sources implement iteration, ``frame_rate``,
+    ``set_display_enabled(enabled)`` and ``close()``; displayed sources also
+    implement ``show(frame)``. Register extensions in each worker process.
+    Re-registering a type replaces its factory and suffixes.
+    """
+    if not isinstance(source_type, str) or not source_type:
+        raise ValueError("Source type must be a non-empty string")
     if not callable(factory):
-        raise TypeError("Spectral source factory must be callable")
-    global _SPECTRAL_SOURCE_FACTORY
-    _SPECTRAL_SOURCE_FACTORY = factory
+        raise TypeError("Source factory must be callable")
+    for suffix, registered_type in tuple(_SOURCE_SUFFIXES.items()):
+        if registered_type == source_type:
+            del _SOURCE_SUFFIXES[suffix]
+    _SOURCE_FACTORIES[source_type] = factory
+    for suffix in suffixes:
+        _SOURCE_SUFFIXES[suffix.lower()] = source_type
 
 
-def create_source(source, video_kwargs, spectral=False):
-    """Create a standard or application supplied spectral frame source."""
-    if spectral:
-        if _SPECTRAL_SOURCE_FACTORY is None:
-            raise ValueError("Spectral pipeline support has not been registered")
-        return _SPECTRAL_SOURCE_FACTORY(source, **video_kwargs)
+def create_source(source, video_kwargs):
+    """Create a built-in source or a registered source by type/file suffix."""
+    source_type = video_kwargs.get("source_type")
+    factory = _SOURCE_FACTORIES.get(source_type)
+    if factory is None and isinstance(source, str):
+        registered_type = _SOURCE_SUFFIXES.get(Path(source).suffix.lower())
+        factory = _SOURCE_FACTORIES.get(registered_type)
+    if factory is not None:
+        return factory(source, **video_kwargs)
     from .video import Video
 
     return Video(source, **video_kwargs)
@@ -75,11 +92,10 @@ def create_source(source, video_kwargs, spectral=False):
 
 __all__ = [
     "IMAGE_SUFFIXES",
-    "SPECTRAL_SUFFIXES",
     "SOURCE_TYPE_ALIASES",
     "VIDEO_SUFFIXES",
     "create_source",
     "infer_source_type",
     "normalize_source_type",
-    "register_spectral_source",
+    "register_source_factory",
 ]

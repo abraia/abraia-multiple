@@ -23,7 +23,6 @@ PIPELINE_SECOND_STEP_MODEL_PAIRS = frozenset({
     ("face", "recognition"),
     ("license_plate", "recognition"),
     ("ocr", "recognition"),
-    ("multispectral", "classification"),
 })
 
 PIPELINE_STEP_DEFINITIONS = {
@@ -287,7 +286,9 @@ def validate_step_structure(steps, *, report_unsupported=True):
                 if (
                     model_spec.kind,
                     model_spec.task,
-                ) not in PIPELINE_SECOND_STEP_MODEL_PAIRS:
+                ) not in PIPELINE_SECOND_STEP_MODEL_PAIRS and not (
+                    model_spec.descriptor and model_spec.descriptor.follow_up
+                ):
                     errors.append(
                         f"Step {index}: model '{model_spec.kind}' with task "
                         f"'{model_spec.task}' cannot run as a second-step model."
@@ -343,13 +344,7 @@ SUPPORTED_MODEL_OPTIONS = (
 SUPPORTED_SECOND_STEP_MODEL_OPTIONS = tuple(
     option for option in SUPPORTED_MODEL_OPTIONS
     if (option[2], option[3]) in PIPELINE_SECOND_STEP_MODEL_PAIRS
-) + ((
-    "multispectral_classification",
-    "Multispectral classification",
-    "multispectral",
-    "classification",
-    "",
-),)
+)
 
 
 def model_defaults(kind, task):
@@ -374,7 +369,7 @@ def model_control_visibility(kind, task):
         "index": kind == "face" and task == "recognition",
         "labels": uses_uri,
         "confidence": True,
-        "iou": kind not in ("ocr", "resnet", "multispectral")
+        "iou": kind not in ("ocr", "resnet")
         and not (kind == "face" and task == "recognition"),
         "approx": kind in MODEL_ARCHITECTURES and task == "segmentation",
     }

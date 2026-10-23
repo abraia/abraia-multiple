@@ -7,6 +7,40 @@ from typing import Any, Iterable, Mapping, Optional
 from abraia.inference.geometry import point_in_polygon, segments_intersect
 
 
+_MODEL_STEP_FACTORIES = {}
+
+
+def register_model_step_factory(kind, factory):
+    """Register composition behavior for a model kind.
+
+    The factory receives ``(step_id, model, model_kwargs, *, primary)`` and
+    returns a callable step with ``close()`` and a ``model`` attribute. A step
+    receives ``FrameContext``, updates it and may return it. It owns its model
+    after construction; the runtime closes it on completion, failure or
+    cancellation. Construction failures leave model cleanup to the runtime.
+    Primary steps wrapping streaming models also implement
+    ``apply_results(context, results)`` for precomputed model outputs.
+    Register in each worker process; re-registration replaces the factory.
+    """
+    if not isinstance(kind, str) or not kind:
+        raise ValueError("Model step kind must be a non-empty string")
+    if not callable(factory):
+        raise TypeError("Model step factory must be callable")
+    _MODEL_STEP_FACTORIES[kind] = factory
+
+
+def create_model_step(step_id, model, spec, model_kwargs, *, primary):
+    """Build a registered model step or the built-in composition step."""
+    factory = _MODEL_STEP_FACTORIES.get(spec.kind)
+    if factory is not None:
+        return factory(step_id, model, model_kwargs, primary=primary)
+    if primary:
+        return ModelStep(step_id, model, model_kwargs=model_kwargs)
+    return BoundModelStep(
+        step_id, model, field=spec.result_field, model_kwargs=model_kwargs
+    )
+
+
 def count_objects(results):
     """Count object occurrences across detection results."""
     counts = {}
@@ -355,17 +389,10 @@ class BoundModelStep(CompositionStep):
         )
 
         regions = []
-        spectral_cube = getattr(context, "spectral_cube", None)
-        spectral_input = getattr(self.model, "input_kind", "image") == "spectral"
-        if spectral_input and spectral_cube is None:
-            raise ValueError(
-                f"Bound model step '{self.step_id}' requires a spectral source"
-            )
         for index, value in enumerate(selected):
             parent_id = str(value.get("id") or f"{self.step_id}-parent-{index}")
-            crop_source = spectral_cube if spectral_input else context.frame
             cropped, source_box = crop_region(
-                crop_source,
+                context.frame,
                 value.get("box"),
                 padding=self.crop_padding,
             )
@@ -526,4 +553,5 @@ __all__ = [
     "count_objects",
     "crop_region",
     "filter_region",
+    "register_model_step_factory",
 ]
