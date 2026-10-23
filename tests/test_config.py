@@ -4,16 +4,14 @@ from pathlib import Path
 import pytest
 
 from abraia import config
-from abraia.sources import normalize_source_type
+from abraia.runtime.sources import normalize_source_type
 from abraia.runtime.config import (
     PipelineDraft,
+    PipelineStep,
     format_points,
     parse_points,
-)
-from abraia.runtime.pipeline_schema import (
     is_valid_step_geometry,
     steps_missing_tracker,
-    PipelineStep,
 )
 
 
@@ -150,7 +148,7 @@ def test_disabled_dependency_steps_do_not_require_a_tracker():
 
 def test_runtime_exports_pipeline_step_schema_metadata():
     import abraia.runtime as runtime
-    from abraia.runtime.pipeline_schema import PIPELINE_STEP_DEFINITIONS
+    from abraia.runtime.config import PIPELINE_STEP_DEFINITIONS
 
     assert runtime.__all__ == ["Pipeline"]
     assert not hasattr(runtime, "PipelineStep")

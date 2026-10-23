@@ -5,377 +5,258 @@
 
 # Abraia Vision SDK
 
-The **Abraia Vision SDK** is a high-performance, edge-ready Python library and toolkit for computer vision, image processing, model training, and advanced inference. It unifies state-of-the-art vision models (such as YOLO, SAM, CLIP, and custom recognition pipelines) into a seamless API for production-ready applications, real-time video analysis, object tracking, and edge hardware deployment.
+Abraia is a Python SDK and command-line tool for computer vision and image
+processing. Use it to run vision models on images and video, combine inference
+with tracking and counting, edit images, and manage files in Abraia storage.
+Inference runs through ONNX Runtime or a compatible Hailo accelerator.
 
----
+## Contents
 
-## 📚 Table of Contents
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Command-line usage](#command-line-usage)
+- [Python API](#python-api)
+- [Pipelines](#pipelines)
+- [Hardware acceleration](#hardware-acceleration)
+- [Development](#development)
+- [License](#license)
 
-- [Installation](#-installation)
-- [Command-Line Interface](#-command-line-interface)
-- [Core Modules & Features](#-core-modules--features)
-  - [Public Python APIs](#public-python-apis)
-  - [Image Editing & Enhancement](#image-editing--enhancement)
-  - [Inference & Computer Vision](#inference--computer-vision)
-  - [Training & Dataset Operations](#training--dataset-operations)
-  - [Edge AI & Hardware Acceleration](#edge-ai--hardware-acceleration)
-  - [Object Processing Pipelines](#object-processing-pipelines)
-- [Real-Time Edge Object Counter](#real-time-edge-object-counter-on-raspberry-pi-with-hailo-npu)
-- [License](#-license)
+## Installation
 
----
-
-## 📦 Installation
-
-Install the Abraia SDK from PyPI:
+Install the SDK and its `abraia` command:
 
 ```sh
-pip install -U abraia
+python -m pip install -U abraia
 ```
 
-The default install uses the CPU build of ONNX Runtime. To run ONNX demos on
-an NVIDIA GPU on Linux, replace it with the CUDA build in the same Python
-environment:
-
-```sh
-python -m pip uninstall -y onnxruntime
-python -m pip install onnxruntime-gpu
-```
-
-Check that ONNX Runtime sees CUDA before starting the demo:
-
-```sh
-python -c "import onnxruntime as ort; print(ort.get_available_providers())"
-```
-
-The output should include `CUDAExecutionProvider`. Then run a demo with
-`--accelerator gpu`, for example `abraia run demo detect --accelerator gpu`.
-ONNX Runtime's GPU package must match the host's CUDA and cuDNN runtime; see
-the [ONNX Runtime CUDA provider requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)
-if CUDA is still missing from the provider list.
-
-For training and development, install the optional development extras:
-
-```sh
-pip install -U abraia[dev]
-```
-
-To train RTMDet detection or instance-segmentation models, install the optional
-extra and MMDetection's compiled MMCV dependency:
-
-```sh
-pip install -U openmim
-mim install mmengine
-mim install "mmcv>=2.0.0,<2.2.0"
-mim install mmdet
-pip install -U abraia[rtmdet]
-abraia train PROJECT --backend rtmdet
-```
-
-RTMDet training uses OpenMMLab's pretrained checkpoints by default.
-The trained model is exported and saved as a versioned ONNX artifact for
-Abraia's model catalog. ONNX export uses PyTorch and does not require MMDeploy;
-Abraia decodes the exported raw RTMDet heads at inference time. RTMDet can also
-be compiled to Hailo from its trained checkpoint; that separate path still
-uses MMDeploy to create its temporary DFC graph. Unlike the Ultralytics YOLO
-path, RTMDet compilation does not inject Hailo NMS; its detection HEF uses
-RTMDet host-side decoding and NMS in Abraia's Hailo inference path.
-
-LibreYOLO requires Python 3.10 or newer. To fine-tune its YOLOv9 detection
-models, install the optional extra:
-
-```sh
-pip install -U 'abraia[libreyolo]'
-abraia train PROJECT --backend libreyolo
-```
-
-The Python API accepts `backend="libreyolo"` in `Training.train()`. It uses the
-MIT YOLOv9-t, YOLOv9-s, and YOLOv9-c checkpoints for Abraia's small, medium,
-and large sizes, then saves a versioned ONNX model and its training checkpoint.
-LibreYOLO YOLOv9 exports can also be used by `abraia.runtime` and pipeline
-configuration with kind `yolo9`; the shared small, medium, and large URIs are
-`multiple/models/yolo9t.onnx`, `yolo9s.onnx`, and `yolo9c.onnx`.
-
-To compile a trained checkpoint to Hailo, install both extras and select a
-supported target:
-
-```sh
-pip install -U 'abraia[libreyolo,hailo]'
-abraia compile PROJECT --device hailo8
-```
-
-The compile step exports static ONNX and uses the Hailo DFC for Hailo-8,
-Hailo-8L, or Hailo-10H. It produces a HEF with raw YOLOv9 detection heads;
-Abraia's Hailo runtime does not yet decode those outputs. LibreYOLO notes that
-YOLOv9 compilation has not been validated end to end on a running Hailo device.
-After fine-tuning with the `multiple` account configured in `.env`, publish the
-trained model and its inference metadata by passing `publish_common=True` to
-`Training.train()` or `--publish-common` to `abraia train`. Existing shared
-files are never overwritten.
-
-To export Ultralytics detection or segmentation models to Hailo HEF, install
-the Hailo extra:
-
-```sh
-pip install -U abraia[hailo]
-```
-
-The Hailo Dataflow Compiler is not installed by Abraia. Install the matching
-DFC separately using Hailo's instructions before compiling: Hailo-8/8L use
-DFC 3.33.1; Hailo-10H/15H/15L use DFC 5.2.0. Compilation requires a compatible
-Linux x86_64 environment.
-
-Hailo compilation runs on Linux x86_64. After preparing a dataset, compile a
-trained checkpoint with:
-
-```sh
-abraia compile PROJECT --device hailo8l
-```
-
-The command uploads the HEF and the complete Ultralytics Hailo sidecar bundle
-to the project. Hailo-8/8L use DFC 3.33.1, while Hailo-10H/15H/15L use DFC
-5.2.0; select the target matching the deployment accelerator.
-
----
-
-## 🖥️ Command-Line Interface
-
-Installing the package also installs the `abraia` command. Use
-`abraia --help` or `abraia COMMAND --help` for the complete option list.
-
-### Python SDK
-
-Use `Abraia` for remote files, metadata, and image operations. It reads the
-`ABRAIA_KEY` environment variable or the credentials saved by `abraia
-configure`; you can also pass the key directly:
-
-```python
-from abraia import Abraia, APIError
-
-client = Abraia()  # or Abraia(abraia_key="...")
-
-try:
-    files, folders = client.list_files("images/")
-    remote_path = client.upload_file("images/input.jpg", "examples/input.jpg")
-    local_path = client.download_file(remote_path, "downloads/input.jpg")
-    client.transform_image(
-        remote_path,
-        "downloads/input-small.jpg",
-        params={"width": 640},
-    )
-except APIError as error:
-    print(f"Abraia API error ({error.code}): {error}")
-```
-
-`list_files` returns `(files, folders)`, `upload_file` returns the remote path,
-and `download_file` returns the local cached or destination path. The client
-also provides `check_file`, `move_file`, `remove_file`, metadata operations,
-and load/save methods for files, JSON, and images. Image transforms write to
-the destination path.
-
-### Authentication and file management
-
-Configure the SDK with the Abraia API key. The command only prompts for the
-API key and stores it for subsequent commands:
+For remote file operations, configure your Abraia API key:
 
 ```sh
 abraia configure
 ```
 
-Manage remote files and inspect available datasets:
+The command shows where to obtain your key and saves it for future commands.
+You can also set the `ABRAIA_KEY` environment variable. Python applications
+use the same credentials or accept a key through `Abraia(abraia_key="...")`.
+
+For installation from a checkout, see [Development](#development).
+
+## Quick start
+
+Run object detection on a local video and save the rendered result:
 
 ```sh
-abraia files list [FOLDER]
-abraia files upload LOCAL_PATH [REMOTE_FOLDER]
-abraia files download REMOTE_PATH [LOCAL_FOLDER]
-abraia files remove REMOTE_PATH
-abraia files metadata [--remove] REMOTE_PATH
-abraia list
+abraia run demo detect input.mp4 --output result.avi
 ```
 
-`files upload` accepts a file or directory. Removing files asks for
-confirmation before making changes.
-
-### Dataset creation and annotation
-
-Create or update a dataset from uploaded files, optionally adding images from
-a search query and preprocessing them:
+Use camera `0` instead of a video file:
 
 ```sh
-abraia create PROJECT [QUERY] [--anonymize] [--upscale PIXELS]
+abraia run demo detect 0
 ```
 
-`--anonymize` blurs faces and license plates, while `--upscale` enlarges
-images below the selected size threshold. Annotate a dataset with
-Grounding DINO using a text label, optionally generating segmentation masks:
+Choose another demo to change the workflow:
 
 ```sh
-abraia annotate PROJECT LABEL [--segment]
+abraia run demo segment input.mp4
+abraia run demo pose input.mp4
+abraia run demo people input.mp4
+abraia run demo faces input.mp4
 ```
 
-### Training and Hailo compilation
+`--output` saves rendered video locally. `--accelerator` selects `auto`, `onnx`,
+`cpu`, `gpu`, or `hailo`; the default is `auto`. See
+[Hardware acceleration](#hardware-acceleration) for backend setup.
 
-Prepare and train a model on a dataset. Detection and segmentation can use
-Ultralytics (the default) or RTMDet; detection can also use LibreYOLO YOLOv9.
-Ultralytics models can be compiled to a Hailo HEF bundle:
+## Command-line usage
+
+Use `abraia --help` or `abraia COMMAND --help` for available options. In the
+command reference below, uppercase names are placeholders and brackets mark
+optional arguments.
+
+### Remote files
 
 ```sh
-abraia train PROJECT [EPOCHS]
-abraia train PROJECT [EPOCHS] --backend rtmdet
-
-abraia compile PROJECT \
-  --device hailo8l \
-  --conf 0.25 \
-  --iou 0.7
+abraia list [FOLDER]
+abraia upload LOCAL_PATH [REMOTE_FOLDER]
+abraia download REMOTE_PATH [LOCAL_FOLDER]
+abraia remove REMOTE_PATH
+abraia metadata [--remove] REMOTE_PATH
 ```
 
-Compilation uses the checkpoint saved with the latest versioned training
-model in the project, downloading it from cloud storage as needed. It supports
-`hailo8`, `hailo8l`, `hailo10h`, `hailo15h`, and
-`hailo15l`. RTMDet compilation exports a temporary ONNX graph from the trained
-checkpoint, uses it for Hailo compilation, then removes it. The normal
-versioned ONNX export remains available separately. The DFC may reject
-MMDeploy operators, especially for instance segmentation. Detection HEFs use
-host-side confidence filtering and NMS. Segmentation HEFs require `dets`,
-`labels`, and `masks` outputs in the compiled graph.
-Pass `--conf` and `--iou` to set confidence and NMS IoU thresholds; both
-accept values from 0 to 1 and otherwise use the compiler defaults. RTMDet
-compilation uses the input size embedded in its ONNX file and calibration
-images from the project's training split. Ultralytics uses the project's
-`data.yaml`. Abraia uses the DFC already installed in the environment and
-does not download or install compiler wheels.
+`upload` accepts a file or directory. `remove` lists matching files and asks
+for confirmation before deleting them. `metadata` displays metadata unless
+`--remove` is supplied.
 
-### Dataset curation and pruning
-
-Analyze an image dataset for exact and similar duplicates, outliers, blurry
-images, exposure issues, and invalid files:
-
-```sh
-abraia curate PROJECT
-```
-
-The command is a dry run by default and prints a JSON report. Apply duplicate,
-blur, and invalid-image recommendations with `--apply`; include outlier
-removals only after review with `--apply-outliers`. Use `--yes` with `--apply`
-to skip the deletion confirmation in automation.
-
-### Demos and inference
-
-Run a built-in, pipeline-backed demo or a trained project. Built-in object
-demos include `detect`, `segment`, `pose`, `people`, `queue`, `escalator`,
-`tomato`, `apple`, `strawberry`, `grapes`, and `plates`; `faces` selects the
-face-tracking demo:
+### Demos and saved projects
 
 ```sh
 abraia run demo DEMO_NAME [SOURCE] [--accelerator auto] [--output FILE]
-abraia run demo faces [SOURCE] [--accelerator auto] [--output FILE]
 abraia run PROJECT [SOURCE] [--accelerator auto] [--output FILE]
-abraia search PROJECT [QUERY]
 ```
 
-The `--accelerator` option can be `auto`, `onnx`, `cpu`, `gpu`, or `hailo`.
-For a project, `abraia run` executes a saved version-two
-pipeline JSON when one is present in the project; otherwise it selects the
-project's highest-scoring ONNX model and runs it as a one-model pipeline.
-Pass `SOURCE` to override the configured input for that run. Use `--output FILE`
-to save the rendered video on the local machine for either a demo or project
-run. For example:
+Available demos are `detect`, `segment`, `pose`, `people`, `queue`, `escalator`,
+`tomato`, `apple`, `strawberry`, `grapes`, `plates`, and `faces`. A supplied
+source overrides the demo's configured camera or video.
+
+A project run loads `PROJECT/pipeline.json` from Abraia storage. First create
+a [pipeline configuration](#pipelines), then upload it to your project:
 
 ```sh
-abraia run demo people input.mp4 --output result.avi
-abraia run demo faces input.mp4 --output result.avi
-abraia run PROJECT input.mp4 --output result.avi
+abraia upload pipeline.json my-project/
+abraia run my-project input.mp4 --output result.avi
 ```
 
-`search` accepts a text query or a local image path; when omitted, the query
-defaults to `man with red shirt`.
+The project must contain `pipeline.json`; a project run does not select a
+trained model automatically. Omit the source to use the one saved in the
+pipeline.
 
----
+### Image search
 
-## 🚀 Core Modules & Features
+Search a remote project's images using a text query or a local reference image:
 
-### Public Python APIs
+```sh
+abraia search my-project "man with red shirt"
+abraia search my-project reference.jpg
+```
 
-The package keeps a small set of supported entry points at its public module
-boundaries:
+## Python API
 
-- `abraia` exports `Abraia`, `APIError`, and `config` for remote file and image
-  operations.
-- `abraia.editing` exports `anonymize_image`, `blur_background`,
-  `clean_image`, `inpaint_image`, `remove_background`, `smartcrop_image`, and
-  `upscale_image`.
-- `abraia.inference` exports `load_model` and `register_model_factory` for
-  configured model adapters.
-- `abraia.runtime` exports `Pipeline`, the Python entry point for saved
-  inference workflows.
-- `abraia.training` exports `Training` for model training, evaluation, listing,
-  and compilation.
-- `abraia.dataset` exports `create_dataset`, `delete_dataset`,
-  `list_datasets`, and `load_dataset`.
+The public entry points are:
 
-Use imports from these module boundaries in applications. Implementation
-modules such as `abraia.runtime.video`, `abraia.inference.hailo`, and
-`abraia.utils` are internal and do not define the supported package-level API.
+| Module | Entry points | Purpose |
+| --- | --- | --- |
+| `abraia` | `Abraia`, `APIError`, `config` | Remote files, metadata, image transforms, and credentials |
+| `abraia.editing` | Image editing functions | Background removal, cropping, upscaling, anonymization, and inpainting |
+| `abraia.inference` | `load_model`, `register_model_factory` | Load configured models or register an adapter |
+| `abraia.runtime` | `Pipeline` | Run a configured workflow over an image or video source |
+| `abraia.utils` | `load_image`, `save_image`, `show_image`, `encode_image`, `image_base64`, `render_results` | Load, save, display, encode images, and render inference results |
 
-### Image Editing & Enhancement
-
-`abraia.editing` provides super-resolution upscaling, smart cropping,
-background removal, inpainting, anonymization, blur, and image cleanup.
-
-### Inference & Computer Vision
-
-The `run` command executes saved pipelines and built-in model workflows.
-Pipeline JSON selects detection, segmentation, classification, OCR, face,
-plate, and open-vocabulary models, plus tracking and region operations. Use
-`abraia.runtime.Pipeline` to run the same workflows from Python.
-
-### Training & Dataset Operations
-
-Train custom classification, detection, and segmentation models with the
-`Training` service or the `abraia train` command:
+### Remote files and image transforms
 
 ```python
 from abraia import Abraia
-from abraia.training import Training
 
-training = Training(Abraia())
-result = training.train("PROJECT", model_size="medium")
-print(result["stats"])
+client = Abraia()
+remote_path = client.upload_file("input.jpg", "examples/input.jpg")
+files, folders = client.list_files("examples/")
+local_path = client.download_file(remote_path, "downloads/input.jpg")
+client.transform_image(
+    remote_path,
+    "downloads/input-small.jpg",
+    params={"width": 640},
+)
 ```
 
-`Training.list_models()` lists saved models, and `Training.evaluate()` and
-`Training.compile()` operate on a selected saved model. Training supports
-small, medium, and large model sizes; detection and segmentation can use
-Ultralytics YOLOv8n/m/l or the optional RTMDet backend, LibreYOLO YOLOv9
-supports detection, and classification uses ResNet18/50/101. Ultralytics
-detection and segmentation models can be exported to Hailo HEF through
-`Training.compile()` or `abraia compile`.
-Dataset creation and deletion are available from `abraia.dataset`. Dataset
-curation and pruning use built-in Pillow and NumPy image analysis.
+`list_files()` returns `(files, folders)`. `upload_file()` returns the remote
+path, and `download_file()` returns a local path. `transform_image()` writes
+the transformed image to its local destination. Remote API failures raise
+`APIError`, whose `code` attribute contains the HTTP status code.
 
-### Edge AI & Hardware Acceleration
+The client also provides `check_file`, `move_file`, `remove_file`, metadata
+operations, and load/save methods for JSON and images.
 
-The optional Hailo runtime is used internally by configured pipelines.
+### Image editing
 
-#### Object Processing Pipelines
+Editing functions accept RGB NumPy arrays. For example, remove an image's
+background and save the transparent result:
 
-Object detection, tracking, and counting workflows can be configured in a
-JSON file and run from Python:
+```python
+from abraia.editing import remove_background
+from abraia.utils import load_image, save_image
+
+image = load_image("input.jpg")
+result = remove_background(image)
+save_image(result, "cutout.png")
+```
+
+`load_image()` applies EXIF orientation, returns an RGB array by default, and
+limits the longest edge to 2048 pixels. Pass `max_size=None` to keep the full
+resolution, or `mode="RGBA"` to preserve transparency. `save_image(image, path)`
+creates missing parent directories. Use `encode_image()` for encoded bytes,
+`image_base64()` for a data URL, or `show_image()` to open an image for viewing.
+
+Other editing functions are `anonymize_image`, `blur_background`,
+`clean_image`, `inpaint_image`, `smartcrop_image`, and `upscale_image`.
+Model-backed operations load their models when first used.
+
+### Inference on an image
+
+Load a configured detector and pass it an RGB image:
+
+```python
+from abraia.inference import load_model
+from abraia.utils import load_image
+
+image = load_image("input.jpg")
+with load_model({"kind": "yolov8", "task": "detection", "size": "small"}) as model:
+    results = model.run(image, conf_threshold=0.35)
+print(results)
+```
+
+Use a pipeline when you also need video input, tracking, counting, or rendered
+output.
+
+## Pipelines
+
+A pipeline is a version-two JSON document containing a `source`, ordered
+`steps`, and optional `display` settings. The first step runs a model; later
+steps process its results. Sources can be cameras, images, videos, or streams.
+
+### Detection, tracking, and counting
+
+Save the following as `pipeline.json`. It detects people, tracks them across
+frames, counts crossings of a line, and writes a rendered video:
+
+```json
+{
+  "version": 2,
+  "source": {"type": "video", "src": "input.mp4"},
+  "steps": [
+    {
+      "type": "model",
+      "model": {
+        "kind": "yolov8",
+        "task": "detection",
+        "size": "small",
+        "labels": ["person"],
+        "conf_threshold": 0.35
+      }
+    },
+    {"type": "tracker"},
+    {"type": "line_counter", "line": [[100, 360], [1180, 360]]}
+  ],
+  "display": {"show": true, "dest": "result.avi"}
+}
+```
+
+Line and polygon coordinates are in source-image pixels. Adjust them to your
+video's resolution and the area you want to monitor.
+
+Run the local configuration from Python:
 
 ```python
 from abraia.runtime import Pipeline
 
-Pipeline.from_file("pipeline.json").run()
+with Pipeline.from_file("pipeline.json") as pipeline:
+    pipeline.run()
 ```
 
-Pipelines use ordered version-two steps for inference. Step identifiers are
-generated internally from their order and are omitted from saved documents. A
-pipeline can
-use up to two models, along with `filter`, `crop`, `tracker`, `line_counter`,
-`region_filter`, and `region_timer` steps. These steps consume the preceding
-step results automatically. The second model runs on regions from the
-preceding results and attaches its output to the matching detections. For
-example, a license-plate detector can pass each detected plate to OCR:
+Use `Pipeline.from_dict(config)` to supply a Python dictionary instead of a
+file. For processing without a display window, set `display.show` to `false`;
+`display.dest` can still save the rendered video.
+
+Besides `tracker` and `line_counter`, pipelines support `filter`, `crop`,
+`region_filter`, and `region_timer`. Filters select detections, crops produce
+regions for further processing, and region steps restrict or time activity
+inside a polygon. Tracking must precede counting and region timing.
+
+### Combining two models
+
+A pipeline can contain up to two model steps. The second model processes
+regions from the preceding results and attaches its output to the matching
+detections. For example, save this configuration as `plate_ocr.json` to detect
+license plates and read their text:
 
 ```json
 {
@@ -384,265 +265,163 @@ example, a license-plate detector can pass each detected plate to OCR:
   "steps": [
     {
       "type": "model",
-      "model": {"task": "detection", "kind": "license_plate"}
+      "model": {"kind": "license_plate", "task": "detection"}
     },
     {
       "type": "model",
-      "model": {"task": "recognition", "kind": "ocr"}
+      "model": {"kind": "ocr", "task": "recognition"}
     }
   ],
   "display": {"show": true}
 }
 ```
 
-The OCR step crops each detected plate, recognizes its text, and adds the
-recognition result to that detection. Run a version-two file the same way:
+Run it with `Pipeline.from_file("plate_ocr.json").run()`.
 
-```python
-from abraia.runtime import Pipeline
+### Choosing a model
 
-Pipeline.from_file("plate_ocr.json").run()
-```
+Each model configuration uses `kind` for the model family and `task` for the
+operation. Common combinations include:
 
-The pipeline v2 JSON Schema is included with the package at
-`abraia/runtime/pipeline-v2.schema.json`.
+| `kind` | `task` | Model selection |
+| --- | --- | --- |
+| `yolov8` | `detection`, `segmentation`, `pose` | Built-in small, medium, or large preset, or explicit `uri` |
+| `yolo9` | `detection` | Built-in small, medium, or large preset, or explicit `uri` |
+| `yolov5`, `yolo11` | `detection`, `segmentation`, `pose` | Explicit `uri` |
+| `rtmdet` | `detection`, `segmentation` | Built-in small, medium, or large preset, or explicit `uri` |
+| `resnet` | `classification` | Explicit model `uri` |
+| `grounding_dino` | `detection` | Built-in model with labels or a text prompt |
+| `face` | `detection`, `recognition` | Built-in models; recognition can use a face index |
+| `license_plate` | `detection`, `recognition` | Built-in plate detection or recognition workflow |
+| `ocr` | `recognition` | Built-in text detection and recognition |
 
-##### People monitoring
+`size` selects `small`, `medium`, or `large` where presets are available. An
+explicit `uri` selects your own model. It can refer to a local file or an
+Abraia storage path. Managed model assets are downloaded and cached as needed.
 
-Use this configuration for people tracking and line counting. The CLI provides
-the same pipeline-backed workflow:
-
-```sh
-abraia run demo people people-walking.mp4 --accelerator auto
-```
-
-![people detected](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.jpg)
-
-For model-backed entries, `kind` identifies the model architecture or family
-(`yolov8`, `yolov5`, `yolo11`, or `rtmdet`), while `task` identifies the operation
-(`detection`, `segmentation`, `pose`, or `classification`). The runtime selects
-ONNX or Hailo from the model URI (`.onnx` or `.hef`). RTMDet supports detection
-and segmentation, including host-side Hailo postprocessing.
-
-Built-in detectors do not require a model URI. For example:
-
-```json
-"model": {
-  "task": "detection",
-  "kind": "license_plate",
-  "params": {"threshold": 0.85, "iou_threshold": 0.15}
-}
-```
-
-##### License-plate recognition
-
-Use `kind: "license_plate"` to select the built-in license-plate recognition
-workflow.
-
-![car license plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
-
-The runtime also includes Abraia-managed object-detection,
-instance-segmentation, pose-estimation, and classification presets. Each task
-has small (`n`), medium (`m`), and large (`l`) model URIs, for example
-`multiple/models/yolov8n.onnx`, `multiple/models/yolov8m.onnx`, and
-`multiple/models/yolov8l.onnx` for object detection.
-Pipeline JSON can select a size without spelling out the URI:
-
-```json
-"model": {
-  "task": "pose",
-  "kind": "yolov8",
-  "size": "small"
-}
-```
-
-Grounding DINO detects labels supplied at inference time. The Abraia-managed
-tiny ONNX model uses a fixed 800x800 input:
+To use Grounding DINO, replace a detection step's `model` object with:
 
 ```json
 {
-  "task": "detection",
   "kind": "grounding_dino",
-  "uri": "multiple/models/grounding_dino_tiny.onnx",
+  "task": "detection",
   "labels": ["person", "red car"],
   "conf_threshold": 0.35,
   "text_threshold": 0.25
 }
 ```
 
-The equivalent Python API accepts either `labels=[...]` or a free-form
-`prompt="person. red car."`.
+For face recognition, use `kind: "face"`, `task: "recognition"`, and
+`params: {"index": "faces.json", "threshold": 0.45}`. The index contains
+`name` and `vector` entries.
 
-OCR recognition is available as a built-in model:
+The full pipeline schema is packaged at
+[`abraia/runtime/pipeline-v2.schema.json`](abraia/runtime/pipeline-v2.schema.json).
 
-```json
-"model": {
-  "task": "recognition",
-  "kind": "ocr",
-  "params": {"drop_score": 0.5}
-}
+## Hardware acceleration
+
+### ONNX Runtime: CPU and GPU
+
+The default installation includes the CPU build of ONNX Runtime.
+`--accelerator cpu` forces CPU execution; `onnx` uses the available ONNX Runtime providers.
+The default `auto` prefers a compatible Hailo device and model, then falls
+back to ONNX Runtime.
+
+For an NVIDIA GPU on Linux, replace the CPU package in the same environment:
+
+```sh
+python -m pip uninstall -y onnxruntime
+python -m pip install onnxruntime-gpu
+python -c "import onnxruntime as ort; print(ort.get_available_providers())"
 ```
 
-Face recognition uses a JSON index containing `name` and `vector` entries:
+Check that the provider list includes `CUDAExecutionProvider`, then run:
 
-```json
-"model": {
-  "task": "recognition",
-  "kind": "face",
-  "params": {"index": "faces.json", "threshold": 0.45}
-}
+```sh
+abraia run demo detect input.mp4 --accelerator gpu
 ```
 
-##### Face recognition
+The GPU package must match the host's CUDA and cuDNN versions. See the
+[ONNX Runtime CUDA provider requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)
+for compatibility details.
 
-Use `kind: "face"` to select the built-in face-recognition workflow. The
-pipeline keeps the source, model, index, steps, display, and accelerator
-selection in one configuration.
+### Hailo and Raspberry Pi
 
-![rolling stones identified](https://github.com/abraia/abraia-multiple/raw/master/images/rolling-stones-identified.jpg)
+Install the Hailo platform runtime and connect a compatible device. A model
+must be compiled for the device's architecture, such as Hailo-8 or Hailo-8L.
+The SDK accepts local HEF files, Hailo export directories, and Abraia storage
+paths. Model metadata uses JSON sidecars; YAML metadata is no longer read.
 
-Hailo models use the asynchronous producer/consumer runtime internally. The
-pipeline keeps completed frames ordered before applying tracking and counting
-steps:
+For a supported demo, select Hailo explicitly:
 
-```json
-"model": {
-  "task": "detection",
-  "kind": "yolov8",
-  "uri": "multiple/models/yolov8n_hailo8.hef",
-  "conf_threshold": 0.25,
-  "params": {"batch_size": 1}
-}
+```sh
+abraia run demo people input.mp4 --accelerator hailo
 ```
 
-The Hailo platform runtime must be installed and a compatible device must be
-available. The model URI may be a local `.hef` file, a native Ultralytics Hailo
-export directory, or an uploaded Abraia `.hef` path. Native bundle metadata
-supplies the task and class labels automatically; explicit `task` or `labels`
-values still override it. Uploaded assets under `multiple/models/` are fetched
-from the managed model cache. Demo pipelines derive the
-architecture-specific HEF URI from the canonical ONNX URI; explicit local
-paths remain supported. Hailo no longer resolves external Model Zoo downloads
-or bare logical model names.
-
-The built-in RTMDet ONNX models use the same managed model paths as other
-Abraia inference models. Select a detection or segmentation size in a pipeline:
-
-```json
-"model": {
-  "kind": "rtmdet",
-  "task": "detection",
-  "size": "small"
-}
-```
-
-Detection models are `multiple/models/rtmdet_{small,medium,large}_v1.onnx`;
-segmentation models use `multiple/models/rtmdet_ins_{small,medium,large}_v1.onnx`.
-Custom RTMDet ONNX files can still be selected with an explicit `uri`.
-
-RTMDet uses fixed model-specific preprocessing in Abraia. Its HEF bundles use
-their `abraia.json` sidecar for labels and host-side NMS settings.
-
----
-
-## 🍓 Real-Time Edge Object Counter on Raspberry Pi with Hailo NPU
-
-Deploy high-performance real-time object detection and counting on a Raspberry Pi equipped with a Hailo AI expansion board (such as Hailo-8 or Hailo-8L). This pipeline combines hardware-accelerated model inference, tracking, line crossing counts, and region timers through the shared `abraia.runtime.Pipeline`.
-
-### Implementation Guide
-
-Save this configuration as `edge_counter.json` and adjust the source,
-coordinates, and model URI for the target installation:
+For a custom pipeline, replace its `model` object with a compatible HEF, for
+example:
 
 ```json
 {
-  "version": 2,
-  "source": {
-    "type": "camera",
-    "src": 0,
-    "resolution": [
-      1920,
-      1080
-    ],
-    "fps": 30,
-    "video_unpaced": false
-  },
-  "steps": [
-    {
-      "type": "model",
-      "model": {
-        "task": "detection",
-        "kind": "yolov8",
-        "uri": "multiple/models/yolov8n_hailo8.hef",
-        "params": {
-          "batch_size": 1,
-          "score_threshold": 0.3
-        }
-      }
-    },
-    {
-      "type": "tracker",
-      "enabled": true
-    },
-    {
-      "type": "line_counter",
-      "line": [
-        [
-          100,
-          540
-        ],
-        [
-          1820,
-          540
-        ]
-      ]
-    },
-    {
-      "type": "region_timer",
-      "polygon": [
-        [
-          300,
-          200
-        ],
-        [
-          1620,
-          200
-        ],
-        [
-          1620,
-          900
-        ],
-        [
-          300,
-          900
-        ]
-      ]
-    }
-  ],
-  "display": {
-    "show": true
-  }
+  "kind": "yolov8",
+  "task": "detection",
+  "uri": "multiple/models/yolov8n_hailo8.hef",
+  "conf_threshold": 0.3
 }
 ```
 
-Run the saved pipeline from Python:
+This example targets Hailo-8. Choose a HEF matching your own device. On a
+Raspberry Pi, the counting pipeline above can use a camera source such as
+`{"type": "camera", "src": 0, "resolution": [1280, 720], "fps": 30}`.
+
+The same Python entry point runs the pipeline:
 
 ```python
 from abraia.runtime import Pipeline
 
-Pipeline.from_file("edge_counter.json").run()
+with Pipeline.from_file("pipeline.json", accelerator="hailo") as pipeline:
+    pipeline.run()
 ```
 
-### Deployment on Raspberry Pi
+Hailo bundles use `abraia.json` for the model family (`kind`), operation
+(`task`), labels (`classes`), and host-side decoding settings. For example:
 
-Execute the pipeline directly on the Raspberry Pi:
+```json
+{
+  "kind": "rtmdet",
+  "task": "segmentation",
+  "classes": ["tomato", "leaf"],
+  "confidenceThreshold": 0.25,
+  "iouThreshold": 0.7
+}
+```
+
+Use `kind` in ONNX sidecars as well. Move model-family values such as
+`"backend": "rtmdet"` to `"kind": "rtmdet"`. Decoder selection follows
+`kind` and `task`; `model_type` overrides are no longer needed in pipeline
+parameters. A pipeline's explicit `kind` takes precedence over the sidecar.
+
+## Development
+
+From the repository root, install the complete dependency set and the SDK in
+editable mode. `requirements.txt` includes runtime, test, and coverage tools:
 
 ```sh
-python3 -c 'from abraia.runtime import Pipeline; Pipeline.from_file("edge_counter.json").run()'
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
----
+Run tests with coverage:
 
-## 📄 License
+```sh
+pytest -v tests/ --cov=abraia
+```
+
+Live service and model tests are skipped by default. To enable them, configure
+API credentials and set `ABRAIA_RUN_LIVE_TESTS=1`.
+
+## License
 
 This project is licensed under the [MIT License](LICENSE).

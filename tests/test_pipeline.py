@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
@@ -186,6 +186,7 @@ def test_pipeline_run_without_cancellation_callback_uses_noop_cancellation():
 
 def test_pipeline_honors_cancellation_before_processing_next_frame():
     cancelled = [False]
+    released = Event()
 
     class Source:
         frame_rate = 30
@@ -193,7 +194,11 @@ def test_pipeline_honors_cancellation_before_processing_next_frame():
         def __iter__(self):
             yield "frame-1"
             cancelled[0] = True
+            assert released.wait(timeout=3), "Cancellation did not unblock the source"
             yield "frame-2"
+
+        def stop(self):
+            released.set()
 
         def close(self):
             pass
@@ -783,58 +788,28 @@ def test_pipeline_factory_supports_builtin_license_plate_detector():
     assert detector.run("frame")[0]["label"] == "license_plate"
 
 
-def test_pipeline_factory_uses_default_architecture_model_uris():
+def test_pipeline_factory_resolves_architecture_model_uris():
+    from abraia.inference.registry import create_model
+
     class FakeModel:
-        def __init__(self, uri):
+        def __init__(self, uri, kind):
             self.uri = uri
+            self.kind = kind
 
+    cases = [
+        ({"kind": "yolov8", "task": "detection"}, "multiple/models/yolov8n.onnx"),
+        ({"kind": "yolov8", "task": "segmentation"}, "multiple/models/yolov8n-seg.onnx"),
+        ({"kind": "yolov8", "task": "pose"}, "multiple/models/yolov8n_pose.onnx"),
+        ({"kind": "yolov8", "task": "detection", "size": "large"}, "multiple/models/yolov8l.onnx"),
+        ({"kind": "rtmdet", "task": "detection", "size": "medium"}, "multiple/models/rtmdet_medium_v1.onnx"),
+        ({"kind": "rtmdet", "task": "segmentation", "size": "large"}, "multiple/models/rtmdet_ins_large_v1.onnx"),
+        ({"kind": "yolov8", "task": "segmentation", "uri": "multiple/models/yolov8n-seg.onnx"}, "multiple/models/yolov8n-seg.onnx"),
+    ]
     with patch("abraia.inference.models.detection.Model", FakeModel):
-        from abraia.inference.registry import create_model
-
-        object_detector = create_model({"kind": "yolov8", "task": "detection"})
-        segmentation_detector = create_model({"kind": "yolov8", "task": "segmentation"})
-
-    assert object_detector.uri == "multiple/models/yolov8n.onnx"
-    assert segmentation_detector.uri == "multiple/models/yolov8n-seg.onnx"
-
-
-def test_pipeline_factory_uses_default_rtmdet_model_uris():
-    class FakeModel:
-        def __init__(self, uri):
-            self.uri = uri
-
-    with patch("abraia.inference.models.detection.Model", FakeModel):
-        from abraia.inference.registry import create_model
-
-        detector = create_model({
-            "kind": "rtmdet",
-            "task": "detection",
-            "size": "medium",
-        })
-        segmenter = create_model({
-            "kind": "rtmdet",
-            "task": "segmentation",
-            "size": "large",
-        })
-
-    assert detector.uri == "multiple/models/rtmdet_medium_v1.onnx"
-    assert segmenter.uri == "multiple/models/rtmdet_ins_large_v1.onnx"
-
-
-def test_pipeline_factory_uses_architecture_kind_with_task_for_default_uri():
-    class FakeModel:
-        def __init__(self, uri):
-            self.uri = uri
-
-    with patch("abraia.inference.models.detection.Model", FakeModel):
-        from abraia.inference.registry import create_model
-
-        segmentation = create_model({
-            "kind": "yolov8",
-            "task": "segmentation",
-        })
-
-    assert segmentation.uri == "multiple/models/yolov8n-seg.onnx"
+        for config, expected_uri in cases:
+            model = create_model(config)
+            assert model.uri == expected_uri, config
+            assert model.kind == config["kind"]
 
 
 def test_pipeline_factory_infers_hailo_backend_from_architecture_kind_and_uri():
@@ -859,23 +834,6 @@ def test_pipeline_factory_infers_hailo_backend_from_architecture_kind_and_uri():
     assert model.task == "pose"
 
 
-def test_pipeline_factory_uses_task_for_architecture_model():
-    class FakeModel:
-        def __init__(self, uri):
-            self.uri = uri
-
-    with patch("abraia.inference.models.detection.Model", FakeModel):
-        from abraia.inference.registry import create_model
-
-        segmentation = create_model({
-            "kind": "yolov8",
-            "task": "segmentation",
-            "uri": "multiple/models/yolov8n-seg.onnx",
-        })
-
-    assert segmentation.uri == "multiple/models/yolov8n-seg.onnx"
-
-
 def test_pipeline_factory_pairs_onnx_models_with_available_hailo_models():
     from abraia.inference.registry import create_model
 
@@ -887,27 +845,24 @@ def test_pipeline_factory_pairs_onnx_models_with_available_hailo_models():
 
     with patch("abraia.inference.hailo.pipeline.HailoPipelineModel", FakeHailoModel), \
          patch("abraia.inference.registry.hailo_device_arch", return_value="hailo8"), \
-         patch("abraia.inference.registry.hailo_model_available", return_value=True):
+         patch("abraia.inference.models.detection.Model") as onnx_model, \
+         patch("abraia.utils.remote.remote_available", return_value=True) as available:
         model = create_model({
             "kind": "yolov8",
             "uri": "multiple/models/yolov8n.onnx",
+            "conf_threshold": 0.4,
+            "iou_threshold": 0.6,
         }, accelerator="auto")
 
     assert model.uri == "multiple/models/yolov8n_hailo8.hef"
     assert model.task == "detection"
-
-
-def test_pipeline_factory_uses_default_pose_model_uri():
-    class FakeModel:
-        def __init__(self, uri):
-            self.uri = uri
-
-    with patch("abraia.inference.models.detection.Model", FakeModel):
-        from abraia.inference.registry import create_model
-
-        pose_detector = create_model({"kind": "yolov8", "task": "pose"})
-
-    assert pose_detector.uri == "multiple/models/yolov8n_pose.onnx"
+    assert model.kwargs == {
+        "kind": "yolov8",
+        "score_threshold": 0.4,
+        "iou_threshold": 0.6,
+    }
+    onnx_model.assert_not_called()
+    available.assert_called_once_with("multiple/models/yolov8n_hailo8.hef")
 
 
 def test_pipeline_factory_requires_a_resnet_classification_model_uri():
@@ -915,19 +870,6 @@ def test_pipeline_factory_requires_a_resnet_classification_model_uri():
         from abraia.inference.registry import create_model
 
         create_model({"kind": "resnet", "task": "classification"})
-
-
-def test_pipeline_factory_resolves_requested_model_size():
-    class FakeModel:
-        def __init__(self, uri):
-            self.uri = uri
-
-    with patch("abraia.inference.models.detection.Model", FakeModel):
-        from abraia.inference.registry import create_model
-
-        detector = create_model({"kind": "yolov8", "task": "detection", "size": "large"})
-
-    assert detector.uri == "multiple/models/yolov8l.onnx"
 
 
 def test_pipeline_from_dict_passes_pose_options_to_onnx_model():
@@ -1255,7 +1197,6 @@ def test_hailo_accelerator_uses_shared_pipeline():
         "task": "pose",
         "kind": "yolov8",
         "uri": "multiple/models/yolov8m_pose_hailo8.hef",
-        "params": {"model_type": "v8"},
     }
     assert FakePipeline.received["source"]["src"] == 0
     assert any(step["type"] == "tracker" for step in FakePipeline.received["steps"])
@@ -1379,12 +1320,10 @@ def test_cli_run_uses_the_saved_pipeline():
         "steps": [{"model": {"kind": "yolov8", "uri": "model.onnx"}}],
     }
     with patch.object(module.abraia, "load_json", return_value=config) as load_json, \
-            patch("abraia.training.artifacts.list_model_records") as list_models, \
             patch("abraia.runtime.Pipeline") as pipeline:
         module.run.callback("project", "", None, "auto")
 
     load_json.assert_called_once_with("project/pipeline.json")
-    list_models.assert_not_called()
     pipeline.from_dict.assert_called_once_with(config, accelerator="auto")
     pipeline.from_dict.return_value.__enter__.return_value.run.assert_called_once_with()
 
@@ -1400,22 +1339,6 @@ def test_cli_process_map_bounds_repeat_iterators():
     ) == [11, 12]
 
 
-def test_cli_anonymize_dataset_passes_the_worker_callable():
-    import abraia.cli as module
-
-    with patch("abraia.cli.input_files", return_value=["project/image.jpg"]), \
-            patch("abraia.utils.filesystem.get_type", return_value="image/jpeg"), \
-                patch("abraia.cli.process_map") as process_map:
-        files = module.process_dataset("project", anonymize_images=True)
-
-    assert files == ["project/image.jpg"]
-    process_map.assert_called_once_with(
-        module.anonymize,
-        ["project/image.jpg"],
-        desc="Anonymizing images",
-    )
-
-
 def test_cli_custom_run_overrides_the_saved_pipeline_source():
     import abraia.cli as module
 
@@ -1424,10 +1347,8 @@ def test_cli_custom_run_overrides_the_saved_pipeline_source():
         "steps": [{"model": {"kind": "yolov8", "uri": "model.onnx"}}],
     }
     with patch.object(module.abraia, "load_json", return_value=config), \
-            patch("abraia.training.artifacts.list_model_records") as list_models, \
             patch("abraia.runtime.Pipeline") as pipeline:
         module.run.callback("project", "cat", "image.jpg", "auto")
 
-    list_models.assert_not_called()
     passed_config = pipeline.from_dict.call_args.args[0]
     assert passed_config["source"] == {"type": "image", "src": "image.jpg"}

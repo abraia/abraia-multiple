@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from abraia.inference.models.clip import Clip
 from abraia.inference.session import (
     OnnxSessionBundle,
@@ -20,8 +20,7 @@ from abraia.inference.models.detection import (
     process_pose_output,
     process_rtmdet_output,
 )
-from abraia.inference.geometry import mask_to_polygon, softmax
-from abraia.inference.vectors import search_vectors
+from abraia.inference.geometry import mask_to_polygon, search_vectors, softmax
 from abraia.inference.models.ocr import BaseRecLabelDecode, TextRecognizer, TextSystem
 from abraia.inference.models.sam import SAM
 from abraia.inference.models.classification import ResNetClassifier, preprocess_resnet
@@ -78,6 +77,35 @@ def test_search_vectors_returns_ranked_results_for_multiple_queries():
     assert indices[1].tolist() == [1]
     assert scores[0][0] > 0.9
     assert scores[1][0] > 0.9
+
+
+@pytest.mark.parametrize("method", ["search_similar", "search_text"])
+def test_image_search_returns_and_displays_ranked_matches(monkeypatch, method):
+    from abraia.inference import search as search_module
+
+    client = Mock()
+    client.load_json.return_value = [
+        {"path": "project/other.jpg", "vector": [0.0, 1.0]},
+        {"path": "project/match.jpg", "vector": [1.0, 0.0]},
+    ]
+    client.load_image.return_value = np.zeros((2, 2, 3), dtype=np.uint8)
+    model = Mock()
+    model.get_image_embeddings.return_value = np.array([[1.0, 0.0]])
+    model.get_text_embeddings.return_value = np.array([[1.0, 0.0]])
+    display = Mock()
+    monkeypatch.setattr(search_module, "Abraia", lambda: client)
+    monkeypatch.setattr(search_module, "Clip", lambda: model)
+    monkeypatch.setattr(search_module, "show_image", display)
+
+    search = search_module.ImageSearch("project")
+    query = "person" if method == "search_text" else np.zeros((2, 2, 3), dtype=np.uint8)
+    results = getattr(search, method)(query, max_results=1)
+
+    assert results == [{"path": "project/match.jpg", "score": 1.0}]
+    client.load_image.assert_called_once_with("project/match.jpg")
+    display.assert_called_once_with(client.load_image.return_value)
+    encoder = model.get_text_embeddings if method == "search_text" else model.get_image_embeddings
+    encoder.assert_called_once_with([query])
 
 
 def test_async_runner_preserves_backend_elapsed_time():
@@ -239,6 +267,61 @@ def test_rtmdet_decoder_accepts_model_run_arguments_and_filters_labels():
 
     assert [item["label"] for item in result] == ["car"]
     assert result[0]["box"] == [20, 30, 20, 20]
+
+
+def test_onnx_model_uses_kind_for_preprocessing_and_decoding(tmp_path, monkeypatch):
+    from abraia.inference.models.detection import Model
+
+    model_path = tmp_path / "custom.onnx"
+    model_path.write_bytes(b"onnx")
+    image = np.full((10, 10, 3), 128, dtype=np.uint8)
+
+    class FakeSession:
+        def get_inputs(self):
+            return [SimpleNamespace(name="input")]
+
+        def get_outputs(self):
+            return [SimpleNamespace(name=name) for name in ("dets", "labels")[:len(outputs)]]
+
+        def get_providers(self):
+            return ["CPUExecutionProvider"]
+
+        def run(self, _names, inputs):
+            self.input_tensor = inputs["input"]
+            return outputs
+
+        def close(self):
+            pass
+
+    session = FakeSession()
+    monkeypatch.setattr(
+        "abraia.inference.session.create_onnx_session",
+        lambda *_args, **_kwargs: session,
+    )
+    for kind, outputs in (
+        ("rtmdet", [np.array([[[1, 1, 5, 5, 0.9]]]), np.array([[0]])]),
+        ("yolo9", [np.array([[[1, 1, 5, 5, 0.9, 0]]])]),
+    ):
+        for explicit_kind in (None, kind):
+            model_path.with_suffix(".json").write_text(json.dumps({
+                "kind": kind if explicit_kind is None else "yolov8",
+                "task": "detection",
+                "classes": ["tomato"],
+                "inputShape": [1, 3, 10, 10],
+            }))
+            with Model(str(model_path), kind=explicit_kind) as model:
+                results = model.run(image)
+                assert model.kind == kind
+                assert results[0]["label"] == "tomato"
+                assert results[0]["box"] == [1, 1, 4, 4]
+                expected_pixel = (
+                    (128 - np.array([103.53, 116.28, 123.675]))
+                    / np.array([57.375, 57.12, 58.395])
+                    if kind == "rtmdet" else np.full(3, 128 / 255)
+                )
+                np.testing.assert_allclose(
+                    session.input_tensor[0, :, 0, 0], expected_pixel, rtol=1e-6,
+                )
 
 
 def test_classification_decoder_supports_top_k():
@@ -444,70 +527,7 @@ def test_resnet_classifier_runs_exported_model(tmp_path, monkeypatch):
     model.close()
 
 
-def test_registry_selects_resnet_adapter_for_training_model(tmp_path, monkeypatch):
-    model_path = tmp_path / "resnet50.onnx"
-    captured = []
-
-    class FakeResNet:
-        def __init__(self, uri):
-            captured.append(uri)
-
-    monkeypatch.setattr(
-        "abraia.inference.models.classification.ResNetClassifier",
-        FakeResNet,
-    )
-
-    model = create_model({
-        "kind": "resnet",
-        "task": "classification",
-        "uri": str(model_path),
-    })
-
-    assert isinstance(model, FakeResNet)
-    assert captured == [str(model_path)]
-
-
-def test_registry_uses_resnet_for_generic_classification_task(monkeypatch):
-    captured = []
-
-    class FakeResNet:
-        def __init__(self, uri):
-            captured.append(uri)
-
-    monkeypatch.setattr(
-        "abraia.inference.models.classification.ResNetClassifier",
-        FakeResNet,
-    )
-
-    model = create_model({
-        "kind": "resnet",
-        "task": "classification",
-        "uri": "trained_classifier.onnx",
-    })
-
-    assert isinstance(model, FakeResNet)
-    assert captured == ["trained_classifier.onnx"]
-
-
-def test_registry_defaults_resnet_to_classification_task(monkeypatch):
-    captured = []
-
-    class FakeResNet:
-        def __init__(self, uri):
-            captured.append(uri)
-
-    monkeypatch.setattr(
-        "abraia.inference.models.classification.ResNetClassifier",
-        FakeResNet,
-    )
-
-    model = create_model({"kind": "resnet", "uri": "trained_classifier.onnx"})
-
-    assert isinstance(model, FakeResNet)
-    assert captured == ["trained_classifier.onnx"]
-
-
-def test_public_load_model_uses_configured_model_adapter(monkeypatch):
+def test_resnet_factories_accept_explicit_and_default_classification_tasks(tmp_path, monkeypatch):
     class FakeResNet:
         def __init__(self, uri):
             self.uri = uri
@@ -516,8 +536,12 @@ def test_public_load_model_uses_configured_model_adapter(monkeypatch):
         "abraia.inference.models.classification.ResNetClassifier",
         FakeResNet,
     )
-
-    model = load_model({"kind": "resnet", "uri": "trained_classifier.onnx"})
-
-    assert isinstance(model, FakeResNet)
-    assert model.uri == "trained_classifier.onnx"
+    for factory, config in (
+        (create_model, {"kind": "resnet", "task": "classification", "uri": str(tmp_path / "resnet50.onnx")}),
+        (create_model, {"kind": "resnet", "task": "classification", "uri": "trained_classifier.onnx"}),
+        (create_model, {"kind": "resnet", "uri": "trained_classifier.onnx"}),
+        (load_model, {"kind": "resnet", "uri": "trained_classifier.onnx"}),
+    ):
+        model = factory(config)
+        assert isinstance(model, FakeResNet)
+        assert model.uri == config["uri"], config

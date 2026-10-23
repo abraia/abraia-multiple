@@ -11,7 +11,7 @@ from typing import Any, Generator, List, Optional, Tuple
 import cv2
 
 from ..utils.draw import render_resolution, render_status
-from ..sources import (
+from .sources import (
     IMAGE_SUFFIXES,
     infer_source_type as infer_media_source_type,
 )

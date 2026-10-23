@@ -17,39 +17,11 @@ from .utils.remote import (
 )
 from .utils.concurrency import get_default_remote_request_scheduler
 from .utils.cache import RemoteFileCache
+from .utils.filesystem import get_type, load_json, md5sum, save_data
+from .utils.image import load_image, save_image
 
 
 _NO_DELEGATE = object()
-
-
-def md5sum(*args, **kwargs):
-    from .utils.filesystem import md5sum as _md5sum
-
-    return _md5sum(*args, **kwargs)
-
-
-def get_type(*args, **kwargs):
-    from .utils.filesystem import get_type as _get_type
-
-    return _get_type(*args, **kwargs)
-
-
-def save_data(*args, **kwargs):
-    from .utils.filesystem import save_data as _save_data
-
-    return _save_data(*args, **kwargs)
-
-
-def load_image(*args, **kwargs):
-    from .utils.image import load_image as _load_image
-
-    return _load_image(*args, **kwargs)
-
-
-def save_image(*args, **kwargs):
-    from .utils.image import save_image as _save_image
-
-    return _save_image(*args, **kwargs)
 
 
 def file_path(source, userid):
@@ -150,13 +122,25 @@ class Abraia:
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
             resp = resp.json()
-            files = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name'], 'type': get_type(f['name']), 'size': f['size'], 'date': datetime.fromtimestamp(f['date'])}, resp['files']))
-            folders = list(map(lambda f: {'path': file_path(f['source'], self.userid), 'name': f['name']}, resp['folders']))
+            files = [
+                {
+                    'path': file_path(item['source'], self.userid),
+                    'name': item['name'],
+                    'type': get_type(item['name']),
+                    'size': item['size'],
+                    'date': datetime.fromtimestamp(item['date']),
+                }
+                for item in resp['files']
+            ]
+            folders = [
+                {'path': file_path(item['source'], self.userid), 'name': item['name']}
+                for item in resp['folders']
+            ]
         if not basename:
             RemoteFileCache(self.userid).reconcile_listing(dirname, files)
         if basename:
-            files = list(filter(lambda f: fnmatch(f['path'], path), files))
-            folders = list(filter(lambda f: fnmatch(f['path'], path), folders))
+            files = [item for item in files if fnmatch(item['path'], path)]
+            folders = [item for item in folders if fnmatch(item['path'], path)]
         return files, folders
 
     def upload_file(self, src, path='', remote_info=None):
@@ -358,9 +342,7 @@ class Abraia:
         return self.upload_file(stream, path)
 
     def load_json(self, path):
-        dest = self.download_file(path)
-        with open(dest, 'r', encoding='utf-8') as source:
-            return json.load(source)
+        return load_json(self.download_file(path))
 
     def save_json(self, path, values):
         return self.save_file(path, json.dumps(values))

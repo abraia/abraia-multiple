@@ -8,6 +8,7 @@ from ..utils.remote import resolve_model_file
 from .accelerators import (
     available_accelerators,
     get_providers,
+    is_gpu_provider,
     onnx_providers,
 )
 
@@ -32,9 +33,7 @@ def accelerator_from_providers(providers):
             return "NPU"
         if "COREML" in name:
             return "GPU/NPU"
-        if any(marker in name for marker in (
-            "CUDA", "TENSORRT", "ROCM", "DIRECTML", "MIGRAPHX",
-        )):
+        if is_gpu_provider(provider):
             return "GPU"
     return "CPU"
 

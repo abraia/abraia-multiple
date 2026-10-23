@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from ...tasks import normalize_task
+from ..model_config import HAILO_TASKS, normalize_task
 from ...utils.remote import (
     is_managed_model_path,
     resolve_artifact,
@@ -32,96 +32,23 @@ COCO_LABELS = [
 ]
 
 
-def resolve_model_type(model_type, hef_path, task):
-    """Resolve the postprocessor architecture for a Hailo model."""
-    if model_type:
-        return model_type
-    normalized_task = normalize_task(task)
-    if normalized_task not in ("detection", "segmentation", "pose"):
+def resolve_model_type(kind, task):
+    """Derive the Hailo decoder from the model family and task."""
+    task = normalize_task(task)
+    if task not in HAILO_TASKS:
         raise ValueError(
-            f"Unsupported Hailo task: {normalized_task}. "
-            "Use detection, segmentation, or pose"
+            f"Unsupported Hailo task: {task}. Use {', '.join(HAILO_TASKS)}"
         )
-    if normalized_task == "pose":
-        return "v8"
-    if normalized_task == "segmentation":
-        # Native Ultralytics exports use the YOLOv8/YOLO11 raw head layout.
-        # Keep the legacy Model Zoo YOLOv5 naming convention on its existing
-        # decoder, and use v8 for custom/native bundles without a family name.
-        return "v5" if "yolov5" in str(hef_path).lower() else "v8"
-    return "v5"
-
-
-def model_type_from_onnx_uri(onnx_uri):
-    """Infer the Hailo postprocessor family from an ONNX model URI."""
-    name = Path(os.fspath(onnx_uri)).stem.lower()
-    if "rtmdet" in name:
-        return "rtmdet"
-    if "yolov5" in name:
-        return "v5"
-    if "yolov8" in name or "yolo11" in name:
-        return "v8"
-    return None
-
-
-def _metadata_bundle_path(path):
-    """Return the directory that may contain an exported Hailo manifest."""
-    path = Path(path)
-    return path if path.is_dir() else path.parent
-
-
-def load_hailo_metadata(hef_path):
-    """Load Ultralytics' optional ``metadata.yaml`` beside a Hailo model."""
-    path = Path(hef_path)
-    metadata_paths = [_metadata_bundle_path(path) / "metadata.yaml"]
-    if path.suffix.lower() == HAILO_FILE_EXTENSION:
-        metadata_paths.append(path.with_suffix("") / "metadata.yaml")
-
-    metadata_path = next(
-        (candidate for candidate in metadata_paths if candidate.is_file()),
-        None,
-    )
-    if metadata_path is None and path.parent != Path("."):
-        # A compiled model may be addressed by its remote Abraia path.  The
-        # compiler bundle is stored beside the flat HEF as ``<stem>/``.
-        try:
-            for candidate in metadata_paths:
-                try:
-                    downloaded = _download_artifact(candidate)
-                except Exception:
-                    continue
-                if downloaded.is_file():
-                    metadata_path = downloaded
-                    break
-        except Exception:
-            return {}
-    if metadata_path is None:
-        return {}
-    try:
-        import yaml
-    except ImportError:
-        logger.warning("PyYAML is unavailable; ignoring Hailo metadata at %s", metadata_path)
-        return {}
-    try:
-        with metadata_path.open("r", encoding="utf-8") as metadata_file:
-            value = yaml.safe_load(metadata_file)
-    except (OSError, TypeError, ValueError, yaml.YAMLError):
-        logger.warning("Unable to read Hailo metadata from %s", metadata_path)
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
-def labels_from_metadata(metadata):
-    """Return ordered class labels from Ultralytics metadata."""
-    names = metadata.get("names") if isinstance(metadata, dict) else None
-    if isinstance(names, dict):
-        try:
-            return [str(names[key]) for key in sorted(names, key=lambda key: int(key))]
-        except (TypeError, ValueError):
-            return [str(value) for value in names.values()]
-    if isinstance(names, (list, tuple)):
-        return [str(value) for value in names]
-    return None
+    kind = str(kind or "").strip().lower()
+    model_type = {
+        "yolov5": "v5",
+        "yolov8": "v8",
+        "yolo11": "v8",
+        "rtmdet": "rtmdet",
+    }.get(kind)
+    if model_type is None:
+        raise ValueError(f"Unsupported Hailo model kind: {kind}")
+    return "v8" if task == "pose" and model_type == "v5" else model_type
 
 
 def _model_json_candidates(hef_path):
@@ -229,12 +156,9 @@ def get_labels(labels_path: Optional[str]) -> list:
 __all__ = [
     "HAILO_FILE_EXTENSION",
     "COCO_LABELS",
-    "labels_from_metadata",
     "labels_from_model_config",
     "load_hailo_model_config",
-    "load_hailo_metadata",
     "resolve_model_type",
-    "model_type_from_onnx_uri",
     "resolve_hef_path",
     "get_labels",
 ]

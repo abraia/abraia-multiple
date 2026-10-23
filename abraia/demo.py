@@ -10,7 +10,7 @@ from abraia.inference.search import ImageSearch
 from abraia.inference.models.faces import find_pose
 from abraia.runtime.composition import count_objects
 from abraia.runtime import Pipeline
-from abraia.runtime.pipeline_schema import is_primary_model_step
+from abraia.runtime.config import is_primary_model_step
 from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
 from abraia.runtime.video import Video
 from abraia.utils.image import load_image
@@ -313,8 +313,7 @@ def _resolve_hailo_config(config, architecture):
     selected = deepcopy(config)
     model = _primary_model_step(selected)['model']
     from abraia.inference.accelerators import paired_hailo_uri
-    from abraia.inference.hailo.models import model_type_from_onnx_uri
-    from abraia.tasks import normalize_task
+    from abraia.inference.model_config import normalize_task
 
     onnx_uri = model.get('uri')
     kind = str(model.get('kind', '')).strip().lower()
@@ -331,12 +330,6 @@ def _resolve_hailo_config(config, architecture):
     model['task'] = task
     model['kind'] = kind
     model['uri'] = hef_uri
-    params = model.setdefault('params', {})
-    if not isinstance(params, dict):
-        return None
-    model_type = model_type_from_onnx_uri(onnx_uri)
-    if model_type:
-        params.setdefault('model_type', model_type)
     return selected
 
 

@@ -3,7 +3,7 @@ from tqdm import tqdm
 from abraia import Abraia
 from abraia.client import APIError
 from abraia.inference.models.clip import Clip
-from abraia.inference.vectors import search_vector
+from abraia.inference.geometry import search_vector
 from abraia.utils.image import show_image
 
 
@@ -56,23 +56,16 @@ class ImageSearch:
             raise ValueError("Index is empty. Please call create_index() first.")
         
         query_vector = self.clip_model.get_image_embeddings([img])[0]
-        idxs, scores = search_vector(query_vector, self.index, max_results)
-        
-        results = []
-        for idx, score in zip(idxs, scores):
-            result_path = self.index[idx]['path']
-            print(f"Similar image: {result_path} (score: {score})")
-            result_img = self.abraia.load_image(result_path)
-            show_image(result_img)
-            results.append({'path': result_path, 'score': score})
-            
-        return results
+        return self._search(query_vector, max_results)
 
     def search_text(self, text, max_results=1):
         if not self.index:
             raise ValueError("Index is empty. Please call create_index() first.")
         
         query_vector = self.clip_model.get_text_embeddings([text])[0]
+        return self._search(query_vector, max_results)
+
+    def _search(self, query_vector, max_results):
         idxs, scores = search_vector(query_vector, self.index, max_results)
         
         results = []

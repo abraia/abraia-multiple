@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Lock
+from types import SimpleNamespace
 
 from abraia.utils.concurrency import RemoteRequestScheduler, bounded_map
 from abraia.utils.remote import load_url, request_with_retries
@@ -135,5 +136,28 @@ def test_request_scheduler_spaces_request_starts():
 
     assert all(
         later - earlier >= 0.004
+        for earlier, later in zip(starts, starts[1:])
+    )
+
+
+def test_request_scheduler_preserves_spacing_after_delayed_wakeup(monkeypatch):
+    now = 0.0
+
+    def delayed_sleep(delay):
+        nonlocal now
+        now += delay + 0.01
+
+    monkeypatch.setattr(
+        "abraia.utils.concurrency.time",
+        SimpleNamespace(monotonic=lambda: now, sleep=delayed_sleep),
+    )
+    scheduler = RemoteRequestScheduler(max_concurrent=2, min_interval=0.005)
+    starts = []
+
+    for _ in range(3):
+        scheduler.run(lambda: starts.append(now))
+
+    assert all(
+        later - earlier >= scheduler.min_interval
         for earlier, later in zip(starts, starts[1:])
     )

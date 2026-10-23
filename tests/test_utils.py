@@ -23,8 +23,10 @@ def test_save_json_uses_destination_first_and_encodes_numpy_values(tmp_path):
 
 
 def test_documented_rendering_helpers_are_available_from_utils():
-    from abraia.utils.draw import render_counter, render_region
+    from abraia.utils import render_results
+    from abraia.utils.draw import render_counter, render_region, render_results as draw_results
 
+    assert render_results is draw_results
     assert callable(render_counter)
     assert callable(render_region)
 

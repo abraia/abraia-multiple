@@ -7,7 +7,7 @@ import numpy as np
 from functools import partial
 from typing import Dict, List, Optional, Tuple
 
-from ...tasks import normalize_task, to_hailo_task
+from ..model_config import normalize_task, to_hailo_task
 from ..geometry import nms, sigmoid
 from . import models, postprocess
 

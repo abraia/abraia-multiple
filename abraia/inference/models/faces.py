@@ -6,8 +6,7 @@ import numpy as np
 from ..session import OnnxSessionMixin, ResourceGroup
 from ...utils.filesystem import load_json
 from ...utils.remote import download_file
-from ..geometry import non_maximum_suppression, softmax
-from ..vectors import search_vectors
+from ..geometry import non_maximum_suppression, search_vectors, softmax
 
 
 REFERENCE_FACIAL_POINTS = [[38.2946, 51.6963],

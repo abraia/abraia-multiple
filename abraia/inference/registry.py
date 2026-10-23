@@ -4,9 +4,9 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-from ..tasks import HAILO_TASKS
 from ..utils.remote import is_url
 from .model_config import (
+    HAILO_TASKS,
     MODEL_ARCHITECTURES,
     HAILO_MODEL_ARCHITECTURES,
     MODEL_RUN_OPTIONS,
@@ -44,7 +44,7 @@ def _resolve_model_uri(uri, base_dir=None):
     return str(candidate) if candidate.is_file() else uri
 
 
-def _hailo_pair_task(kind, task, uri):
+def _hailo_pair_task(task, uri):
     """Return the Hailo task represented by an ONNX model definition."""
     model_name = str(uri).lower()
     if any(
@@ -68,7 +68,7 @@ def _select_hailo_pair(config, spec, uri, accelerator):
     ):
         return None
 
-    hailo_task = _hailo_pair_task(spec.kind, spec.task, uri)
+    hailo_task = _hailo_pair_task(spec.task, uri)
     if hailo_task not in HAILO_TASKS:
         return None
     architecture = hailo_device_arch()
@@ -77,18 +77,7 @@ def _select_hailo_pair(config, spec, uri, accelerator):
     hailo_uri = paired_hailo_uri(uri, hailo_task, architecture)
     if not hailo_uri:
         return None
-    candidate = {
-        "model": {
-            "kind": spec.kind,
-            "task": hailo_task,
-            "uri": hailo_uri,
-        }
-    }
-    from .hailo.models import model_type_from_onnx_uri
-
-    model_type = model_type_from_onnx_uri(uri)
-    if model_type:
-        candidate["model"]["params"] = {"model_type": model_type}
+    candidate = {"steps": [{"type": "model", "model": {"uri": hailo_uri}}]}
     if not hailo_model_available(candidate, architecture):
         return None
 
@@ -97,12 +86,10 @@ def _select_hailo_pair(config, spec, uri, accelerator):
     paired["task"] = hailo_task
     paired["uri"] = hailo_uri
     paired["params"] = spec.params_copy()
-    if model_type:
-        paired["params"].setdefault("model_type", model_type)
     return paired
 
 
-def _create_hailo_model(spec, config, base_dir, session_options):
+def _create_hailo_model(spec, config, base_dir):
     """Create a Hailo adapter from a validated model specification."""
     from .hailo.pipeline import HailoPipelineModel
 
@@ -115,7 +102,7 @@ def _create_hailo_model(spec, config, base_dir, session_options):
         params.setdefault("score_threshold", config["conf_threshold"])
     if "iou_threshold" in config:
         params.setdefault("iou_threshold", config["iou_threshold"])
-    return HailoPipelineModel(uri, task=spec.task, **params)
+    return HailoPipelineModel(uri, task=spec.task, kind=spec.kind, **params)
 
 
 def _create_resnet_model(spec, _config, base_dir, session_options):
@@ -159,13 +146,8 @@ def _create_yolo_model(spec, config, base_dir, session_options, accelerator=None
             size=spec.size,
             params=paired["params"],
         )
-        return _create_model_from_spec(
-            paired_spec,
-            paired,
-            base_dir=base_dir,
-            accelerator="hailo",
-        )
-    return Model(resolved_uri, **session_options)
+        return _create_hailo_model(paired_spec, paired, base_dir)
+    return Model(resolved_uri, kind=spec.kind, **session_options)
 
 
 def _create_face_model(spec, _config, base_dir, session_options):
@@ -249,7 +231,7 @@ def _create_model_from_spec(spec, config, base_dir=None, accelerator=None):
     session_options = {} if providers is None else {"providers": providers}
 
     if spec.backend == "hailo":
-        return _create_hailo_model(spec, config, base_dir, session_options)
+        return _create_hailo_model(spec, config, base_dir)
 
     try:
         factory = _MODEL_FACTORIES[spec.kind]

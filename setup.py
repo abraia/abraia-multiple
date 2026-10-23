@@ -12,25 +12,6 @@ with pathlib.Path('requirements.txt').open() as requirements_txt:
     install_requires = [str(requirement) for requirement
         in pkg_resources.parse_requirements(requirements_txt)]
     
-extras_require = {
-    'dev': [
-        'ultralytics>=8.4.97,<9',
-        'onnx>=1.16.0',
-        'transformers>=4.57.1',
-        'jsonschema>=4.0',
-    ],
-    # The Hailo Dataflow Compiler is distributed separately by Hailo and
-    # cannot be declared as a normal PyPI dependency.
-    'hailo': ['ultralytics>=8.4.97,<9', 'PyYAML>=6.0'],
-    'rtmdet': [
-        'openmim>=0.3.9',
-        'mmdet>=3.3,<4',
-        'mmengine>=0.10,<1',
-        'onnx>=1.13',
-    ],
-    'libreyolo': ['libreyolo[onnx]>=1.6.0,<2'],
-}
-
 setup(
     name='abraia',
     version=__version__,
@@ -51,7 +32,6 @@ setup(
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0'],
     install_requires=install_requires,
-    extras_require=extras_require,
     entry_points={
         'console_scripts': [
             'abraia=abraia.cli:main',

@@ -15,14 +15,16 @@ from abraia.demo import (
 )
 from abraia.inference.hailo.pipeline import HailoPipelineModel
 from abraia.inference.model_config import (
+    HAILO_TASKS,
     MODEL_ARCHITECTURES,
     ModelSpec,
+    PIPELINE_TASKS,
+    normalize_task,
 )
 from abraia.runtime.config import (
     model_editor_values,
     model_pipeline_errors,
 )
-from abraia.tasks import HAILO_TASKS, normalize_task
 
 
 PAIRED_DEMOS = {
@@ -287,7 +289,7 @@ def test_hailo_capabilities_are_explicitly_narrower_than_generic_catalog():
     }
     assert "iou_threshold" in capabilities["hailo_constructor_options"]
     assert "batch_size" in capabilities["hailo_constructor_options"]
-    assert "model_type" in capabilities["hailo_constructor_options"]
+    assert "kind" in capabilities["hailo_constructor_options"]
 
 
 def test_model_spec_normalizes_defaults_and_resolves_builtin_uri():
@@ -380,6 +382,18 @@ def test_model_editor_values_read_legacy_model_parameters():
         "task": spec.task,
         "params": dict(spec.params),
     })["conf_threshold"] == 0.6
+
+
+def test_model_tasks_normalize_names_and_aliases():
+    assert PIPELINE_TASKS == (
+        "classification", "detection", "segmentation", "pose", "recognition",
+    )
+    assert set(HAILO_TASKS) <= set(PIPELINE_TASKS)
+    assert [normalize_task(value) for value in (
+        " detection ", "classify", "detect", "segment", "recognize",
+    )] == [
+        "detection", "classification", "detection", "segmentation", "recognition",
+    ]
 
 
 if __name__ == "__main__":

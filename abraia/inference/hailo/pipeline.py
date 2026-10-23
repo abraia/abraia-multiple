@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from ...tasks import normalize_task
+from ..model_config import normalize_task
 from ...runtime.inference import (
     AsyncInferenceRunner,
     FrameBatch,
@@ -17,7 +17,6 @@ from .toolbox import (
 from .models import (
     labels_from_model_config,
     load_hailo_model_config,
-    load_hailo_metadata,
     resolve_model_type,
 )
 from .postprocess import default_preprocess, rtmdet_preprocess
@@ -41,7 +40,7 @@ class HailoPipelineModel:
         score_threshold: Optional[float] = None,
         mask_threshold: float = 0.45,
         iou_threshold: Optional[float] = None,
-        model_type: Optional[str] = None,
+        kind: Optional[str] = None,
     ):
         if not HAILO_AVAILABLE or ModelInference is None:
             raise RuntimeError(
@@ -52,6 +51,7 @@ class HailoPipelineModel:
             raise ValueError("batch_size must be at least 1")
 
         model_config = load_hailo_model_config(hef_path)
+        self.kind = str(kind or model_config.get("kind", "yolov8")).strip().lower()
         score_threshold = (
             model_config.get("confidenceThreshold", 0.25)
             if score_threshold is None else score_threshold
@@ -61,24 +61,14 @@ class HailoPipelineModel:
             if iou_threshold is None else iou_threshold
         )
         labels = labels_from_model_config(model_config)
-        metadata = load_hailo_metadata(hef_path)
-        metadata_task = normalize_task(
-            model_config.get("task") or metadata.get("task")
-        )
+        metadata_task = normalize_task(model_config.get("task"))
         task = normalize_task(task)
         if task == "detection" and metadata_task in ("detection", "segmentation", "pose"):
             task = metadata_task
         self.task = task
         self.accelerator = "HAILO"
         self.labels = labels
-        if model_type is None:
-            model_type = (
-                "rtmdet"
-                if str(model_config.get("backend", metadata.get("backend", ""))).lower()
-                == "rtmdet"
-                else resolve_model_type(None, hef_path, task)
-            )
-        self.model_type = model_type
+        self.model_type = resolve_model_type(self.kind, task)
         self.inference = ModelInference(
             hef_path,
             task=task,
@@ -87,7 +77,7 @@ class HailoPipelineModel:
             score_threshold=score_threshold,
             mask_threshold=mask_threshold,
             iou_threshold=iou_threshold,
-            model_type=model_type or "v8",
+            model_type=self.model_type,
             model_config=model_config,
         )
         self.batch_size = batch_size

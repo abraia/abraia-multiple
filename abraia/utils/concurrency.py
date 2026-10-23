@@ -26,12 +26,12 @@ class RemoteRequestScheduler:
     def run(self, function, *args, **kwargs):
         """Run one remote operation while holding a shared capacity slot."""
         with self._slots:
-            with self._start_lock:
-                now = time.monotonic()
-                delay = max(0.0, self._next_start - now)
-                self._next_start = max(now, self._next_start) + self.min_interval
-            if delay:
-                time.sleep(delay)
+            if self.min_interval:
+                with self._start_lock:
+                    delay = self._next_start - time.monotonic()
+                    if delay > 0:
+                        time.sleep(delay)
+                    self._next_start = time.monotonic() + self.min_interval
             return function(*args, **kwargs)
 
 

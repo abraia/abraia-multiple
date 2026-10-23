@@ -2,10 +2,66 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import re
+import subprocess
 from pathlib import Path
+from typing import Optional
 
 from ..utils.remote import is_managed_model_path, is_url, probe_artifact
+
+
+logger = logging.getLogger(__name__)
+
+HAILO8_ARCH = "hailo8"
+HAILO8L_ARCH = "hailo8l"
+HAILO10H_ARCH = "hailo10h"
+
+HAILO_ARCHS = {
+    "HAILO8L": HAILO8L_ARCH,
+    "HAILO8": HAILO8_ARCH,
+    "HAILO10H": HAILO10H_ARCH,
+    "HAILO15H": HAILO10H_ARCH,
+}
+
+HAILO_CLI_IDENTIFY_COMMAND = ("hailortcli", "fw-control", "identify")
+
+
+def detect_hailo_arch() -> Optional[str]:
+    """Return the architecture reported by the connected Hailo device.
+
+    ``None`` means that the CLI is unavailable, the command failed, or its
+    output did not contain a known architecture.  Resource resolution decides
+    whether that should become an exception for the calling operation.
+    """
+    try:
+        result = subprocess.run(
+            HAILO_CLI_IDENTIFY_COMMAND,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.error("Error detecting Hailo architecture: %s", exc)
+        return None
+
+    if result.returncode != 0:
+        logger.warning(
+            "Hailo CLI architecture detection failed with exit code %s: %s",
+            result.returncode,
+            result.stderr.strip(),
+        )
+        return None
+
+    # hailortcli versions format this as either ``HAILO8`` or ``HAILO-8``.
+    # Compare a compact representation so both forms select the same target.
+    output = re.sub(r"[^A-Z0-9]", "", result.stdout.upper())
+    for marker, architecture in HAILO_ARCHS.items():
+        if marker in output:
+            return architecture
+    return None
 
 
 CPU_PROVIDER = "CPUExecutionProvider"
@@ -30,6 +86,7 @@ def get_providers():
     )
     available = set(ort.get_available_providers())
     return [provider for provider in preferred if provider in available]
+
 
 def normalize_accelerator(value):
     """Normalize a requested accelerator name without selecting hardware."""
@@ -85,7 +142,6 @@ def onnx_providers(accelerator=None):
 
 def hailo_device_arch():
     """Return the connected Hailo architecture, or ``None``."""
-    from .hailo.device import detect_hailo_arch
     from .hailo.toolbox import HAILO_AVAILABLE
 
     if not HAILO_AVAILABLE:
@@ -166,6 +222,12 @@ def available_accelerators():
 
 
 __all__ = [
+    "HAILO8_ARCH",
+    "HAILO8L_ARCH",
+    "HAILO10H_ARCH",
+    "HAILO_ARCHS",
+    "HAILO_CLI_IDENTIFY_COMMAND",
+    "detect_hailo_arch",
     "CPU_PROVIDER",
     "available_accelerators",
     "hailo_device_arch",

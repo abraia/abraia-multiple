@@ -2,11 +2,53 @@
 
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Dict, FrozenSet, Mapping, Optional
+from typing import Any, Dict, FrozenSet, Mapping, Optional, Tuple
 
-from ..tasks import HAILO_TASKS, PIPELINE_TASKS, normalize_task
+
+PIPELINE_TASKS = (
+    "classification",
+    "detection",
+    "segmentation",
+    "pose",
+    "recognition",
+)
+HAILO_TASKS = ("detection", "segmentation", "pose")
+
+# Accepted input spellings. Callers normalize these at API boundaries and
+# serialize only the canonical values above.
+TASK_ALIASES = {
+    "classify": "classification",
+    "detect": "detection",
+    "segment": "segmentation",
+    "recognize": "recognition",
+}
+
+HAILO_BACKEND_TASKS = {
+    "detection": "detect",
+    "segmentation": "segment",
+    "pose": "pose",
+}
+
+
+def normalize_task(value, default=None):
+    """Normalize accepted task spellings to one canonical task value."""
+    if value is None:
+        value = default
+    normalized = str(value if value is not None else "").strip().lower()
+    return TASK_ALIASES.get(normalized, normalized)
+
+
+def to_hailo_task(value):
+    """Translate a canonical task to Hailo's backend task name."""
+    task = normalize_task(value)
+    try:
+        return HAILO_BACKEND_TASKS[task]
+    except KeyError as error:
+        raise ValueError(
+            f"Unsupported Hailo task: {task}. "
+            f"Use {', '.join(HAILO_TASKS)}"
+        ) from error
 
 
 @dataclass(frozen=True)
@@ -134,6 +176,8 @@ MODEL_DESCRIPTORS = MappingProxyType({
 })
 # The descriptor catalog is the supported pipeline model list.
 PIPELINE_MODEL_KINDS = tuple(MODEL_DESCRIPTORS)
+
+
 @dataclass(frozen=True)
 class ModelSpec:
     """Normalized model configuration used by inference adapters.
@@ -221,39 +265,42 @@ class ModelSpec:
             return "recognition"
         return "result"
 
-    def require_runtime_valid(self) -> None:
-        """Validate the model before constructing a runtime adapter."""
+    def validation_error(self) -> Optional[Tuple[str, str]]:
+        """Return the first invalid model field and its validation message."""
         if not self.kind:
-            raise ValueError("Pipeline model must define a model 'kind'")
+            return "kind", "Pipeline model must define a model 'kind'"
         if self.kind not in PIPELINE_MODEL_KINDS:
             available = ", ".join(PIPELINE_MODEL_KINDS)
-            raise ValueError(
-                f"Unknown detector kind '{self.kind}'. Available detectors: {available}"
+            return (
+                "kind",
+                f"Unknown detector kind '{self.kind}'. Available detectors: {available}",
             )
-
         descriptor = self.descriptor
+        if descriptor and self.task not in descriptor.tasks:
+            if self.kind in MODEL_ARCHITECTURES:
+                return "task", f"{self.kind} models support detection, segmentation, or pose."
+            message = {
+                "resnet": "Classification models require the classification task.",
+                "grounding_dino": "Grounding DINO models require the detection task.",
+                "ocr": "OCR models only support the recognition task.",
+                "multispectral": "Multispectral models require the classification task.",
+            }.get(self.kind, f"{self.kind} models do not support the {self.task} task.")
+            return "task", message
+        if descriptor and descriptor.explicit_uri and not self.uri:
+            return "uri", f"A {self.kind} model requires a model 'uri'"
+        return None
+
+    def require_runtime_valid(self) -> None:
+        """Validate the model before constructing a runtime adapter."""
+        error = self.validation_error()
+        # Hailo uses its backend capabilities to validate the task.
+        if error and (error[0] != "task" or self.backend != "hailo"):
+            raise ValueError(error[1])
         if self.backend == "hailo":
             if self.kind not in HAILO_MODEL_ARCHITECTURES:
                 raise ValueError("Hailo models require a supported model architecture kind")
             if self.task not in HAILO_TASKS:
                 raise ValueError(f"Unsupported Hailo pipeline task: {self.task}")
-        elif descriptor and self.task not in descriptor.tasks:
-            if self.kind in MODEL_ARCHITECTURES:
-                raise ValueError(
-                    f"{self.kind} models support detection, segmentation, or pose."
-                )
-            if self.kind == "resnet":
-                raise ValueError("Classification models require the classification task.")
-            if self.kind == "grounding_dino":
-                raise ValueError("Grounding DINO models require the detection task.")
-            if self.kind == "ocr":
-                raise ValueError("OCR models only support the recognition task.")
-            if self.kind == "multispectral":
-                raise ValueError("Multispectral models require the classification task.")
-            raise ValueError(f"{self.kind} models do not support the {self.task} task.")
-
-        if descriptor and descriptor.explicit_uri and not self.uri:
-            raise ValueError(f"A {self.kind} model requires a model 'uri'")
         if self.kind in MODEL_ARCHITECTURES and not self.uri:
             available_sizes = MODEL_SIZE_URIS.get(self.kind, {}).get(self.task, {})
             if not available_sizes:
@@ -274,20 +321,18 @@ class ModelSpec:
         return dict(self.params)
 
 
-def is_resnet_model_uri(uri):
-    """Return whether a URI names a model produced by classification training."""
-    if not uri:
-        return False
-    stem = Path(os.fspath(uri)).stem.lower()
-    return stem in {"resnet18", "resnet50", "resnet101"}
-
-
 def model_default_uri(kind, task, size="small"):
     """Return the built-in URI for an architecture/task/size combination."""
     return MODEL_SIZE_URIS.get(kind, {}).get(task, {}).get(size, "")
 
 
 __all__ = [
+    "HAILO_BACKEND_TASKS",
+    "HAILO_TASKS",
+    "PIPELINE_TASKS",
+    "TASK_ALIASES",
+    "normalize_task",
+    "to_hailo_task",
     "DEFAULT_MODEL_URIS",
     "MODEL_RUN_OPTIONS",
     "MODEL_SIZE_URIS",
@@ -298,6 +343,5 @@ __all__ = [
     "PIPELINE_MODEL_TASKS",
     "ModelSpec",
     "ModelDescriptor",
-    "is_resnet_model_uri",
     "model_default_uri",
 ]

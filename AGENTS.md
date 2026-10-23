@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-- `abraia/` contains the Python SDK, organized into inference, runtime, training, editing, and utility modules.
+- `abraia/` contains the Python SDK, organized into inference, runtime, editing, and utility modules. The `abraia` CLI exposes authentication, remote files, demos, and saved inference pipelines.
 - `tests/` contains the pytest suite, with files named `test_<feature>.py`.
 - `images/` stores sample assets used by examples and tests; `notebooks/` contains exploratory training material.
 - `setup.py` and `requirements.txt` define packaging and runtime dependencies. CI configuration is in `.github/workflows/build.yml`.

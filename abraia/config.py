@@ -1,18 +1,14 @@
 import os
-import sys
 import base64
 
 CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.abraia')
 
-def base64encode(str):
-    str = str.encode('utf-8') if sys.version_info[0] == 3 else str
-    str = base64.b64encode(str)
-    return str.decode('ascii') if isinstance(str, bytes) else str
+def base64encode(value):
+    return base64.b64encode(value.encode('utf-8')).decode('ascii')
 
 
-def base64decode(str):
-    str = base64.b64decode(str)
-    return str.decode('ascii') if isinstance(str, bytes) else str
+def base64decode(value):
+    return base64.b64decode(value).decode('ascii')
 
 
 def load():
@@ -24,8 +20,8 @@ def load():
         config = {}
         with open(CONFIG_FILE, 'r') as f:
             for line in f:
-                key, value = list(map(lambda v: v.strip(), line.split(':')))
-                config[key] = value
+                key, value = line.split(':', 1)
+                config[key.strip()] = value.strip()
         return _resolve_credentials(
             config.get('abraia_id', ''),
             config.get('abraia_key', ''),

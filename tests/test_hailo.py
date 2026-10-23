@@ -1,30 +1,30 @@
+import json
+
 import numpy as np
+import pytest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from abraia.inference.hailo import device, postprocess
+from abraia.inference import accelerators
+from abraia.inference.hailo import postprocess
 from abraia.inference.hailo.models import resolve_model_type
 
 
-def test_resolve_model_type_detects_yolov8_segmentation_models():
-    assert resolve_model_type(None, "yolov8n_seg", "segmentation") == "v8"
-
-
-def test_resolve_model_type_keeps_yolov5_segmentation_default():
-    assert resolve_model_type(None, "yolov5m_seg_with_nms", "segmentation") == "v5"
-
-
-def test_resolve_model_type_honors_explicit_value():
-    assert resolve_model_type("v5", "yolov8n_seg", "segmentation") == "v5"
-
-
-def test_model_type_from_onnx_uri_detects_supported_yolo_families():
-    from abraia.inference.hailo.models import model_type_from_onnx_uri
-
-    assert model_type_from_onnx_uri("multiple/models/yolov5n-seg.onnx") == "v5"
-    assert model_type_from_onnx_uri("multiple/models/yolov8n-seg.onnx") == "v8"
-    assert model_type_from_onnx_uri("multiple/models/yolo11n-segment.onnx") == "v8"
-    assert model_type_from_onnx_uri("project/custom.onnx") is None
+def test_resolve_model_type_uses_kind_and_task():
+    for kind, task, expected in (
+        ("yolov5", "detection", "v5"),
+        ("yolov5", "segment", "v5"),
+        ("yolov8", "detection", "v8"),
+        ("yolov8", "segmentation", "v8"),
+        ("yolo11", "pose", "v8"),
+        ("rtmdet", "detection", "rtmdet"),
+        ("rtmdet", "segmentation", "rtmdet"),
+    ):
+        assert resolve_model_type(kind, task) == expected
+    with pytest.raises(ValueError, match="Unsupported Hailo model kind"):
+        resolve_model_type("unknown", "detection")
+    with pytest.raises(ValueError, match="Unsupported Hailo task"):
+        resolve_model_type("yolov8", "classification")
 
 
 def test_hailo_device_adapter_parses_cli_architecture():
@@ -33,8 +33,8 @@ def test_hailo_device_adapter_parses_cli_architecture():
         stdout="Device architecture: HAILO8L",
         stderr="",
     )
-    with patch.object(device.subprocess, "run", return_value=result) as run:
-        assert device.detect_hailo_arch() == device.HAILO8L_ARCH
+    with patch.object(accelerators.subprocess, "run", return_value=result) as run:
+        assert accelerators.detect_hailo_arch() == accelerators.HAILO8L_ARCH
 
     run.assert_called_once_with(
         ("hailortcli", "fw-control", "identify"),
@@ -51,8 +51,8 @@ def test_hailo_device_adapter_accepts_hyphenated_cli_architecture():
         stdout="Device Architecture: HAILO-8",
         stderr="",
     )
-    with patch.object(device.subprocess, "run", return_value=result):
-        assert device.detect_hailo_arch() == device.HAILO8_ARCH
+    with patch.object(accelerators.subprocess, "run", return_value=result):
+        assert accelerators.detect_hailo_arch() == accelerators.HAILO8_ARCH
 
 
 def test_paired_hailo_uri_prefers_target_specific_compilation(tmp_path):
@@ -93,23 +93,7 @@ def test_hailo_availability_checks_global_remote_paths():
 def test_hailo_pairing_recognizes_underscore_segmentation_names():
     from abraia.inference.registry import _hailo_pair_task
 
-    assert _hailo_pair_task("onnx", "detection", "yolov8n_seg.onnx") == "segmentation"
-
-
-def test_hailo_metadata_supplies_task_and_labels_for_exported_bundle(tmp_path):
-    from abraia.inference.hailo import models
-
-    bundle = tmp_path / "custom_hailo_model"
-    bundle.mkdir()
-    (bundle / "custom.hef").write_bytes(b"hef")
-    (bundle / "metadata.yaml").write_text(
-        "task: segment\nnames:\n  0: tomato\n  1: leaf\n"
-    )
-
-    metadata = models.load_hailo_metadata(bundle)
-
-    assert models.labels_from_metadata(metadata) == ["tomato", "leaf"]
-    assert models.resolve_model_type(None, bundle, "segmentation") == "v8"
+    assert _hailo_pair_task("detection", "yolov8n_seg.onnx") == "segmentation"
 
 
 def test_hailo_format_order_recognizes_native_nms_outputs():
@@ -127,7 +111,7 @@ def test_hailo_format_order_recognizes_native_nms_outputs():
 
 
 def test_pose_models_default_to_yolov8_postprocessing():
-    assert resolve_model_type(None, "yolov8m_pose", "pose") == "v8"
+    assert resolve_model_type("yolov8", "pose") == "v8"
 
 
 def test_segmentation_nms_discards_non_finite_boxes():
@@ -331,18 +315,12 @@ def test_hailo_pipeline_adapter_uses_model_json_labels(tmp_path):
     custom_model.close()
 
 
-def test_hailo_pipeline_adapter_reads_native_bundle_metadata(tmp_path):
+def test_hailo_pipeline_adapter_uses_json_kind_task_and_settings(tmp_path):
     from abraia.inference.hailo import pipeline as hailo_pipeline
 
-    bundle = tmp_path / "native_hailo_model"
+    bundle = tmp_path / "custom_bundle"
     bundle.mkdir()
-    (bundle / "native.hef").write_bytes(b"hef")
-    (bundle / "metadata.yaml").write_text(
-        "task: segment\nnames:\n  0: tomato\n"
-    )
-    (bundle / "abraia.json").write_text(
-        '{"task": "segmentation", "classes": ["tomato"]}'
-    )
+    (bundle / "custom.hef").write_bytes(b"hef")
 
     class FakeInference:
         def __init__(self, hef_path, **kwargs):
@@ -357,12 +335,31 @@ def test_hailo_pipeline_adapter_reads_native_bundle_metadata(tmp_path):
 
     with patch.object(hailo_pipeline, "HAILO_AVAILABLE", True), \
          patch.object(hailo_pipeline, "ModelInference", FakeInference):
-        model = hailo_pipeline.HailoPipelineModel(str(bundle))
-
-    assert model.task == "segmentation"
-    assert model.labels == ["tomato"]
-    assert model.inference.kwargs["model_type"] == "v8"
-    model.close()
+        for kind, task, expected_decoder in (
+            ("yolov5", "segmentation", "v5"),
+            ("yolov8", "segmentation", "v8"),
+            ("yolo11", "pose", "v8"),
+            ("rtmdet", "segmentation", "rtmdet"),
+        ):
+            (bundle / "abraia.json").write_text(json.dumps({
+                "kind": kind,
+                "task": task,
+                "classes": ["tomato"],
+                "confidenceThreshold": 0.4,
+                "iouThreshold": 0.6,
+            }))
+            model = hailo_pipeline.HailoPipelineModel(str(bundle))
+            assert model.kind == kind
+            assert model.task == task
+            assert model.labels == ["tomato"]
+            assert model.inference.kwargs["model_type"] == expected_decoder
+            assert model.inference.kwargs["score_threshold"] == 0.4
+            assert model.inference.kwargs["iou_threshold"] == 0.6
+            model.close()
+        model = hailo_pipeline.HailoPipelineModel(str(bundle), kind="yolov5")
+        assert model.kind == "yolov5"
+        assert model.model_type == "v5"
+        model.close()
 
 
 def test_resolve_hailo_requires_an_explicit_hef_uri():
@@ -383,3 +380,10 @@ def test_resolve_hailo_unknown_name_does_not_download_external_models():
     assert models.resolve_hef_path(
         "not-a-bundled-model", "detect", arch="hailo8"
     ) is None
+
+
+def test_hailo_task_translation_accepts_aliases_and_canonical_names():
+    from abraia.inference.model_config import to_hailo_task
+
+    assert to_hailo_task("segment") == "segment"
+    assert to_hailo_task("segmentation") == "segment"

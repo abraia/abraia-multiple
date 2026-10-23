@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from ..geometry import non_maximum_suppression, sigmoid
-from ...tasks import normalize_task
+from ..model_config import normalize_task
 from ..session import OnnxSessionMixin, load_onnx_model_config
 
 
@@ -589,12 +589,12 @@ def process_pose_output(
 
 
 class Model(OnnxSessionMixin):
-    def __init__(self, model_uri, providers=None, accelerator=None):
+    def __init__(self, model_uri, providers=None, accelerator=None, kind=None):
         model_path, config = load_onnx_model_config(model_uri)
         self.task, self.input_shape, self.classes = validate_model_config(
             config
         )
-        self.backend = str(config.get("backend", "ultralytics")).lower()
+        self.kind = str(kind or config.get("kind", "yolov8")).strip().lower()
         if self.task == "classification":
             raise ValueError(
                 "Classification ONNX models must be loaded with ResNetClassifier"
@@ -610,7 +610,7 @@ class Model(OnnxSessionMixin):
         )
         self.input_name = self.session.get_inputs()[0].name
         output_names = [item.name for item in self.session.get_outputs()]
-        if self.backend == "rtmdet":
+        if self.kind == "rtmdet":
             self.decoder = partial(
                 process_rtmdet_output,
                 output_names=output_names,
@@ -618,7 +618,7 @@ class Model(OnnxSessionMixin):
                 task=self.task,
                 config=config,
             )
-        elif self.backend == "libreyolo":
+        elif self.kind == "yolo9":
             self.decoder = partial(
                 process_libreyolo_output,
                 classes=list(self.classes),
@@ -639,7 +639,7 @@ class Model(OnnxSessionMixin):
     ):
         self._ensure_open()
         img_size = img.shape[1], img.shape[0]
-        if self.backend == "rtmdet":
+        if self.kind == "rtmdet":
             input_tensor, scale, padding = prepare_rtmdet_input(
                 img,
                 self.input_shape,
