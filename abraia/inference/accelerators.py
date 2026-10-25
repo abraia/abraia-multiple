@@ -177,8 +177,8 @@ def hailo_model_available(config, architecture):
     return probe_artifact(path).available
 
 
-def paired_hailo_uri(onnx_uri, task, architecture=None):
-    """Return the Hailo URI paired with an ONNX model URI.
+def paired_hailo_uri(onnx_uri, architecture=None):
+    """Return the exact-stem Hailo URI paired with an ONNX model URI.
 
     Abraia-managed Hailo models are addressed by their remote path and
     resolved to a cached HEF at runtime. When a sibling HEF exists beside a
@@ -191,20 +191,19 @@ def paired_hailo_uri(onnx_uri, task, architecture=None):
         return None
 
     path = Path(value)
-    stem = path.stem
-    if str(task).strip().lower() == "segmentation":
-        stem = stem.replace("-seg", "_seg")
-
     siblings = []
     if architecture:
-        siblings.append(path.with_name(f"{stem}_{architecture}.hef"))
-    siblings.append(path.with_name(f"{stem}.hef"))
+        siblings.append(
+            path.with_name(f"{path.stem}_{architecture}.hef")
+        )
+    siblings.append(path.with_name(f"{path.stem}.hef"))
     for sibling in siblings:
         if sibling.is_file():
             return str(sibling)
+
     normalized_value = value.replace("\\", "/")
     if architecture and normalized_value.startswith("multiple/"):
-        return f"{path.parent.as_posix()}/{stem}_{architecture}.hef"
+        return f"{path.parent.as_posix()}/{path.stem}_{architecture}.hef"
     return None
 
 

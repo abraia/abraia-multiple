@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -18,18 +17,6 @@ logger = logging.getLogger(__name__)
 
 HAILO_FILE_EXTENSION = ".hef"
 HAILO_TARGETS = ("hailo8l", "hailo8", "hailo10h", "hailo15h", "hailo15l")
-
-COCO_LABELS = [
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-    "hair drier", "toothbrush",
-]
 
 
 def resolve_model_type(kind, task):
@@ -55,7 +42,7 @@ def _model_json_candidates(hef_path):
     """Return JSON sidecar candidates for a local or remote HEF path."""
     path = Path(hef_path)
     if path.is_dir():
-        return (path / "abraia.json", path / "model.json")
+        return (path / "abraia.json",)
 
     stems = [path.stem]
     for target in HAILO_TARGETS:
@@ -63,12 +50,7 @@ def _model_json_candidates(hef_path):
         if path.stem.endswith(suffix):
             stems.append(path.stem[: -len(suffix)])
             break
-    variants = []
-    for stem in stems:
-        for variant in (stem, stem.replace("_seg", "-seg")):
-            if variant not in variants:
-                variants.append(variant)
-    candidates = [path.with_name(f"{stem}.json") for stem in variants]
+    candidates = [path.with_name(f"{stem}.json") for stem in stems]
     if path.suffix.lower() == HAILO_FILE_EXTENSION:
         candidates.insert(0, path.with_suffix("") / "abraia.json")
     return tuple(candidates)
@@ -145,20 +127,10 @@ def resolve_hef_path(hef_path: Optional[str], task: str,
     return None
 
 
-def get_labels(labels_path: Optional[str]) -> list:
-    """Load labels from a file, falling back to COCO labels."""
-    if labels_path is None or not os.path.exists(labels_path):
-        return COCO_LABELS
-    with open(labels_path, "r", encoding="utf-8") as labels_file:
-        return labels_file.read().splitlines()
-
-
 __all__ = [
     "HAILO_FILE_EXTENSION",
-    "COCO_LABELS",
     "labels_from_model_config",
     "load_hailo_model_config",
     "resolve_model_type",
     "resolve_hef_path",
-    "get_labels",
 ]

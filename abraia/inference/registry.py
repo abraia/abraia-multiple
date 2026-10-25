@@ -45,22 +45,6 @@ def _resolve_model_uri(uri, base_dir=None):
     return str(candidate) if candidate.is_file() else uri
 
 
-def _hailo_pair_task(task, uri):
-    """Return the Hailo task represented by an ONNX model definition."""
-    model_name = str(uri).lower()
-    if any(
-        marker in model_name
-        for marker in (
-            "-seg", "_seg", "-segment", "_segment",
-            "rtmdet-ins", "rtmdet_ins",
-        )
-    ):
-        return "segmentation"
-    if "_pose" in model_name:
-        return "pose"
-    return task
-
-
 def _select_hailo_pair(config, spec, uri, accelerator):
     """Build a paired Hailo config when the requested hardware can use it."""
     if (
@@ -69,13 +53,13 @@ def _select_hailo_pair(config, spec, uri, accelerator):
     ):
         return None
 
-    hailo_task = _hailo_pair_task(spec.task, uri)
+    hailo_task = spec.task
     if hailo_task not in HAILO_TASKS:
         return None
     architecture = hailo_device_arch()
     if not architecture:
         return None
-    hailo_uri = paired_hailo_uri(uri, hailo_task, architecture)
+    hailo_uri = paired_hailo_uri(uri, architecture)
     if not hailo_uri:
         return None
     candidate = {"steps": [{"type": "model", "model": {"uri": hailo_uri}}]}
@@ -96,9 +80,6 @@ def _create_hailo_model(spec, config, base_dir):
 
     uri = _resolve_model_uri(spec.uri, base_dir=base_dir)
     params = spec.params_copy()
-    # Class names are authoritative in the model JSON sidecar, matching the
-    # ONNX adapter. Ignore the former runtime labels override if present.
-    params.pop("labels", None)
     if "conf_threshold" in config:
         params.setdefault("score_threshold", config["conf_threshold"])
     if "iou_threshold" in config:

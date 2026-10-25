@@ -97,7 +97,7 @@ PIPELINES = {
             {
                 'type': 'model',
                 'model': {
-                    'task': 'detection',
+                    'task': 'segmentation',
                     'kind': 'yolov8',
                     'uri': 'multiple/strawberry/yolov8n-seg.onnx',
                     'labels': ['strawberry'],
@@ -309,7 +309,7 @@ def _primary_model_step(config):
 
 
 def _resolve_hailo_config(config, architecture):
-    """Pair a canonical demo ONNX URI with an architecture-specific HEF."""
+    """Select an available architecture-specific HEF for a demo model."""
     selected = deepcopy(config)
     model = _primary_model_step(selected)['model']
     from abraia.inference.accelerators import paired_hailo_uri
@@ -320,9 +320,9 @@ def _resolve_hailo_config(config, architecture):
     task = normalize_task(model.get('task'))
     if kind not in ('yolov5', 'yolov8', 'yolo11') or not task:
         return None
+
     hef_uri = paired_hailo_uri(
         onnx_uri,
-        task,
         architecture,
     )
     if not hef_uri:
@@ -330,7 +330,7 @@ def _resolve_hailo_config(config, architecture):
     model['task'] = task
     model['kind'] = kind
     model['uri'] = hef_uri
-    return selected
+    return selected if _hailo_model_available(selected, architecture) else None
 
 
 def _prepare_source(config, src=None, resolution=None):
@@ -374,13 +374,8 @@ def resolve_pipeline(demo='detect', accelerator='auto'):
         resolved_hailo_config = _resolve_hailo_config(config, architecture)
         if resolved_hailo_config is None:
             raise RuntimeError(
-                f"No Hailo model is configured for the '{demo}' demo on "
+                f"No Hailo model is available for the '{demo}' demo on "
                 f"{architecture}"
-            )
-        if not _hailo_model_available(resolved_hailo_config, architecture):
-            raise RuntimeError(
-                f"The Hailo model for the '{demo}' demo is not available "
-                f"for {architecture}"
             )
         return resolved_hailo_config
 
@@ -394,10 +389,7 @@ def resolve_pipeline(demo='detect', accelerator='auto'):
             if architecture
             else None
         )
-        if (
-            resolved_hailo_config
-            and _hailo_model_available(resolved_hailo_config, architecture)
-        ):
+        if resolved_hailo_config:
             return resolved_hailo_config
 
     return deepcopy(config)

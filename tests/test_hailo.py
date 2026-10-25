@@ -63,14 +63,14 @@ def test_paired_hailo_uri_prefers_target_specific_compilation(tmp_path):
     target_hef = tmp_path / "yolov8n_v2_hailo8l.hef"
     target_hef.write_bytes(b"hef")
 
-    assert paired_hailo_uri(onnx_path, "detection", "hailo8l") == str(target_hef)
+    assert paired_hailo_uri(onnx_path, "hailo8l") == str(target_hef)
 
 
 def test_paired_hailo_uri_supports_uploaded_multiple_project_paths():
     from abraia.inference.accelerators import paired_hailo_uri
 
     assert paired_hailo_uri(
-        "multiple/tomato/yolov8n.onnx", "detection", "hailo8"
+        "multiple/tomato/yolov8n.onnx", "hailo8"
     ) == "multiple/tomato/yolov8n_hailo8.hef"
 
 
@@ -88,12 +88,6 @@ def test_hailo_availability_checks_global_remote_paths():
     }
     with patch("abraia.utils.remote.remote_available", return_value=False):
         assert not hailo_model_available(config, "hailo8")
-
-
-def test_hailo_pairing_recognizes_underscore_segmentation_names():
-    from abraia.inference.registry import _hailo_pair_task
-
-    assert _hailo_pair_task("detection", "yolov8n_seg.onnx") == "segmentation"
 
 
 def test_hailo_format_order_recognizes_native_nms_outputs():

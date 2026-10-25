@@ -192,7 +192,7 @@ def test_hailo_apple_demo_uses_a_bundled_segmentation_model():
 
     model = _primary_model(config)
     assert model["task"] == "segmentation"
-    assert model["uri"] == "multiple/models/yolov8n_seg_hailo8.hef"
+    assert model["uri"] == "multiple/models/yolov8n-seg_hailo8.hef"
 
 
 def test_hailo_video_demos_use_video_metadata_for_resolution_and_fps():
