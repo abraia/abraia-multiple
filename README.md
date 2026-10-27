@@ -93,9 +93,10 @@ abraia run demo DEMO_NAME [SOURCE] [--accelerator auto] [--output FILE]
 abraia run PROJECT [SOURCE] [--accelerator auto] [--output FILE]
 ```
 
-Available demos are `detect`, `segment`, `pose`, `people`, `queue`, `escalator`,
-`tomato`, `apple`, `strawberry`, `grapes`, `plates`, and `faces`. A supplied
-source overrides the demo's configured camera or video.
+Available inference demos are `detect`, `segment`, `pose`, `people`, `queue`,
+`escalator`, `tomato`, `apple`, `strawberry`, `grapes`, `plates`, and `faces`.
+The `pi-camera` demo publishes a Raspberry Pi camera stream without inference.
+A supplied source overrides an inference demo's configured camera or video.
 
 A project run loads `PROJECT/pipeline.json` from Abraia storage. First create
 a [pipeline configuration](#pipelines), then upload it to your project:
@@ -202,12 +203,112 @@ output.
 ## Pipelines
 
 A pipeline is a version-two JSON document containing a `source`, ordered
-`steps`, and optional `display` settings. The first step runs a model; later
-steps process its results. Sources can be images, image sequences, videos,
-local cameras, network streams, or GenICam cameras.
-Reusable source classes and the `VideoWriter` file sink are available from
-`abraia.media`; `abraia.runtime` handles pipeline configuration, execution,
-and preview display.
+`steps`, and optional `display` and `output` settings. A model step performs
+inference; later steps can process its results. Sources can be images, image
+sequences, videos, local cameras, network streams, or GenICam cameras. Reusable
+source classes and media outputs are available from `abraia.media`;
+`abraia.runtime` handles pipeline configuration, execution, and preview display.
+
+### Raspberry Pi camera stream
+
+The built-in `pi-camera` demo configures the camera for 1280×720 at 30 FPS and
+publishes low-latency H.264 to MediaMTX. On Raspberry Pi OS, install FFmpeg:
+
+```sh
+sudo apt update
+sudo apt install ffmpeg
+ffmpeg -hide_banner -encoders | grep libx264
+```
+
+MediaMTX is a standalone binary. Check the OS architecture with
+`getconf LONG_BIT`, then download the matching `.tar.gz` archive from the
+[MediaMTX releases](https://github.com/bluenviron/mediamtx/releases): choose
+`linux_arm64` for 64-bit Raspberry Pi OS or `armv7` for 32-bit. Extract it in
+its own directory:
+
+```sh
+mkdir -p ~/mediamtx
+cd ~/mediamtx
+# Download the matching MediaMTX archive into this directory first.
+```
+
+Extract the matching archive. For 64-bit Raspberry Pi OS:
+
+```sh
+tar -xvzf mediamtx_*_linux_arm64.tar.gz
+```
+
+For 32-bit Raspberry Pi OS:
+
+```sh
+tar -xvzf mediamtx_*_linux_armv7.tar.gz
+```
+
+In `mediamtx.yml`, replace the default `authInternalUsers` block and set or
+add these values. Use unique passwords and replace `192.168.1.42` with the
+processing computer's LAN IP. This permits the Pi to publish locally and that
+computer to read the stream:
+
+```yaml
+authMethod: internal
+authInternalUsers:
+  - user: abraia-publisher
+    pass: REPLACE_WITH_PUBLISH_PASSWORD
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: publish
+        path: cam
+  - user: abraia-reader
+    pass: REPLACE_WITH_READ_PASSWORD
+    ips: ["192.168.1.42"]
+    permissions:
+      - action: read
+        path: cam
+rtspTransports: [tcp]
+paths:
+  cam:
+    source: publisher
+```
+
+The RTSP server accepts the publisher locally and makes the stream available
+to the computer on the network. Start MediaMTX in one terminal:
+
+```sh
+./mediamtx
+```
+
+Then run the demo in another terminal on the Pi:
+
+```sh
+ABRAIA_RTSP_URL='rtsp://abraia-publisher:REPLACE_WITH_PUBLISH_PASSWORD@127.0.0.1:8554/cam' \
+  abraia run demo pi-camera
+```
+
+Use alphanumeric passwords in the example URLs, or percent-encode reserved
+characters. RTSP does not encrypt the video or credentials; use a trusted LAN
+or a VPN.
+
+On the computer, use the published stream as a regular pipeline source:
+
+```json
+{
+  "version": 2,
+  "source": {
+    "type": "stream",
+    "src": "rtsp://abraia-reader:REPLACE_WITH_READ_PASSWORD@pi.local:8554/cam"
+  },
+  "steps": [
+    {
+      "type": "model",
+      "model": {"kind": "yolov8", "task": "detection", "size": "small"}
+    }
+  ],
+  "display": {"show": true}
+}
+```
+
+Resolution and frame rate are configured by the Pi demo preset. The computer
+pipeline reads and processes the stream; remote camera control is not included.
 
 ### Detection, tracking, and counting
 

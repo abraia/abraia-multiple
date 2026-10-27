@@ -206,6 +206,7 @@ class Pipeline:
         model_kwargs: Optional[Dict[str, Any]] = None,
         on_frame: Optional[Callable[[FrameContext, float], None]] = None,
         components: Optional[Dict[str, Any]] = None,
+        output: Any = None,
     ):
         self.source = source
         self.model = model
@@ -215,6 +216,7 @@ class Pipeline:
         self.model_kwargs = model_kwargs or {}
         self.on_frame = on_frame
         self.components = components or {}
+        self.output = output
         self._closed = False
         self._stop_requested = threading.Event()
         self._render_output_owned = False
@@ -225,6 +227,9 @@ class Pipeline:
     def stop(self):
         """Request cancellation and release a blocking source if possible."""
         self._stop_requested.set()
+        stop_output = getattr(self.output, "stop", None)
+        if callable(stop_output):
+            stop_output()
         stop = getattr(self.source, "stop", None)
         if callable(stop):
             stop()
@@ -362,6 +367,8 @@ class Pipeline:
         """Report, render, and display one completed frame context."""
         if self.on_frame is not None:
             self.on_frame(context, elapsed_ms)
+        if self.output is not None:
+            self.output.write(context.frame)
         if self.display is None:
             return True
         output = self.render(context) if self.render else context.frame
@@ -411,11 +418,18 @@ class Pipeline:
             raise ValueError("Only version 2 pipeline configurations are supported")
         source_config = config.get("source") or {}
         display_config = config.get("display") or {}
+        output_config = config.get("output")
         raw_steps = config.get("steps", []) or []
         if not isinstance(source_config, dict) or "src" not in source_config:
             raise ValueError("Pipeline source must define 'src'")
         if not isinstance(display_config, dict):
             raise ValueError("Pipeline display must be an object")
+        if output_config is not None and not isinstance(output_config, dict):
+            raise ValueError("Pipeline output must be an object")
+        if output_config is not None and output_config.get("type") != "rtsp":
+            raise ValueError("Pipeline output type must be 'rtsp'")
+        if output_config is not None and not output_config.get("url"):
+            raise ValueError("RTSP output must define 'url'")
         if not isinstance(raw_steps, list):
             raise ValueError("Pipeline 'steps' must be an array")
         steps_config = list(iter_pipeline_steps(raw_steps))
@@ -456,6 +470,7 @@ class Pipeline:
         source, video_kwargs = _prepare_source(source_config, display_config, root)
         video = None
         display = None
+        output = None
         steps = []
         created_models = []
         components = {}
@@ -556,6 +571,23 @@ class Pipeline:
                 render_results=display_config.get("render_results", True),
                 render_metrics=display_config.get("render_metrics", True),
             )
+            if output_config is not None:
+                from ..media.outputs import RTSPOutput
+
+                resolution = getattr(video, "resolution", None) or video_kwargs.get(
+                    "resolution", (1920, 1080)
+                )
+                output_size = (
+                    int(getattr(video, "width", 0) or resolution[0]),
+                    int(getattr(video, "height", 0) or resolution[1]),
+                )
+                output = RTSPOutput(
+                    url=output_config["url"],
+                    fps=getattr(video, "frame_rate", None)
+                    or video_kwargs.get("fps", 30),
+                    size=output_size,
+                    bitrate=output_config.get("bitrate", 4_000_000),
+                )
             show_display = bool(display_config.get("show", True))
             set_display_enabled = getattr(video, "set_display_enabled", None)
             if not show_display and callable(set_display_enabled):
@@ -590,6 +622,7 @@ class Pipeline:
                 render=renderer,
                 on_frame=on_frame,
                 components=components,
+                output=output,
             )
             pipeline._render_output_owned = renderer_factory is None
             return pipeline
@@ -603,7 +636,7 @@ class Pipeline:
                 model for model, _kwargs, _field in created_models
                 if id(model) not in wrapped_model_ids
             ]
-            _close_resources([*steps, *unwrapped_models, display, video])
+            _close_resources([*steps, *unwrapped_models, display, output, video])
             raise
 
     def close(self):
@@ -617,7 +650,7 @@ class Pipeline:
             if getattr(step, "model", None) is not None
             and callable(getattr(step, "close", None))
         }
-        resources = [self.display, self.source]
+        resources = [self.output, self.display, self.source]
         if self.model is not None and id(self.model) not in step_models:
             resources.append(self.model)
         _close_resources([

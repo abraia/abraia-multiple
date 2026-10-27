@@ -290,6 +290,28 @@ PIPELINES = {
 }
 
 
+# Camera-service presets do not run inference and therefore stay separate from
+# the model-backed demo catalog.
+CAMERA_PIPELINES = {
+    'pi-camera': {
+        'version': 2,
+        'source': {
+            'type': 'rpi_camera',
+            'src': 0,
+            'resolution': [1280, 720],
+            'fps': 30,
+        },
+        'steps': [],
+        'display': {'show': False},
+        'output': {
+            'type': 'rtsp',
+            'url': 'rtsp://127.0.0.1:8554/cam',
+            'bitrate': 4_000_000,
+        },
+    },
+}
+
+
 PIPELINE_DEVICES = PIPELINES
 
 
@@ -346,6 +368,27 @@ def _ensure_video_available(src):
     """Download a catalog video when it is not present locally."""
     if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
         download_url(VIDEO_URL.format(src), src)
+
+
+def run_camera_pipeline(
+    demo='pi-camera',
+    src=None,
+    accelerator='auto',
+    output=None,
+):
+    """Run a camera-service preset without loading an inference model."""
+    try:
+        selected = deepcopy(CAMERA_PIPELINES[demo])
+    except KeyError as error:
+        raise ValueError(f"Unknown camera pipeline demo: {demo}") from error
+    _prepare_source(selected, src)
+    rtsp_url = os.environ.get('ABRAIA_RTSP_URL')
+    if rtsp_url:
+        selected['output']['url'] = rtsp_url
+    if output is not None:
+        selected.setdefault('display', {})['dest'] = output
+    with Pipeline.from_dict(selected, accelerator=accelerator) as pipeline:
+        pipeline.run()
 
 
 def resolve_pipeline(demo='detect', accelerator='auto'):

@@ -2,12 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/abraia/vision-studio/schemas/pipeline-v2.schema.json",
   "title": "Abraia Vision Pipeline v2",
-  "description": "Ordered frame pipeline configuration consumed by Abraia Vision Studio and the Abraia runtime.",
+  "description": "Ordered frame pipeline configuration with optional media output consumed by Abraia Vision Studio and the Abraia runtime.",
   "type": "object",
   "required": ["version", "source", "steps"],
   "properties": {
     "version": {"const": 2},
     "source": {"$ref": "#/$defs/source"},
+    "output": {"$ref": "#/$defs/output"},
     "steps": {
       "type": "array",
       "minItems": 0,
@@ -47,6 +48,16 @@
         "render_results": {"type": "boolean"},
         "render_metrics": {"type": "boolean"},
         "dest": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "required": ["type", "url"],
+      "properties": {
+        "type": {"const": "rtsp"},
+        "url": {"type": "string", "pattern": "^rtsp://"},
+        "bitrate": {"type": "integer", "exclusiveMinimum": 0}
       },
       "additionalProperties": false
     },

@@ -453,6 +453,7 @@ class PipelineDraft:
         default_factory=lambda: [default_primary_step()]
     )
     source_options: Dict[str, Any] = field(default_factory=dict)
+    output: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         if self.resolution is None:
@@ -512,6 +513,7 @@ class PipelineDraft:
             show=bool(display.get("show", True)),
             render_results=bool(display.get("render_results", True)),
             render_metrics=bool(display.get("render_metrics", True)),
+            output=deepcopy(config.get("output")),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -549,12 +551,21 @@ class PipelineDraft:
             )
         pipeline_steps = strip_internal_step_ids(steps)
 
-        return {
+        config = {
             "version": 2,
             "source": source,
             "steps": pipeline_steps,
             "display": display,
         }
+        if self.output is not None:
+            if not isinstance(self.output, dict):
+                raise ValueError("Pipeline output must be an object.")
+            if self.output.get("type") != "rtsp":
+                raise ValueError("Output type must be 'rtsp'.")
+            if not str(self.output.get("url", "")).startswith("rtsp://"):
+                raise ValueError("RTSP output must have an RTSP URL.")
+            config["output"] = deepcopy(self.output)
+        return config
 
     def validation_errors(self) -> List[str]:
         """Return user-facing validation messages for this pipeline draft."""
@@ -569,6 +580,19 @@ class PipelineDraft:
             errors.append("Camera source must be a numeric camera index.")
         if not isinstance(self.source_options, dict):
             errors.append("Source options must be an object.")
+        if self.output is not None:
+            if not isinstance(self.output, dict):
+                errors.append("Pipeline output must be an object.")
+            elif self.output.get("type") != "rtsp":
+                errors.append("Output type must be 'rtsp'.")
+            elif not str(self.output.get("url", "")).startswith("rtsp://"):
+                errors.append("RTSP output must have an RTSP URL.")
+            else:
+                try:
+                    if int(self.output.get("bitrate", 4_000_000)) <= 0:
+                        errors.append("RTSP output bitrate must be greater than zero.")
+                except (TypeError, ValueError):
+                    errors.append("RTSP output bitrate must be a positive integer.")
         try:
             resolution_valid = len(self.resolution) == 2 and all(
                 int(value) > 0 for value in self.resolution

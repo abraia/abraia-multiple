@@ -11,6 +11,7 @@ _EXPORTS = {
     "ImageSequenceSource": (".sources", "ImageSequenceSource"),
     "ImageSource": (".sources", "ImageSource"),
     "load_image": (".images", "load_image"),
+    "RTSPOutput": (".outputs", "RTSPOutput"),
     "save_image": (".images", "save_image"),
     "StreamSource": (".sources", "StreamSource"),
     "VideoSource": (".sources", "VideoSource"),

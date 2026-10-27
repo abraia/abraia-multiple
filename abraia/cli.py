@@ -207,11 +207,25 @@ def search(project, query):
     type=click.Path(dir_okay=False),
     help="Save rendered video frames to this local file.",
 )
-def run(project, demo_or_source, src, accelerator, output=None):
-    """Run a project's saved pipeline."""
+def run(
+    project,
+    demo_or_source,
+    src,
+    accelerator,
+    output=None,
+):
+    """Run a demo or a project's saved pipeline."""
     def operation():
         if project == "demo":
-            if demo_or_source == "faces":
+            if demo_or_source == "pi-camera":
+                from .demo import run_camera_pipeline
+
+                run_camera_pipeline(
+                    src=src,
+                    accelerator=accelerator,
+                    output=output,
+                )
+            elif demo_or_source == "faces":
                 from .demo import track_faces
 
                 track_faces(src, accelerator=accelerator, output=output)
