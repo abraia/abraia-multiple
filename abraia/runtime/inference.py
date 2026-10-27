@@ -70,8 +70,8 @@ class AsyncInferenceRunner:
         preprocess: Callable[[Any], Any],
         batch_size: int = 1,
         stop_event: Optional[threading.Event] = None,
-        input_queue_size: int = 60,
-        output_queue_size: int = 60,
+        input_queue_size: int = 4,
+        output_queue_size: int = 4,
         join_timeout: Optional[float] = 2.0,
         flush: Optional[Callable[[], None]] = None,
     ):
@@ -225,7 +225,6 @@ class AsyncInferenceRunner:
         inference_thread.start()
 
         pending = {}
-        seen_indices = set()
         next_frame = 0
         completed = False
         cancelled = False
@@ -238,13 +237,12 @@ class AsyncInferenceRunner:
                         cancelled = self.stop_event.is_set()
                         break
                     record = item.record
-                    if record.index in seen_indices:
+                    if record.index < next_frame or record.index in pending:
                         raise RuntimeError(
                             f"Inference emitted duplicate frame index {record.index}"
                         )
                     if item.error is not None:
                         raise item.error
-                    seen_indices.add(record.index)
                     pending[record.index] = FrameResult(
                         record,
                         item.results,

@@ -3,7 +3,7 @@
 import numpy as np
 from PIL import Image
 
-from .image import encode_image
+from ..media.images import encode_image
 
 
 def as_array(value, dtype=None, copy=False):

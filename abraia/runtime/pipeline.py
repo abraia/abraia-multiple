@@ -30,7 +30,7 @@ from .config import (
     steps_missing_tracker,
     validate_step_structure,
 )
-from .sources import create_source, infer_source_type
+from .sources import create_source, infer_source_type, normalize_source_type
 
 
 logger = logging.getLogger(__name__)
@@ -55,20 +55,30 @@ def _close_resources(resources: Iterable) -> None:
 def _prepare_source(source_config, display_config, root: Path):
     """Normalize source configuration into a source and constructor kwargs."""
     source = source_config["src"]
-    source_type = source_config.get("type")
+    configured_type = source_config.get("type")
+    source_type = (
+        normalize_source_type(configured_type) if configured_type else None
+    )
     inferred_source_type = infer_source_type(source)
     numeric_source = inferred_source_type == "camera"
     camera_source = (
         source_type in ("camera", "usb_camera")
+        or source_type == "genicam"
         or isinstance(source, int)
         or (numeric_source and source_type != "image")
     )
-    if camera_source and isinstance(source, str) and numeric_source:
+    if (
+        camera_source
+        and source_type != "genicam"
+        and isinstance(source, str)
+        and numeric_source
+    ):
         source = int(source.strip())
     if (
         isinstance(source, str)
         and not camera_source
         and inferred_source_type != "stream"
+        and source_type != "genicam"
     ):
         source_path = Path(source)
         if not source_path.is_absolute():
@@ -86,8 +96,27 @@ def _prepare_source(source_config, display_config, root: Path):
         "resolution": resolution,
         "fps": source_config.get("fps", 30),
         "dest": destination,
-        "source_type": source_type,
+        "source_type": configured_type or source_type,
     }
+    source_options = source_config.get("options", {})
+    if not isinstance(source_options, dict):
+        raise ValueError("Pipeline source 'options' must be an object")
+    source_options = dict(source_options)
+    producer = source_options.get("producer")
+    if isinstance(producer, (str, os.PathLike)):
+        producer_path = Path(producer).expanduser()
+        if not producer_path.is_absolute():
+            source_options["producer"] = str(root / producer_path)
+    elif isinstance(producer, (list, tuple)):
+        resolved_producers = []
+        for producer_entry in producer:
+            producer_path = Path(str(producer_entry)).expanduser()
+            if not producer_path.is_absolute():
+                producer_path = root / producer_path
+            resolved_producers.append(str(producer_path))
+        source_options["producer"] = resolved_producers
+    if source_options:
+        video_kwargs["source_options"] = source_options
     if "video_unpaced" in source_config:
         video_kwargs["video_unpaced"] = source_config["video_unpaced"]
     return source, video_kwargs
@@ -154,7 +183,7 @@ class FrameContext:
 def _source_frame_parts(source_frame):
     """Unpack an image and opaque extension data from a source item."""
     if isinstance(source_frame, Mapping):
-        return source_frame["frame"], source_frame["data"]
+        return source_frame["frame"], source_frame.get("data") or {}
     return source_frame, {}
 
 
@@ -188,6 +217,7 @@ class Pipeline:
         self.components = components or {}
         self._closed = False
         self._stop_requested = threading.Event()
+        self._render_output_owned = False
 
         frame_rate = getattr(source, "frame_rate", None)
         self.frame_rate = float(frame_rate or 0)
@@ -335,7 +365,11 @@ class Pipeline:
         if self.display is None:
             return True
         output = self.render(context) if self.render else context.frame
-        display_result = self.display.show(output)
+        show_rendered = getattr(self.display, "show_rendered", None)
+        if self._render_output_owned and callable(show_rendered):
+            display_result = show_rendered(output)
+        else:
+            display_result = self.display.show(output)
         if display_result is False or getattr(self.display, "quit", False):
             self.stop()
             return False
@@ -421,6 +455,7 @@ class Pipeline:
         root = Path(base_dir or os.getcwd())
         source, video_kwargs = _prepare_source(source_config, display_config, root)
         video = None
+        display = None
         steps = []
         created_models = []
         components = {}
@@ -522,12 +557,32 @@ class Pipeline:
                 render_metrics=display_config.get("render_metrics", True),
             )
             show_display = bool(display_config.get("show", True))
-            if not show_display:
-                video.set_display_enabled(False)
-            display = video if show_display or video_kwargs.get("dest") else None
+            set_display_enabled = getattr(video, "set_display_enabled", None)
+            if not show_display and callable(set_display_enabled):
+                set_display_enabled(False)
+            source_show = getattr(video, "show", None)
+            if callable(source_show):
+                display = video if show_display or video_kwargs.get("dest") else None
+            elif show_display or video_kwargs.get("dest"):
+                from .video import VideoOutput
+
+                resolution = getattr(video, "resolution", None) or video_kwargs.get(
+                    "resolution", (1920, 1080)
+                )
+                display = VideoOutput(
+                    dest=video_kwargs.get("dest"),
+                    fps=getattr(video, "frame_rate", None)
+                    or video_kwargs.get("fps", 30),
+                    size=(
+                        int(getattr(video, "width", 0) or resolution[0]),
+                        int(getattr(video, "height", 0) or resolution[1]),
+                    ),
+                )
+                if not show_display:
+                    display.set_display_enabled(False)
             if renderer_factory is not None:
                 renderer = renderer_factory(renderer, config)
-            return cls(
+            pipeline = cls(
                 source=video,
                 model=primary_model,
                 steps=steps,
@@ -536,6 +591,8 @@ class Pipeline:
                 on_frame=on_frame,
                 components=components,
             )
+            pipeline._render_output_owned = renderer_factory is None
+            return pipeline
         except Exception:
             wrapped_model_ids = {
                 id(step.model)
@@ -546,7 +603,7 @@ class Pipeline:
                 model for model, _kwargs, _field in created_models
                 if id(model) not in wrapped_model_ids
             ]
-            _close_resources([*steps, *unwrapped_models, video])
+            _close_resources([*steps, *unwrapped_models, display, video])
             raise
 
     def close(self):

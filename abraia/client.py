@@ -18,7 +18,7 @@ from .utils.remote import (
 from .utils.concurrency import get_default_remote_request_scheduler
 from .utils.cache import RemoteFileCache
 from .utils.filesystem import get_type, load_json, md5sum, save_data
-from .utils.image import load_image, save_image
+from .media.images import load_image, save_image
 
 
 _NO_DELEGATE = object()

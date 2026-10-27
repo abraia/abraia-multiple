@@ -452,6 +452,7 @@ class PipelineDraft:
     steps: List[Dict[str, Any]] = field(
         default_factory=lambda: [default_primary_step()]
     )
+    source_options: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.resolution is None:
@@ -504,6 +505,7 @@ class PipelineDraft:
         return cls(
             source_type=source_type or "camera",
             source=source_value,
+            source_options=source.get("options", {}),
             resolution=[_number(v, 0, int) for v in resolution],
             fps=_number(source.get("fps", 30), 30, int),
             steps=normalized_steps,
@@ -515,16 +517,19 @@ class PipelineDraft:
     def to_dict(self) -> Dict[str, Any]:
         """Serialize a pipeline draft as a version-two document."""
         source_value = "" if self.source is None else str(self.source).strip()
-        source_type = infer_source_type(
-            source_value,
-            fallback=normalize_source_type(self.source_type) or "camera",
-        )
+        source_type = normalize_source_type(self.source_type) or "camera"
+        if source_type != "genicam":
+            source_type = infer_source_type(source_value, fallback=source_type)
         source = {
             "type": source_type,
             "src": source_value,
             "resolution": [int(v) for v in (self.resolution or [1920, 1080])[:2]],
             "fps": int(self.fps),
         }
+        if not isinstance(self.source_options, dict):
+            raise ValueError("Pipeline source options must be an object.")
+        if self.source_options:
+            source["options"] = dict(self.source_options)
         steps = [dict(step) for step in self.steps]
         display = {
             "show": bool(self.show),
@@ -555,14 +560,15 @@ class PipelineDraft:
         """Return user-facing validation messages for this pipeline draft."""
         errors = []
         source_value = "" if self.source is None else str(self.source).strip()
-        source_type = infer_source_type(
-            source_value,
-            fallback=normalize_source_type(self.source_type) or "camera",
-        )
+        source_type = normalize_source_type(self.source_type) or "camera"
+        if source_type != "genicam":
+            source_type = infer_source_type(source_value, fallback=source_type)
         if not source_value:
-            errors.append("Choose a source file, camera, or stream.")
+            errors.append("Choose a source file, camera, stream, or GenICam device.")
         elif source_type == "camera" and infer_source_type(source_value) != "camera":
             errors.append("Camera source must be a numeric camera index.")
+        if not isinstance(self.source_options, dict):
+            errors.append("Source options must be an object.")
         try:
             resolution_valid = len(self.resolution) == 2 and all(
                 int(value) > 0 for value in self.resolution

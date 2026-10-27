@@ -31,7 +31,12 @@
           "items": {"type": "integer", "exclusiveMinimum": 0}
         },
         "fps": {"type": "integer", "exclusiveMinimum": 0},
-        "video_unpaced": {"type": "boolean"}
+        "video_unpaced": {"type": "boolean"},
+        "options": {
+          "type": "object",
+          "description": "Optional source-specific settings, such as GenTL Producer and GenICam features.",
+          "additionalProperties": true
+        }
       },
       "additionalProperties": false
     },

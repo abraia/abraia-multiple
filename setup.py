@@ -32,6 +32,9 @@ setup(
     tests_require=['pytest'],
     setup_requires=['setuptools>=38.6.0'],
     install_requires=install_requires,
+    extras_require={
+        'genicam': ['harvesters>=1.4.3'],
+    },
     entry_points={
         'console_scripts': [
             'abraia=abraia.cli:main',

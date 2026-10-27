@@ -3,7 +3,15 @@
 from .pipeline import FrameContext, Pipeline
 from .composition import register_model_step_factory
 from .sources import infer_source_type, register_source_factory
-from .video import FrameSource
+from ..media.sources import (
+    CameraSource,
+    FrameSource,
+    GenICamSource,
+    ImageSequenceSource,
+    ImageSource,
+    StreamSource,
+    VideoSource,
+)
 from .config import (
     MAX_PIPELINE_MODELS,
     MAX_PIPELINE_TRACKERS,
@@ -25,7 +33,9 @@ from .config import (
 )
 
 __all__ = [
-    "FrameContext", "FrameSource", "Pipeline", "PipelineDraft",
+    "FrameContext", "FrameSource", "GenICamSource", "Pipeline", "PipelineDraft",
+    "ImageSource", "ImageSequenceSource", "VideoSource", "CameraSource",
+    "StreamSource",
     "MAX_PIPELINE_MODELS", "MAX_PIPELINE_TRACKERS", "PIPELINE_STEP_DEFINITIONS",
     "SUPPORTED_MODEL_DEFAULT_URIS", "SUPPORTED_MODEL_OPTIONS",
     "SUPPORTED_SECOND_STEP_MODEL_OPTIONS", "SUPPORTED_STEP_TYPES",

@@ -227,7 +227,7 @@ def run(project, demo_or_source, src, accelerator, output=None):
             return
 
         from .runtime import Pipeline
-        from .runtime.sources import infer_source_type
+        from .runtime.sources import infer_source_type, normalize_source_type
 
         source_override = src if src is not None else demo_or_source or None
         try:
@@ -247,7 +247,10 @@ def run(project, demo_or_source, src, accelerator, output=None):
             source_config = pipeline_config.setdefault("source", {})
             source_config["src"] = source_override
             inferred_type = infer_source_type(source_override)
-            if inferred_type:
+            if (
+                inferred_type
+                and normalize_source_type(source_config.get("type")) != "genicam"
+            ):
                 source_config["type"] = inferred_type
         if output is not None:
             pipeline_config.setdefault("display", {})["dest"] = output

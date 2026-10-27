@@ -2,7 +2,7 @@ import cv2
 import json
 import numpy as np
 
-from ...utils.display import Sketcher
+from ...media.display import Sketcher
 from ...utils.remote import download_file
 from ..geometry import mask_to_box
 from ..session import OnnxSessionBundle

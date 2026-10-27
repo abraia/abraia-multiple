@@ -127,8 +127,10 @@ The public entry points are:
 | `abraia` | `Abraia`, `APIError`, `config` | Remote files, metadata, image transforms, and credentials |
 | `abraia.editing` | Image editing functions | Background removal, cropping, upscaling, anonymization, and inpainting |
 | `abraia.inference` | `load_model`, `register_model_factory` | Load configured models or register an adapter |
+| `abraia.media` | Image helpers, input source classes, `VideoWriter` | Image and media I/O |
+| `abraia.media.display` | `Window`, `Sketcher`, `show_image` | Interactive windows and image viewing |
 | `abraia.runtime` | `Pipeline` | Run a configured workflow over an image or video source |
-| `abraia.utils` | `load_image`, `save_image`, `show_image`, `encode_image`, `image_base64`, `render_results` | Load, save, display, encode images, and render inference results |
+| `abraia.utils` | `render_results`, compatibility exports | Shared array, filesystem, and rendering helpers |
 
 ### Remote files and image transforms
 
@@ -161,7 +163,7 @@ background and save the transparent result:
 
 ```python
 from abraia.editing import remove_background
-from abraia.utils import load_image, save_image
+from abraia.media import load_image, save_image
 
 image = load_image("input.jpg")
 result = remove_background(image)
@@ -171,8 +173,10 @@ save_image(result, "cutout.png")
 `load_image()` applies EXIF orientation, returns an RGB array by default, and
 limits the longest edge to 2048 pixels. Pass `max_size=None` to keep the full
 resolution, or `mode="RGBA"` to preserve transparency. `save_image(image, path)`
-creates missing parent directories. Use `encode_image()` for encoded bytes,
-`image_base64()` for a data URL, or `show_image()` to open an image for viewing.
+creates missing parent directories. Use `encode_image()` for encoded bytes and
+`image_base64()` for a data URL. `abraia.media.display.show_image()` opens an
+image in the system viewer; `abraia.utils.show_image()` remains available as a
+compatibility alias.
 
 Other editing functions are `anonymize_image`, `blur_background`,
 `clean_image`, `inpaint_image`, `smartcrop_image`, and `upscale_image`.
@@ -184,7 +188,7 @@ Load a configured detector and pass it an RGB image:
 
 ```python
 from abraia.inference import load_model
-from abraia.utils import load_image
+from abraia.media import load_image
 
 image = load_image("input.jpg")
 with load_model({"kind": "yolov8", "task": "detection", "size": "small"}) as model:
@@ -199,7 +203,11 @@ output.
 
 A pipeline is a version-two JSON document containing a `source`, ordered
 `steps`, and optional `display` settings. The first step runs a model; later
-steps process its results. Sources can be cameras, images, videos, or streams.
+steps process its results. Sources can be images, image sequences, videos,
+local cameras, network streams, or GenICam cameras.
+Reusable source classes and the `VideoWriter` file sink are available from
+`abraia.media`; `abraia.runtime` handles pipeline configuration, execution,
+and preview display.
 
 ### Detection, tracking, and counting
 
@@ -239,6 +247,58 @@ from abraia.runtime import Pipeline
 with Pipeline.from_file("pipeline.json") as pipeline:
     pipeline.run()
 ```
+
+### GenICam cameras
+
+GenICam acquisition is optional. Install the Python consumer and the camera
+vendor's compatible GenTL Producer:
+
+```sh
+python -m pip install 'abraia[genicam]'
+```
+
+Then configure the camera's serial number and Producer CTI path in the source:
+
+```json
+{
+  "version": 2,
+  "source": {
+    "type": "genicam",
+    "src": "CAMERA_SERIAL_NUMBER",
+    "options": {
+      "producer": "/opt/vendor/lib/producer.cti",
+      "features": {
+        "PixelFormat": "Mono8",
+        "ExposureTime": 10000
+      }
+    }
+  },
+  "steps": [
+    {
+      "type": "model",
+      "model": {
+        "kind": "yolov8",
+        "task": "detection",
+        "size": "small"
+      }
+    }
+  ],
+  "display": {"show": true}
+}
+```
+
+`producer` may also be a directory containing `.cti` files. If omitted, Abraia
+looks for CTI files in the directories listed by `GENICAM_GENTL64_PATH`.
+`src` may be a numeric device index; use a serial number for a stable selection.
+For another device property, or a numeric serial number, set
+`source.options.selector` to a Harvester selector such as
+`{"serial_number": "123456"}`; this takes precedence over `src`.
+Unpacked Mono, Bayer, RGB, and BGR frames are converted to RGB; configure a
+supported pixel format through `source.options.features` if the camera's
+default format is unsupported.
+The GenTL Producer is supplied separately by the camera or interface vendor.
+Abraia currently converts unpacked Mono, RGB, and BGR formats to RGB frames;
+packed and Bayer formats are unsupported, so select an unpacked pixel format.
 
 ![People detected and counted](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.jpg)
 

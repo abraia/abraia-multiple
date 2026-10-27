@@ -337,12 +337,6 @@ def load_url(url, timeout=(10, 120), *, scheduler=_DEFAULT_SCHEDULER):
     return BytesIO(content) if content is not None else None
 
 
-def load_url_bytes(url, timeout=(10, 120)):
-    """Load a remote resource while holding shared request capacity through its body."""
-    return _load_url_content(
-        url, timeout, get_default_remote_request_scheduler()
-    )
-
 __all__ = [
     "API_URL",
     "ArtifactReference",
@@ -355,7 +349,6 @@ __all__ = [
     "is_managed_model_path",
     "is_url",
     "load_url",
-    "load_url_bytes",
     "request_with_retries",
     "probe_artifact",
     "remote_available",

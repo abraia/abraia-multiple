@@ -1,8 +1,15 @@
+"""Interactive image windows and annotation helpers."""
+
 import cv2
 import numpy as np
 
 from typing import Any, Callable, Optional
-from .draw import draw_overlay_mask
+from PIL import Image
+
+
+def show_image(img) -> None:
+    """Open an image using the system's default viewer."""
+    Image.fromarray(img).show()
 
 
 class Sketcher:
@@ -33,6 +40,8 @@ class Sketcher:
 
     def show(self, img: np.ndarray, mask: Optional[np.ndarray] = None) -> None:
         if mask is not None:
+            from ..utils.draw import draw_overlay_mask
+
             img = draw_overlay_mask(img, mask, (255, 0, 0), 0.5)
         self.output = img
         self.window.show(img)
@@ -82,15 +91,23 @@ class Window:
     def show(self, img: np.ndarray, delay: int = 1) -> bool:
         """Show an RGB image (numpy array)."""
         try:
+            bgr_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR) if img.ndim == 3 and img.shape[2] == 3 else img
+            return self.show_bgr(bgr_img, delay)
+        except Exception as error:
+            self.error = str(error)
+            self.close()
+            return False
+
+    def show_bgr(self, img: np.ndarray, delay: int = 1) -> bool:
+        """Show a frame already converted to OpenCV's BGR channel order."""
+        try:
             if not self.opened:
                 cv2.namedWindow(self.name, cv2.WINDOW_GUI_NORMAL)
                 self.opened = True
                 self.error = None
                 if self.handle_click:
                     cv2.setMouseCallback(self.name, self._on_mouse)
-
-            bgr_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR) if img.ndim == 3 and img.shape[2] == 3 else img
-            cv2.imshow(self.name, bgr_img)
+            cv2.imshow(self.name, img)
             return self.poll(delay)
         except Exception as error:
             self.error = str(error)
@@ -133,3 +150,6 @@ class Window:
             except Exception:
                 pass
             self.opened = False
+
+
+__all__ = ["Sketcher", "Window", "show_image"]

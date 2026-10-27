@@ -149,18 +149,8 @@ def hailo_device_arch():
     return detect_hailo_arch()
 
 
-def hailo_model_available(config, architecture):
-    """Return whether an explicit Hailo model artifact is available."""
-    model = next(
-        (
-            step.get("model", {})
-            for step in config.get("steps", [])
-            if step.get("type") == "model"
-            and "input" not in step
-        ),
-        {},
-    )
-    uri = model.get("uri")
+def hailo_artifact_available(uri, architecture):
+    """Return whether a Hailo artifact is available for this architecture."""
     if not uri:
         return False
 
@@ -175,6 +165,20 @@ def hailo_model_available(config, architecture):
     if not architecture or not path.lower().endswith(".hef"):
         return False
     return probe_artifact(path).available
+
+
+def hailo_model_available(config, architecture):
+    """Return whether a configured Hailo model artifact is available."""
+    model = next(
+        (
+            step.get("model", {})
+            for step in config.get("steps", [])
+            if step.get("type") == "model"
+            and "input" not in step
+        ),
+        {},
+    )
+    return hailo_artifact_available(model.get("uri"), architecture)
 
 
 def paired_hailo_uri(onnx_uri, architecture=None):
@@ -229,6 +233,7 @@ __all__ = [
     "detect_hailo_arch",
     "CPU_PROVIDER",
     "available_accelerators",
+    "hailo_artifact_available",
     "hailo_device_arch",
     "hailo_model_available",
     "is_gpu_provider",

@@ -27,13 +27,25 @@ def validate_model_config(config):
     return task, list(input_shape), list(classes)
 
 
+def _resize_geometry(image_shape, model_shape):
+    """Return the scale and rounded size for fitting an image to a model."""
+    image_height, image_width = image_shape
+    model_height, model_width = model_shape
+    scale = min(model_width / image_width, model_height / image_height)
+    return (
+        scale,
+        max(1, round(image_width * scale)),
+        max(1, round(image_height * scale)),
+    )
+
+
 def prepare_input(img, shape, return_transform=False):
     """Letterbox an image and optionally return its coordinate transform."""
     model_height, model_width = int(shape[2]), int(shape[3])
     image_height, image_width = img.shape[:2]
-    scale = min(model_width / image_width, model_height / image_height)
-    resized_width = max(1, round(image_width * scale))
-    resized_height = max(1, round(image_height * scale))
+    scale, resized_width, resized_height = _resize_geometry(
+        (image_height, image_width), (model_height, model_width)
+    )
     resized = cv2.resize(
         img, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR
     )
@@ -56,9 +68,9 @@ def prepare_rtmdet_input(img, shape, return_transform=False):
     """Prepare an image using the RTMDet training pipeline's fixed normalization."""
     model_height, model_width = int(shape[2]), int(shape[3])
     image_height, image_width = img.shape[:2]
-    scale = min(model_width / image_width, model_height / image_height)
-    resized_width = max(1, round(image_width * scale))
-    resized_height = max(1, round(image_height * scale))
+    scale, resized_width, resized_height = _resize_geometry(
+        (image_height, image_width), (model_height, model_width)
+    )
     resized = cv2.resize(
         img, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR
     )
@@ -396,7 +408,9 @@ def _transform_for_output(size, shape, transform):
     if transform is not None:
         scale, padding = transform
         return float(scale), tuple(map(float, padding))
-    scale = min(model_width / image_width, model_height / image_height)
+    scale, _resized_width, _resized_height = _resize_geometry(
+        (image_height, image_width), (model_height, model_width)
+    )
     return scale, (0.0, 0.0)
 
 

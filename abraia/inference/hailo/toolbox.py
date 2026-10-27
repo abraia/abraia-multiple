@@ -230,7 +230,7 @@ if HAILO_AVAILABLE:
                 }
 
                 binding = configured_model.create_bindings(output_buffers=output_buffers)
-                binding.input().set_buffer(np.array(frame))
+                binding.input().set_buffer(np.ascontiguousarray(frame))
                 return binding
 
             return [_frame_binding(frame) for frame in input_batch]

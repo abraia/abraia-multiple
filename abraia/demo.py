@@ -13,7 +13,7 @@ from abraia.runtime import Pipeline
 from abraia.runtime.config import is_primary_model_step
 from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
 from abraia.runtime.video import Video
-from abraia.utils.image import load_image
+from abraia.media.images import load_image
 from abraia.utils.remote import download_url
 from abraia.inference.accelerators import (
     hailo_device_arch as _hailo_device_arch,

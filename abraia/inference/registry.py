@@ -17,7 +17,7 @@ from .model_config import (
 )
 from .accelerators import (
     hailo_device_arch,
-    hailo_model_available,
+    hailo_artifact_available,
     onnx_providers,
     paired_hailo_uri,
 )
@@ -62,8 +62,7 @@ def _select_hailo_pair(config, spec, uri, accelerator):
     hailo_uri = paired_hailo_uri(uri, architecture)
     if not hailo_uri:
         return None
-    candidate = {"steps": [{"type": "model", "model": {"uri": hailo_uri}}]}
-    if not hailo_model_available(candidate, architecture):
+    if not hailo_artifact_available(hailo_uri, architecture):
         return None
 
     paired = dict(config)
