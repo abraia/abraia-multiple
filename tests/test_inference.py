@@ -447,6 +447,7 @@ def test_text_system_batches_recognition_across_region_images():
     ]
     system._detect_text_regions = lambda image: ([boxes[image]], [image])
     recognized_images = []
+    system.text_classifier = lambda images: images
     system.text_recognizer = lambda images: (
         recognized_images.extend(images) or [("one", 0.9), ("two", 0.8)]
     )

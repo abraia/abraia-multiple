@@ -130,7 +130,13 @@ class PlateRecognizer():
         for result in results:
             points = result['points']
             img_lp = extract_plate(img, points, self.out_size)
-            outputs = self.text_system(img_lp)
+            height, width = img_lp.shape[:2]
+            outputs = (
+                self.text_system.recognize_crop(img_lp, padding=50)
+                if width / max(height, 1) >= 1.5 else []
+            )
+            if not outputs:
+                outputs = self.text_system(img_lp)
             result['lines'] = outputs
         results = [result for result in results if len(result['lines'])]
         for result in results:

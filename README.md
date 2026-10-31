@@ -441,6 +441,10 @@ Run it with `Pipeline.from_file("plate_ocr.json").run()`.
 
 ![License plate recognition](https://github.com/abraia/abraia-multiple/raw/master/images/car-plate.jpg)
 
+For wide plate crops, the built-in plate recognizer reads text directly and
+skips a second text detector. Narrow crops and crops with no direct recognition
+result use the full text detection path.
+
 ### Choosing a model
 
 Each model configuration uses `kind` for the model family and `task` for the
@@ -457,6 +461,22 @@ operation. Common combinations include:
 | `face` | `detection`, `recognition` | Built-in models; recognition can use a face index |
 | `license_plate` | `detection`, `recognition` | Built-in plate detection or recognition workflow |
 | `ocr` | `recognition` | Built-in text detection and recognition |
+
+Built-in OCR uses the PP-OCRv6 tiny detector and recognizer with RapidOCR's
+text-line orientation stage, implemented with the SDK's existing ONNX Runtime
+and OpenCV dependencies. Select it as a regular OCR model:
+
+```json
+{
+  "kind": "ocr",
+  "task": "recognition"
+}
+```
+
+The orientation stage uses RapidOCR's PP-OCRv4 mobile classifier. On first
+use, the SDK downloads and caches the detector, classifier, recognizer, and
+character dictionary from the Abraia models repository. No RapidOCR Python
+package is required.
 
 `size` selects `small`, `medium`, or `large` where presets are available. An
 explicit `uri` selects your own model. It can refer to a local file or an
