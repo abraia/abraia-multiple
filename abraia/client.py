@@ -291,42 +291,15 @@ class Abraia:
         return file_path(resp['file']['source'], self.userid)
 
     def load_metadata(self, path):
-        delegated = self._delegate('load_metadata', path)
-        if delegated is not _NO_DELEGATE:
-            return delegated
-        url = f"{API_URL}/metadata/{self.userid}/{path}"
-        resp = self._request('GET', url, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        return resp.json()
+        """Read metadata embedded in a cached image file."""
+        from PIL import Image
 
-    def remove_metadata(self, path):
-        delegated = self._delegate('remove_metadata', path)
-        if delegated is not _NO_DELEGATE:
-            return delegated
-        url = f"{API_URL}/metadata/{self.userid}/{path}"
-        resp = self._request('DELETE', url, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        return resp.json()
-
-    def transform_image(self, path, dest, params=None):
-        params = {'quality': 'auto'} if params is None else dict(params)
-        delegated = self._delegate('transform_image', path, dest, params=params)
-        if delegated is not _NO_DELEGATE:
-            return delegated
-        ext = dest.split('.').pop().lower()
-        params['format'] = params.get('format') or ext
-        if params.get('action'):
-            params['background'] = f"{API_URL}/images/{self.userid}/{path}"
-            if params.get('fmt') is None:
-                params['fmt'] = params['background'].split('.').pop()
-            path = f"{self.userid}/{params['action']}"
-        url = f"{API_URL}/images/{self.userid}/{path}"
-        resp = self._request('GET', url, params=params, stream=True, auth=self.auth)
-        if resp.status_code != 200:
-            raise APIError(resp.text, resp.status_code)
-        save_data(dest, resp.content)
+        with Image.open(self.download_file(path)) as image:
+            metadata = dict(image.info)
+            exif = image.getexif()
+            if exif:
+                metadata["exif"] = dict(exif)
+        return metadata or None
 
     def load_file(self, path):
         dest = self.download_file(path)
@@ -350,11 +323,6 @@ class Abraia:
     def load_image(self, path):
         dest = self.download_file(path)
         return load_image(dest)
-
-    def load_image_details(self, path):
-        """Load a standard remote image and its metadata."""
-        image = self.load_image(path)
-        return image, self.load_metadata(path)
 
     def save_image(self, path, im):
         src = temporal_src(path)

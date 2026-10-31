@@ -1,7 +1,6 @@
 """Command-line interface for the Abraia SDK."""
 
 import itertools
-import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from glob import glob
@@ -162,21 +161,6 @@ def remove(path):
                 desc="Removing",
             )
         return None
-
-    _run_remote(operation)
-
-
-@cli.command()
-@click.option("--remove", help="Remove file metadata", is_flag=True)
-@click.argument("path")
-def metadata(path, remove):
-    """Load or remove file metadata."""
-    def operation():
-        if remove:
-            abraia.remove_metadata(path)
-            click.echo(f"Removed metadata for {path}")
-            return
-        click.echo(json.dumps(abraia.load_metadata(path), indent=2))
 
     _run_remote(operation)
 

@@ -4,7 +4,6 @@ import pytest
 
 from io import BytesIO
 from abraia import Abraia
-from PIL import Image
 
 abraia = Abraia()
 
@@ -47,40 +46,9 @@ def test_remove_file():
     assert path == 'tiger.jpg'
 
 
-def test_optimize_image():
-    abraia.transform_image('birds.jpg', 'images/birds_o.jpg')
-    assert os.path.isfile('images/birds_o.jpg')
-
-
-def test_resize_image():
-    abraia.transform_image('lion.jpg', 'images/lion_o.jpg', params={'width': 333})
-    assert os.path.isfile('images/lion_o.jpg')
-
-
-def test_smartcrop_image():
-    abraia.transform_image('birds.jpg', 'images/birds_375x375.jpg', {'width': 375, 'height': 375})
-    assert os.path.isfile('images/birds_375x375.jpg')
-
-
-def test_convert_image():
-    abraia.upload_file('images/bat.svg')
-    abraia.transform_image('bat.svg', 'images/bat.png')
-    assert os.path.isfile('images/bat.png')
-
-
-def test_screenshot_webpage():
-    abraia.transform_image('screenshot.jpg', 'images/screenshot.jpg', {'url': 'https://www.bbc.com'})
-    assert os.path.isfile('images/screenshot.jpg')
-
-
 def test_load_file():
     stream = abraia.load_file('lion.jpg')
     assert isinstance(stream, BytesIO)
-
-
-def test_load_metadata():
-    meta = abraia.load_metadata('lion.jpg')
-    assert meta['MIMEType'] == 'image/jpeg'
 
 
 def test_save_file():

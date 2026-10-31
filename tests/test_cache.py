@@ -8,6 +8,29 @@ from abraia import cli as cli_module
 from abraia.utils.cache import RemoteFileCache
 
 
+def test_load_metadata_reads_the_cached_image(tmp_path, monkeypatch):
+    from PIL import Image
+    from PIL.PngImagePlugin import PngInfo
+
+    image_path = tmp_path / "embedded.png"
+    info = PngInfo()
+    info.add_text("Comment", "cached metadata")
+    Image.new("RGB", (2, 2)).save(image_path, pnginfo=info)
+    client = object.__new__(Abraia)
+    downloads = []
+
+    def download(path):
+        downloads.append(path)
+        return str(image_path)
+
+    monkeypatch.setattr(client, "download_file", download)
+
+    assert client.load_metadata("project/image.png") == {
+        "Comment": "cached metadata",
+    }
+    assert downloads == ["project/image.png"]
+
+
 def test_remote_file_cache_is_account_scoped(tmp_path):
     first = RemoteFileCache("account-one", root=tmp_path)
     second = RemoteFileCache("account-two", root=tmp_path)

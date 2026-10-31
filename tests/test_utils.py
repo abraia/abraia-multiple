@@ -4,7 +4,6 @@ from unittest.mock import patch
 import numpy as np
 
 from abraia import APIError
-from abraia import Abraia
 from abraia.utils.filesystem import load_json, save_json
 from abraia.utils.remote import (
     artifact_reference,
@@ -108,19 +107,3 @@ def test_artifact_resolver_falls_back_to_a_range_get_when_head_fails():
         assert remote_available("multiple/models/model.hef")
         calls = get_session.return_value.request.call_args_list
         assert [call.args[0] for call in calls] == ["HEAD", "GET"]
-
-
-def test_transform_image_does_not_leak_default_parameters_between_calls():
-    client = object.__new__(Abraia)
-    client._client = None
-    client.auth = None
-    client.userid = "user"
-
-    response = type("Response", (), {"status_code": 200, "content": b"image"})()
-    with patch.object(client, "_request", return_value=response) as request, \
-         patch("abraia.client.save_data"):
-        client.transform_image("source.jpg", "first.jpg")
-        client.transform_image("source.jpg", "second.png")
-
-    assert request.call_args_list[0].kwargs["params"]["format"] == "jpg"
-    assert request.call_args_list[1].kwargs["params"]["format"] == "png"
