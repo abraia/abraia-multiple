@@ -7,6 +7,7 @@ from ..media.sources import (
     CameraSource,
     FrameSource,
     GenICamSource,
+    ImageSequence,
     ImageSequenceSource,
     ImageSource,
     StreamSource,
@@ -33,7 +34,8 @@ from .config import (
 )
 
 __all__ = [
-    "FrameContext", "FrameSource", "GenICamSource", "Pipeline", "PipelineDraft",
+    "FrameContext", "FrameSource", "GenICamSource", "ImageSequence",
+    "Pipeline", "PipelineDraft",
     "ImageSource", "ImageSequenceSource", "VideoSource", "CameraSource",
     "StreamSource",
     "MAX_PIPELINE_MODELS", "MAX_PIPELINE_TRACKERS", "PIPELINE_STEP_DEFINITIONS",

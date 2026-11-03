@@ -15,6 +15,7 @@ _EXPORTS = {
     "FrameSource": (".opencv", "FrameSource"),
     "GenICamSource": (".genicam", "GenICamSource"),
     "ImageSequenceSource": (".opencv", "ImageSequenceSource"),
+    "ImageSequence": (".sequence", "ImageSequence"),
     "ImageSource": (".opencv", "ImageSource"),
     "StreamSource": (".opencv", "StreamSource"),
     "VideoSource": (".opencv", "VideoSource"),

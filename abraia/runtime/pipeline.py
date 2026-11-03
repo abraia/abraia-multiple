@@ -52,14 +52,20 @@ def _close_resources(resources: Iterable) -> None:
             logger.warning("Failed to close runtime resource", exc_info=True)
 
 
-def _prepare_source(source_config, display_config, root: Path):
+def _prepare_source(
+    source_config, display_config, root: Path, input_source=None
+):
     """Normalize source configuration into a source and constructor kwargs."""
-    source = source_config["src"]
+    source = (
+        source_config["src"] if input_source is None else input_source
+    )
     configured_type = source_config.get("type")
     source_type = (
         normalize_source_type(configured_type) if configured_type else None
     )
-    inferred_source_type = infer_source_type(source)
+    inferred_source_type = (
+        infer_source_type(source) if input_source is None else None
+    )
     numeric_source = inferred_source_type == "camera"
     camera_source = (
         source_type in ("camera", "usb_camera")
@@ -410,6 +416,7 @@ class Pipeline:
         on_frame: Optional[Callable[[FrameContext, float], None]] = None,
         accelerator: Optional[str] = "auto",
         renderer_factory: Optional[Callable] = None,
+        input_source: Optional[Iterable] = None,
     ) -> "Pipeline":
         """Assemble a pipeline from a supported versioned configuration."""
         if not isinstance(config, dict):
@@ -420,7 +427,9 @@ class Pipeline:
         display_config = config.get("display") or {}
         output_config = config.get("output")
         raw_steps = config.get("steps", []) or []
-        if not isinstance(source_config, dict) or "src" not in source_config:
+        if not isinstance(source_config, dict) or (
+            "src" not in source_config and input_source is None
+        ):
             raise ValueError("Pipeline source must define 'src'")
         if not isinstance(display_config, dict):
             raise ValueError("Pipeline display must be an object")
@@ -467,7 +476,9 @@ class Pipeline:
         from ..inference.tracker import Tracker
 
         root = Path(base_dir or os.getcwd())
-        source, video_kwargs = _prepare_source(source_config, display_config, root)
+        source, video_kwargs = _prepare_source(
+            source_config, display_config, root, input_source=input_source
+        )
         video = None
         display = None
         output = None
@@ -496,18 +507,24 @@ class Pipeline:
             # Starting them together avoids making users wait for both operations
             # serially while keeping each resource owned by this build operation.
             with ThreadPoolExecutor(max_workers=2) as executor:
-                source_future = executor.submit(
-                    create_source, source, video_kwargs
+                source_future = (
+                    executor.submit(create_source, source, video_kwargs)
+                    if input_source is None else None
                 )
                 models_future = executor.submit(create_models)
                 try:
-                    video = source_future.result()
+                    video = (
+                        source_future.result()
+                        if source_future is not None
+                        else input_source
+                    )
                     created_models = models_future.result()
                 except Exception:
-                    try:
-                        video = source_future.result()
-                    except Exception:
-                        pass
+                    if source_future is not None:
+                        try:
+                            video = source_future.result()
+                        except Exception:
+                            pass
                     try:
                         created_models = models_future.result()
                     except Exception:
@@ -544,7 +561,10 @@ class Pipeline:
                         track_thresh=step.get("track_thresh", 0.25),
                         track_buffer=step.get("track_buffer", 30),
                         match_thresh=step.get("match_thresh", 0.8),
-                        frame_rate=video.frame_rate,
+                        frame_rate=(
+                            getattr(video, "frame_rate", 0)
+                            or video_kwargs.get("fps", 30)
+                        ),
                     )
                     steps.append(ProcessorStep(step_id, tracker, step_type))
                     components["tracker"] = tracker

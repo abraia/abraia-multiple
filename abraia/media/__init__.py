@@ -8,6 +8,7 @@ _EXPORTS = {
     "FrameSource": (".sources", "FrameSource"),
     "GenICamSource": (".sources", "GenICamSource"),
     "image_base64": (".images", "image_base64"),
+    "ImageSequence": (".sources", "ImageSequence"),
     "ImageSequenceSource": (".sources", "ImageSequenceSource"),
     "ImageSource": (".sources", "ImageSource"),
     "load_image": (".images", "load_image"),
