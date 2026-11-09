@@ -17,6 +17,7 @@ Inference runs through ONNX Runtime or a compatible Hailo accelerator.
 - [Command-line usage](#command-line-usage)
 - [Python API](#python-api)
 - [Pipelines](#pipelines)
+- [Additional inference models](#additional-inference-models)
 - [Hardware acceleration](#hardware-acceleration)
 - [License](#license)
 
@@ -26,6 +27,14 @@ Install the SDK and its `abraia` command:
 
 ```sh
 python -m pip install -U abraia
+```
+
+Enable shell completion after installing. Abraia detects Bash, Zsh, or Fish
+from the `SHELL` environment variable; pass the shell name to override it:
+
+```sh
+abraia configure --completion
+# or: abraia configure --completion --shell fish
 ```
 
 For remote file operations, configure your Abraia API key:
@@ -47,20 +56,34 @@ Run object detection on a local video and save the rendered result:
 abraia run demo detect input.mp4 --output result.avi
 ```
 
-Use camera `0` instead of a video file:
+List connected local cameras, then run detection with the camera index shown:
 
 ```sh
+abraia discover cameras
 abraia run demo detect 0
 ```
 
-Choose another demo to change the workflow:
+To use an ONVIF camera on the local network, discover its RTSP URL and pass it
+as the demo source:
 
 ```sh
-abraia run demo segment input.mp4
-abraia run demo pose input.mp4
-abraia run demo people input.mp4
-abraia run demo faces input.mp4
+abraia discover streams
+abraia run demo detect 'rtsp://camera-address/stream'
 ```
+
+Run `abraia run demo` to browse workflows and model demos. Model variants can
+be selected for compatible workflows; for example:
+
+```sh
+abraia run demo apple
+abraia run demo apple --model yolov8n-seg
+abraia run demo people --model yolo9t
+```
+
+Demo inputs download automatically when needed. The `detect` and `pose` demos
+use camera `0` by default; other demos use their configured video or camera.
+A workflow's model task must match the selected model. Use the model's
+canonical variant name after `--model`.
 
 `--output` saves rendered video locally. `--accelerator` selects `auto`, `onnx`,
 `cpu`, `gpu`, or `hailo`; the default is `auto`. See
@@ -72,31 +95,37 @@ Use `abraia --help` or `abraia COMMAND --help` for available options. In the
 command reference below, uppercase names are placeholders and brackets mark
 optional arguments.
 
+### Camera and stream discovery
+
+`abraia discover cameras` lists local camera indexes. `abraia discover streams`
+finds RTSP URLs advertised by ONVIF cameras on the local network.
+
 ### Remote files
 
 ```sh
+abraia configure
 abraia list [FOLDER]
 abraia upload LOCAL_PATH [REMOTE_FOLDER]
 abraia download REMOTE_PATH [LOCAL_FOLDER]
 abraia remove REMOTE_PATH
-abraia metadata [--remove] REMOTE_PATH
 ```
 
 `upload` accepts a file or directory. `remove` lists matching files and asks
-for confirmation before deleting them. `metadata` displays metadata unless
-`--remove` is supplied.
+for confirmation before deleting them. `configure` saves the Abraia API key
+for remote file operations.
 
 ### Demos and saved projects
 
 ```sh
-abraia run demo DEMO_NAME [SOURCE] [--accelerator auto] [--output FILE]
+abraia run demo [DEMO_NAME] [SOURCE] [--model MODEL]
+  [--accelerator auto] [--output FILE]
 abraia run PROJECT [SOURCE] [--accelerator auto] [--output FILE]
 ```
 
-Available inference demos are `detect`, `segment`, `pose`, `people`, `queue`,
-`escalator`, `tomato`, `apple`, `strawberry`, `grapes`, `plates`, and `faces`.
-The `pi-camera` demo publishes a Raspberry Pi camera stream without inference.
-A supplied source overrides an inference demo's configured camera or video.
+Run `abraia run demo` to browse demos and compatible model variants. Append a
+local path, camera index, or RTSP URL to use it as the source. Sample videos
+download automatically when needed. The `pi-camera` demo publishes a Raspberry
+Pi camera stream without inference.
 
 A project run loads `PROJECT/pipeline.json` from Abraia storage. First create
 a [pipeline configuration](#pipelines), then upload it to your project:
@@ -130,7 +159,7 @@ The public entry points are:
 | `abraia.inference` | `load_model`, `register_model_factory` | Load configured models or register an adapter |
 | `abraia.media` | Image helpers, input source classes, `VideoWriter` | Image and media I/O |
 | `abraia.media.display` | `Window`, `Sketcher`, `show_image` | Interactive windows and image viewing |
-| `abraia.runtime` | `Pipeline` | Run a configured workflow over an image or video source |
+| `abraia.runtime` | `Pipeline`, `run_pipeline`, source discovery helpers | Run configured workflows and discover local video sources |
 | `abraia.utils` | `render_results`, compatibility exports | Shared array, filesystem, and rendering helpers |
 
 ### Remote files and image transforms
@@ -200,6 +229,34 @@ print(results)
 Use a pipeline when you also need video input, tracking, counting, or rendered
 output.
 
+### Runtime helpers
+
+`abraia.runtime` also provides helpers for applications that manage their own
+pipeline UI or source selection. `run_pipeline()` accepts a pipeline
+configuration dictionary and can report frame events to a callback. It returns
+the total frame count and the most recent events requested by `max_events`:
+
+```python
+from abraia.runtime import run_pipeline
+
+# configuration is a loaded version-two pipeline dictionary.
+def handle_frame(event):
+    print(event["frame"], event["detections"])
+
+result = run_pipeline(
+    configuration,
+    frame_callback=handle_frame,
+    max_events=100,
+    accelerator="auto",
+)
+```
+
+`discover_cameras()` probes local camera indices, `discover_streams()` asks
+ONVIF devices on the local network for RTSP stream URLs, and
+`discover_genicam_devices()` lists devices exposed by GenTL Producers. The
+GenICam helper requires the optional `harvesters` package and a compatible
+Producer.
+
 ## Pipelines
 
 A pipeline is a version-two JSON document containing a `source`, ordered
@@ -211,104 +268,21 @@ source classes and media outputs are available from `abraia.media`;
 
 ### Raspberry Pi camera stream
 
-The built-in `pi-camera` demo configures the camera for 1280×720 at 30 FPS and
-publishes low-latency H.264 to MediaMTX. On Raspberry Pi OS, install FFmpeg:
+Run the demo on Raspberry Pi OS Bookworm or Trixie:
 
 ```sh
-sudo apt update
-sudo apt install ffmpeg
-ffmpeg -hide_banner -encoders | grep libx264
+abraia run demo pi-camera
 ```
 
-MediaMTX is a standalone binary. Check the OS architecture with
-`getconf LONG_BIT`, then download the matching `.tar.gz` archive from the
-[MediaMTX releases](https://github.com/bluenviron/mediamtx/releases): choose
-`linux_arm64` for 64-bit Raspberry Pi OS or `armv7` for 32-bit. Extract it in
-its own directory:
+The demo starts a local RTSP stream and prints its URL. Stop it with Ctrl+C.
+On another computer, run detection with the printed URL:
 
 ```sh
-mkdir -p ~/mediamtx
-cd ~/mediamtx
-# Download the matching MediaMTX archive into this directory first.
+abraia run demo detect 'PASTE_THE_PRINTED_RTSP_URL_HERE'
 ```
 
-Extract the matching archive. For 64-bit Raspberry Pi OS:
-
-```sh
-tar -xvzf mediamtx_*_linux_arm64.tar.gz
-```
-
-For 32-bit Raspberry Pi OS:
-
-```sh
-tar -xvzf mediamtx_*_linux_armv7.tar.gz
-```
-
-In `mediamtx.yml`, replace the default `authInternalUsers` block and set or
-add these values. Use unique passwords and replace `192.168.1.42` with the
-processing computer's LAN IP. This permits the Pi to publish locally and that
-computer to read the stream:
-
-```yaml
-authMethod: internal
-authInternalUsers:
-  - user: abraia-publisher
-    pass: REPLACE_WITH_PUBLISH_PASSWORD
-    ips: ["127.0.0.1", "::1"]
-    permissions:
-      - action: publish
-        path: cam
-  - user: abraia-reader
-    pass: REPLACE_WITH_READ_PASSWORD
-    ips: ["192.168.1.42"]
-    permissions:
-      - action: read
-        path: cam
-rtspTransports: [tcp]
-paths:
-  cam:
-    source: publisher
-```
-
-The RTSP server accepts the publisher locally and makes the stream available
-to the computer on the network. Start MediaMTX in one terminal:
-
-```sh
-./mediamtx
-```
-
-Then run the demo in another terminal on the Pi:
-
-```sh
-ABRAIA_RTSP_URL='rtsp://abraia-publisher:REPLACE_WITH_PUBLISH_PASSWORD@127.0.0.1:8554/cam' \
-  abraia run demo pi-camera
-```
-
-Use alphanumeric passwords in the example URLs, or percent-encode reserved
-characters. RTSP does not encrypt the video or credentials; use a trusted LAN
-or a VPN.
-
-On the computer, use the published stream as a regular pipeline source:
-
-```json
-{
-  "version": 2,
-  "source": {
-    "type": "stream",
-    "src": "rtsp://abraia-reader:REPLACE_WITH_READ_PASSWORD@pi.local:8554/cam"
-  },
-  "steps": [
-    {
-      "type": "model",
-      "model": {"kind": "yolov8", "task": "detection", "size": "small"}
-    }
-  ],
-  "display": {"show": true}
-}
-```
-
-Resolution and frame rate are configured by the Pi demo preset. The computer
-pipeline reads and processes the stream; remote camera control is not included.
+RTSP does not encrypt video or credentials, so use the printed URL on a
+trusted LAN or VPN.
 
 ### Detection, tracking, and counting
 
@@ -358,21 +332,21 @@ vendor's compatible GenTL Producer:
 python -m pip install 'abraia[genicam]'
 ```
 
-Then configure the camera's serial number and Producer CTI path in the source:
+Set the vendor GenTL Producer path once in the environment:
+
+```sh
+export GENICAM_GENTL64_PATH=/opt/vendor/lib
+```
+
+The path can be a directory containing the vendor `.cti` file or the file
+itself. Then select the camera by serial number (or numeric device index):
 
 ```json
 {
   "version": 2,
   "source": {
     "type": "genicam",
-    "src": "CAMERA_SERIAL_NUMBER",
-    "options": {
-      "producer": "/opt/vendor/lib/producer.cti",
-      "features": {
-        "PixelFormat": "Mono8",
-        "ExposureTime": 10000
-      }
-    }
+    "src": "CAMERA_SERIAL_NUMBER"
   },
   "steps": [
     {
@@ -388,18 +362,12 @@ Then configure the camera's serial number and Producer CTI path in the source:
 }
 ```
 
-`producer` may also be a directory containing `.cti` files. If omitted, Abraia
-looks for CTI files in the directories listed by `GENICAM_GENTL64_PATH`.
-`src` may be a numeric device index; use a serial number for a stable selection.
-For another device property, or a numeric serial number, set
-`source.options.selector` to a Harvester selector such as
-`{"serial_number": "123456"}`; this takes precedence over `src`.
-Unpacked Mono, Bayer, RGB, and BGR frames are converted to RGB; configure a
-supported pixel format through `source.options.features` if the camera's
-default format is unsupported.
-The GenTL Producer is supplied separately by the camera or interface vendor.
-Abraia currently converts unpacked Mono, RGB, and BGR formats to RGB frames;
-packed and Bayer formats are unsupported, so select an unpacked pixel format.
+Use a serial number for a stable device selection. Abraia uses the camera's
+current feature settings and pixel format; if the format is unsupported,
+select an unpacked Mono, Bayer, RGB, or BGR format with the camera vendor's
+configuration tool.
+Abraia converts unpacked Mono, Bayer, RGB, and BGR frames to RGB; packed
+formats are unsupported.
 
 ![People detected and counted](https://github.com/abraia/abraia-multiple/raw/master/images/people-detected.jpg)
 
@@ -411,6 +379,49 @@ Besides `tracker` and `line_counter`, pipelines support `filter`, `crop`,
 `region_filter`, and `region_timer`. Filters select detections, crops produce
 regions for further processing, and region steps restrict or time activity
 inside a polygon. Tracking must precede counting and region timing.
+
+### Additional inference models
+
+The following model adapters can also be selected in `load_model()` or a
+pipeline configuration:
+
+| `kind` | `task` | Model selection |
+| --- | --- | --- |
+| `clip` | `classification` | Explicit ONNX model `uri` with its JSON metadata sidecar |
+| `anomaly` | `anomaly` | Explicit ONNX or Hailo HEF `uri`; exported metadata supplies thresholds |
+| `rfdetr` | `detection`, `segmentation` | Built-in small, medium, or large preset, or explicit `uri` |
+| `dfine` | `detection`, `segmentation` | Built-in small, medium, or large preset, or explicit `uri` |
+
+Anomaly models return an image-level `normal` or `anomaly` result and defect
+regions. In a pipeline, the renderer overlays the calibrated anomaly map.
+Anomaly exports must include the `task`, algorithm, and threshold metadata
+expected by the adapter.
+
+For example, classify an image with an exported CLIP model:
+
+```python
+from abraia.inference import load_model
+
+with load_model({
+    "kind": "clip",
+    "task": "classification",
+    "uri": "classifier.onnx",
+}) as model:
+    predictions = model.run(image, top_k=3)
+```
+
+The DINOv2 image encoder is available for embedding workflows. Its default
+model is downloaded and cached when first used:
+
+```python
+from abraia.inference.models.dinov2 import DinoV2ImageEncoder
+
+with DinoV2ImageEncoder(batch_size=8) as encoder:
+    embeddings = encoder.get_image_embeddings(images)
+```
+
+`embeddings` contains one 768-value vector for each input image. Pass an
+explicit `model_uri` to use another compatible DINOv2 ONNX export.
 
 ### Combining two models
 
@@ -542,6 +553,10 @@ For a supported demo, select Hailo explicitly:
 ```sh
 abraia run demo people input.mp4 --accelerator hailo
 ```
+
+Hailo-compiled YOLOv9 detection models are also supported by the pipeline
+runtime when supplied as explicit HEF artifacts with the Multiple YOLOv9
+metadata sidecar.
 
 For a custom pipeline, replace its `model` object with a compatible HEF, for
 example:

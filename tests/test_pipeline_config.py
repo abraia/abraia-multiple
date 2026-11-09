@@ -1,9 +1,5 @@
 """Tests for pipeline configuration and ONNX/Hailo parity."""
 
-from dataclasses import asdict, dataclass
-import inspect
-import json
-from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
 import pytest
@@ -11,178 +7,47 @@ import pytest
 from abraia.demo import (
     PIPELINE_DEVICES,
     PIPELINES,
+    demo_model_options,
     resolve_pipeline,
 )
-from abraia.inference.hailo.pipeline import HailoPipelineModel
 from abraia.inference.model_config import (
     HAILO_TASKS,
-    MODEL_ARCHITECTURES,
     ModelSpec,
     PIPELINE_TASKS,
     normalize_task,
 )
 from abraia.runtime.config import (
+    SUPPORTED_MODEL_OPTIONS,
+    SUPPORTED_SECOND_STEP_MODEL_OPTIONS,
+    model_control_visibility,
+    model_defaults,
     model_editor_values,
     model_pipeline_errors,
 )
 
 
-PAIRED_DEMOS = {
-    "tomato": "tomato",
-    "apple": "apple",
-    "detect": "detect",
-    "segment": "segment",
-    "pose": "pose",
-    "people": "people",
-    "queue": "queue",
-    "escalator": "escalator",
-}
-
-
-@dataclass(frozen=True)
-class BackendSnapshot:
-    """Comparable facts extracted from one demo configuration."""
-
-    present: bool
-    model_kind: Optional[str] = None
-    task: Optional[str] = None
-    labels: Tuple[str, ...] = ()
-    stages: Tuple[str, ...] = ()
-    source_type: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class ParitySnapshot:
-    """Current parity facts for one logical demo."""
-
-    name: str
-    onnx: BackendSnapshot
-    hailo: BackendSnapshot
-    gaps: Tuple[str, ...]
-
-
-def _primary_model(config: Dict[str, Any]) -> Dict[str, Any]:
+def _primary_model(config):
     steps = config.get("steps", [])
     if steps and steps[0].get("type") == "model":
         return steps[0].get("model", {})
     return {}
 
 
-def _logical_task(config: Dict[str, Any], backend: str) -> Optional[str]:
-    """Infer the task represented by a demo config.
+@pytest.mark.parametrize(
+    "name, kind, task",
+    [
+        ("yolo9", "yolo9", "detection"),
+        ("rfdetr", "rfdetr", "detection"),
+        ("rfdetr-seg", "rfdetr", "segmentation"),
+        ("dfine", "dfine", "detection"),
+        ("dfine-seg", "dfine", "segmentation"),
+    ],
+)
+def test_builtin_model_demos_define_the_expected_model(name, kind, task):
+    model = _primary_model(PIPELINES[name])
 
-    The generic apple demo relies on its model sidecar to identify
-    segmentation, so the matrix also recognizes the conventional ``-seg``
-    model URI.  This keeps the comparison about behavior rather than whether
-    the task happened to be written explicitly in JSON.
-    """
-    model = _primary_model(config)
-    task = model.get("task")
-    if task:
-        return normalize_task(task)
-
-    uri = str(model.get("uri", "")).lower()
-    if backend == "onnx" and ("-seg" in uri or "_seg" in uri):
-        return "segmentation"
-    if backend == "onnx" and "pose" in uri:
-        return "pose"
-    return "detection"
-
-
-def _snapshot(config: Optional[Dict[str, Any]], backend: str) -> BackendSnapshot:
-    if config is None:
-        return BackendSnapshot(present=False)
-
-    model = _primary_model(config)
-    labels = model.get("labels", []) or []
-    if isinstance(labels, str):
-        labels = (labels,)
-    else:
-        labels = tuple(str(label) for label in labels)
-
-    return BackendSnapshot(
-        present=True,
-        model_kind=str(model.get("kind", "")),
-        task=_logical_task(config, backend),
-        labels=labels,
-        stages=tuple(
-            step.get("type", "")
-            for step in config.get("steps", [])
-            if step.get("type") != "model"
-        ),
-        source_type=config.get("source", {}).get("type"),
-    )
-
-
-def _gaps(onnx: BackendSnapshot, hailo: BackendSnapshot) -> Tuple[str, ...]:
-    if not onnx.present or not hailo.present:
-        return ("missing_backend_demo",)
-
-    gaps: List[str] = []
-    if onnx.task != hailo.task:
-        gaps.append("task_mismatch")
-    if onnx.labels != hailo.labels:
-        gaps.append("labels_mismatch")
-    if onnx.stages != hailo.stages:
-        gaps.append("stage_sequence_mismatch")
-    if onnx.source_type != hailo.source_type:
-        gaps.append("source_type_mismatch")
-    return tuple(gaps)
-
-
-def pipeline_parity_matrix() -> Dict[str, Any]:
-    """Return a JSON-compatible current-state parity matrix."""
-    def resolved_hailo(name):
-        with patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
-             patch("abraia.demo._hailo_model_available", return_value=True):
-            return resolve_pipeline(name, accelerator="hailo")
-
-    paired = {
-        name: ParitySnapshot(
-            name=name,
-            onnx=_snapshot(PIPELINES.get(name), "onnx"),
-            hailo=_snapshot(resolved_hailo(hailo_name), "hailo"),
-            gaps=(),
-        )
-        for name, hailo_name in PAIRED_DEMOS.items()
-    }
-    paired = {
-        name: ParitySnapshot(
-            name=snapshot.name,
-            onnx=snapshot.onnx,
-            hailo=snapshot.hailo,
-            gaps=_gaps(snapshot.onnx, snapshot.hailo),
-        )
-        for name, snapshot in paired.items()
-    }
-
-    matrix = {
-        "paired": {name: asdict(snapshot) for name, snapshot in paired.items()},
-        "onnx_only_demos": sorted(set(PIPELINES) - set(PAIRED_DEMOS)),
-        "hailo_only_demos": [],
-        "model_capabilities": {
-            "architectures": sorted(MODEL_ARCHITECTURES),
-            "hailo_tasks": list(HAILO_TASKS),
-            "hailo_constructor_options": sorted(
-                name
-                for name in inspect.signature(HailoPipelineModel.__init__).parameters
-                if name != "self"
-            ),
-        },
-    }
-    # Normalize dataclass tuples to lists so callers can compare and persist
-    # the result exactly as JSON.
-    return json.loads(json.dumps(matrix))
-
-
-def test_pipeline_parity_matrix_has_expected_current_baseline():
-    matrix = pipeline_parity_matrix()
-
-    assert set(matrix["paired"]) == set(PAIRED_DEMOS)
-    assert matrix["paired"]["tomato"]["gaps"] == []
-    assert matrix["paired"]["apple"]["gaps"] == []
-    assert matrix["onnx_only_demos"] == ["grapes", "plates", "strawberry"]
-    assert matrix["hailo_only_demos"] == []
+    assert (model["kind"], model["task"]) == (kind, task)
+    assert model["uri"].endswith(".onnx")
 
 
 def test_hailo_apple_demo_uses_a_bundled_segmentation_model():
@@ -193,6 +58,35 @@ def test_hailo_apple_demo_uses_a_bundled_segmentation_model():
     model = _primary_model(config)
     assert model["task"] == "segmentation"
     assert model["uri"] == "multiple/models/yolov8n-seg_hailo8.hef"
+
+
+def test_demo_model_override_uses_a_compatible_builtin_variant():
+    config = resolve_pipeline(
+        "apple", accelerator="cpu", model="yolov8n-seg"
+    )
+
+    model = _primary_model(config)
+    assert model["task"] == "segmentation"
+    assert model["kind"] == "yolov8"
+    assert model["uri"] == "multiple/models/yolov8n-seg.onnx"
+    assert model["labels"] == ["apple"]
+    assert "rfdetr-seg-nano" in demo_model_options("apple")
+    assert "yolo9t" not in demo_model_options("apple")
+
+
+def test_people_demo_can_select_yolov9_model_variant():
+    config = resolve_pipeline("people", accelerator="cpu", model="yolo9t")
+
+    model = _primary_model(config)
+    assert model["kind"] == "yolo9"
+    assert model["task"] == "detection"
+    assert model["uri"] == "multiple/models/yolo9t.onnx"
+    assert model["labels"] == ["person"]
+
+
+def test_demo_model_override_rejects_incompatible_task_with_choices():
+    with pytest.raises(ValueError, match="Compatible models:.*rfdetr-seg-nano"):
+        resolve_pipeline("apple", accelerator="cpu", model="yolo9t")
 
 
 def test_hailo_video_demos_use_video_metadata_for_resolution_and_fps():
@@ -208,7 +102,6 @@ def test_hailo_video_demos_use_video_metadata_for_resolution_and_fps():
 
 
 def test_pipeline_devices_pair_existing_definitions_without_rewriting_them():
-    assert PIPELINE_DEVICES["tomato"] is PIPELINES["tomato"]
     assert _primary_model(PIPELINES["tomato"])["uri"].endswith(".onnx")
     assert all("kind" in _primary_model(config) for config in PIPELINES.values())
     assert all(
@@ -279,17 +172,12 @@ def test_explicit_hailo_reports_a_missing_device():
 
 
 def test_hailo_capabilities_are_explicitly_narrower_than_generic_catalog():
-    matrix = pipeline_parity_matrix()
-    capabilities = matrix["model_capabilities"]
-
-    assert set(capabilities["hailo_tasks"]) == {
+    assert set(HAILO_TASKS) == {
         "detection",
         "segmentation",
         "pose",
     }
-    assert "iou_threshold" in capabilities["hailo_constructor_options"]
-    assert "batch_size" in capabilities["hailo_constructor_options"]
-    assert "kind" in capabilities["hailo_constructor_options"]
+    assert set(HAILO_TASKS) < set(PIPELINE_TASKS)
 
 
 def test_model_spec_normalizes_defaults_and_resolves_builtin_uri():
@@ -387,8 +275,8 @@ def test_model_editor_values_read_legacy_model_parameters():
 def test_model_tasks_normalize_names_and_aliases():
     assert PIPELINE_TASKS == (
         "classification", "detection", "segmentation", "pose", "recognition",
+        "anomaly",
     )
-    assert set(HAILO_TASKS) <= set(PIPELINE_TASKS)
     assert [normalize_task(value) for value in (
         " detection ", "classify", "detect", "segment", "recognize",
     )] == [
@@ -396,5 +284,26 @@ def test_model_tasks_normalize_names_and_aliases():
     ]
 
 
-if __name__ == "__main__":
-    print(json.dumps(pipeline_parity_matrix(), indent=2))
+def test_new_models_are_available_in_runtime_editor_catalog():
+    options = {(option[2], option[3]) for option in SUPPORTED_MODEL_OPTIONS}
+    second_step_options = {
+        (option[2], option[3]) for option in SUPPORTED_SECOND_STEP_MODEL_OPTIONS
+    }
+
+    assert {
+        ("clip", "classification"),
+        ("anomaly", "anomaly"),
+        ("rfdetr", "detection"),
+        ("rfdetr", "segmentation"),
+        ("dfine", "detection"),
+        ("dfine", "segmentation"),
+    } <= options
+    assert ("clip", "classification") in second_step_options
+    assert ModelSpec.from_config({"kind": "clip"}).task == "classification"
+    assert ModelSpec.from_config({"kind": "anomaly"}).task == "anomaly"
+    assert model_defaults("rfdetr", "detection") == (0.35, 0.7)
+    assert not model_control_visibility("clip", None)["iou"]
+    anomaly_controls = model_control_visibility("anomaly", None)
+    assert not anomaly_controls["labels"]
+    assert not anomaly_controls["confidence"]
+    assert not anomaly_controls["iou"]

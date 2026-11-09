@@ -73,12 +73,17 @@ def create_source(source, video_kwargs):
     if factory is not None:
         return factory(source, **video_kwargs)
     if source_type == "genicam":
+        if video_kwargs.get("source_options"):
+            raise ValueError(
+                "GenICam source options are not supported. Set source.src to "
+                "a camera index or serial number, and configure the vendor "
+                "GenTL Producer through GENICAM_GENTL64_PATH."
+            )
         from ..media.sources.genicam import GenICamSource
 
         return GenICamSource(
             source,
             fps=video_kwargs.get("fps", 30),
-            options=video_kwargs.get("source_options"),
         )
     if video_kwargs.get("source_options"):
         raise ValueError(

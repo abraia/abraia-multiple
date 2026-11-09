@@ -25,12 +25,17 @@ from .accelerators import (
 
 def get_model_run_kwargs(config, spec):
     """Extract run-time options accepted by the configured model kind."""
-    if spec.backend == "hailo" or not MODEL_DESCRIPTORS[spec.kind].runtime_options:
+    if spec.backend == "hailo":
+        if spec.kind == "yolo9" and config.get("labels"):
+            return {"labels": config["labels"]}
+        return {}
+    if not MODEL_DESCRIPTORS[spec.kind].runtime_options:
         return {}
     return {
         key: config[key]
         for key in MODEL_RUN_OPTIONS
         if key in config
+        and (key != "labels" or config[key])
     }
 
 
@@ -75,9 +80,23 @@ def _select_hailo_pair(config, spec, uri, accelerator):
 
 def _create_hailo_model(spec, config, base_dir):
     """Create a Hailo adapter from a validated model specification."""
+    uri = _resolve_model_uri(spec.uri, base_dir=base_dir)
+    if spec.kind == "anomaly":
+        from .hailo.anomaly import HailoAnomalyModel
+
+        return HailoAnomalyModel(uri)
+    if spec.kind == "yolo9":
+        from .hailo.yolov9 import HailoYOLOv9Model
+
+        params = spec.params_copy()
+        if "conf_threshold" in config:
+            params.setdefault("score_threshold", config["conf_threshold"])
+        if "iou_threshold" in config:
+            params.setdefault("iou_threshold", config["iou_threshold"])
+        return HailoYOLOv9Model(uri, **params)
+
     from .hailo.pipeline import HailoPipelineModel
 
-    uri = _resolve_model_uri(spec.uri, base_dir=base_dir)
     params = spec.params_copy()
     if "conf_threshold" in config:
         params.setdefault("score_threshold", config["conf_threshold"])
@@ -106,6 +125,46 @@ def _create_grounding_dino_model(spec, _config, base_dir, session_options):
         _resolve_model_uri(spec.resolved_uri, base_dir=base_dir),
         **session_options,
         **spec.params_copy(),
+    )
+
+
+def _create_anomaly_model(spec, _config, base_dir, session_options):
+    """Create the ONNX anomaly adapter."""
+    from .models.anomaly import AnomalyModel
+
+    return AnomalyModel(
+        _resolve_model_uri(spec.uri, base_dir=base_dir),
+        **session_options,
+    )
+
+
+def _create_clip_classifier(spec, _config, base_dir, session_options):
+    """Create a CLIP image-classification adapter."""
+    from .models.clip_classifier import ClipClassifier
+
+    return ClipClassifier(
+        _resolve_model_uri(spec.uri, base_dir=base_dir),
+        **session_options,
+    )
+
+
+def _create_rfdetr_model(spec, _config, base_dir, session_options):
+    """Create an RF-DETR ONNX adapter."""
+    from .models.object_models import RFDETRONNXModel
+
+    return RFDETRONNXModel(
+        _resolve_model_uri(spec.resolved_uri, base_dir=base_dir),
+        **session_options,
+    )
+
+
+def _create_dfine_model(spec, _config, base_dir, session_options):
+    """Create a D-FINE ONNX adapter."""
+    from .models.object_models import DFineONNXModel
+
+    return DFineONNXModel(
+        _resolve_model_uri(spec.resolved_uri, base_dir=base_dir),
+        **session_options,
     )
 
 
@@ -177,6 +236,10 @@ def _create_ocr_model(spec, _config, _base_dir, session_options):
 
 _MODEL_FACTORIES = {
     **{kind: _create_yolo_model for kind in MODEL_ARCHITECTURES},
+    "anomaly": _create_anomaly_model,
+    "clip": _create_clip_classifier,
+    "rfdetr": _create_rfdetr_model,
+    "dfine": _create_dfine_model,
     "resnet": _create_resnet_model,
     "grounding_dino": _create_grounding_dino_model,
     "face": _create_face_model,

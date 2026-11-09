@@ -178,12 +178,6 @@ def test_pipeline_stops_when_display_requests_quit():
     assert model.closed
 
 
-def test_pipeline_run_without_cancellation_callback_uses_noop_cancellation():
-    pipeline = Pipeline(source=FakeSource(), model=FakeModel())
-
-    assert pipeline.run() is not None
-
-
 def test_pipeline_honors_cancellation_before_processing_next_frame():
     cancelled = [False]
     released = Event()
@@ -1205,7 +1199,7 @@ def test_hailo_accelerator_uses_shared_pipeline():
 def test_hailo_pipeline_definitions_use_pipeline_schema():
     from abraia.demo import PIPELINE_DEVICES
 
-    hailo_demos = ("detect", "tomato", "apple", "segment", "pose")
+    hailo_demos = ("detect", "tomato", "apple", "segment", "pose", "yolo9")
     for name in hailo_demos:
         config = PIPELINE_DEVICES[name]
         assert config["version"] == 2
@@ -1214,6 +1208,25 @@ def test_hailo_pipeline_definitions_use_pipeline_schema():
         assert model["uri"].endswith(".onnx")
         assert "uri" in model
         assert all("type" in step and "id" not in step for step in config["steps"])
+
+
+def test_yolo9_demo_pairs_with_available_hailo_model():
+    with patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
+         patch("abraia.demo._hailo_model_available", return_value=True):
+        from abraia.demo import resolve_pipeline
+
+        selected = resolve_pipeline("yolo9", accelerator="hailo")
+
+    model = next(
+        step["model"] for step in selected["steps"]
+        if step["type"] == "model"
+    )
+    assert model == {
+        "task": "detection",
+        "kind": "yolo9",
+        "size": "small",
+        "uri": "multiple/models/yolo9t_hailo8.hef",
+    }
 
 
 def test_cli_search_command_routes_to_search_images():

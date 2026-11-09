@@ -21,6 +21,7 @@ from abraia.inference.accelerators import (
     normalize_accelerator,
     onnx_providers,
 )
+from abraia.inference.model_config import MODEL_SIZE_URIS, normalize_task
 
 
 DEFAULT_PIPELINE = {
@@ -39,6 +40,30 @@ DEFAULT_PIPELINE = {
     ],
     'display': {'show': True},
 }
+
+
+MODEL_DEMO_VIDEO = '853889-hd_1920_1080_25fps.mp4'
+
+
+def _model_demo(kind, task):
+    """Build a sample-video demo for a model family and task."""
+    return {
+        'version': 2,
+        'source': {'type': 'video', 'src': MODEL_DEMO_VIDEO},
+        'steps': [
+            {
+                'type': 'model',
+                'model': {
+                    'task': task,
+                    'kind': kind,
+                    'size': 'small',
+                    'uri': MODEL_SIZE_URIS[kind][task]['small'],
+                },
+            },
+            {'type': 'tracker'},
+        ],
+        'display': {'show': True},
+    }
 
 
 PIPELINES = {
@@ -133,7 +158,7 @@ PIPELINES = {
     },
     'people': {
         'version': 2,
-        'source': {'type': 'video', 'src': '853889-hd_1920_1080_25fps.mp4'},
+        'source': {'type': 'video', 'src': MODEL_DEMO_VIDEO},
         'steps': [
             {
                 'type': 'model',
@@ -252,7 +277,7 @@ PIPELINES = {
     'detect': {**deepcopy(DEFAULT_PIPELINE)},
     'segment': {
         'version': 2,
-        'source': {'type': 'video', 'src': '853889-hd_1920_1080_25fps.mp4'},
+        'source': {'type': 'video', 'src': MODEL_DEMO_VIDEO},
         'steps': [
             {
                 'type': 'model',
@@ -287,6 +312,11 @@ PIPELINES = {
         ],
         'display': {'show': True},
     },
+    'yolo9': _model_demo('yolo9', 'detection'),
+    'rfdetr': _model_demo('rfdetr', 'detection'),
+    'rfdetr-seg': _model_demo('rfdetr', 'segmentation'),
+    'dfine': _model_demo('dfine', 'detection'),
+    'dfine-seg': _model_demo('dfine', 'segmentation'),
 }
 
 
@@ -313,6 +343,10 @@ CAMERA_PIPELINES = {
 
 
 PIPELINE_DEVICES = PIPELINES
+MODEL_DEMOS = (
+    'detect', 'segment', 'pose', 'yolo9', 'rfdetr', 'rfdetr-seg', 'dfine',
+    'dfine-seg',
+)
 
 
 # The current Hailo apple entry uses a generic COCO segmentation HEF. Keep it
@@ -320,6 +354,59 @@ PIPELINE_DEVICES = PIPELINES
 # automatically as an apple-equivalent model.
 HAILO_AUTO_EXCLUSIONS = frozenset({'apple'})
 VIDEO_URL = 'https://api.abraia.me/files/multiple/videos/{}'
+
+
+def _model_variants():
+    """Return model variants that can replace a demo's primary model."""
+    variants = {}
+    for kind in ('yolov8', 'yolo9', 'rfdetr', 'dfine'):
+        for task, sizes in MODEL_SIZE_URIS[kind].items():
+            for size, uri in sizes.items():
+                name = os.path.splitext(os.path.basename(uri))[0].replace('_', '-')
+                variants[name] = {
+                    'kind': kind,
+                    'task': task,
+                    'size': size,
+                    'uri': uri,
+                }
+
+    return variants
+
+
+def demo_model_options(demo):
+    """List model variants compatible with a demo's model task."""
+    config = PIPELINE_DEVICES.get(demo)
+    if config is None:
+        return ()
+    task = normalize_task(_primary_model_step(config)['model'].get('task'))
+    return tuple(
+        name for name, model in _model_variants().items()
+        if model['task'] == task
+    )
+
+
+def _apply_demo_model(config, demo, model_name):
+    """Replace a demo's primary model with a compatible built-in variant."""
+    model_name = str(model_name).strip().lower()
+    variants = _model_variants()
+    variant = variants.get(model_name)
+    if variant is None:
+        available = ', '.join(demo_model_options(demo))
+        raise ValueError(
+            f"Unknown model variant '{model_name}'. Compatible options for "
+            f"'{demo}' are: {available}"
+        )
+
+    model = _primary_model_step(config)['model']
+    task = normalize_task(model.get('task'))
+    if variant['task'] != task:
+        available = ', '.join(demo_model_options(demo))
+        raise ValueError(
+            f"Model '{model_name}' supports {variant['task']}, while demo "
+            f"'{demo}' uses {task}. Compatible models: {available}"
+        )
+
+    model.update(variant)
 
 
 def _primary_model_step(config):
@@ -340,7 +427,7 @@ def _resolve_hailo_config(config, architecture):
     onnx_uri = model.get('uri')
     kind = str(model.get('kind', '')).strip().lower()
     task = normalize_task(model.get('task'))
-    if kind not in ('yolov5', 'yolov8', 'yolo11') or not task:
+    if kind not in ('yolov5', 'yolov8', 'yolo9', 'yolo11') or not task:
         return None
 
     hef_uri = paired_hailo_uri(
@@ -359,6 +446,13 @@ def _prepare_source(config, src=None, resolution=None):
     """Apply runtime source overrides without adding camera settings to video."""
     source = config['source']
     source['src'] = source['src'] if src is None else src
+    source_type = source.get('type')
+    if src is not None and source_type not in ('genicam', 'rpi_camera'):
+        from abraia.runtime.sources import infer_source_type
+
+        inferred_type = infer_source_type(src)
+        if inferred_type:
+            source['type'] = inferred_type
     if resolution is not None and source.get('type') == 'camera':
         source['resolution'] = list(resolution)
     return source['src']
@@ -376,7 +470,7 @@ def run_camera_pipeline(
     accelerator='auto',
     output=None,
 ):
-    """Run a camera-service preset without loading an inference model."""
+    """Publish the Raspberry Pi camera through a managed MediaMTX server."""
     try:
         selected = deepcopy(CAMERA_PIPELINES[demo])
     except KeyError as error:
@@ -385,13 +479,32 @@ def run_camera_pipeline(
     rtsp_url = os.environ.get('ABRAIA_RTSP_URL')
     if rtsp_url:
         selected['output']['url'] = rtsp_url
+        if output is not None:
+            selected.setdefault('display', {})['dest'] = output
+        with Pipeline.from_dict(selected, accelerator=accelerator) as pipeline:
+            pipeline.run()
+        return
+
     if output is not None:
-        selected.setdefault('display', {})['dest'] = output
-    with Pipeline.from_dict(selected, accelerator=accelerator) as pipeline:
-        pipeline.run()
+        raise ValueError(
+            "The automatic pi-camera server publishes a stream and does not "
+            "write a local video file. Set ABRAIA_RTSP_URL to use an external "
+            "RTSP server with --output."
+        )
+
+    from abraia.media.mediamtx import managed_pi_camera_server
+
+    with managed_pi_camera_server(src if src is not None else 0) as stream_url:
+        print(f"Raspberry Pi camera stream: {stream_url}")
+        print("Press Ctrl+C to stop the stream.")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
 
 
-def resolve_pipeline(demo='detect', accelerator='auto'):
+def resolve_pipeline(demo='detect', accelerator='auto', model=None):
     """Resolve a logical demo to its unchanged runtime pipeline config.
 
     ``hailo`` is treated as an accelerator selection.  CPU, GPU, and ONNX
@@ -400,12 +513,14 @@ def resolve_pipeline(demo='detect', accelerator='auto'):
     compatible device and model are available, then falls back to ONNX.
     """
     accelerator = normalize_accelerator(accelerator)
-
     config = PIPELINE_DEVICES.get(demo)
     if config is None:
         if accelerator == 'hailo':
             raise KeyError(f"Unknown Hailo pipeline demo: {demo}")
         return deepcopy(DEFAULT_PIPELINE)
+    config = deepcopy(config)
+    if model is not None:
+        _apply_demo_model(config, demo, model)
 
     if accelerator == 'hailo':
         architecture = _hailo_device_arch()
@@ -435,7 +550,7 @@ def resolve_pipeline(demo='detect', accelerator='auto'):
         if resolved_hailo_config:
             return resolved_hailo_config
 
-    return deepcopy(config)
+    return config
 
 
 def monitor_objects(
@@ -444,10 +559,10 @@ def monitor_objects(
     resolution=(1280, 720),
     accelerator='auto',
     output=None,
+    model=None,
 ):
     """Monitor, count, or just detect objects in a video stream."""
-    print(f"Available demos: {', '.join(PIPELINE_DEVICES.keys())}")
-    selected = resolve_pipeline(demo, accelerator=accelerator)
+    selected = resolve_pipeline(demo, accelerator=accelerator, model=model)
     if output is not None:
         selected.setdefault('display', {})['dest'] = output
     src = _prepare_source(selected, src, resolution)

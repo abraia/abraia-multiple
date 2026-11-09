@@ -20,6 +20,7 @@ from .sources import infer_source_type, normalize_source_type
 
 PIPELINE_SECOND_STEP_MODEL_PAIRS = frozenset({
     ("resnet", "classification"),
+    ("clip", "classification"),
     ("face", "recognition"),
     ("license_plate", "recognition"),
     ("ocr", "recognition"),
@@ -310,6 +311,11 @@ MODEL_DEFAULT_THRESHOLDS = {
     ("rtmdet", "detection"): (0.25, 0.7),
     ("rtmdet", "segmentation"): (0.25, 0.7),
     ("resnet", "classification"): (0.25, 0.0),
+    ("clip", "classification"): (0.25, 0.0),
+    ("rfdetr", "detection"): (0.35, 0.7),
+    ("rfdetr", "segmentation"): (0.35, 0.7),
+    ("dfine", "detection"): (0.35, 0.7),
+    ("dfine", "segmentation"): (0.35, 0.7),
     ("grounding_dino", "detection"): (0.25, 0.45),
     ("face", "detection"): (0.75, 0.5),
     ("face", "recognition"): (0.45, 0.5),
@@ -334,7 +340,13 @@ SUPPORTED_MODEL_OPTIONS = (
     *_sized_model_options("yolov8", "Pose estimation", "pose"),
     *_sized_model_options("rtmdet", "RTMDet object detection", "detection"),
     *_sized_model_options("rtmdet", "RTMDet instance segmentation", "segmentation"),
+    *_sized_model_options("rfdetr", "RF-DETR object detection", "detection"),
+    *_sized_model_options("rfdetr", "RF-DETR instance segmentation", "segmentation"),
+    *_sized_model_options("dfine", "D-FINE object detection", "detection"),
+    *_sized_model_options("dfine", "D-FINE instance segmentation", "segmentation"),
     *_sized_model_options("resnet", "ResNet classification", "classification"),
+    ("clip_classification", "CLIP classification", "clip", "classification", ""),
+    ("anomaly_detection", "Anomaly detection", "anomaly", "anomaly", ""),
     ("face_detection", "Face detection", "face", "detection", ""),
     ("face_recognition", "Face recognition", "face", "recognition", ""),
     ("license_plate_detection", "License plate detection", "license_plate", "detection", ""),
@@ -350,7 +362,12 @@ SUPPORTED_SECOND_STEP_MODEL_OPTIONS = tuple(
 def model_defaults(kind, task):
     kind = str(kind or "").strip().lower()
     task = normalize_task(
-        task, default="classification" if kind == "resnet" else "detection"
+        task,
+        default=(
+            "classification" if kind in ("resnet", "clip")
+            else "anomaly" if kind == "anomaly"
+            else "detection"
+        ),
     )
     if kind in MODEL_ARCHITECTURES and (kind, task) not in MODEL_DEFAULT_THRESHOLDS:
         kind = "yolov8"
@@ -360,16 +377,24 @@ def model_defaults(kind, task):
 def model_control_visibility(kind, task):
     kind = str(kind or "").strip().lower()
     task = normalize_task(
-        task, default="classification" if kind == "resnet" else "detection"
+        task,
+        default=(
+            "classification" if kind in ("resnet", "clip")
+            else "anomaly" if kind == "anomaly"
+            else "detection"
+        ),
     )
     descriptor = MODEL_DESCRIPTORS.get(kind)
     uses_uri = bool(descriptor and descriptor.uri_based)
+    is_anomaly = kind == "anomaly" and task == "anomaly"
+    is_classification = task == "classification"
     return {
         "uri": uses_uri,
         "index": kind == "face" and task == "recognition",
-        "labels": uses_uri,
-        "confidence": True,
-        "iou": kind not in ("ocr", "resnet")
+        "labels": uses_uri and not is_anomaly,
+        "confidence": not is_anomaly,
+        "iou": not is_anomaly and not is_classification
+        and kind not in ("ocr", "resnet")
         and not (kind == "face" and task == "recognition"),
         "approx": kind in MODEL_ARCHITECTURES and task == "segmentation",
     }

@@ -1,8 +1,12 @@
 """Public pipeline execution, configuration and extension interfaces."""
 
-from .pipeline import FrameContext, Pipeline
+from .pipeline import FrameContext, Pipeline, prepare_source
+from .execution import run_pipeline
+from .discovery import (
+    discover_cameras, discover_genicam_devices, discover_streams,
+)
 from .composition import register_model_step_factory
-from .sources import infer_source_type, register_source_factory
+from .sources import create_source, infer_source_type, register_source_factory
 from ..media.sources import (
     CameraSource,
     FrameSource,
@@ -35,7 +39,9 @@ from .config import (
 
 __all__ = [
     "FrameContext", "FrameSource", "GenICamSource", "ImageSequence",
-    "Pipeline", "PipelineDraft",
+    "Pipeline", "PipelineDraft", "create_source", "prepare_source",
+    "run_pipeline", "discover_cameras", "discover_genicam_devices",
+    "discover_streams",
     "ImageSource", "ImageSequenceSource", "VideoSource", "CameraSource",
     "StreamSource",
     "MAX_PIPELINE_MODELS", "MAX_PIPELINE_TRACKERS", "PIPELINE_STEP_DEFINITIONS",

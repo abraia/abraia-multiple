@@ -4,8 +4,10 @@ import itertools
 import os
 from concurrent.futures import ThreadPoolExecutor
 from glob import glob
+from pathlib import Path
 
 import click
+from click.shell_completion import CompletionItem
 from tqdm import tqdm
 
 from . import APIError, Abraia, __version__, config
@@ -68,8 +70,26 @@ def cli():
 
 
 @cli.command()
-def configure():
-    """Configure the Abraia API key."""
+@click.option(
+    "--completion",
+    "install_completion",
+    is_flag=True,
+    help="Set up shell completion instead of configuring API credentials.",
+)
+@click.option(
+    "--shell",
+    "completion_shell",
+    type=click.Choice(["bash", "zsh", "fish"]),
+    help="Shell to configure; defaults to the shell in SHELL.",
+)
+def configure(install_completion=False, completion_shell=None):
+    """Configure Abraia credentials or shell completion."""
+    if completion_shell and not install_completion:
+        raise click.UsageError("--shell can only be used with --completion.")
+    if install_completion:
+        _install_shell_completion(completion_shell)
+        return
+
     click.echo(
         "Go to ["
         + click.style("https://abraia.me/editor/", fg="green")
@@ -86,6 +106,79 @@ def configure():
         ) from error
 
 
+def _install_shell_completion(shell=None):
+    """Add Abraia completion to a Bash, Zsh, or Fish configuration."""
+    shell = shell or Path(os.environ.get("SHELL", "")).name
+    if shell not in ("bash", "zsh", "fish"):
+        raise click.ClickException(
+            "Could not detect your shell. Choose bash, zsh, or fish."
+        )
+    if shell == "fish":
+        from click.shell_completion import FishComplete
+
+        path = Path.home() / ".config/fish/completions/abraia.fish"
+        content = FishComplete(
+            cli, {}, "abraia", "_ABRAIA_COMPLETE"
+        ).source().rstrip() + "\n"
+    else:
+        path = Path.home() / f".{shell}rc"
+        content = f'eval "$(_ABRAIA_COMPLETE={shell}_source abraia)"\n'
+
+    if path.exists():
+        existing = path.read_text(encoding="utf-8")
+        if shell == "fish":
+            if existing == content:
+                click.echo(f"Abraia completion is already installed in {path}.")
+                return
+            raise click.ClickException(
+                f"Refusing to overwrite the existing completion file: {path}"
+            )
+        if content.rstrip() in existing.splitlines():
+            click.echo(f"Abraia completion is already installed in {path}.")
+            return
+        if existing and not existing.endswith("\n"):
+            existing += "\n"
+    else:
+        existing = ""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(existing + content, encoding="utf-8")
+    click.echo(f"Added Abraia completion to {path}. Open a new shell to use it.")
+
+
+@cli.group()
+def discover():
+    """Discover cameras and video streams available to this machine."""
+
+
+@discover.command("cameras")
+def discover_cameras_command():
+    """Find local camera devices and their numeric source indexes."""
+    from .runtime import discover_cameras
+
+    cameras = _run_operation(discover_cameras)
+    if not cameras:
+        click.echo("No local cameras found.")
+        return
+    for camera in cameras:
+        click.echo(f"{camera['source']}  {camera['label']}")
+    click.echo("\nRun one with: abraia run demo detect SOURCE")
+
+
+@discover.command("streams")
+def discover_streams_command():
+    """Find RTSP streams advertised by ONVIF cameras on the local network."""
+    from .runtime import discover_streams
+
+    streams = _run_operation(discover_streams)
+    if not streams:
+        click.echo("No ONVIF video streams found.")
+        return
+    for stream in streams:
+        click.echo(stream)
+    click.echo("\nRun one with: abraia run demo detect STREAM_URL")
+
+
 def format_output(files, folders=None):
     folders = folders or []
     output = "\n".join(
@@ -99,7 +192,7 @@ def format_output(files, folders=None):
     return output + f"\ntotal {len(files)}"
 
 
-def _run_remote(operation):
+def _run_operation(operation):
     try:
         return operation()
     except click.ClickException:
@@ -108,11 +201,120 @@ def _run_remote(operation):
         raise click.ClickException(str(error)) from error
 
 
+def _available_demos():
+    from .demo import CAMERA_PIPELINES, PIPELINE_DEVICES
+
+    return tuple(dict.fromkeys(
+        tuple(PIPELINE_DEVICES)
+        + ("faces",)
+        + tuple(CAMERA_PIPELINES)
+    ))
+
+
+def _show_demos():
+    from .demo import MODEL_DEMOS, PIPELINES, demo_model_options
+
+    workflow_names = [
+        name for name in PIPELINES
+        if name not in MODEL_DEMOS
+    ]
+    click.echo("Use-case demos: " + ", ".join(workflow_names))
+    click.echo("Model demos: " + ", ".join(MODEL_DEMOS))
+    click.echo("Other demos: faces, pi-camera")
+    click.echo("\nCompatible model variants:")
+    for name, demo_name in (
+        ("detection", "people"),
+        ("segmentation", "apple"),
+        ("pose", "pose"),
+    ):
+        click.echo(f"  {name}: {', '.join(demo_model_options(demo_name))}")
+    click.echo("\nRun a workflow with: abraia run demo NAME [SOURCE]")
+    click.echo("Choose a compatible model with: abraia run demo NAME --model MODEL")
+    click.echo("Example: abraia run demo apple --model yolov8n-seg")
+    click.echo(
+        "Video demos download their sample input automatically when needed. "
+        "detect and pose use camera 0 by default."
+    )
+
+
+def _completion_items(values, incomplete):
+    prefix = (incomplete or "").lower()
+    return [
+        CompletionItem(value)
+        for value in values
+        if value.lower().startswith(prefix)
+    ]
+
+
+def _complete_run_project(ctx, param, incomplete):
+    del ctx, param
+    return _completion_items(("demo",), incomplete)
+
+
+def _complete_run_demo(ctx, param, incomplete):
+    del param
+    if ctx.params.get("project") != "demo":
+        return []
+    return _completion_items(("list",) + _available_demos(), incomplete)
+
+
+def _complete_demo_model(ctx, param, incomplete):
+    del param
+    project = ctx.params.get("project")
+    demo_name = ctx.params.get("demo_or_source")
+    if project is None and ctx.args:
+        project = ctx.args[0]
+    if not demo_name and project == "demo" and len(ctx.args) > 1:
+        demo_name = ctx.args[1]
+    if project != "demo":
+        return []
+    if not demo_name or demo_name == "list":
+        return []
+    from .demo import demo_model_options
+
+    return _completion_items(demo_model_options(demo_name), incomplete)
+
+
+def _run_demo(demo_name, src=None, accelerator="auto", output=None, model=None):
+    """Run one of the built-in demo pipelines."""
+    demo_name = demo_name or "detect"
+    if demo_name not in _available_demos():
+        available = ", ".join(_available_demos())
+        raise click.ClickException(
+            f"Unknown demo '{demo_name}'. Available demos: {available}"
+        )
+    if demo_name == "pi-camera":
+        if model is not None:
+            raise click.ClickException("The pi-camera demo does not use a model.")
+        from .demo import run_camera_pipeline
+
+        return run_camera_pipeline(
+            src=src,
+            accelerator=accelerator,
+            output=output,
+        )
+    if demo_name == "faces":
+        if model is not None:
+            raise click.ClickException(
+                "The faces demo does not support model variants."
+            )
+        from .demo import track_faces
+
+        return track_faces(src, accelerator=accelerator, output=output)
+
+    from .demo import monitor_objects
+
+    options = {"accelerator": accelerator, "output": output}
+    if model is not None:
+        options["model"] = model
+    return monitor_objects(src, demo_name, **options)
+
+
 @cli.command("list")
 @click.argument("folder", required=False, default="")
 def list_files_command(folder):
     """List files in Abraia."""
-    _run_remote(lambda: click.echo(format_output(*abraia.list_files(folder))))
+    _run_operation(lambda: click.echo(format_output(*abraia.list_files(folder))))
 
 
 @cli.command()
@@ -120,7 +322,7 @@ def list_files_command(folder):
 @click.argument("folder", required=False, default="")
 def upload(src, folder):
     """Upload files to Abraia."""
-    _run_remote(
+    _run_operation(
         lambda: process_map(
             abraia.upload_file,
             input_files(src),
@@ -144,7 +346,7 @@ def download(path, folder):
             desc="Downloading",
         )
 
-    _run_remote(operation)
+    _run_operation(operation)
 
 
 @cli.command()
@@ -162,7 +364,7 @@ def remove(path):
             )
         return None
 
-    _run_remote(operation)
+    _run_operation(operation)
 
 
 @cli.command()
@@ -172,13 +374,42 @@ def search(project, query):
     """Search a project using text or an image path."""
     from .demo import search_images
 
-    _run_remote(lambda: search_images(project, query=query))
+    _run_operation(lambda: search_images(project, query=query))
 
 
-@cli.command()
-@click.argument("project")
-@click.argument("demo_or_source", required=False, default="")
-@click.argument("src", required=False, default=None)
+@cli.command(
+    epilog=(
+        "\b\nExamples:\n"
+        "  abraia run demo apple --model yolov8n-seg\n"
+        "  abraia run demo detect 0\n"
+        "  abraia run my-project input.mp4"
+    )
+)
+@click.argument(
+    "project",
+    metavar="PROJECT",
+    shell_complete=_complete_run_project,
+)
+@click.argument(
+    "demo_or_source",
+    required=False,
+    default="",
+    metavar="[DEMO_OR_SOURCE]",
+    shell_complete=_complete_run_demo,
+)
+@click.argument(
+    "src",
+    required=False,
+    default=None,
+    metavar="[SOURCE]",
+    type=click.Path(exists=False),
+)
+@click.option(
+    "--model",
+    "demo_model",
+    shell_complete=_complete_demo_model,
+    help="Use a compatible built-in model variant for a demo.",
+)
 @click.option(
     "--accelerator",
     type=click.Choice(["auto", "onnx", "cpu", "gpu", "hailo"]),
@@ -197,32 +428,30 @@ def run(
     src,
     accelerator,
     output=None,
+    demo_model=None,
 ):
-    """Run a demo or a project's saved pipeline."""
+    """Run a built-in demo or a saved project's pipeline.
+
+    Use ``abraia run demo NAME [SOURCE]`` for demos or
+    ``abraia run PROJECT [SOURCE]`` for saved pipelines.
+    """
     def operation():
         if project == "demo":
-            if demo_or_source == "pi-camera":
-                from .demo import run_camera_pipeline
+            if not demo_or_source or demo_or_source == "list":
+                _show_demos()
+                return
+            return _run_demo(
+                demo_or_source,
+                src,
+                accelerator=accelerator,
+                output=output,
+                model=demo_model,
+            )
 
-                run_camera_pipeline(
-                    src=src,
-                    accelerator=accelerator,
-                    output=output,
-                )
-            elif demo_or_source == "faces":
-                from .demo import track_faces
-
-                track_faces(src, accelerator=accelerator, output=output)
-            else:
-                from .demo import monitor_objects
-
-                monitor_objects(
-                    src,
-                    demo_or_source or "detect",
-                    accelerator=accelerator,
-                    output=output,
-                )
-            return
+        if demo_model is not None:
+            raise click.ClickException(
+                "--model can only be used with 'abraia run demo'."
+            )
 
         from .runtime import Pipeline
         from .runtime.sources import infer_source_type, normalize_source_type
@@ -258,7 +487,7 @@ def run(
         ) as pipeline:
             pipeline.run()
 
-    _run_remote(operation)
+    _run_operation(operation)
 
 
 def main():

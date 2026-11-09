@@ -52,7 +52,7 @@ def _close_resources(resources: Iterable) -> None:
             logger.warning("Failed to close runtime resource", exc_info=True)
 
 
-def _prepare_source(
+def prepare_source(
     source_config, display_config, root: Path, input_source=None
 ):
     """Normalize source configuration into a source and constructor kwargs."""
@@ -108,19 +108,6 @@ def _prepare_source(
     if not isinstance(source_options, dict):
         raise ValueError("Pipeline source 'options' must be an object")
     source_options = dict(source_options)
-    producer = source_options.get("producer")
-    if isinstance(producer, (str, os.PathLike)):
-        producer_path = Path(producer).expanduser()
-        if not producer_path.is_absolute():
-            source_options["producer"] = str(root / producer_path)
-    elif isinstance(producer, (list, tuple)):
-        resolved_producers = []
-        for producer_entry in producer:
-            producer_path = Path(str(producer_entry)).expanduser()
-            if not producer_path.is_absolute():
-                producer_path = root / producer_path
-            resolved_producers.append(str(producer_path))
-        source_options["producer"] = resolved_producers
     if source_options:
         video_kwargs["source_options"] = source_options
     if "video_unpaced" in source_config:
@@ -476,7 +463,7 @@ class Pipeline:
         from ..inference.tracker import Tracker
 
         root = Path(base_dir or os.getcwd())
-        source, video_kwargs = _prepare_source(
+        source, video_kwargs = prepare_source(
             source_config, display_config, root, input_source=input_source
         )
         video = None
@@ -591,6 +578,10 @@ class Pipeline:
                 render_results=display_config.get("render_results", True),
                 render_metrics=display_config.get("render_metrics", True),
             )
+            if model_plans and model_plans[0][1].kind == "anomaly":
+                from .rendering import AnomalyPipelineRenderer
+
+                renderer = AnomalyPipelineRenderer(renderer, primary_model)
             if output_config is not None:
                 from ..media.outputs import RTSPOutput
 
@@ -689,4 +680,5 @@ class Pipeline:
 __all__ = [
     "FrameContext",
     "Pipeline",
+    "prepare_source",
 ]

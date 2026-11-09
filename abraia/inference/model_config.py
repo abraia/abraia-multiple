@@ -12,6 +12,7 @@ PIPELINE_TASKS = (
     "segmentation",
     "pose",
     "recognition",
+    "anomaly",
 )
 HAILO_TASKS = ("detection", "segmentation", "pose")
 
@@ -65,7 +66,7 @@ class ModelDescriptor:
 _MODEL_ARCHITECTURE_ORDER = ("yolov5", "yolov8", "yolo9", "yolo11", "rtmdet")
 MODEL_ARCHITECTURES = frozenset(_MODEL_ARCHITECTURE_ORDER)
 HAILO_MODEL_ARCHITECTURES = frozenset(
-    ("yolov5", "yolov8", "yolo11", "rtmdet")
+    ("yolov5", "yolov8", "yolo9", "yolo11", "rtmdet")
 )
 MODEL_RUN_OPTIONS = (
     "labels",
@@ -128,6 +129,30 @@ MODEL_SIZE_URIS = {
     "grounding_dino": {
         "detection": {"small": "multiple/models/grounding_dino_tiny.onnx"},
     },
+    "rfdetr": {
+        "detection": {
+            "small": "multiple/models/rfdetr_nano.onnx",
+            "medium": "multiple/models/rfdetr_small.onnx",
+            "large": "multiple/models/rfdetr_medium.onnx",
+        },
+        "segmentation": {
+            "small": "multiple/models/rfdetr_seg_nano.onnx",
+            "medium": "multiple/models/rfdetr_seg_small.onnx",
+            "large": "multiple/models/rfdetr_seg_medium.onnx",
+        },
+    },
+    "dfine": {
+        "detection": {
+            "small": "multiple/models/dfine_n.onnx",
+            "medium": "multiple/models/dfine_s.onnx",
+            "large": "multiple/models/dfine_m.onnx",
+        },
+        "segmentation": {
+            "small": "multiple/models/dfine_seg_n.onnx",
+            "medium": "multiple/models/dfine_seg_s.onnx",
+            "large": "multiple/models/dfine_seg_m.onnx",
+        },
+    },
 }
 
 DEFAULT_MODEL_URIS = {
@@ -166,6 +191,22 @@ _MODEL_DESCRIPTORS = {
     "grounding_dino": ModelDescriptor(
         frozenset({"detection"}), uri_based=True, runtime_options=True
     ),
+    "anomaly": ModelDescriptor(
+        frozenset({"anomaly"}), uri_based=True, explicit_uri=True,
+        follow_up=True,
+    ),
+    "clip": ModelDescriptor(
+        frozenset({"classification"}), uri_based=True, explicit_uri=True,
+        runtime_options=True, follow_up=True,
+    ),
+    "rfdetr": ModelDescriptor(
+        frozenset({"detection", "segmentation"}),
+        uri_based=True, runtime_options=True,
+    ),
+    "dfine": ModelDescriptor(
+        frozenset({"detection", "segmentation"}),
+        uri_based=True, runtime_options=True,
+    ),
     "face": ModelDescriptor(frozenset({"detection", "recognition"})),
     "license_plate": ModelDescriptor(frozenset({"detection", "recognition"})),
     "ocr": ModelDescriptor(frozenset({"recognition"})),
@@ -202,7 +243,9 @@ class ModelSpec:
             "segmentation"
             if kind == "rtmdet"
             and any(marker in uri_name for marker in ("rtmdet_ins", "rtmdet-ins"))
-            else "classification" if kind == "resnet" else "detection"
+            else "classification" if kind in ("resnet", "clip")
+            else "anomaly" if kind == "anomaly"
+            else "detection"
         )
         task = normalize_task(
             config.get("task"),
@@ -293,6 +336,12 @@ class ModelSpec:
         if error and (error[0] != "task" or self.backend != "hailo"):
             raise ValueError(error[1])
         if self.backend == "hailo":
+            if self.kind == "anomaly":
+                if self.task != "anomaly":
+                    raise ValueError(
+                        "Anomaly Hailo models require task='anomaly'"
+                    )
+                return
             if self.kind not in HAILO_MODEL_ARCHITECTURES:
                 raise ValueError("Hailo models require a supported model architecture kind")
             if self.task not in HAILO_TASKS:

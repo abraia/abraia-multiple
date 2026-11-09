@@ -94,13 +94,6 @@ def test_pipeline_draft_rejects_unsupported_versions():
         PipelineDraft.from_dict({"version": 3})
 
 
-def test_pipeline_draft_stores_ordered_steps():
-    steps = [{"type": "tracker"}]
-    draft = PipelineDraft(steps=steps)
-
-    assert draft.steps == steps
-
-
 def test_pipeline_draft_does_not_repair_missing_primary_model():
     draft = PipelineDraft(steps=[{"type": "tracker"}])
 

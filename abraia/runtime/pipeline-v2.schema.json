@@ -35,7 +35,7 @@
         "video_unpaced": {"type": "boolean"},
         "options": {
           "type": "object",
-          "description": "Optional source-specific settings, such as GenTL Producer and GenICam features.",
+          "description": "Optional settings for a registered source adapter.",
           "additionalProperties": true
         }
       },

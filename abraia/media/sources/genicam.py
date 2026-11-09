@@ -1,11 +1,24 @@
 """Optional GenICam image acquisition through GenTL Producers."""
 
-import math
 import os
 from pathlib import Path
 import re
 import threading
-from typing import Any, Dict, Iterable, Iterator, Mapping
+from typing import Any, Dict, Iterable, Iterator
+
+
+def find_genicam_producers():
+    """Find CTI Producer files listed in the GenTL environment path."""
+    env_paths = os.environ.get("GENICAM_GENTL64_PATH", "")
+    producer_paths = [path for path in env_paths.split(os.pathsep) if path]
+    files = []
+    for value in producer_paths:
+        path = Path(value).expanduser()
+        if path.is_dir():
+            files.extend(sorted(path.glob("*.cti")))
+        elif path.is_file() and path.suffix.lower() == ".cti":
+            files.append(path)
+    return files
 
 
 class GenICamSource:
@@ -13,40 +26,13 @@ class GenICamSource:
 
     Harvester and a compatible vendor GenTL Producer are optional runtime
     requirements. ``src`` selects a device by serial number, or by numeric
-    index when it contains only digits. Source options support ``producer``
-    (a CTI file or directory), ``selector`` (Harvester device properties),
-    ``features`` (writable GenICam feature values), and ``timeout`` seconds.
+    index when it contains only digits. GenTL Producers are discovered through
+    the ``GENICAM_GENTL64_PATH`` environment variable.
     """
 
-    _OPTION_NAMES = {"producer", "selector", "features", "timeout"}
-
-    def __init__(self, src, fps=30, options=None):
-        if options is not None and not isinstance(options, Mapping):
-            raise ValueError("GenICam source options must be an object")
-        options = {} if options is None else dict(options)
-        unknown_options = sorted(set(options) - self._OPTION_NAMES)
-        if unknown_options:
-            raise ValueError(
-                "Unsupported GenICam source option(s): "
-                + ", ".join(unknown_options)
-            )
-
-        selector = options.get("selector")
-        if selector is not None and not isinstance(selector, Mapping):
-            raise ValueError("GenICam 'selector' must be an object")
-        if selector is not None and not selector:
-            raise ValueError("GenICam 'selector' cannot be empty")
-        features = options.get("features", {})
-        if not isinstance(features, Mapping):
-            raise ValueError("GenICam 'features' must be an object")
-        try:
-            self.timeout = float(options.get("timeout", 0.2))
-        except (TypeError, ValueError):
-            raise ValueError("GenICam 'timeout' must be a positive number")
-        if not math.isfinite(self.timeout) or self.timeout <= 0:
-            raise ValueError("GenICam 'timeout' must be a positive number")
-
+    def __init__(self, src, fps=30):
         self.src = src
+        self.timeout = 0.2
         self.frame_rate = float(fps or 0)
         self.width = 0
         self.height = 0
@@ -63,22 +49,24 @@ class GenICamSource:
             raise ImportError(
                 "GenICam input requires the optional 'harvesters' package and "
                 "a compatible vendor GenTL Producer. Install Abraia with "
-                "'pip install abraia[genicam]' and configure source.options.producer."
+                "'pip install abraia[genicam]'."
             ) from error
 
         try:
             self._harvester = Harvester()
-            producer_files = self._producer_files(options.get("producer"))
+            producer_files = find_genicam_producers()
             if not producer_files:
                 raise RuntimeError(
-                    "No GenTL Producer was configured. Set source.options.producer "
-                    "to a CTI file or directory, or set GENICAM_GENTL64_PATH."
+                    "No GenTL Producer was found. Set GENICAM_GENTL64_PATH "
+                    "to the vendor CTI file or its directory."
                 )
             for producer_file in producer_files:
                 self._harvester.add_file(str(producer_file))
             self._harvester.update()
 
-            selector = self._device_selector(src, selector)
+            selector = self._device_selector(
+                src, self._harvester.device_info_list
+            )
             try:
                 self._acquirer = self._harvester.create(selector)
             except Exception as error:
@@ -89,7 +77,6 @@ class GenICamSource:
                 ) from error
 
             self.device_info = self._selected_device_info(selector)
-            self._apply_features(features)
             node_map = self._acquirer.remote_device.node_map
             self.width = self._node_value(node_map, "Width", 0)
             self.height = self._node_value(node_map, "Height", 0)
@@ -104,36 +91,15 @@ class GenICamSource:
             raise
 
     @staticmethod
-    def _producer_files(configured) -> list:
-        """Resolve configured or environment-provided CTI producer files."""
-        paths = []
-        if configured is not None:
-            configured_paths = configured if isinstance(configured, (list, tuple)) else [configured]
-        else:
-            env_paths = os.environ.get("GENICAM_GENTL64_PATH", "")
-            configured_paths = [path for path in env_paths.split(os.pathsep) if path]
-
-        for value in configured_paths:
-            path = Path(str(value)).expanduser()
-            if path.is_dir():
-                paths.extend(sorted(path.glob("*.cti")))
-            elif path.is_file() and path.suffix.lower() == ".cti":
-                paths.append(path)
-            elif configured is not None:
-                raise FileNotFoundError(f"GenTL Producer not found: {path}")
-        if configured is None and not paths:
-            return []
-        if not paths:
-            raise FileNotFoundError("No .cti GenTL Producer files found")
-        return paths
-
-    @staticmethod
-    def _device_selector(src, configured):
-        if configured is not None:
-            return dict(configured)
-        if isinstance(src, int) or str(src).strip().isdigit():
-            return int(src)
-        return {"serial_number": str(src).strip()}
+    def _device_selector(src, devices=()):
+        value = str(src).strip()
+        is_serial = any(
+            str(getattr(device, "serial_number", "")).strip() == value
+            for device in devices
+        )
+        if value.isdigit() and not is_serial:
+            return int(value)
+        return {"serial_number": value}
 
     @staticmethod
     def _format_devices(devices: Iterable) -> str:
@@ -173,17 +139,6 @@ class GenICamSource:
         except Exception:
             return default
 
-    def _apply_features(self, features: Mapping) -> None:
-        node_map = self._acquirer.remote_device.node_map
-        for name, value in features.items():
-            try:
-                node = getattr(node_map, str(name))
-                node.value = value
-            except Exception as error:
-                raise ValueError(
-                    f"Unable to set GenICam feature {name!r} to {value!r}"
-                ) from error
-
     @staticmethod
     def _frame_from_component(component):
         """Copy common unpacked Mono/Bayer/RGB/BGR PFNC images into RGB."""
@@ -213,8 +168,8 @@ class GenICamSource:
         else:
             raise ValueError(
                 f"Unsupported GenICam pixel format {pixel_format!r}; configure "
-                "an unpacked Mono, Bayer, RGB, or BGR pixel format in "
-                "source.options.features."
+                "an unpacked Mono, Bayer, RGB, or BGR pixel format with the "
+                "camera vendor's configuration tool."
             )
 
         row_values = width * channels
@@ -334,4 +289,4 @@ class GenICamSource:
         self.close()
 
 
-__all__ = ["GenICamSource"]
+__all__ = ["GenICamSource", "find_genicam_producers"]

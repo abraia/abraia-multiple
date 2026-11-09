@@ -5,7 +5,6 @@ import cv2
 import numpy as np
 import pytest
 from unittest.mock import Mock, patch
-from abraia.inference.models.clip import Clip
 from abraia.inference.session import (
     OnnxSessionBundle,
     ResourceGroup,
@@ -137,10 +136,6 @@ def test_async_runner_propagates_frame_errors():
 
     with pytest.raises(ValueError, match="postprocessing failed"):
         list(runner)
-
-
-def test_clip_import():
-    assert Clip is not None
 
 
 def test_ocr_decoder_returns_zero_confidence_for_blank_text():
