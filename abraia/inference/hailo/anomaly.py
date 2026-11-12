@@ -1,6 +1,9 @@
 """Hailo inference adapter for Multiple anomaly exports."""
 
 import numpy as np
+from pathlib import Path
+
+import numpy as np
 from PIL import Image
 
 from ..models.anomaly import AnomalyModel
@@ -66,14 +69,28 @@ class HailoAnomalyModel(AnomalyModel):
                 )
             self.input_shape = tuple(int(value) for value in input_shape)
             output_roles = metadata.get("outputRoles") or {}
-            if not all(
-                output_roles.get(role) for role in ("score", "anomaly_map")
-            ):
+            self.postprocessing = metadata.get("postprocessing", "anomaly_host")
+            required_roles = (
+                ("features",)
+                if self.postprocessing == "patchcore_cpu"
+                else ("score", "anomaly_map")
+            )
+            if not all(output_roles.get(role) for role in required_roles):
                 raise ValueError(
-                    "Anomaly Hailo metadata must map score and anomaly_map "
-                    "outputs."
+                    f"Anomaly Hailo metadata must map outputs: {required_roles}."
                 )
             self.output_roles = output_roles
+            if self.postprocessing == "patchcore_cpu":
+                from abraia.utils.remote import resolve_model_file
+                state_path = (
+                    Path(model_uri).with_suffix("")
+                    / metadata["postprocessingState"]
+                )
+                with np.load(resolve_model_file(state_path)) as state:
+                    self.memory = np.asarray(state["memory"], dtype=np.float32)
+                self.feature_shape = tuple(
+                    int(value) for value in metadata["featureShape"]
+                )
 
             hef_path = resolve_hef_path(model_uri, "anomaly")
             if hef_path is None:
@@ -167,6 +184,10 @@ class HailoAnomalyModel(AnomalyModel):
         )
         tensor = np.asarray(resized, dtype=np.float32) / 255.0
         outputs = self._infer(np.ascontiguousarray(tensor))
+        if self.postprocessing == "patchcore_cpu":
+            return self._patchcore_prediction(
+                np.asarray(self._output(outputs, "features"), dtype=np.float32)
+            )
         score_values = np.asarray(
             self._output(outputs, "score"), dtype=np.float32
         )
@@ -189,6 +210,40 @@ class HailoAnomalyModel(AnomalyModel):
             float(score_values.reshape(-1)[0]),
             map_values.reshape(self.input_height, self.input_width),
         )
+
+    def _patchcore_prediction(self, features):
+        channels, height, width = self.feature_shape[1:]
+        if features.size != channels * height * width:
+            raise ValueError("PatchCore Hailo feature output has an unexpected size.")
+        feature_map = features.reshape(height, width, channels).transpose(2, 0, 1)
+
+        def weights(length):
+            result = np.zeros((16, length), dtype=np.float32)
+            for index in range(16):
+                start, end = index * length // 16, ((index + 1) * length + 15) // 16
+                result[index, start:end] = 1.0 / (end - start)
+            return result
+
+        pooled = weights(height) @ feature_map @ weights(width).T
+        queries = pooled.transpose(1, 2, 0).reshape(-1, channels)
+        memory_norm = np.square(self.memory).sum(axis=1)
+        distances = np.empty(len(queries), dtype=np.float32)
+        for start in range(0, len(queries), 32):
+            query = queries[start:start + 32]
+            squared = (
+                np.square(query).sum(axis=1, keepdims=True)
+                + memory_norm[None]
+                - 2 * query @ self.memory.T
+            )
+            distances[start:start + len(query)] = np.sqrt(
+                np.maximum(squared, 0).min(axis=1)
+            )
+        anomaly_map = Image.fromarray(distances.reshape(16, 16)).resize(
+            (self.input_width, self.input_height), Image.Resampling.BILINEAR
+        )
+        anomaly_map = np.asarray(anomaly_map, dtype=np.float32)
+        score = float(np.quantile(anomaly_map, 0.99, interpolation="linear"))
+        return self._prediction(score, anomaly_map)
 
     def close(self):
         if self._closed:
