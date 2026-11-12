@@ -1,6 +1,5 @@
 """Hailo inference adapter for Multiple anomaly exports."""
 
-import numpy as np
 from pathlib import Path
 
 import numpy as np
@@ -72,7 +71,7 @@ class HailoAnomalyModel(AnomalyModel):
             self.postprocessing = metadata.get("postprocessing", "anomaly_host")
             required_roles = (
                 ("features",)
-                if self.postprocessing == "patchcore_cpu"
+                if self.postprocessing in ("patchcore_cpu", "patchcore_local_cpu")
                 else ("score", "anomaly_map")
             )
             if not all(output_roles.get(role) for role in required_roles):
@@ -80,7 +79,10 @@ class HailoAnomalyModel(AnomalyModel):
                     f"Anomaly Hailo metadata must map outputs: {required_roles}."
                 )
             self.output_roles = output_roles
-            if self.postprocessing == "patchcore_cpu":
+            if self.postprocessing in ("patchcore_cpu", "patchcore_local_cpu"):
+                self.feature_recipe = metadata.get("featureRecipe", "legacy")
+                if self.feature_recipe not in ("legacy", "local_v1"):
+                    raise ValueError(f"Unknown PatchCore feature recipe: {self.feature_recipe!r}")
                 from abraia.utils.remote import resolve_model_file
                 state_path = (
                     Path(model_uri).with_suffix("")
@@ -187,7 +189,7 @@ class HailoAnomalyModel(AnomalyModel):
         )
         tensor = np.asarray(resized, dtype=np.float32) / 255.0
         outputs = self._infer(np.ascontiguousarray(tensor))
-        if self.postprocessing == "patchcore_cpu":
+        if self.postprocessing in ("patchcore_cpu", "patchcore_local_cpu"):
             return self._patchcore_prediction(
                 np.asarray(self._output(outputs, "features"), dtype=np.float32)
             )
@@ -227,11 +229,16 @@ class HailoAnomalyModel(AnomalyModel):
                 result[index, start:end] = 1.0 / (end - start)
             return result
 
-        pooled = weights(height) @ feature_map @ weights(width).T
+        if self.feature_recipe == "legacy":
+            if self.normalize_features:
+                norm = np.linalg.norm(feature_map, axis=0, keepdims=True)
+                feature_map = feature_map / np.maximum(norm, 1e-12)
+            pooled = weights(height) @ feature_map @ weights(width).T
+            patch_height, patch_width = 16, 16
+        else:
+            pooled = feature_map
+            patch_height, patch_width = height, width
         queries = pooled.transpose(1, 2, 0).reshape(-1, channels)
-        if self.normalize_features:
-            query_norm = np.linalg.norm(queries, axis=1, keepdims=True)
-            queries = queries / np.maximum(query_norm, np.finfo(np.float32).tiny)
         memory_norm = np.square(self.memory).sum(axis=1)
         distances = np.empty(len(queries), dtype=np.float32)
         for start in range(0, len(queries), 32):
@@ -244,11 +251,14 @@ class HailoAnomalyModel(AnomalyModel):
             distances[start:start + len(query)] = np.sqrt(
                 np.maximum(squared, 0).min(axis=1)
             )
-        anomaly_map = Image.fromarray(distances.reshape(16, 16)).resize(
+        anomaly_map = Image.fromarray(distances.reshape(patch_height, patch_width)).resize(
             (self.input_width, self.input_height), Image.Resampling.BILINEAR
         )
         anomaly_map = np.asarray(anomaly_map, dtype=np.float32)
-        score = float(np.quantile(anomaly_map, 0.99, interpolation="linear"))
+        score = (
+            float(np.quantile(anomaly_map, 0.99, interpolation="linear"))
+            if self.feature_recipe == "legacy" else float(distances.max())
+        )
         return self._prediction(score, anomaly_map)
 
     def close(self):

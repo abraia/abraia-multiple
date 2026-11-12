@@ -115,7 +115,6 @@ class AnomalyModel(OnnxSessionMixin):
                 self.pixel_max,
                 self.pixel_threshold,
             )
-            label = "anomaly" if normalized_score > 0.5 else "normal"
         else:
             normalized_score = score
             # Without validation calibration, expose detections without
@@ -123,7 +122,7 @@ class AnomalyModel(OnnxSessionMixin):
             normalized_map = (
                 anomaly_map > self.pixel_threshold
             ).astype(np.float32)
-            label = "anomaly" if score > self.image_threshold else "normal"
+        label = "anomaly" if score > self.image_threshold else "normal"
         return {
             "label": label,
             "score": score,
@@ -148,7 +147,7 @@ class AnomalyModel(OnnxSessionMixin):
             "class_id": int(prediction["label"] == "anomaly"),
             "box": [0, 0, width, height],
         }]
-        mask = (normalized_map > 0.5).astype(np.uint8)
+        mask = (anomaly_map > self.pixel_threshold).astype(np.uint8)
         contours, _ = cv2.findContours(
             mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
