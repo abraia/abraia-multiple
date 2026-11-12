@@ -91,6 +91,9 @@ class HailoAnomalyModel(AnomalyModel):
                 self.feature_shape = tuple(
                     int(value) for value in metadata["featureShape"]
                 )
+                self.normalize_features = (
+                    metadata.get("featureNormalization") == "l2_cpu"
+                )
 
             hef_path = resolve_hef_path(model_uri, "anomaly")
             if hef_path is None:
@@ -226,6 +229,9 @@ class HailoAnomalyModel(AnomalyModel):
 
         pooled = weights(height) @ feature_map @ weights(width).T
         queries = pooled.transpose(1, 2, 0).reshape(-1, channels)
+        if self.normalize_features:
+            query_norm = np.linalg.norm(queries, axis=1, keepdims=True)
+            queries = queries / np.maximum(query_norm, np.finfo(np.float32).tiny)
         memory_norm = np.square(self.memory).sum(axis=1)
         distances = np.empty(len(queries), dtype=np.float32)
         for start in range(0, len(queries), 32):
