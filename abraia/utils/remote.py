@@ -1,6 +1,7 @@
 """HTTP and SDK cache helpers."""
 
 import os
+import socket
 from dataclasses import dataclass, replace
 from pathlib import Path
 import tempfile
@@ -55,6 +56,42 @@ def _get_url_session():
 _DEFAULT_SCHEDULER = object()
 
 
+class RemoteRequestError(requests.RequestException):
+    """A remote request failed after the configured retries."""
+
+    def __init__(self, message, original):
+        self.original = original
+        super().__init__(message)
+
+
+def _exception_chain(error):
+    """Yield an exception and its chained causes without looping."""
+    seen = set()
+    current = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _remote_request_message(error, url):
+    """Return a concise message suitable for the Studio error surface."""
+    host = url.split("/", 3)[2] if "://" in url else "remote service"
+    if any(
+        isinstance(item, socket.gaierror)
+        or "nodename nor servname" in str(item).lower()
+        or "name or service not known" in str(item).lower()
+        for item in _exception_chain(error)
+    ):
+        return (
+            f"Unable to resolve {host}. "
+            "Check your internet or DNS connection."
+        )
+    if isinstance(error, requests.Timeout):
+        return "Abraia API request timed out. Check your network connection."
+    return "Unable to connect to Abraia. Check your network, VPN, or proxy."
+
+
 def request_with_retries(
     session,
     method,
@@ -82,7 +119,9 @@ def request_with_retries(
         except (requests.ConnectionError, requests.Timeout) as error:
             last_error = error
             if attempt + 1 == retries:
-                raise
+                raise RemoteRequestError(
+                    _remote_request_message(error, url), error
+                ) from error
             time.sleep(backoff * (2 ** attempt))
     raise last_error
 
@@ -354,6 +393,7 @@ __all__ = [
     "remote_available",
     "resolve_artifact",
     "resolve_model_file",
+    "RemoteRequestError",
     "temporal_src",
     "url_path",
 ]
