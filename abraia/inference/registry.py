@@ -105,15 +105,22 @@ def _create_hailo_model(spec, config, base_dir):
     return HailoPipelineModel(uri, task=spec.task, kind=spec.kind, **params)
 
 
+def _create_onnx_adapter(adapter, uri, base_dir, session_options):
+    """Instantiate a URI-based adapter with the shared ONNX session policy."""
+    return adapter(
+        _resolve_model_uri(uri, base_dir=base_dir),
+        **session_options,
+    )
+
+
 def _create_resnet_model(spec, _config, base_dir, session_options):
     """Create the ResNet classification adapter."""
     if spec.params:
         raise ValueError("ResNet classifier options belong directly in 'model'")
     from .models.classification import ResNetClassifier
 
-    return ResNetClassifier(
-        _resolve_model_uri(spec.uri, base_dir=base_dir),
-        **session_options,
+    return _create_onnx_adapter(
+        ResNetClassifier, spec.uri, base_dir, session_options
     )
 
 
@@ -132,9 +139,8 @@ def _create_anomaly_model(spec, _config, base_dir, session_options):
     """Create the ONNX anomaly adapter."""
     from .models.anomaly import AnomalyModel
 
-    return AnomalyModel(
-        _resolve_model_uri(spec.uri, base_dir=base_dir),
-        **session_options,
+    return _create_onnx_adapter(
+        AnomalyModel, spec.uri, base_dir, session_options
     )
 
 
@@ -142,9 +148,8 @@ def _create_clip_classifier(spec, _config, base_dir, session_options):
     """Create a CLIP image-classification adapter."""
     from .models.clip_classifier import ClipClassifier
 
-    return ClipClassifier(
-        _resolve_model_uri(spec.uri, base_dir=base_dir),
-        **session_options,
+    return _create_onnx_adapter(
+        ClipClassifier, spec.uri, base_dir, session_options
     )
 
 
@@ -152,9 +157,8 @@ def _create_rfdetr_model(spec, _config, base_dir, session_options):
     """Create an RF-DETR ONNX adapter."""
     from .models.object_models import RFDETRONNXModel
 
-    return RFDETRONNXModel(
-        _resolve_model_uri(spec.resolved_uri, base_dir=base_dir),
-        **session_options,
+    return _create_onnx_adapter(
+        RFDETRONNXModel, spec.resolved_uri, base_dir, session_options
     )
 
 
@@ -162,9 +166,8 @@ def _create_dfine_model(spec, _config, base_dir, session_options):
     """Create a D-FINE ONNX adapter."""
     from .models.object_models import DFineONNXModel
 
-    return DFineONNXModel(
-        _resolve_model_uri(spec.resolved_uri, base_dir=base_dir),
-        **session_options,
+    return _create_onnx_adapter(
+        DFineONNXModel, spec.resolved_uri, base_dir, session_options
     )
 
 

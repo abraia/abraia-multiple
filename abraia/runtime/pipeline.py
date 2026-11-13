@@ -148,6 +148,150 @@ def _make_pipeline_renderer(components, render_results=True, render_metrics=True
     return render
 
 
+def _validate_pipeline_config(config, input_source):
+    """Validate the document and return normalized runtime configuration parts."""
+    if not isinstance(config, dict):
+        raise ValueError("Pipeline configuration must be a JSON object")
+    if config.get("version") != 2:
+        raise ValueError("Only version 2 pipeline configurations are supported")
+
+    source_config = config.get("source") or {}
+    display_config = config.get("display") or {}
+    output_config = config.get("output")
+    raw_steps = config.get("steps", []) or []
+    if not isinstance(source_config, dict) or (
+        "src" not in source_config and input_source is None
+    ):
+        raise ValueError("Pipeline source must define 'src'")
+    if not isinstance(display_config, dict):
+        raise ValueError("Pipeline display must be an object")
+    if output_config is not None and not isinstance(output_config, dict):
+        raise ValueError("Pipeline output must be an object")
+    if output_config is not None and output_config.get("type") != "rtsp":
+        raise ValueError("Pipeline output type must be 'rtsp'")
+    if output_config is not None and not output_config.get("url"):
+        raise ValueError("RTSP output must define 'url'")
+    if not isinstance(raw_steps, list):
+        raise ValueError("Pipeline 'steps' must be an array")
+
+    steps_config = list(iter_pipeline_steps(raw_steps))
+    structure_errors = validate_step_structure(
+        steps_config, report_unsupported=False
+    )
+    if structure_errors:
+        raise ValueError(structure_errors[0])
+    dependency_errors = steps_missing_tracker(steps_config)
+    if dependency_errors:
+        index, step_type = dependency_errors[0]
+        raise ValueError(
+            f"Step {index}: {step_type} requires an earlier tracker."
+        )
+    for step in steps_config:
+        if not step.is_active:
+            continue
+        if step.type not in SUPPORTED_STEP_TYPES:
+            raise ValueError(f"Unknown composed pipeline step type: {step.type}")
+        if not is_valid_step_geometry(step.type, step):
+            if step.type == "line_counter":
+                raise ValueError("line_counter requires a two-point 'line'")
+            raise ValueError(f"{step.type} requires a 'polygon'")
+    return source_config, display_config, output_config, steps_config
+
+
+def _model_plans(steps_config):
+    """Validate active model steps and return their construction plans."""
+    plans = []
+    for step in steps_config:
+        if not step.is_active or step.type != "model":
+            continue
+        model_config = step.get("model")
+        model_spec = ModelSpec.from_config(model_config)
+        model_spec.require_runtime_valid()
+        plans.append((model_config, model_spec))
+    return plans
+
+
+def _create_pipeline_models(model_plans, root, accelerator):
+    """Construct planned models and clean up partial construction failures."""
+    from ..inference.registry import _create_model_from_spec, get_model_run_kwargs
+
+    created = []
+    try:
+        for model_config, model_spec in model_plans:
+            model_kwargs = get_model_run_kwargs(model_config, model_spec)
+            model = _create_model_from_spec(
+                model_spec,
+                model_config,
+                base_dir=root,
+                accelerator=accelerator,
+            )
+            created.append((model, model_kwargs, model_spec))
+        return created
+    except Exception:
+        _close_resources([model for model, _kwargs, _spec in created])
+        raise
+
+
+def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
+    """Build runtime steps and shared rendering components."""
+    from ..inference.tracker import Tracker
+
+    steps = []
+    components = {}
+    model_iter = iter(created_models)
+    model_index = 0
+    for step in steps_config:
+        if not step.is_active:
+            continue
+        step_id = step.id
+        step_type = step.type
+        if step_type == "model":
+            model, model_kwargs, model_spec = next(model_iter)
+            steps.append(create_model_step(
+                step_id, model, model_spec, model_kwargs,
+                primary=model_index == 0,
+            ))
+            model_index += 1
+        elif step_type == "filter":
+            steps.append(FilterStep(
+                step_id,
+                labels=step.get("labels"),
+                min_confidence=step.get("min_confidence"),
+            ))
+        elif step_type == "crop":
+            steps.append(CropStep(
+                step_id,
+                padding=step.get("padding", 0.0),
+            ))
+        elif step_type == "tracker":
+            tracker = Tracker(
+                track_thresh=step.get("track_thresh", 0.25),
+                track_buffer=step.get("track_buffer", 30),
+                match_thresh=step.get("match_thresh", 0.8),
+                frame_rate=(
+                    getattr(video, "frame_rate", 0)
+                    or video_kwargs.get("fps", 30)
+                ),
+            )
+            steps.append(ProcessorStep(step_id, tracker, step_type))
+            components["tracker"] = tracker
+        elif step_type == "line_counter":
+            counter = LineCounter(step.get("line"))
+            steps.append(ProcessorStep(step_id, counter, step_type))
+            components["line_counter"] = counter
+        elif step_type == "region_filter":
+            region_filter = partial(
+                filter_region, polygon=step.get("polygon")
+            )
+            steps.append(ProcessorStep(step_id, region_filter, step_type))
+            components["region_filter"] = region_filter
+        elif step_type == "region_timer":
+            region_timer = RegionTimer(step.get("polygon"))
+            steps.append(ProcessorStep(step_id, region_timer, step_type))
+            components["region_timer"] = region_timer
+    return steps, components
+
+
 @dataclass
 class FrameContext:
     """State passed between pipeline steps for one frame.
@@ -204,6 +348,7 @@ class Pipeline:
         self.source = source
         self.model = model
         self.steps = list(steps or [])
+        self._stream_steps = tuple(self.steps[1:])
         self.display = display
         self.render = render
         self.model_kwargs = model_kwargs or {}
@@ -325,7 +470,7 @@ class Pipeline:
             started = time.perf_counter()
             if streaming and first_step is not None:
                 first_step.apply_results(context, item.results)
-                steps = self.steps[1:]
+                steps = self._stream_steps
             elif single_model:
                 if streaming:
                     results = item.results
@@ -406,61 +551,12 @@ class Pipeline:
         input_source: Optional[Iterable] = None,
     ) -> "Pipeline":
         """Assemble a pipeline from a supported versioned configuration."""
-        if not isinstance(config, dict):
-            raise ValueError("Pipeline configuration must be a JSON object")
-        if config.get("version") != 2:
-            raise ValueError("Only version 2 pipeline configurations are supported")
-        source_config = config.get("source") or {}
-        display_config = config.get("display") or {}
-        output_config = config.get("output")
-        raw_steps = config.get("steps", []) or []
-        if not isinstance(source_config, dict) or (
-            "src" not in source_config and input_source is None
-        ):
-            raise ValueError("Pipeline source must define 'src'")
-        if not isinstance(display_config, dict):
-            raise ValueError("Pipeline display must be an object")
-        if output_config is not None and not isinstance(output_config, dict):
-            raise ValueError("Pipeline output must be an object")
-        if output_config is not None and output_config.get("type") != "rtsp":
-            raise ValueError("Pipeline output type must be 'rtsp'")
-        if output_config is not None and not output_config.get("url"):
-            raise ValueError("RTSP output must define 'url'")
-        if not isinstance(raw_steps, list):
-            raise ValueError("Pipeline 'steps' must be an array")
-        steps_config = list(iter_pipeline_steps(raw_steps))
-        structure_errors = validate_step_structure(steps_config, report_unsupported=False)
-        if structure_errors:
-            raise ValueError(structure_errors[0])
-        dependency_errors = steps_missing_tracker(steps_config)
-        if dependency_errors:
-            index, step_type = dependency_errors[0]
-            raise ValueError(
-                f"Step {index}: {step_type} requires an earlier tracker."
-            )
+        source_config, display_config, output_config, steps_config = (
+            _validate_pipeline_config(config, input_source)
+        )
+        model_plans = _model_plans(steps_config)
 
-        for step in steps_config:
-            if not step.is_active:
-                continue
-            if step.type not in SUPPORTED_STEP_TYPES:
-                raise ValueError(f"Unknown composed pipeline step type: {step.type}")
-            if not is_valid_step_geometry(step.type, step):
-                if step.type == "line_counter":
-                    raise ValueError("line_counter requires a two-point 'line'")
-                raise ValueError(f"{step.type} requires a 'polygon'")
-
-        model_plans = []
-        for step in steps_config:
-            if not step.is_active or step.type != "model":
-                continue
-            model_config = step.get("model")
-            model_spec = ModelSpec.from_config(model_config)
-            model_spec.require_runtime_valid()
-            model_plans.append((model_config, model_spec))
-
-        from ..inference.registry import _create_model_from_spec, get_model_run_kwargs
         from ..inference.session import get_model_accelerator
-        from ..inference.tracker import Tracker
 
         root = Path(base_dir or os.getcwd())
         source, video_kwargs = prepare_source(
@@ -473,23 +569,6 @@ class Pipeline:
         created_models = []
         components = {}
         try:
-            def create_models():
-                created = []
-                try:
-                    for model_config, model_spec in model_plans:
-                        model_kwargs = get_model_run_kwargs(model_config, model_spec)
-                        model = _create_model_from_spec(
-                            model_spec,
-                            model_config,
-                            base_dir=root,
-                            accelerator=accelerator,
-                        )
-                        created.append((model, model_kwargs, model_spec))
-                    return created
-                except Exception:
-                    _close_resources([model for model, _kwargs, _field in created])
-                    raise
-
             # Camera startup and model/session initialization are independent.
             # Starting them together avoids making users wait for both operations
             # serially while keeping each resource owned by this build operation.
@@ -498,7 +577,9 @@ class Pipeline:
                     executor.submit(create_source, source, video_kwargs)
                     if input_source is None else None
                 )
-                models_future = executor.submit(create_models)
+                models_future = executor.submit(
+                    _create_pipeline_models, model_plans, root, accelerator
+                )
                 try:
                     video = (
                         source_future.result()
@@ -518,57 +599,9 @@ class Pipeline:
                         pass
                     raise
 
-            model_iter = iter(created_models)
-            model_index = 0
-            for step in steps_config:
-                step_id = step.id
-                if not step.is_active:
-                    continue
-                step_type = step.type
-                if step_type == "model":
-                    model, model_kwargs, model_spec = next(model_iter)
-                    steps.append(create_model_step(
-                        step_id, model, model_spec, model_kwargs,
-                        primary=model_index == 0,
-                    ))
-                    model_index += 1
-                elif step_type == "filter":
-                    steps.append(FilterStep(
-                        step_id,
-                        labels=step.get("labels"),
-                        min_confidence=step.get("min_confidence"),
-                    ))
-                elif step_type == "crop":
-                    steps.append(CropStep(
-                        step_id,
-                        padding=step.get("padding", 0.0),
-                    ))
-                elif step_type == "tracker":
-                    tracker = Tracker(
-                        track_thresh=step.get("track_thresh", 0.25),
-                        track_buffer=step.get("track_buffer", 30),
-                        match_thresh=step.get("match_thresh", 0.8),
-                        frame_rate=(
-                            getattr(video, "frame_rate", 0)
-                            or video_kwargs.get("fps", 30)
-                        ),
-                    )
-                    steps.append(ProcessorStep(step_id, tracker, step_type))
-                    components["tracker"] = tracker
-                elif step_type == "line_counter":
-                    counter = LineCounter(step.get("line"))
-                    steps.append(ProcessorStep(step_id, counter, step_type))
-                    components["line_counter"] = counter
-                elif step_type == "region_filter":
-                    region_filter = partial(
-                        filter_region, polygon=step.get("polygon")
-                    )
-                    steps.append(ProcessorStep(step_id, region_filter, step_type))
-                    components["region_filter"] = region_filter
-                elif step_type == "region_timer":
-                    region_timer = RegionTimer(step.get("polygon"))
-                    steps.append(ProcessorStep(step_id, region_timer, step_type))
-                    components["region_timer"] = region_timer
+            steps, components = _build_pipeline_steps(
+                steps_config, created_models, video, video_kwargs
+            )
             primary_model = created_models[0][0] if created_models else None
             video.accelerator = (
                 get_model_accelerator(primary_model) if primary_model is not None else "CPU"
