@@ -202,39 +202,17 @@ def _run_operation(operation):
 
 
 def _available_demos():
-    from .demo import CAMERA_PIPELINES, PIPELINE_DEVICES
+    from .demo import CAMERA_PIPELINES, PIPELINES
 
     return tuple(dict.fromkeys(
-        tuple(PIPELINE_DEVICES)
+        tuple(PIPELINES)
         + ("faces",)
         + tuple(CAMERA_PIPELINES)
     ))
 
 
 def _show_demos():
-    from .demo import MODEL_DEMOS, PIPELINES, demo_model_options
-
-    workflow_names = [
-        name for name in PIPELINES
-        if name not in MODEL_DEMOS
-    ]
-    click.echo("Use-case demos: " + ", ".join(workflow_names))
-    click.echo("Model demos: " + ", ".join(MODEL_DEMOS))
-    click.echo("Other demos: faces, pi-camera")
-    click.echo("\nCompatible model variants:")
-    for name, demo_name in (
-        ("detection", "people"),
-        ("segmentation", "apple"),
-        ("pose", "pose"),
-    ):
-        click.echo(f"  {name}: {', '.join(demo_model_options(demo_name))}")
-    click.echo("\nRun a workflow with: abraia run demo NAME [SOURCE]")
-    click.echo("Choose a compatible model with: abraia run demo NAME --model MODEL")
-    click.echo("Example: abraia run demo apple --model yolov8n-seg")
-    click.echo(
-        "Video demos download their sample input automatically when needed. "
-        "detect and pose use camera 0 by default."
-    )
+    click.echo("Available demos: " + ", ".join(_available_demos()))
 
 
 def _completion_items(values, incomplete):
@@ -377,14 +355,7 @@ def search(project, query):
     _run_operation(lambda: search_images(project, query=query))
 
 
-@cli.command(
-    epilog=(
-        "\b\nExamples:\n"
-        "  abraia run demo apple --model yolov8n-seg\n"
-        "  abraia run demo detect 0\n"
-        "  abraia run my-project input.mp4"
-    )
-)
+@cli.command()
 @click.argument(
     "project",
     metavar="PROJECT",
@@ -437,11 +408,11 @@ def run(
     """
     def operation():
         if project == "demo":
-            if not demo_or_source or demo_or_source == "list":
+            if demo_or_source == "list":
                 _show_demos()
                 return
             return _run_demo(
-                demo_or_source,
+                demo_or_source or "detect",
                 src,
                 accelerator=accelerator,
                 output=output,

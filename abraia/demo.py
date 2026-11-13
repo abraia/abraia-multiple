@@ -21,7 +21,11 @@ from abraia.inference.accelerators import (
     normalize_accelerator,
     onnx_providers,
 )
-from abraia.inference.model_config import MODEL_SIZE_URIS, normalize_task
+from abraia.inference.model_config import (
+    MODEL_SIZE_URIS,
+    model_variants,
+    normalize_task,
+)
 
 
 DEFAULT_PIPELINE = {
@@ -343,6 +347,7 @@ CAMERA_PIPELINES = {
 
 
 PIPELINE_DEVICES = PIPELINES
+MODEL_VARIANT_KINDS = ('yolov8', 'yolo9', 'rfdetr', 'dfine')
 MODEL_DEMOS = (
     'detect', 'segment', 'pose', 'yolo9', 'rfdetr', 'rfdetr-seg', 'dfine',
     'dfine-seg',
@@ -356,31 +361,15 @@ HAILO_AUTO_EXCLUSIONS = frozenset({'apple'})
 VIDEO_URL = 'https://api.abraia.me/files/multiple/videos/{}'
 
 
-def _model_variants():
-    """Return model variants that can replace a demo's primary model."""
-    variants = {}
-    for kind in ('yolov8', 'yolo9', 'rfdetr', 'dfine'):
-        for task, sizes in MODEL_SIZE_URIS[kind].items():
-            for size, uri in sizes.items():
-                name = os.path.splitext(os.path.basename(uri))[0].replace('_', '-')
-                variants[name] = {
-                    'kind': kind,
-                    'task': task,
-                    'size': size,
-                    'uri': uri,
-                }
-
-    return variants
-
-
 def demo_model_options(demo):
     """List model variants compatible with a demo's model task."""
-    config = PIPELINE_DEVICES.get(demo)
+    config = PIPELINES.get(demo)
     if config is None:
         return ()
     task = normalize_task(_primary_model_step(config)['model'].get('task'))
+    variants = model_variants(MODEL_VARIANT_KINDS)
     return tuple(
-        name for name, model in _model_variants().items()
+        name for name, model in variants.items()
         if model['task'] == task
     )
 
@@ -388,7 +377,7 @@ def demo_model_options(demo):
 def _apply_demo_model(config, demo, model_name):
     """Replace a demo's primary model with a compatible built-in variant."""
     model_name = str(model_name).strip().lower()
-    variants = _model_variants()
+    variants = model_variants(MODEL_VARIANT_KINDS)
     variant = variants.get(model_name)
     if variant is None:
         available = ', '.join(demo_model_options(demo))
@@ -513,7 +502,7 @@ def resolve_pipeline(demo='detect', accelerator='auto', model=None):
     compatible device and model are available, then falls back to ONNX.
     """
     accelerator = normalize_accelerator(accelerator)
-    config = PIPELINE_DEVICES.get(demo)
+    config = PIPELINES.get(demo)
     if config is None:
         if accelerator == 'hailo':
             raise KeyError(f"Unknown Hailo pipeline demo: {demo}")

@@ -12,6 +12,7 @@ from abraia.inference.model_config import (
     ModelSpec,
     PIPELINE_MODEL_KINDS as SUPPORTED_MODEL_KINDS,
     PIPELINE_MODEL_TASKS as SUPPORTED_MODEL_TASKS,
+    model_default_task,
     normalize_task,
 )
 
@@ -363,11 +364,7 @@ def model_defaults(kind, task):
     kind = str(kind or "").strip().lower()
     task = normalize_task(
         task,
-        default=(
-            "classification" if kind in ("resnet", "clip")
-            else "anomaly" if kind == "anomaly"
-            else "detection"
-        ),
+        default=model_default_task(kind),
     )
     if kind in MODEL_ARCHITECTURES and (kind, task) not in MODEL_DEFAULT_THRESHOLDS:
         kind = "yolov8"
@@ -378,11 +375,7 @@ def model_control_visibility(kind, task):
     kind = str(kind or "").strip().lower()
     task = normalize_task(
         task,
-        default=(
-            "classification" if kind in ("resnet", "clip")
-            else "anomaly" if kind == "anomaly"
-            else "detection"
-        ),
+        default=model_default_task(kind),
     )
     descriptor = MODEL_DESCRIPTORS.get(kind)
     uses_uri = bool(descriptor and descriptor.uri_based)

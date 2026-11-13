@@ -71,7 +71,8 @@ abraia discover streams
 abraia run demo detect 'rtsp://camera-address/stream'
 ```
 
-Run `abraia run demo` to browse workflows and model demos. Model variants can
+Run `abraia run demo` to start the default detection demo. Use
+`abraia run demo list` to browse workflows and model demos. Model variants can
 be selected for compatible workflows; for example:
 
 ```sh
@@ -122,8 +123,9 @@ abraia run demo [DEMO_NAME] [SOURCE] [--model MODEL]
 abraia run PROJECT [SOURCE] [--accelerator auto] [--output FILE]
 ```
 
-Run `abraia run demo` to browse demos and compatible model variants. Append a
-local path, camera index, or RTSP URL to use it as the source. Sample videos
+Run `abraia run demo` to start detection, or use `abraia run demo list` to
+browse demos and compatible model variants. Append a local path, camera index,
+or RTSP URL to use it as the source. Sample videos
 download automatically when needed. The `pi-camera` demo publishes a Raspberry
 Pi camera stream without inference.
 

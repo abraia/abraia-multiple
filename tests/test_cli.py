@@ -65,13 +65,13 @@ def test_completion_install_detects_shell_from_environment(tmp_path, monkeypatch
     assert (tmp_path / ".zshrc").is_file()
 
 
-def test_run_help_shows_demo_and_saved_pipeline_examples():
+def test_run_help_shows_demo_and_saved_pipeline_arguments():
     result = CliRunner().invoke(cli, ["run", "--help"])
 
     assert result.exit_code == 0
     assert "PROJECT [DEMO_OR_SOURCE] [SOURCE]" in result.output
-    assert "abraia run demo detect 0" in result.output
-    assert "abraia run my-project input.mp4" in result.output
+    assert "--accelerator" in result.output
+    assert "--output" in result.output
 
 
 def test_discover_cameras_command_lists_sources(monkeypatch):
@@ -134,15 +134,31 @@ def test_demo_source_override_keeps_pi_camera_type():
     assert pipeline["source"]["type"] == "rpi_camera"
 
 
-@pytest.mark.parametrize("args", [["demo"], ["demo", "list"]])
-def test_run_demo_lists_workflows_and_model_presets(args):
-    result = CliRunner().invoke(cli, ["run", *args])
+def test_run_demo_lists_available_demos():
+    result = CliRunner().invoke(cli, ["run", "demo", "list"])
 
     assert result.exit_code == 0, result.output
-    assert "Use-case demos" in result.output
+    assert "Available demos" in result.output
     assert "apple" in result.output
-    assert "Model demos" in result.output
-    assert "abraia run demo apple --model yolov8n-seg" in result.output
+
+
+def test_run_demo_without_name_uses_default_detect_demo(monkeypatch):
+    from abraia import demo as demo_module
+
+    calls = []
+    monkeypatch.setattr(
+        demo_module,
+        "monitor_objects",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    result = CliRunner().invoke(cli, ["run", "demo"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [(
+        (None, "detect"),
+        {"accelerator": "auto", "output": None},
+    )]
 
 
 def test_run_demo_selects_a_model_variant_explicitly(monkeypatch):

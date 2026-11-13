@@ -40,6 +40,21 @@ def normalize_task(value, default=None):
     return TASK_ALIASES.get(normalized, normalized)
 
 
+def model_default_task(kind, uri=""):
+    """Return the default task implied by a model kind and optional URI."""
+    kind = str(kind or "").strip().lower()
+    uri_name = str(uri or "").lower()
+    if kind == "rtmdet" and any(
+        marker in uri_name for marker in ("rtmdet_ins", "rtmdet-ins")
+    ):
+        return "segmentation"
+    if kind in ("resnet", "clip"):
+        return "classification"
+    if kind == "anomaly":
+        return "anomaly"
+    return "detection"
+
+
 def to_hailo_task(value):
     """Translate a canonical task to Hailo's backend task name."""
     task = normalize_task(value)
@@ -238,18 +253,9 @@ class ModelSpec:
 
         kind = str(config.get("kind", "")).strip().lower()
         raw_uri = config.get("uri", "")
-        uri_name = str(raw_uri or "").lower()
-        default_task = (
-            "segmentation"
-            if kind == "rtmdet"
-            and any(marker in uri_name for marker in ("rtmdet_ins", "rtmdet-ins"))
-            else "classification" if kind in ("resnet", "clip")
-            else "anomaly" if kind == "anomaly"
-            else "detection"
-        )
         task = normalize_task(
             config.get("task"),
-            default=default_task,
+            default=model_default_task(kind, raw_uri),
         )
         if raw_uri is None:
             uri = ""
@@ -371,12 +377,32 @@ def model_default_uri(kind, task, size="small"):
     return MODEL_SIZE_URIS.get(kind, {}).get(task, {}).get(size, "")
 
 
+def model_variants(kinds=None):
+    """Return built-in model variants keyed by their canonical filenames."""
+    selected = MODEL_SIZE_URIS if kinds is None else {
+        kind: MODEL_SIZE_URIS[kind] for kind in kinds
+    }
+    variants = {}
+    for kind, tasks in selected.items():
+        for task, sizes in tasks.items():
+            for size, uri in sizes.items():
+                name = os.path.splitext(os.path.basename(uri))[0].replace("_", "-")
+                variants[name] = {
+                    "kind": kind,
+                    "task": task,
+                    "size": size,
+                    "uri": uri,
+                }
+    return variants
+
+
 __all__ = [
     "HAILO_BACKEND_TASKS",
     "HAILO_TASKS",
     "PIPELINE_TASKS",
     "TASK_ALIASES",
     "normalize_task",
+    "model_default_task",
     "to_hailo_task",
     "DEFAULT_MODEL_URIS",
     "MODEL_RUN_OPTIONS",
@@ -389,4 +415,5 @@ __all__ = [
     "ModelSpec",
     "ModelDescriptor",
     "model_default_uri",
+    "model_variants",
 ]

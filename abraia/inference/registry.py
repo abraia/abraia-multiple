@@ -88,21 +88,25 @@ def _create_hailo_model(spec, config, base_dir):
     if spec.kind == "yolo9":
         from .hailo.yolov9 import HailoYOLOv9Model
 
-        params = spec.params_copy()
-        if "conf_threshold" in config:
-            params.setdefault("score_threshold", config["conf_threshold"])
-        if "iou_threshold" in config:
-            params.setdefault("iou_threshold", config["iou_threshold"])
+        params = _hailo_params(spec, config)
         return HailoYOLOv9Model(uri, **params)
 
     from .hailo.pipeline import HailoPipelineModel
 
-    params = spec.params_copy()
-    if "conf_threshold" in config:
-        params.setdefault("score_threshold", config["conf_threshold"])
-    if "iou_threshold" in config:
-        params.setdefault("iou_threshold", config["iou_threshold"])
+    params = _hailo_params(spec, config)
     return HailoPipelineModel(uri, task=spec.task, kind=spec.kind, **params)
+
+
+def _hailo_params(spec, config):
+    """Merge pipeline thresholds into backend parameters without overriding them."""
+    params = spec.params_copy()
+    for source, target in (
+        ("conf_threshold", "score_threshold"),
+        ("iou_threshold", "iou_threshold"),
+    ):
+        if source in config:
+            params.setdefault(target, config[source])
+    return params
 
 
 def _create_onnx_adapter(adapter, uri, base_dir, session_options):
