@@ -5,7 +5,10 @@ from .execution import run_pipeline
 from .discovery import (
     discover_cameras, discover_genicam_devices, discover_streams,
 )
-from .composition import register_model_step_factory
+from .composition import (
+    register_model_step_factory,
+    register_pipeline_step_factory,
+)
 from .sources import create_source, infer_source_type, register_source_factory
 from ..media.sources import (
     CameraSource,
@@ -50,5 +53,6 @@ __all__ = [
     "default_primary_step", "default_step", "format_points", "infer_source_type",
     "is_primary_model_step", "model_control_visibility", "model_defaults",
     "model_editor_values", "parse_points", "steps_missing_tracker",
-    "register_model_step_factory", "register_source_factory",
+    "register_model_step_factory", "register_pipeline_step_factory",
+    "register_source_factory",
 ]

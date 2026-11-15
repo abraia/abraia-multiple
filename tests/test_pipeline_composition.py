@@ -6,7 +6,7 @@ from abraia.runtime.pipeline import FrameContext
 from abraia.runtime.config import PipelineDraft
 from abraia.runtime.composition import (
     BoundModelStep,
-    CropStep,
+    FilterStep,
     ModelStep,
 )
 from abraia.utils.draw import render_results
@@ -44,23 +44,6 @@ class OCR:
         return [{"text": "ABC123", "score": 0.91}]
 
 
-def test_composed_pipeline_keeps_region_parent_identity():
-    frame = np.zeros((8, 8, 3), dtype=np.uint8)
-    context = FrameContext(
-        frame=frame,
-        frame_index=0,
-        frame_time=0,
-        results=[{"id": "object-7", "box": [2, 2, 3, 3]}],
-    )
-
-    CropStep("crop")(context)
-
-    region = context.artifacts["crop.items"][0]
-    assert region.parent_id == "object-7"
-    assert region.source_box == (2, 2, 3, 3)
-    assert tuple(region.image.shape[:2]) == (3, 3)
-
-
 def test_bound_model_step_filters_crops_and_attaches_automatically():
     frame = np.zeros((10, 12, 3), dtype=np.uint8)
     detector = Detector()
@@ -94,7 +77,6 @@ def test_composed_draft_serializes_ordered_follow_up_model_steps():
                 "id": "model",
                 "model": {"kind": "yolov8", "task": "detection"},
             },
-            {"type": "crop", "id": "crop", "padding": 0.1},
             {
                 "type": "model",
                 "id": "read",
@@ -106,7 +88,7 @@ def test_composed_draft_serializes_ordered_follow_up_model_steps():
     config = draft.to_dict()
 
     assert [step["type"] for step in config["steps"]] == [
-        "model", "crop", "model"
+        "model", "model"
     ]
     assert not draft.validation_errors()
 
@@ -285,3 +267,26 @@ def test_pipeline_renderer_shows_text_attached_by_second_model():
         "plate", "AUTO"
     ]
     assert render_box.call_args_list[-1].args[1] == [2, 2, 1, 1]
+
+
+def test_filter_step_combines_label_confidence_and_region():
+    frame = np.zeros((20, 20, 3), dtype=np.uint8)
+    results = [
+        {"box": [2, 2, 2, 2], "label": "car", "score": 0.9},
+        {"box": [15, 15, 2, 2], "label": "car", "score": 0.9},
+        {"box": [2, 2, 2, 2], "label": "truck", "score": 0.9},
+        {"box": [2, 2, 2, 2], "label": "car", "score": 0.2},
+    ]
+    context = FrameContext(
+        frame=frame, frame_index=0, frame_time=0, results=results,
+    )
+    step = FilterStep(
+        "filter", labels=["car"], min_confidence=0.5,
+        region_enabled=True,
+        polygon=[[0, 0], [10, 0], [10, 10], [0, 10]],
+    )
+
+    step(context)
+
+    assert context.results == [results[0]]
+    assert context.current == [results[0]]

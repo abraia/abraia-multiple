@@ -164,9 +164,28 @@
             {"$ref": "#/$defs/baseStep"},
             {
               "properties": {
-                "type": {"const": "filter"},
-                "labels": {"type": "array", "items": {"type": "string"}},
-                "min_confidence": {"type": "number", "minimum": 0, "maximum": 1}
+                "type": {"const": "count"},
+                "mode": {"enum": ["region", "line_crossing"]},
+                "polygon": {"$ref": "#/$defs/polygon"},
+                "line": {"$ref": "#/$defs/line"},
+                "track_thresh": {"type": "number", "minimum": 0, "maximum": 1},
+                "track_buffer": {"type": "integer", "minimum": 1},
+                "match_thresh": {"type": "number", "minimum": 0, "maximum": 1}
+              },
+              "required": ["mode"]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/baseStep"},
+            {
+              "properties": {
+                "type": {"const": "measure"},
+                "source": {"enum": ["detection", "segmentation", "anomaly"]},
+                "features": {"type": "array", "items": {"type": "string"}},
+                "time_in_region": {"type": "boolean"},
+                "polygon": {"$ref": "#/$defs/polygon"}
               }
             }
           ]
@@ -176,8 +195,25 @@
             {"$ref": "#/$defs/baseStep"},
             {
               "properties": {
-                "type": {"const": "crop"},
-                "padding": {"type": "number", "minimum": 0}
+                "type": {"const": "decision"},
+                "metric": {"type": "string"},
+                "operator": {"enum": ["gt", "gte", "lt", "lte", "eq"]},
+                "threshold": {"type": "number"}
+              },
+              "required": ["metric", "operator", "threshold"]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/baseStep"},
+            {
+              "properties": {
+                "type": {"const": "filter"},
+                "labels": {"type": "array", "items": {"type": "string"}},
+                "min_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "region_enabled": {"type": "boolean"},
+                "polygon": {"$ref": "#/$defs/polygon"}
               }
             }
           ]

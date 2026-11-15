@@ -114,6 +114,89 @@ def test_pipeline_draft_rejects_non_object_steps():
         })
 
 
+def test_pipeline_rejects_removed_crop_stage_with_named_error():
+    draft = PipelineDraft(steps=[
+        {"type": "model", "model": {"kind": "yolov8", "task": "detection"}},
+        {"type": "crop"},
+    ])
+
+    assert "Step 2: unsupported step type 'crop'." in draft.validation_errors()
+
+
+def test_count_and_measure_require_compatible_model_outputs():
+    classification = {"type": "model", "model": {
+        "kind": "resnet", "task": "classification",
+    }}
+    count = {"type": "count", "mode": "region", "polygon": [
+        [0, 0], [10, 0], [10, 10],
+    ]}
+    draft = PipelineDraft(
+        source_type="image", source="frame.jpg",
+        steps=[classification, count],
+    )
+    assert any("object counts require" in error for error in draft.validation_errors())
+
+    detection = {"type": "model", "model": {
+        "kind": "yolov8", "task": "detection",
+    }}
+    legacy_measure = {
+        "type": "measure", "source": "segmentation",
+        "features": ["area_px"],
+    }
+    draft = PipelineDraft(
+        source_type="video", source="clip.mp4",
+        steps=[detection, legacy_measure],
+    )
+    assert draft.validation_errors() == []
+
+    line_count = {"type": "count", "mode": "line_crossing", "line": [
+        [0, 0], [10, 10],
+    ]}
+    draft = PipelineDraft(
+        source_type="image", source="frame.jpg",
+        steps=[detection, line_count],
+    )
+    assert any("line-crossing counts require" in error for error in draft.validation_errors())
+
+
+def test_measure_uses_nearest_model_and_rejects_non_geometry_output():
+    detection = {"type": "model", "model": {
+        "kind": "yolov8", "task": "detection",
+    }}
+    classifier = {"type": "model", "model": {
+        "kind": "resnet", "task": "classification",
+    }}
+    measure = {
+        "type": "measure", "source": "detection", "features": ["area_px"],
+    }
+    draft = PipelineDraft(steps=[detection, classifier, measure])
+
+    assert any(
+        "nearest earlier model" in error for error in draft.validation_errors()
+    )
+
+
+def test_measure_step_schema_keeps_legacy_source_optional():
+    import json
+    from pathlib import Path
+    from abraia.runtime.config import default_step
+
+    schema_path = Path(__file__).parents[1] / "abraia" / "runtime" / "pipeline-v2.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    measure_schema = next(
+        definition["allOf"][1]
+        for definition in schema["$defs"]["step"]["oneOf"]
+        if "allOf" in definition
+        and definition["allOf"][1].get("properties", {}).get(
+            "type", {}
+        ).get("const") == "measure"
+    )
+
+    assert "source" in measure_schema["properties"]
+    assert "source" not in measure_schema.get("required", ())
+    assert "source" not in default_step("measure")
+
+
 def test_pipeline_step_view_and_geometry_rules_reject_malformed_values():
     step = PipelineStep.from_config({
         "id": "line",
@@ -151,11 +234,13 @@ def test_runtime_exports_pipeline_step_schema_metadata():
     assert set(PIPELINE_STEP_DEFINITIONS) == {
         "model",
         "filter",
-        "crop",
         "tracker",
         "line_counter",
         "region_filter",
         "region_timer",
+        "measure",
+        "count",
+        "decision",
     }
 
 

@@ -84,10 +84,11 @@ class HailoAnomalyModel(AnomalyModel):
                 if self.feature_recipe not in ("legacy", "local_v1"):
                     raise ValueError(f"Unknown PatchCore feature recipe: {self.feature_recipe!r}")
                 from abraia.utils.remote import resolve_model_file
-                state_path = (
-                    Path(model_uri).with_suffix("")
-                    / metadata["postprocessingState"]
-                )
+                state_name = metadata["postprocessingState"]
+                if state_name == "patchcore_state.npz":
+                    state_path = Path(model_uri).with_suffix("") / state_name
+                else:
+                    state_path = Path(model_uri).with_name(state_name)
                 with np.load(resolve_model_file(state_path)) as state:
                     self.memory = np.asarray(state["memory"], dtype=np.float32)
                 self.feature_shape = tuple(

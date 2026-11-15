@@ -8,6 +8,7 @@ from abraia.inference.geometry import point_in_polygon, segments_intersect
 
 
 _MODEL_STEP_FACTORIES = {}
+_PIPELINE_STEP_FACTORIES = {}
 
 
 def register_model_step_factory(kind, factory):
@@ -39,6 +40,23 @@ def create_model_step(step_id, model, spec, model_kwargs, *, primary):
     return BoundModelStep(
         step_id, model, field=spec.result_field, model_kwargs=model_kwargs
     )
+
+
+def register_pipeline_step_factory(step_type, factory):
+    """Register an application-owned non-model pipeline step factory."""
+    if not isinstance(step_type, str) or not step_type:
+        raise ValueError("Pipeline step type must be a non-empty string")
+    if not callable(factory):
+        raise TypeError("Pipeline step factory must be callable")
+    _PIPELINE_STEP_FACTORIES[step_type] = factory
+
+
+def create_pipeline_step(step_type, step_id, configuration, *, models=None):
+    """Build a registered application-owned pipeline step."""
+    factory = _PIPELINE_STEP_FACTORIES.get(step_type)
+    if factory is None:
+        raise ValueError(f"No factory registered for pipeline step '{step_type}'")
+    return factory(step_id, configuration, models=models or {})
 
 
 def count_objects(results):
@@ -314,6 +332,96 @@ class CompositionStep:
             context.results = values
 
 
+class ObjectCountStep(CompositionStep):
+    """Count current objects in a region or unique line crossings."""
+
+    def __init__(self, step_id, mode, *, polygon=None, line=None, tracker=None):
+        super().__init__(step_id)
+        self.mode = mode
+        self.polygon = polygon or []
+        self.line = line or []
+        self.tracker = tracker
+        self.counter = LineCounter(self.line) if mode == "line_crossing" else None
+
+    def __call__(self, context):
+        values = context.current
+        if not isinstance(values, list):
+            raise ValueError(f"Step '{self.step_id}' requires detection results")
+        if self.mode == "region":
+            inside, outside = filter_region(values, self.polygon)
+            count = len(inside)
+            context.views["in_region"] = inside
+            context.views["out_region"] = outside
+        else:
+            if self.tracker is None:
+                raise ValueError("Line-crossing counts require an internal tracker")
+            self.tracker.update(values)
+            in_count, out_count = self.counter.update(values)
+            context.metrics["line_counter"] = {"in": in_count, "out": out_count}
+            count = in_count + out_count
+        context.metrics["object_count"] = count
+        context.metrics["count_mode"] = self.mode
+        context.artifacts[f"{self.step_id}.results"] = values
+        self._set_current(context, values, update_results=True)
+        return context
+
+
+class DecisionStep(CompositionStep):
+    """Evaluate one configured threshold against pipeline outputs."""
+
+    def __init__(self, step_id, metric, operator, threshold):
+        super().__init__(step_id)
+        self.metric = metric
+        self.operator = operator
+        self.threshold = float(threshold)
+
+    def __call__(self, context):
+        if self.metric == "object_count":
+            candidates = [context.metrics.get("object_count")]
+        else:
+            candidates = []
+            feature_results = context.metrics.get("feature_measurements")
+            results = (
+                feature_results
+                if self.metric not in {"score", "confidence"} and feature_results
+                else context.results
+            )
+            for result in results or ():
+                if self.metric in {"score", "confidence"}:
+                    value = result.get(self.metric)
+                else:
+                    value = (result.get("measurements") or {}).get(self.metric)
+                candidates.append(value)
+        values = []
+        for value in candidates:
+            try:
+                if value is not None:
+                    values.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        compare = {
+            "gt": lambda value: value > self.threshold,
+            "gte": lambda value: value >= self.threshold,
+            "lt": lambda value: value < self.threshold,
+            "lte": lambda value: value <= self.threshold,
+            "eq": lambda value: value == self.threshold,
+        }[self.operator]
+        status = (
+            "Not evaluated" if not values
+            else "PASS" if all(compare(value) for value in values)
+            else "FAIL"
+        )
+        context.metrics["decision"] = {
+            "status": status,
+            "metric": self.metric,
+            "operator": self.operator,
+            "threshold": self.threshold,
+            "values": values,
+        }
+        context.artifacts[f"{self.step_id}.decision"] = context.metrics["decision"]
+        return context
+
+
 class ModelStep(CompositionStep):
     """Run a model on the frame or on each input region."""
 
@@ -433,10 +541,13 @@ class BoundModelStep(CompositionStep):
 class FilterStep(CompositionStep):
     """Filter detection-like records before a downstream region step."""
 
-    def __init__(self, step_id, labels=None, min_confidence=None):
+    def __init__(self, step_id, labels=None, min_confidence=None,
+                 region_enabled=False, polygon=None):
         super().__init__(step_id)
         self.labels = {str(label) for label in labels or ()}
         self.min_confidence = min_confidence
+        self.region_enabled = region_enabled
+        self.polygon = polygon or []
 
     def __call__(self, context):
         values = context.current
@@ -445,41 +556,10 @@ class FilterStep(CompositionStep):
         output = _select_results(
             values, self.labels, self.min_confidence
         )
+        if self.region_enabled:
+            output, _outside = filter_region(output, self.polygon)
         context.artifacts[f"{self.step_id}.results"] = output
-        self._set_current(context, output)
-        return context
-
-
-class CropStep(CompositionStep):
-    """Fan out detections into source-aware region inputs."""
-
-    def __init__(self, step_id, padding=0.0):
-        super().__init__(step_id)
-        self.padding = padding
-
-    def __call__(self, context):
-        values = context.current
-        if not isinstance(values, list):
-            raise ValueError(f"Crop step '{self.step_id}' requires a result list")
-        regions = []
-        for index, value in enumerate(values):
-            if not isinstance(value, Mapping):
-                continue
-            parent_id = str(value.get("id") or f"{self.step_id}-parent-{index}")
-            cropped, source_box = crop_region(
-                context.frame,
-                value.get("box"),
-                padding=self.padding,
-            )
-            regions.append(RegionInput(
-                id=f"{self.step_id}-{index}",
-                image=cropped,
-                source_box=source_box,
-                parent_id=parent_id,
-                metadata=dict(value),
-            ))
-        context.artifacts[f"{self.step_id}.items"] = regions
-        self._set_current(context, regions)
+        self._set_current(context, output, update_results=True)
         return context
 
 
@@ -543,7 +623,6 @@ class ProcessorStep(CompositionStep):
 __all__ = [
     "BoundModelStep",
     "CompositionStep",
-    "CropStep",
     "FilterStep",
     "LineCounter",
     "ModelStep",
@@ -553,5 +632,7 @@ __all__ = [
     "count_objects",
     "crop_region",
     "filter_region",
+    "create_pipeline_step",
     "register_model_step_factory",
+    "register_pipeline_step_factory",
 ]

@@ -317,12 +317,8 @@ def test_hailo_pipeline_adapter_uses_model_json_labels(tmp_path):
     custom_model.close()
 
 
-def test_hailo_pipeline_adapter_uses_json_kind_task_and_settings(tmp_path):
+def test_hailo_pipeline_adapter_uses_shared_json_target_metadata(tmp_path):
     from abraia.inference.hailo import pipeline as hailo_pipeline
-
-    bundle = tmp_path / "custom_bundle"
-    bundle.mkdir()
-    (bundle / "custom.hef").write_bytes(b"hef")
 
     class FakeInference:
         def __init__(self, hef_path, **kwargs):
@@ -335,30 +331,41 @@ def test_hailo_pipeline_adapter_uses_json_kind_task_and_settings(tmp_path):
         def close(self):
             pass
 
-    with patch.object(hailo_pipeline, "HAILO_AVAILABLE", True), \
-         patch.object(hailo_pipeline, "ModelInference", FakeInference):
-        for kind, task, expected_decoder in (
-            ("yolov5", "segmentation", "v5"),
-            ("yolov8", "segmentation", "v8"),
-            ("yolo11", "pose", "v8"),
-            ("rtmdet", "segmentation", "rtmdet"),
-        ):
-            (bundle / "abraia.json").write_text(json.dumps({
-                "kind": kind,
-                "task": task,
-                "classes": ["tomato"],
-                "confidenceThreshold": 0.4,
-                "iouThreshold": 0.6,
-            }))
-            model = hailo_pipeline.HailoPipelineModel(str(bundle))
+    configurations = (
+        ("yolov5", "segmentation", "v5"),
+        ("yolov8", "segmentation", "v8"),
+        ("yolo11", "pose", "v8"),
+        ("rtmdet", "segmentation", "rtmdet"),
+    )
+    base_config = {"classes": ["base"], "hailo": {}}
+    for kind, task, _decoder in configurations:
+        base_config["hailo"]["hailo8"] = {
+            "kind": kind,
+            "task": task,
+            "classes": ["tomato"],
+            "confidenceThreshold": 0.4,
+            "iouThreshold": 0.6,
+        }
+        (tmp_path / "custom.json").write_text(json.dumps(base_config))
+        hef_path = tmp_path / "custom_hailo8.hef"
+        hef_path.write_bytes(b"hef")
+
+        with patch.object(hailo_pipeline, "HAILO_AVAILABLE", True), \
+             patch.object(hailo_pipeline, "ModelInference", FakeInference):
+            model = hailo_pipeline.HailoPipelineModel(str(hef_path))
             assert model.kind == kind
             assert model.task == task
             assert model.labels == ["tomato"]
-            assert model.inference.kwargs["model_type"] == expected_decoder
+            assert model.inference.kwargs["model_type"] == _decoder
             assert model.inference.kwargs["score_threshold"] == 0.4
             assert model.inference.kwargs["iou_threshold"] == 0.6
             model.close()
-        model = hailo_pipeline.HailoPipelineModel(str(bundle), kind="yolov5")
+
+    (tmp_path / "custom.json").write_text(json.dumps(base_config))
+    hef_path = tmp_path / "custom_hailo8.hef"
+    with patch.object(hailo_pipeline, "HAILO_AVAILABLE", True), \
+         patch.object(hailo_pipeline, "ModelInference", FakeInference):
+        model = hailo_pipeline.HailoPipelineModel(str(hef_path), kind="yolov5")
         assert model.kind == "yolov5"
         assert model.model_type == "v5"
         model.close()
@@ -389,3 +396,54 @@ def test_hailo_task_translation_accepts_aliases_and_canonical_names():
 
     assert to_hailo_task("segment") == "segment"
     assert to_hailo_task("segmentation") == "segment"
+
+
+def test_hailo_anomaly_loads_flat_patchcore_state_sidecar(tmp_path):
+    from abraia.inference.hailo import toolbox
+    from abraia.inference.hailo.anomaly import HailoAnomalyModel
+
+    hef_path = tmp_path / "patchcore-run_hailo8.hef"
+    hef_path.write_bytes(b"hef")
+    state_name = "patchcore-run_patchcore_state.npz"
+    state_path = tmp_path / state_name
+    expected_memory = np.array([[1.0, 2.0]], dtype=np.float32)
+    np.savez_compressed(state_path, memory=expected_memory)
+    metadata = {
+        "format": "hailo",
+        "kind": "anomaly",
+        "task": "anomaly",
+        "model": "patchcore",
+        "classes": ["normal", "anomaly"],
+        "inputShape": [1, 3, 2, 2],
+        "outputRoles": {"features": "features"},
+        "image_threshold": 0.5,
+        "pixel_threshold": 0.7,
+        "postprocessing": "patchcore_cpu",
+        "postprocessingState": state_name,
+        "featureShape": [1, 2, 1, 1],
+        "featureRecipe": "legacy",
+    }
+    (tmp_path / "patchcore-run.json").write_text(json.dumps({
+        "model": "patchcore",
+        "hailo": {"hailo8": metadata},
+    }))
+
+    class Info:
+        name = "features"
+        shape = (2, 2, 3)
+
+    class FakeHailoInfer:
+        def __init__(self, path, **kwargs):
+            self.path = path
+
+        def get_vstream_info(self):
+            return [Info()], [Info()]
+
+        def close(self):
+            pass
+
+    with patch.object(toolbox, "HAILO_AVAILABLE", True), \
+         patch.object(toolbox, "HailoInfer", FakeHailoInfer):
+        model = HailoAnomalyModel(str(hef_path))
+        np.testing.assert_array_equal(model.memory, expected_memory)
+        model.close()

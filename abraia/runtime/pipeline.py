@@ -15,11 +15,13 @@ from collections.abc import Mapping
 from abraia.inference.model_config import ModelSpec
 
 from .composition import (
-    CropStep,
+    DecisionStep,
     FilterStep,
     LineCounter,
+    ObjectCountStep,
     ProcessorStep,
     RegionTimer,
+    create_pipeline_step,
     filter_region,
     create_model_step,
 )
@@ -128,6 +130,31 @@ def _make_pipeline_renderer(components, render_results=True, render_metrics=True
                     out,
                     counter.line,
                     f"In: {counter.in_count} | Out: {counter.out_count}",
+                )
+            count_stage = components.get("count")
+            if count_stage and count_stage.mode == "region":
+                from ..utils.draw import render_region
+
+                out = render_region(
+                    out, count_stage.polygon,
+                    f"Count: {context.metrics.get('object_count', 0)}",
+                    color=(255, 255, 0),
+                )
+            elif count_stage and count_stage.mode == "line_crossing":
+                from ..utils.draw import render_counter
+
+                line_counts = context.metrics.get("line_counter", {})
+                out = render_counter(
+                    out, count_stage.line,
+                    f"In: {line_counts.get('in', 0)} | Out: {line_counts.get('out', 0)}",
+                )
+            time_region = context.metrics.get("time_in_region")
+            if time_region:
+                from ..utils.draw import render_region
+
+                out = render_region(
+                    out, time_region["polygon"],
+                    f"Count: {time_region['count']}", color=(255, 255, 0),
                 )
             region_timer = components.get("region_timer")
             if region_timer:
@@ -240,6 +267,7 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
     components = {}
     model_iter = iter(created_models)
     model_index = 0
+    models = {}
     for step in steps_config:
         if not step.is_active:
             continue
@@ -247,6 +275,10 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
         step_type = step.type
         if step_type == "model":
             model, model_kwargs, model_spec = next(model_iter)
+            models[model_spec.kind] = {
+                "model": model,
+                "configuration": step.get("model") or {},
+            }
             steps.append(create_model_step(
                 step_id, model, model_spec, model_kwargs,
                 primary=model_index == 0,
@@ -257,11 +289,38 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
                 step_id,
                 labels=step.get("labels"),
                 min_confidence=step.get("min_confidence"),
+                region_enabled=step.get("region_enabled", False),
+                polygon=step.get("polygon"),
             ))
-        elif step_type == "crop":
-            steps.append(CropStep(
+        elif step_type == "measure":
+            steps.append(create_pipeline_step(
+                step_type, step_id, step.raw, models=models
+            ))
+        elif step_type == "count":
+            mode = step.get("mode", "region")
+            tracker = None
+            if mode == "line_crossing":
+                tracker = Tracker(
+                    track_thresh=step.get("track_thresh", 0.25),
+                    track_buffer=step.get("track_buffer", 30),
+                    match_thresh=step.get("match_thresh", 0.8),
+                    frame_rate=(
+                        getattr(video, "frame_rate", 0)
+                        or video_kwargs.get("fps", 30)
+                    ),
+                )
+            count_stage = ObjectCountStep(
+                step_id, mode, polygon=step.get("polygon"),
+                line=step.get("line"), tracker=tracker,
+            )
+            steps.append(count_stage)
+            components["count"] = count_stage
+        elif step_type == "decision":
+            steps.append(DecisionStep(
                 step_id,
-                padding=step.get("padding", 0.0),
+                step.get("metric", "object_count"),
+                step.get("operator", "gte"),
+                step.get("threshold", 1),
             ))
         elif step_type == "tracker":
             tracker = Tracker(

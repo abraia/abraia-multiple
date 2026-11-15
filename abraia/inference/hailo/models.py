@@ -52,7 +52,7 @@ def _model_json_candidates(hef_path):
             break
     candidates = [path.with_name(f"{stem}.json") for stem in stems]
     if path.suffix.lower() == HAILO_FILE_EXTENSION:
-        candidates.insert(0, path.with_suffix("") / "abraia.json")
+        candidates.append(path.with_suffix("") / "abraia.json")
     return tuple(candidates)
 
 
@@ -61,12 +61,25 @@ def load_hailo_model_config(hef_path):
     from ...utils.filesystem import load_json
     from ...utils.remote import resolve_model_file
 
+    path = Path(hef_path)
+    target = next(
+        (target for target in HAILO_TARGETS if path.stem.endswith(f"_{target}")),
+        None,
+    )
     for candidate in _model_json_candidates(hef_path):
         try:
             config = load_json(resolve_model_file(candidate))
         except Exception:
             continue
         if isinstance(config, dict):
+            if config.get("format") == "hailo":
+                return config
+            hailo = config.get("hailo")
+            if isinstance(hailo, dict):
+                target_config = hailo.get(target)
+                if isinstance(target_config, dict):
+                    return {**config, **target_config}
+                continue
             return config
     return {}
 

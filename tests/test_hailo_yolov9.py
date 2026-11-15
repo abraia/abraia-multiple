@@ -80,3 +80,53 @@ def test_yolov9_hailo_runtime_passes_only_nonempty_label_filters(labels, expecte
     spec = ModelSpec.from_config(config)
 
     assert get_model_run_kwargs(config, spec) == expected
+
+
+def test_yolov9_hailo_adapter_loads_target_entry_from_shared_json(tmp_path):
+    import json
+    from unittest.mock import patch
+
+    from abraia.inference.hailo import toolbox
+    from abraia.inference.hailo.yolov9 import HailoYOLOv9Model
+
+    hef_path = tmp_path / "yolo-run_hailo8.hef"
+    hef_path.write_bytes(b"hef")
+    metadata = {
+        "format": "hailo",
+        "backend": "yolov9",
+        "task": "detection",
+        "classes": ["object"],
+        "inputShape": [1, 3, 32, 32],
+        "outputRoles": {
+            "classes_8": "classes_8",
+            "box_distributions_8": "box_distributions_8",
+        },
+    }
+    (tmp_path / "yolo-run.json").write_text(json.dumps({
+        "name": "yolo-run.onnx",
+        "hailo": {"hailo8": metadata},
+    }))
+
+    class Info:
+        def __init__(self, name, shape):
+            self.name = name
+            self.shape = shape
+
+    class FakeHailoInfer:
+        def __init__(self, _path, **_kwargs):
+            pass
+
+        def get_vstream_info(self):
+            return [Info("image", (32, 32, 3))], [
+                Info("classes_8", (1,)),
+                Info("box_distributions_8", (1,)),
+            ]
+
+        def close(self):
+            pass
+
+    with patch.multiple(toolbox, HAILO_AVAILABLE=True, HailoInfer=FakeHailoInfer):
+        model = HailoYOLOv9Model(str(hef_path))
+        assert model.metadata["backend"] == "yolov9"
+        assert model.classes == ["object"]
+        model.close()

@@ -66,13 +66,31 @@ PIPELINE_STEP_DEFINITIONS = {
             "type": "filter",
             "labels": [],
             "min_confidence": 0.0,
+            "region_enabled": False,
         },
     },
-    "crop": {
+    "measure": {
         "category": "fields",
         "default": {
-            "type": "crop",
-            "padding": 0.0,
+            "type": "measure",
+            "features": ["area_px", "width_px", "height_px"],
+            "time_in_region": False,
+        },
+    },
+    "count": {
+        "category": "geometry",
+        "default": {
+            "type": "count",
+            "mode": "region",
+        },
+    },
+    "decision": {
+        "category": "fields",
+        "default": {
+            "type": "decision",
+            "metric": "object_count",
+            "operator": "gte",
+            "threshold": 1,
         },
     },
     "model": {
@@ -224,6 +242,14 @@ def is_valid_step_geometry(step_type, step):
     step = step if isinstance(step, PipelineStep) else PipelineStep.from_config(step)
     if step_type == "line_counter":
         return len(normalize_points(step.get("line"))) == 2
+    if step_type == "count":
+        geometry = "line" if step.get("mode") == "line_crossing" else "polygon"
+        points = normalize_points(step.get(geometry))
+        return len(points) == 2 if geometry == "line" else len(points) >= 3
+    if step_type == "measure" and step.get("time_in_region"):
+        return len(normalize_points(step.get("polygon"))) >= 3
+    if step_type == "filter" and step.get("region_enabled"):
+        return len(normalize_points(step.get("polygon"))) >= 3
     if step_type in ("region_filter", "region_timer"):
         return len(normalize_points(step.get("polygon"))) >= 3
     return True
@@ -249,7 +275,15 @@ def validate_step_structure(steps, *, report_unsupported=True):
     known_ids = set()
     model_count = 0
     tracker_count = 0
+    measure_count = 0
+    count_count = 0
+    decision_count = 0
     model_seen = False
+    object_model_seen = False
+    measurement_source = None
+    count_seen = False
+    measure_seen = False
+    measured_features = set()
 
     for index, step in enumerate(iter_pipeline_steps(steps), 1):
         step_type = step.type
@@ -260,7 +294,7 @@ def validate_step_structure(steps, *, report_unsupported=True):
             continue
         if step_type not in SUPPORTED_STEP_TYPES:
             if report_unsupported:
-                errors.append(f"Step {index}: unsupported step type.")
+                errors.append(f"Step {index}: unsupported step type '{step_type}'.")
             continue
 
         if step_type != "model" and not model_seen:
@@ -283,18 +317,109 @@ def validate_step_structure(steps, *, report_unsupported=True):
             model = step.get("model")
             if not isinstance(model, dict):
                 errors.append(f"Step {index}: model step requires a model object.")
-            elif model_count > 1:
-                model_spec = ModelSpec.from_config(model)
-                if (
-                    model_spec.kind,
-                    model_spec.task,
-                ) not in PIPELINE_SECOND_STEP_MODEL_PAIRS and not (
-                    model_spec.descriptor and model_spec.descriptor.follow_up
-                ):
+            else:
+                task = model.get("task")
+                object_model_seen |= (
+                    isinstance(task, str)
+                    and task in {"detection", "segmentation", "pose"}
+                )
+                if model.get("kind") == "anomaly" or task == "anomaly":
+                    measurement_source = "anomaly"
+                elif task == "segmentation":
+                    measurement_source = "segmentation"
+                elif isinstance(task, str) and task in {"detection", "pose"}:
+                    measurement_source = "detection"
+                else:
+                    measurement_source = None
+                if model_count > 1:
+                    model_spec = ModelSpec.from_config(model)
+                    if (
+                        model_spec.kind,
+                        model_spec.task,
+                    ) not in PIPELINE_SECOND_STEP_MODEL_PAIRS and not (
+                        model_spec.descriptor and model_spec.descriptor.follow_up
+                    ):
+                        errors.append(
+                            f"Step {index}: model '{model_spec.kind}' with task "
+                            f"'{model_spec.task}' cannot run as a second-step model."
+                        )
+        elif step_type == "count":
+            count_count += 1
+            if count_count > 1:
+                errors.append("A pipeline can contain at most one count step.")
+            mode = step.get("mode", "region")
+            if mode not in {"region", "line_crossing"}:
+                errors.append(f"Step {index}: count mode must be region or line_crossing.")
+            if not object_model_seen:
+                errors.append(
+                    f"Step {index}: object counts require an earlier detection or segmentation model."
+                )
+            count_seen = True
+        elif step_type == "measure":
+            measure_seen = True
+            measure_count += 1
+            if measure_count > 1:
+                errors.append("A pipeline can contain at most one measure step.")
+            source = measurement_source
+            if source is None:
+                errors.append(
+                    f"Step {index}: measurements require the nearest earlier model "
+                    "to be a detection, segmentation, or anomaly model."
+                )
+            legacy_source = step.get("source")
+            if legacy_source is not None and (
+                not isinstance(legacy_source, str)
+                or legacy_source not in {"detection", "segmentation", "anomaly"}
+            ):
+                errors.append(f"Step {index}: unsupported legacy measurement source.")
+            features = step.get("features")
+            allowed_features = {
+                "area_px", "perimeter_px", "centroid_px", "bounds_px",
+                "width_px", "height_px", "aspect_ratio", "orientation_deg",
+                "major_axis_px", "minor_axis_px", "compactness", "solidity",
+            }
+            if step.get("time_in_region"):
+                allowed_features.add("time_in_region_s")
+                measured_features.add("time_in_region_s")
+                if source == "anomaly":
                     errors.append(
-                        f"Step {index}: model '{model_spec.kind}' with task "
-                        f"'{model_spec.task}' cannot run as a second-step model."
+                        f"Step {index}: time in region requires detection or segmentation results."
                     )
+            if not isinstance(features, list) or not features:
+                errors.append(
+                    f"Step {index}: measurement features must be a non-empty list."
+                )
+            elif any(
+                not isinstance(feature, str) or feature not in allowed_features
+                for feature in features
+            ):
+                errors.append(f"Step {index}: unsupported measurement feature.")
+            else:
+                measured_features.update(features)
+        elif step_type == "decision":
+            decision_count += 1
+            if decision_count > 1:
+                errors.append("A pipeline can contain at most one decision step.")
+            metric = step.get("metric", "object_count")
+            feature_metrics = {
+                "area_px", "perimeter_px", "width_px", "height_px", "aspect_ratio",
+                "orientation_deg", "major_axis_px", "minor_axis_px",
+                "compactness", "solidity", "time_in_region_s",
+            }
+            if metric == "object_count" and not count_seen:
+                errors.append(f"Step {index}: object-count decisions require an earlier count step.")
+            elif metric in feature_metrics and not measure_seen:
+                errors.append(f"Step {index}: feature decisions require an earlier measure step.")
+            elif metric in feature_metrics and metric not in measured_features:
+                errors.append(f"Step {index}: decision feature must be enabled in the earlier measure step.")
+            elif metric not in feature_metrics | {"object_count", "confidence", "score"}:
+                errors.append(f"Step {index}: unsupported decision metric.")
+            if step.get("operator", "gte") not in {"gt", "gte", "lt", "lte", "eq"}:
+                errors.append(f"Step {index}: unsupported decision operator.")
+            try:
+                float(step.get("threshold"))
+            except (TypeError, ValueError):
+                errors.append(f"Step {index}: decision threshold must be numeric.")
         elif step_type == "tracker":
             tracker_count += 1
             if tracker_count > MAX_PIPELINE_TRACKERS:
@@ -653,10 +778,46 @@ class PipelineDraft:
                         valid = False
                     if not valid:
                         errors.append(f"{label} must be between 0 and 1.")
+            temporal_sources = {
+                "video", "image_sequence", "camera", "usb_camera",
+                "rpi_camera", "stream", "genicam",
+            }
+            if (
+                step_type == "count"
+                and step.get("mode") == "line_crossing"
+                and source_type not in temporal_sources
+            ):
+                errors.append(
+                    f"Step {index}: line-crossing counts require a video, image sequence, or live stream."
+                )
+            if (
+                step_type == "measure"
+                and step.get("time_in_region")
+                and source_type not in temporal_sources
+            ):
+                errors.append(
+                    f"Step {index}: time in region requires a video, image sequence, or live stream."
+                )
             if step_type == "line_counter" and not is_valid_step_geometry(
                 step_type, step
             ):
                 errors.append(f"Step {index}: line counter needs two points.")
+            if step_type == "count" and not is_valid_step_geometry(
+                step_type, step
+            ):
+                errors.append(
+                    f"Step {index}: count needs a valid region polygon or crossing line."
+                )
+            if step_type == "measure" and step.get("time_in_region") and not is_valid_step_geometry(
+                step_type, step
+            ):
+                errors.append(f"Step {index}: time in region needs a valid polygon.")
+            if step_type == "filter" and step.get("region_enabled") and not is_valid_step_geometry(
+                step_type, step
+            ):
+                errors.append(
+                    f"Step {index}: region filtering needs a valid polygon."
+                )
             if step_type in ("region_filter", "region_timer") and not is_valid_step_geometry(
                 step_type, step
             ):
