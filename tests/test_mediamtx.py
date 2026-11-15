@@ -120,11 +120,14 @@ def test_pi_camera_server_writes_config_and_stops_child_process(tmp_path):
         with mediamtx.managed_pi_camera_server(
             camera_id="1", cache_dir=tmp_path
         ) as url:
-            assert url.startswith("rtsp://abraia-reader:")
-            assert url.endswith("@192.0.2.10:8554/cam")
+            assert url == "rtsp://192.0.2.10:8554/cam"
             config = (tmp_path / "mediamtx.yml").read_text(encoding="utf-8")
+            assert "user: any" in config
+            assert "    pass:\n" in config
+            assert "abraia-reader" not in config
             assert "source: rpiCamera" in config
             assert "rpiCameraCamID: 1" in config
+            assert not (tmp_path / "pi-camera.json").exists()
 
     assert len(processes) == 1
     assert processes[0].stopped
@@ -137,7 +140,7 @@ def test_pi_camera_demo_starts_the_managed_server_by_default(monkeypatch):
     @contextmanager
     def managed_server(camera_id):
         camera_ids.append(camera_id)
-        yield "rtsp://reader@example.test:8554/cam"
+        yield "rtsp://example.test:8554/cam"
 
     monkeypatch.delenv("ABRAIA_RTSP_URL", raising=False)
     with patch.object(

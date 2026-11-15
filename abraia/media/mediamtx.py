@@ -3,7 +3,6 @@
 from contextlib import contextmanager
 import hashlib
 import io
-import json
 import os
 import platform
 import re
@@ -143,20 +142,11 @@ def install_mediamtx(cache_dir=None):
 def _write_camera_config(root, camera_id):
     config_path = root / "mediamtx.yml"
     state_path = root / "pi-camera.json"
-    if config_path.is_file() and state_path.is_file():
-        try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            if state.get("camera_id") == camera_id:
-                return state["password"]
-        except (OSError, ValueError, KeyError):
-            pass
-
-    password = secrets.token_hex(16)
     config = (
         "authMethod: internal\n"
         "authInternalUsers:\n"
-        "  - user: abraia-reader\n"
-        f"    pass: {password}\n"
+        "  - user: any\n"
+        "    pass:\n"
         "    ips: []\n"
         "    permissions:\n"
         "      - action: read\n"
@@ -170,20 +160,21 @@ def _write_camera_config(root, camera_id):
         "    rpiCameraHeight: 720\n"
         "    rpiCameraFPS: 30\n"
     )
-    state = json.dumps({"camera_id": camera_id, "password": password})
-    for path, content in ((config_path, config), (state_path, state)):
-        descriptor, temporary_path = tempfile.mkstemp(
-            prefix=f".{path.name}-", dir=str(root)
-        )
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as temporary:
-                temporary.write(content)
-            os.chmod(temporary_path, 0o600)
-            os.replace(temporary_path, str(path))
-        finally:
-            if os.path.exists(temporary_path):
-                os.unlink(temporary_path)
-    return password
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=f".{config_path.name}-", dir=str(root)
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as temporary:
+            temporary.write(config)
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, str(config_path))
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+    try:
+        state_path.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def _port_is_open():
@@ -219,7 +210,7 @@ def managed_pi_camera_server(camera_id=0, cache_dir=None):
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     root.chmod(0o700)
     binary = install_mediamtx(cache_dir=root)
-    password = _write_camera_config(root, camera_id)
+    _write_camera_config(root, camera_id)
     if _port_is_open():
         raise RuntimeError(
             f"Port {RTSP_PORT} is already in use. Stop the existing RTSP server "
@@ -237,10 +228,7 @@ def managed_pi_camera_server(camera_id=0, cache_dir=None):
                     "camera is connected."
                 )
             if _port_is_open():
-                stream_url = (
-                    f"rtsp://abraia-reader:{password}@{_lan_address()}:"
-                    f"{RTSP_PORT}/cam"
-                )
+                stream_url = f"rtsp://{_lan_address()}:{RTSP_PORT}/cam"
                 yield stream_url
                 return
             time.sleep(0.1)

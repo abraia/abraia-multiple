@@ -283,8 +283,9 @@ On another computer, run detection with the printed URL:
 abraia run demo detect 'PASTE_THE_PRINTED_RTSP_URL_HERE'
 ```
 
-RTSP does not encrypt video or credentials, so use the printed URL on a
-trusted LAN or VPN.
+The stream allows anonymous read access, so anyone who can reach the RTSP port
+can view it. RTSP does not encrypt video; use the stream on a trusted LAN or
+VPN.
 
 ### Detection, tracking, and counting
 
@@ -377,10 +378,11 @@ Use `Pipeline.from_dict(config)` to supply a Python dictionary instead of a
 file. For processing without a display window, set `display.show` to `false`;
 `display.dest` can still save the rendered video.
 
-Besides `tracker` and `line_counter`, pipelines support `filter`, `crop`,
-`region_filter`, and `region_timer`. Filters select detections, crops produce
-regions for further processing, and region steps restrict or time activity
-inside a polygon. Tracking must precede counting and region timing.
+Pipelines also support `filter`, `count`, `decision`, `region_filter`, and
+`region_timer`. Filters select detections; count and decision steps produce
+counts and threshold results. Applications can register custom `measure`
+steps to extract configured features. Region steps restrict or time activity
+inside a polygon. Tracking must precede line-crossing counts and region timing.
 
 ### Additional inference models
 
