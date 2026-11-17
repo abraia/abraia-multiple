@@ -406,20 +406,44 @@ def validate_step_structure(steps, *, report_unsupported=True):
                 "orientation_deg", "major_axis_px", "minor_axis_px",
                 "compactness", "solidity", "time_in_region_s",
             }
+            for unit in ("mm", "cm", "µm"):
+                feature_metrics.add(f"area_{unit}2")
+                feature_metrics.update(
+                    f"{name}_{unit}"
+                    for name in ("perimeter", "width", "height", "major_axis", "minor_axis")
+                )
             if metric == "object_count" and not count_seen:
                 errors.append(f"Step {index}: object-count decisions require an earlier count step.")
             elif metric in feature_metrics and not measure_seen:
                 errors.append(f"Step {index}: feature decisions require an earlier measure step.")
-            elif metric in feature_metrics and metric not in measured_features:
-                errors.append(f"Step {index}: decision feature must be enabled in the earlier measure step.")
+            elif metric in feature_metrics:
+                base_metric = metric
+                for unit in ("mm", "cm", "µm"):
+                    if metric == f"area_{unit}2":
+                        base_metric = "area_px"
+                    elif metric.endswith(f"_{unit}"):
+                        base_metric = metric[:-(len(unit) + 1)] + "_px"
+                if base_metric not in measured_features:
+                    errors.append(f"Step {index}: decision feature must be enabled in the earlier measure step.")
             elif metric not in feature_metrics | {"object_count", "confidence", "score"}:
                 errors.append(f"Step {index}: unsupported decision metric.")
-            if step.get("operator", "gte") not in {"gt", "gte", "lt", "lte", "eq"}:
+            operator = step.get("operator", "gte")
+            if operator not in {"gt", "gte", "lt", "lte", "eq", "range"}:
                 errors.append(f"Step {index}: unsupported decision operator.")
+            threshold = step.get("lower_threshold", step.get("threshold"))
             try:
-                float(step.get("threshold"))
+                lower = float(threshold)
             except (TypeError, ValueError):
                 errors.append(f"Step {index}: decision threshold must be numeric.")
+            else:
+                if operator == "range":
+                    try:
+                        upper = float(step.get("upper_threshold"))
+                    except (TypeError, ValueError):
+                        errors.append(f"Step {index}: range upper bound must be numeric.")
+                    else:
+                        if upper < lower:
+                            errors.append(f"Step {index}: range upper bound must be at least the lower bound.")
         elif step_type == "tracker":
             tracker_count += 1
             if tracker_count > MAX_PIPELINE_TRACKERS:
@@ -597,6 +621,7 @@ class PipelineDraft:
     )
     source_options: Dict[str, Any] = field(default_factory=dict)
     output: Optional[Dict[str, Any]] = None
+    calibration: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         if self.resolution is None:
@@ -650,6 +675,7 @@ class PipelineDraft:
             source_type=source_type or "camera",
             source=source_value,
             source_options=source.get("options", {}),
+            calibration=deepcopy(source.get("calibration")),
             resolution=[_number(v, 0, int) for v in resolution],
             fps=_number(source.get("fps", 30), 30, int),
             steps=normalized_steps,
@@ -671,6 +697,13 @@ class PipelineDraft:
             "resolution": [int(v) for v in (self.resolution or [1920, 1080])[:2]],
             "fps": int(self.fps),
         }
+        if self.calibration is not None:
+            calibration = dict(self.calibration)
+            if calibration.get("unit") not in {"mm", "cm", "µm"}:
+                raise ValueError("Calibration unit must be mm, cm, or µm.")
+            if float(calibration.get("pixels_per_unit", 0)) <= 0:
+                raise ValueError("Calibration scale must be positive.")
+            source["calibration"] = calibration
         if not isinstance(self.source_options, dict):
             raise ValueError("Pipeline source options must be an object.")
         if self.source_options:

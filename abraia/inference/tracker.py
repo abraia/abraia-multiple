@@ -666,7 +666,7 @@ def results_to_arrays(results):
             x, y, w, h = result['box']
             bboxes.append([x, y, x + w, y + h])
             scores.append(result['score'])
-        return np.array(bboxes), np.array(scores)
+        return np.asarray(bboxes, dtype=float).reshape((-1, 4)), np.asarray(scores)
 
 
 class Tracker():
@@ -674,11 +674,10 @@ class Tracker():
         self.tracker = ByteTracker(track_thresh, track_buffer, match_thresh, frame_rate)
 
     def update(self, results):
-        if results:
-            bboxes, scores = results_to_arrays(results)
-            tracks = self.tracker.update(bboxes, scores)
-            for track in tracks:
-                index = track.detection_index
-                if index is not None and 0 <= index < len(results):
-                    results[index]['track_id'] = track.track_id
+        bboxes, scores = results_to_arrays(results)
+        tracks = self.tracker.update(bboxes, scores)
+        for track in tracks:
+            index = track.detection_index
+            if index is not None and 0 <= index < len(results):
+                results[index]['track_id'] = track.track_id
         return results

@@ -69,32 +69,69 @@ def count_objects(results):
 
 
 class LineCounter:
-    def __init__(self, line):
+    def __init__(self, line, minimum_crossing_threshold=2, max_absent_frames=30):
         self.line = line
         self.in_count = 0
         self.out_count = 0
-        self.prev_results = {}
+        self.minimum_crossing_threshold = minimum_crossing_threshold
+        self.max_absent_frames = max_absent_frames
+        self.crossing_state = {}
 
     def update(self, results):
+        current_ids = set()
+        direction = lambda point: (
+            (self.line[1][0] - self.line[0][0])
+            * (point[1] - self.line[0][1])
+            - (self.line[1][1] - self.line[0][1])
+            * (point[0] - self.line[0][0])
+        )
         for result in results:
             track_id = result.get("track_id")
             if track_id is None:
                 continue
-            prev_result = self.prev_results.get(track_id)
-            if prev_result:
-                x1, y1, w1, h1 = result["box"]
-                x2, y2, w2, h2 = prev_result["box"]
-                direction = segments_intersect(
-                    self.line[0],
-                    self.line[1],
-                    [x1 + w1 / 2, y1 + h1 / 2],
-                    [x2 + w2 / 2, y2 + h2 / 2],
-                )
-                if direction > 0:
-                    self.in_count += 1
-                elif direction < 0:
-                    self.out_count += 1
-            self.prev_results[track_id] = result
+            current_ids.add(track_id)
+            x, y, width, height = result["box"]
+            side_value = direction((x + width / 2, y + height / 2))
+            if side_value == 0:
+                continue
+            side = side_value > 0
+            state = self.crossing_state.get(track_id)
+            if state is None:
+                self.crossing_state[track_id] = {
+                    "side": side, "candidate": None, "run": 0, "absent": 0,
+                    "point": (x + width / 2, y + height / 2),
+                }
+                continue
+            state["absent"] = 0
+            point = (x + width / 2, y + height / 2)
+            if side == state["side"]:
+                state["candidate"] = None
+                state["run"] = 0
+                state["point"] = point
+                continue
+            if state["candidate"] != side:
+                state["candidate"] = side
+                state["run"] = 1
+                state["candidate_crosses_line"] = bool(segments_intersect(
+                    self.line[0], self.line[1], state["point"], point
+                ))
+            else:
+                state["run"] += 1
+            if state["run"] >= self.minimum_crossing_threshold:
+                if state["candidate_crosses_line"]:
+                    if state["side"]:
+                        self.in_count += 1
+                    else:
+                        self.out_count += 1
+                state["side"] = side
+                state["candidate"] = None
+                state["run"] = 0
+            state["point"] = point
+        for track_id, state in list(self.crossing_state.items()):
+            if track_id not in current_ids:
+                state["absent"] += 1
+                if state["absent"] >= self.max_absent_frames:
+                    del self.crossing_state[track_id]
         return self.in_count, self.out_count
 
 
@@ -115,15 +152,20 @@ class RegionTimer:
     def __init__(self, polygon):
         self.region = polygon
         self.timers = {}
+        self.absent_frames = {}
+        self.max_absent_frames = 30
 
     def update(self, results, frame_time):
         in_objects, out_objects = [], []
+        current_ids = set()
         for result in results:
             box = result.get("box")
             track_id = result.get("track_id")
             start_time = self.timers.get(track_id)
             if not box or track_id is None:
                 continue
+            current_ids.add(track_id)
+            self.absent_frames[track_id] = 0
             x, y, width, height = box
             center = x + width / 2, y + height / 2
             if point_in_polygon(center, self.region):
@@ -138,6 +180,13 @@ class RegionTimer:
                 out_objects.append(result)
                 if start_time is not None:
                     del self.timers[track_id]
+                    self.absent_frames.pop(track_id, None)
+        for track_id in list(self.timers):
+            if track_id not in current_ids:
+                self.absent_frames[track_id] = self.absent_frames.get(track_id, 0) + 1
+                if self.absent_frames[track_id] >= self.max_absent_frames:
+                    del self.timers[track_id]
+                    del self.absent_frames[track_id]
         return in_objects, out_objects
 
 
@@ -335,13 +384,20 @@ class CompositionStep:
 class ObjectCountStep(CompositionStep):
     """Count current objects in a region or unique line crossings."""
 
-    def __init__(self, step_id, mode, *, polygon=None, line=None, tracker=None):
+    def __init__(self, step_id, mode, *, polygon=None, line=None, tracker=None,
+                 max_absent_frames=30):
         super().__init__(step_id)
         self.mode = mode
         self.polygon = polygon or []
         self.line = line or []
         self.tracker = tracker
-        self.counter = LineCounter(self.line) if mode == "line_crossing" else None
+        self.counter = (
+            LineCounter(
+                self.line,
+                max_absent_frames=max_absent_frames,
+            )
+            if mode == "line_crossing" else None
+        )
 
     def __call__(self, context):
         values = context.current
@@ -367,48 +423,59 @@ class ObjectCountStep(CompositionStep):
 
 
 class DecisionStep(CompositionStep):
-    """Evaluate one configured threshold against pipeline outputs."""
+    """Evaluate a threshold or inclusive range against pipeline outputs."""
 
-    def __init__(self, step_id, metric, operator, threshold):
+    def __init__(self, step_id, metric, operator, threshold, upper_threshold=None):
         super().__init__(step_id)
         self.metric = metric
         self.operator = operator
         self.threshold = float(threshold)
+        self.upper_threshold = (
+            float(upper_threshold) if upper_threshold is not None else None
+        )
 
     def __call__(self, context):
         if self.metric == "object_count":
-            candidates = [context.metrics.get("object_count")]
+            results = ()
+            values = [context.metrics.get("object_count")]
         else:
-            candidates = []
             feature_results = context.metrics.get("feature_measurements")
             results = (
                 feature_results
                 if self.metric not in {"score", "confidence"} and feature_results
                 else context.results
-            )
-            for result in results or ():
-                if self.metric in {"score", "confidence"}:
-                    value = result.get(self.metric)
-                else:
-                    value = (result.get("measurements") or {}).get(self.metric)
-                candidates.append(value)
-        values = []
-        for value in candidates:
-            try:
-                if value is not None:
-                    values.append(float(value))
-            except (TypeError, ValueError):
-                continue
+            ) or ()
+            values = []
+            for result in results:
+                value = (
+                    result.get(self.metric)
+                    if self.metric in {"score", "confidence"}
+                    else (result.get("measurements") or {}).get(self.metric)
+                )
+                values.append(value)
         compare = {
             "gt": lambda value: value > self.threshold,
             "gte": lambda value: value >= self.threshold,
             "lt": lambda value: value < self.threshold,
             "lte": lambda value: value <= self.threshold,
             "eq": lambda value: value == self.threshold,
+            "range": lambda value: self.threshold <= value <= self.upper_threshold,
         }[self.operator]
+        evaluated = []
+        for value in values:
+            try:
+                evaluated.append(compare(float(value)) if value is not None else None)
+            except (TypeError, ValueError):
+                evaluated.append(None)
+        if self.metric != "object_count":
+            for result, passed in zip(results, evaluated):
+                result["decision_result"] = (
+                    "Not evaluated" if passed is None else "PASS" if passed else "FAIL"
+                )
+        booleans = [passed for passed in evaluated if passed is not None]
         status = (
-            "Not evaluated" if not values
-            else "PASS" if all(compare(value) for value in values)
+            "Not evaluated" if not booleans
+            else "PASS" if all(booleans)
             else "FAIL"
         )
         context.metrics["decision"] = {
@@ -416,7 +483,14 @@ class DecisionStep(CompositionStep):
             "metric": self.metric,
             "operator": self.operator,
             "threshold": self.threshold,
-            "values": values,
+            "upper_threshold": self.upper_threshold,
+            "values": [
+                float(value)
+                for value, passed in zip(values, evaluated)
+                if passed is not None
+            ],
+            "pass_count": sum(booleans),
+            "fail_count": sum(passed is False for passed in evaluated),
         }
         context.artifacts[f"{self.step_id}.decision"] = context.metrics["decision"]
         return context

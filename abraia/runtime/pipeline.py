@@ -259,7 +259,7 @@ def _create_pipeline_models(model_plans, root, accelerator):
         raise
 
 
-def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
+def _build_pipeline_steps(steps_config, created_models, video, video_kwargs, calibration=None):
     """Build runtime steps and shared rendering components."""
     from ..inference.tracker import Tracker
 
@@ -293,8 +293,18 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
                 polygon=step.get("polygon"),
             ))
         elif step_type == "measure":
-            steps.append(create_pipeline_step(
-                step_type, step_id, step.raw, models=models
+            measure_config = dict(step.raw)
+            if calibration:
+                measure_config["calibration"] = calibration
+            tracker = components.get("tracker")
+            if tracker and measure_config.get("time_in_region"):
+                measure_config["tracker_max_absent_frames"] = (
+                    tracker.tracker.max_time_lost
+                )
+            from .features import FeatureExtractionStep
+
+            steps.append(FeatureExtractionStep(
+                step_id, measure_config, models=models
             ))
         elif step_type == "count":
             mode = step.get("mode", "region")
@@ -312,6 +322,9 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
             count_stage = ObjectCountStep(
                 step_id, mode, polygon=step.get("polygon"),
                 line=step.get("line"), tracker=tracker,
+                max_absent_frames=(
+                    tracker.tracker.max_time_lost if tracker else 30
+                ),
             )
             steps.append(count_stage)
             components["count"] = count_stage
@@ -320,7 +333,8 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
                 step_id,
                 step.get("metric", "object_count"),
                 step.get("operator", "gte"),
-                step.get("threshold", 1),
+                step.get("lower_threshold", step.get("threshold", 1)),
+                step.get("upper_threshold"),
             ))
         elif step_type == "tracker":
             tracker = Tracker(
@@ -335,7 +349,13 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
             steps.append(ProcessorStep(step_id, tracker, step_type))
             components["tracker"] = tracker
         elif step_type == "line_counter":
-            counter = LineCounter(step.get("line"))
+            counter = LineCounter(
+                step.get("line"),
+                max_absent_frames=(
+                    components["tracker"].tracker.max_time_lost
+                    if "tracker" in components else 30
+                ),
+            )
             steps.append(ProcessorStep(step_id, counter, step_type))
             components["line_counter"] = counter
         elif step_type == "region_filter":
@@ -346,6 +366,10 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs):
             components["region_filter"] = region_filter
         elif step_type == "region_timer":
             region_timer = RegionTimer(step.get("polygon"))
+            if "tracker" in components:
+                region_timer.max_absent_frames = (
+                    components["tracker"].tracker.max_time_lost
+                )
             steps.append(ProcessorStep(step_id, region_timer, step_type))
             components["region_timer"] = region_timer
     return steps, components
@@ -659,7 +683,8 @@ class Pipeline:
                     raise
 
             steps, components = _build_pipeline_steps(
-                steps_config, created_models, video, video_kwargs
+                steps_config, created_models, video, video_kwargs,
+                calibration=(config.get("source") or {}).get("calibration"),
             )
             primary_model = created_models[0][0] if created_models else None
             video.accelerator = (
