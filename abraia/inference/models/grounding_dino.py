@@ -480,10 +480,16 @@ class GroundingDINOModel(OnnxSessionMixin):
         self.tokenizer = self._load_tokenizer(
             tokenizer_uri or self.config.get("tokenizer", DEFAULT_TOKENIZER_URI)
         )
+        import onnxruntime as ort
+
+        session_options = ort.SessionOptions()
+        # Repeated runs with memory patterns enabled fail at ScatterND.
+        session_options.enable_mem_pattern = False
         try:
             self._init_onnx_session(
                 model_path,
                 providers=_grounding_dino_providers(providers),
+                session_options=session_options,
             )
             self._inputs = {
                 item.name: item for item in self.session.get_inputs()

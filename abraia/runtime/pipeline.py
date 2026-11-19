@@ -9,8 +9,8 @@ import os
 from pathlib import Path
 import threading
 import time
-from typing import Any, Callable, Dict, Iterable, List, Optional
 from collections.abc import Mapping
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from abraia.inference.model_config import ModelSpec
 
@@ -299,7 +299,7 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs, cal
             tracker = components.get("tracker")
             if tracker and measure_config.get("time_in_region"):
                 measure_config["tracker_max_absent_frames"] = (
-                    tracker.tracker.max_time_lost
+                    _tracker_max_absent_frames(tracker)
                 )
             from .features import FeatureExtractionStep
 
@@ -322,9 +322,7 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs, cal
             count_stage = ObjectCountStep(
                 step_id, mode, polygon=step.get("polygon"),
                 line=step.get("line"), tracker=tracker,
-                max_absent_frames=(
-                    tracker.tracker.max_time_lost if tracker else 30
-                ),
+                max_absent_frames=_tracker_max_absent_frames(tracker),
             )
             steps.append(count_stage)
             components["count"] = count_stage
@@ -351,9 +349,8 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs, cal
         elif step_type == "line_counter":
             counter = LineCounter(
                 step.get("line"),
-                max_absent_frames=(
-                    components["tracker"].tracker.max_time_lost
-                    if "tracker" in components else 30
+                max_absent_frames=_tracker_max_absent_frames(
+                    components.get("tracker")
                 ),
             )
             steps.append(ProcessorStep(step_id, counter, step_type))
@@ -368,11 +365,17 @@ def _build_pipeline_steps(steps_config, created_models, video, video_kwargs, cal
             region_timer = RegionTimer(step.get("polygon"))
             if "tracker" in components:
                 region_timer.max_absent_frames = (
-                    components["tracker"].tracker.max_time_lost
+                    _tracker_max_absent_frames(components["tracker"])
                 )
             steps.append(ProcessorStep(step_id, region_timer, step_type))
             components["region_timer"] = region_timer
     return steps, components
+
+
+def _tracker_max_absent_frames(tracker):
+    """Return the tracker's configured expiry window when available."""
+    implementation = getattr(tracker, "tracker", None)
+    return getattr(implementation, "max_time_lost", 30)
 
 
 @dataclass
@@ -405,6 +408,81 @@ def _source_frame_parts(source_frame):
     if isinstance(source_frame, Mapping):
         return source_frame["frame"], source_frame.get("data") or {}
     return source_frame, {}
+
+
+def _result_key(value, index):
+    if not isinstance(value, Mapping):
+        return ("index", index)
+    identity = value.get("parent_id") or value.get("id")
+    if identity is not None:
+        return ("id", str(identity))
+    box = value.get("box")
+    if isinstance(box, (list, tuple)):
+        return ("box", tuple(box), value.get("label"))
+    return ("index", index)
+
+
+def _merge_pipeline_results(previous, current, published, step):
+    previous = previous if isinstance(previous, list) else []
+    values = current if isinstance(current, list) else published
+    if not isinstance(values, list):
+        values = previous
+
+    previous_by_key = {
+        _result_key(value, index): value
+        for index, value in enumerate(previous)
+        if isinstance(value, Mapping)
+    }
+    field = getattr(step, "field", None) or getattr(step, "result_field", None)
+    if field and any(
+        isinstance(value, Mapping) and value.get("parent_id") is not None
+        for value in values
+    ):
+        rows = [
+            dict(value) if isinstance(value, Mapping) else value
+            for value in previous
+        ]
+        positions = {
+            _result_key(value, index): index
+            for index, value in enumerate(rows)
+            if isinstance(value, Mapping)
+        }
+        for value in values:
+            if not isinstance(value, Mapping):
+                continue
+            parent_index = positions.get(("id", str(value["parent_id"])))
+            if parent_index is None:
+                continue
+            rows[parent_index][field] = {
+                name: item for name, item in value.items()
+                if name not in {"id", "parent_id", "item_id", "source_box"}
+            }
+        return rows
+
+    rows = []
+    for index, value in enumerate(values):
+        if not isinstance(value, Mapping):
+            rows.append(value)
+            continue
+        result = dict(value)
+        previous_value = previous_by_key.get(_result_key(value, index))
+        if previous_value is not None:
+            for name, item in previous_value.items():
+                if name not in result:
+                    result[name] = item
+                elif (
+                    isinstance(result[name], Mapping)
+                    and isinstance(item, Mapping)
+                ):
+                    result[name] = {**item, **result[name]}
+        rows.append(result)
+    return rows
+
+
+def _update_pipeline_results(context, previous, step):
+    context.results = _merge_pipeline_results(
+        previous, context.current, context.results, step
+    )
 
 
 class Pipeline:
@@ -553,6 +631,7 @@ class Pipeline:
             started = time.perf_counter()
             if streaming and first_step is not None:
                 first_step.apply_results(context, item.results)
+                _update_pipeline_results(context, [], first_step)
                 steps = self._stream_steps
             elif single_model:
                 if streaming:
@@ -569,7 +648,9 @@ class Pipeline:
                 steps = self.steps
 
             for step in steps:
+                previous_results = context.results
                 context = step(context) or context
+                _update_pipeline_results(context, previous_results, step)
             step_elapsed_ms = (time.perf_counter() - started) * 1000
             if single_model:
                 elapsed_ms = stream_elapsed_ms if streaming else inference_ms

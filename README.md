@@ -162,7 +162,7 @@ The public entry points are:
 | `abraia.media` | Image helpers, input source classes, `VideoWriter` | Image and media I/O |
 | `abraia.media.display` | `Window`, `Sketcher`, `show_image` | Interactive windows and image viewing |
 | `abraia.runtime` | `Pipeline`, `run_pipeline`, source discovery helpers | Run configured workflows and discover local video sources |
-| `abraia.utils` | `render_results`, compatibility exports | Shared array, filesystem, and rendering helpers |
+| `abraia.utils` | `render_results`, `label_color_rgb`, compatibility exports | Shared array, filesystem, and rendering helpers |
 
 ### Remote files and image transforms
 
@@ -185,8 +185,30 @@ path, and `download_file()` returns a local path. `transform_image()` writes
 the transformed image to its local destination. Remote API failures raise
 `APIError`, whose `code` attribute contains the HTTP status code.
 
+For progress on a local file upload or a download cache miss, pass a callback:
+
+```python
+def show_progress(transferred, total):
+    print(f"{transferred} / {total} bytes")
+
+client.upload_file(
+    "input.jpg", "examples/input.jpg", progress_callback=show_progress
+)
+client.download_file(
+    "examples/input.jpg", progress_callback=show_progress
+)
+```
+
+The callback receives transferred bytes and total bytes. A download reports a
+total of `0` if the server does not provide its content length. A cached
+download does not transfer data or call the callback.
+
 The client also provides `check_file`, `move_file`, `remove_file`, metadata
 operations, and load/save methods for JSON and images.
+
+`label_color_rgb(annotation, class_names=None)` returns a stable RGB color
+for an annotation mapping or label string. It uses class names when supplied
+and has fixed colors for the `normal`, `anomaly`, and `background` labels.
 
 ### Image editing
 

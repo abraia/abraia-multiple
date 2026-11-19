@@ -3,6 +3,8 @@
 from collections.abc import Mapping
 import copy
 
+from ..utils.annotation_colors import label_color_rgb
+
 
 DEFAULT_ANOMALY_INSPECTION = {
     "image_threshold": 0.5,
@@ -222,7 +224,7 @@ class AnomalyInspectionRenderer:
                 frame,
                 [points],
                 isClosed=True,
-                color=(255, 40, 40),
+                color=label_color_rgb({"label": "anomaly"}),
                 thickness=3,
             )
         return frame

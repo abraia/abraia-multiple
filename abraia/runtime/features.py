@@ -115,7 +115,6 @@ class FeatureExtractionStep:
         if current_is_results:
             context.current = measured
         context.results = measured
-        context.artifacts[f"{self.step_id}.results"] = measured
         return context
 
     def _track_regions(self, records, context):
@@ -194,7 +193,6 @@ class FeatureExtractionStep:
                 )
                 regions.append(measured)
             context.metrics["anomaly"] = summary
-        context.artifacts[f"{self.step_id}.results"] = regions
         context.metrics["feature_measurements"] = regions
         return context
 

@@ -17,11 +17,33 @@ from .utils.remote import (
 )
 from .utils.concurrency import get_default_remote_request_scheduler
 from .utils.cache import RemoteFileCache
-from .utils.filesystem import get_type, load_json, md5sum, save_data
+from .utils.filesystem import get_type, load_json, md5sum
 from .media.images import load_image, save_image
 
 
 _NO_DELEGATE = object()
+
+
+class _ProgressReader:
+    """File-like upload body that reports bytes read by requests."""
+
+    def __init__(self, source, callback):
+        self.source = source
+        self.callback = callback
+        self.total = os.fstat(source.fileno()).st_size
+        self.current = 0
+
+    def __len__(self):
+        return self.total
+
+    def read(self, size=-1):
+        chunk = self.source.read(size)
+        self.current += len(chunk)
+        self.callback(self.current, self.total)
+        return chunk
+
+    def __getattr__(self, name):
+        return getattr(self.source, name)
 
 
 def file_path(source, userid):
@@ -143,7 +165,9 @@ class Abraia:
             folders = [item for item in folders if fnmatch(item['path'], path)]
         return files, folders
 
-    def upload_file(self, src, path='', remote_info=None):
+    def upload_file(
+        self, src, path='', remote_info=None, progress_callback=None
+    ):
         delegated = self._delegate('upload_file', src, path)
         if delegated is not _NO_DELEGATE:
             if not path or path.endswith('/'):
@@ -171,8 +195,14 @@ class Abraia:
         url = resp.get('uploadURL')
         if url:
             data = src if isinstance(src, BytesIO) else open(src, 'rb')
+            body = data
+            if progress_callback and not isinstance(src, BytesIO):
+                progress_callback(0, os.path.getsize(src))
+                body = _ProgressReader(data, progress_callback)
             try:
-                resp = self._request('PUT', url, data=data, headers={'Content-Type': type})
+                resp = self._request(
+                    'PUT', url, data=body, headers={'Content-Type': type}
+                )
             finally:
                 if data is not src:
                     data.close()
@@ -212,12 +242,22 @@ class Abraia:
         self.invalidate_cached(new_path)
         return file_path(resp['file']['source'], self.userid)
 
-    def download_file(self, path, dest=None, remote_info=None):
+    def download_file(
+        self, path, dest=None, remote_info=None, progress_callback=None
+    ):
         """Download through the shared cache, optionally copying to ``dest``."""
         cache = RemoteFileCache(self.userid)
+
+        def fetch(destination):
+            if progress_callback is None:
+                return self._download_file_uncached(path, destination)
+            return self._download_file_uncached(
+                path, destination, progress_callback=progress_callback
+            )
+
         cached = cache.get_or_create(
             path,
-            lambda destination: self._download_file_uncached(path, destination),
+            fetch,
             remote_info=remote_info,
         )
         if dest is None or os.path.abspath(cached) == os.path.abspath(dest):
@@ -226,7 +266,7 @@ class Abraia:
         shutil.copy2(cached, dest)
         return dest
 
-    def _download_file_uncached(self, path, dest):
+    def _download_file_uncached(self, path, dest, progress_callback=None):
         """Fetch a remote file directly into a cache staging path."""
         client = getattr(self, '_client', None)
         uncached = getattr(client, '_download_file_uncached', None)
@@ -236,13 +276,25 @@ class Abraia:
         if delegated is not _NO_DELEGATE:
             return delegated
         url = f"{API_URL}/files/{self.userid}/{path}"
+
         def transfer():
             resp = self._request(
                 'GET', url, stream=True, auth=self.auth, _scheduler=False
             )
             if resp.status_code != 200:
                 raise APIError(resp.text, resp.status_code)
-            save_data(dest, resp.content)
+            total = int(resp.headers.get('Content-Length') or 0)
+            current = 0
+            if progress_callback:
+                progress_callback(0, total)
+            with open(dest, 'wb') as output:
+                for chunk in resp.iter_content(chunk_size=1024 * 256):
+                    if not chunk:
+                        continue
+                    output.write(chunk)
+                    current += len(chunk)
+                    if progress_callback:
+                        progress_callback(current, total)
             return dest
 
         scheduler = (

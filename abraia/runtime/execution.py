@@ -56,11 +56,13 @@ def run_pipeline(
             display_clock = now
             from ..utils.draw import render_resolution, render_status
 
-            render_status(
-                display_frame,
-                fps=fps,
-                accelerator=accelerator_name,
-            )
+            source_type = (runtime_config.get("source") or {}).get("type")
+            if source_type != "image":
+                render_status(
+                    display_frame,
+                    fps=fps,
+                    accelerator=accelerator_name,
+                )
             render_resolution(display_frame)
             height, width = display_frame.shape[:2]
             scale = min(1280 / width, 720 / height, 1.0)

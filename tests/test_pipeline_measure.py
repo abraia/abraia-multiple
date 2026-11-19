@@ -65,7 +65,7 @@ def test_runtime_measure_step_does_not_require_multiple_registration():
         "area_px": 8,
         "centroid_px": [4, 4],
     }
-    assert context.artifacts["measure.results"] == context.results
+    assert not any(name.endswith(".results") for name in context.artifacts)
 
 
 def test_configured_pipeline_builds_and_runs_measure_without_multiple():

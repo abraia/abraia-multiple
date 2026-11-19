@@ -417,7 +417,6 @@ class ObjectCountStep(CompositionStep):
             count = in_count + out_count
         context.metrics["object_count"] = count
         context.metrics["count_mode"] = self.mode
-        context.artifacts[f"{self.step_id}.results"] = values
         self._set_current(context, values, update_results=True)
         return context
 
@@ -522,14 +521,12 @@ class ModelStep(CompositionStep):
             self.step_id, self.model, self.model_kwargs, regions
         )
         _record_inference_time(context, started)
-        context.artifacts[f"{self.step_id}.results"] = output
         self._set_current(context, output, update_results=True)
         return context
 
     def apply_results(self, context, results):
         """Store precomputed frame results from a streaming model adapter."""
         output = _normalize_results(results, self.step_id)
-        context.artifacts[f"{self.step_id}.results"] = output
         if isinstance(output, list):
             self._set_current(context, output, update_results=True)
         else:
@@ -604,7 +601,6 @@ class BoundModelStep(CompositionStep):
             attached.pop("parent_id", None)
             attached.pop("source_box", None)
             target[self.field] = attached
-        context.artifacts[f"{self.step_id}.results"] = values
         self._set_current(context, values, update_results=True)
         return context
 
@@ -632,7 +628,6 @@ class FilterStep(CompositionStep):
         )
         if self.region_enabled:
             output, _outside = filter_region(output, self.polygon)
-        context.artifacts[f"{self.step_id}.results"] = output
         self._set_current(context, output, update_results=True)
         return context
 
@@ -654,7 +649,6 @@ class ProcessorStep(CompositionStep):
         return values
 
     def _emit(self, context, values):
-        context.artifacts[f"{self.step_id}.results"] = values
         self._set_current(context, values, update_results=True)
         return context
 

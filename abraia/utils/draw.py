@@ -413,26 +413,20 @@ def render_region(img, region, text='', color=(255, 0, 0), opacity=0.2, thicknes
 
 def render_status(img, fps=None, thickness=None, text_scale=None, accelerator=None):
     import psutil
+    height = img.shape[0]
     thickness = thickness or calculate_optimal_thickness(img.shape[:2])
     text_scale = text_scale or calculate_optimal_text_scale(img.shape[:2])
-    lines = []
-    cpu_stats = f"CPU: {psutil.cpu_percent()}%"
+    values = [f"CPU: {psutil.cpu_percent()}%"]
     if accelerator:
-        cpu_stats += f" | {accelerator}"
-    lines.append(cpu_stats)
-    lines.append(f"RAM: {round(psutil.virtual_memory().used / (1024**3), 2)} GB")
+        values.append(str(accelerator))
+    values.append(f"RAM: {round(psutil.virtual_memory().used / (1024**3), 2)} GB")
     if fps is not None:
-        lines.append(f"FPS: {round(fps, 1)}")
+        values.append(f"FPS: {round(fps, 1)}")
     padding = thickness * 3
-    text_height = cv2.getTextSize(
-        lines[0], cv2.FONT_HERSHEY_DUPLEX, text_scale, 1
-    )[0][1]
-    margin = 10
-    point = (margin, margin + text_height + 2 * padding)
-    return draw_text_multiline(
+    return draw_text(
         img,
-        lines,
-        point,
+        "  |  ".join(values),
+        (10, height - 4),
         background_color=(192, 192, 192),
         text_scale=text_scale,
         padding=padding,

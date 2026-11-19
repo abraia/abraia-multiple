@@ -51,7 +51,9 @@ def get_model_accelerator(model):
     return accelerator_from_providers(providers)
 
 
-def create_onnx_session(path, providers=None, accelerator=None):
+def create_onnx_session(
+    path, providers=None, accelerator=None, session_options=None,
+):
     """Create an ONNX Runtime session with the SDK provider policy."""
     import onnxruntime as ort
 
@@ -61,7 +63,9 @@ def create_onnx_session(path, providers=None, accelerator=None):
         providers = get_providers()
     providers = list(providers or ["CPUExecutionProvider"])
     try:
-        return ort.InferenceSession(os.fspath(path), providers=providers)
+        return ort.InferenceSession(
+            os.fspath(path), providers=providers, sess_options=session_options
+        )
     except Exception as exc:
         cpu_provider = "CPUExecutionProvider"
         if cpu_provider not in providers or providers == [cpu_provider]:
@@ -87,7 +91,10 @@ def create_onnx_session(path, providers=None, accelerator=None):
             path,
             exc_info=True,
         )
-        return ort.InferenceSession(os.fspath(path), providers=[cpu_provider])
+        return ort.InferenceSession(
+            os.fspath(path), providers=[cpu_provider],
+            sess_options=session_options,
+        )
 
 
 def load_onnx_model_config(model_uri):
@@ -215,7 +222,9 @@ class OnnxSessionBundle:
 class OnnxSessionMixin:
     """Common lifecycle implementation for inference classes with one session."""
 
-    def _init_onnx_session(self, path, providers=None, accelerator=None):
+    def _init_onnx_session(
+        self, path, providers=None, accelerator=None, session_options=None,
+    ):
         resources = ResourceGroup()
         try:
             self.session = resources.add(
@@ -223,6 +232,7 @@ class OnnxSessionMixin:
                     path,
                     providers=providers,
                     accelerator=accelerator,
+                    session_options=session_options,
                 )
             )
             self.execution_providers = tuple(self.session.get_providers())

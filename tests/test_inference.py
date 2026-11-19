@@ -485,6 +485,39 @@ def test_resnet_preprocess_matches_training_input_shape():
     assert tensor.dtype == np.float32
 
 
+def test_grounding_dino_disables_onnx_mem_pattern(tmp_path, monkeypatch):
+    from abraia.inference.models import grounding_dino
+
+    model_path = tmp_path / "grounding_dino.onnx"
+    model_path.write_bytes(b"onnx")
+    model_path.with_suffix(".json").write_text(json.dumps({
+        "inputShape": [1, 3, 800, 800],
+    }))
+    tokenizer_path = tmp_path / "vocab.txt"
+    tokenizer_path.write_text("[PAD]\n[UNK]\n[CLS]\n[SEP]\n")
+    captured = {}
+
+    class FakeSession:
+        def get_inputs(self):
+            return []
+
+    def initialize_session(self, path, providers=None, accelerator=None,
+                           session_options=None):
+        captured["session_options"] = session_options
+        self.session = FakeSession()
+
+    monkeypatch.setattr(
+        grounding_dino.OnnxSessionMixin, "_init_onnx_session",
+        initialize_session,
+    )
+
+    grounding_dino.GroundingDINOModel(
+        str(model_path), tokenizer_uri=str(tokenizer_path)
+    )
+
+    assert captured["session_options"].enable_mem_pattern is False
+
+
 def test_resnet_classifier_runs_exported_model(tmp_path, monkeypatch):
     model_path = tmp_path / "resnet18.onnx"
     model_path.write_bytes(b"onnx")
@@ -512,7 +545,7 @@ def test_resnet_classifier_runs_exported_model(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         "abraia.inference.session.create_onnx_session",
-        lambda path, providers=None, accelerator=None: FakeSession(),
+        Mock(return_value=FakeSession()),
     )
     model = ResNetClassifier(str(model_path))
 
