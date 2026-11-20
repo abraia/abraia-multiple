@@ -426,8 +426,8 @@ def render_status(img, fps=None, thickness=None, text_scale=None, accelerator=No
     return draw_text(
         img,
         "  |  ".join(values),
-        (10, height - 4),
-        background_color=(192, 192, 192),
+        (0, height),
+        background_color=(0, 0, 0),
         text_scale=text_scale,
         padding=padding,
     )
@@ -442,4 +442,4 @@ def render_resolution(img, thickness=None, text_scale=None):
     w, h = cv2.getTextSize(text, text_font, text_scale, text_thickness)[0]
     padding = thickness * 3
     point = (width - w - 2 * padding, height)
-    return draw_text(img, text, point, background_color=(128, 128, 128), text_scale=text_scale, padding=padding)
+    return draw_text(img, text, point, background_color=(0, 0, 0), text_scale=text_scale, padding=padding)
