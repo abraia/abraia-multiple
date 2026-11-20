@@ -51,3 +51,11 @@ def label_color_rgb(annotation, class_names=None):
             index = zlib.crc32(normalized.encode("utf-8"))
     color = _ANNOTATION_COLORS[index % len(_ANNOTATION_COLORS)]
     return tuple(int(color[offset:offset + 2], 16) for offset in (1, 3, 5))
+
+
+def anomaly_color_rgb(prediction):
+    """Resolve semantic colors for anomaly predictions and defect overlays."""
+    label = str(prediction).strip().casefold()
+    if label == "defect":
+        label = "anomaly"
+    return _SEMANTIC_ANNOTATION_COLORS.get(label, _SEMANTIC_ANNOTATION_COLORS["background"])

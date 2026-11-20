@@ -1,8 +1,9 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from click.testing import CliRunner
 from click.shell_completion import BashComplete
+import numpy as np
 import pytest
 
 from abraia import config
@@ -314,9 +315,105 @@ def test_project_run_applies_source_and_output_overrides(
     load_config.assert_called_once_with("project/pipeline.json")
     assert config["source"] == {"type": expected_type, "src": expected_source}
     assert config["display"]["dest"] == "result.avi"
-    build_pipeline.assert_called_once_with(config, accelerator="cpu")
-    build_pipeline.return_value.__enter__.return_value.run.assert_called_once_with()
+    build_pipeline.assert_called_once_with(
+        config, accelerator="cpu", on_frame=ANY
+    )
+    build_pipeline.return_value.__enter__.return_value.run.assert_called_once_with(
+        hold_image=True
+    )
     build_pipeline.return_value.__exit__.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "source_config, override, remote_path, expected_source",
+    [
+        (
+            {"type": "image", "src": "fuji-conveyor-anomaly-severe.png"},
+            None, "apples/fuji-conveyor-anomaly-severe.png", None,
+        ),
+        ({"src": "apples/clips/input.mp4"}, None, "apples/clips/input.mp4", None),
+        ({"type": "image", "src": "default.png"}, "local.png", None, "local.png"),
+        ({"type": "camera", "src": 0}, None, None, 0),
+        ({"type": "genicam", "src": "camera.jpg"}, None, None, "camera.jpg"),
+        ({"type": "video", "src": "https://example.org/input.mp4"},
+         None, None, "https://example.org/input.mp4"),
+        ({"type": "image", "src": "/local/input.png"}, None, None, "/local/input.png"),
+    ],
+)
+def test_project_run_downloads_only_saved_dataset_files(
+    tmp_path, monkeypatch, source_config, override, remote_path, expected_source
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "fuji-conveyor-anomaly-severe.png").touch()
+    config = {"version": 2, "source": dict(source_config)}
+    local_path = str(tmp_path / "cached" / "input")
+    load_config = MagicMock(return_value=config)
+    materialize = MagicMock(return_value=local_path)
+    build_pipeline = MagicMock()
+    monkeypatch.setattr(cli_module.abraia, "load_json", load_config)
+    monkeypatch.setattr(cli_module.abraia, "download_file", materialize)
+    monkeypatch.setattr(Pipeline, "from_dict", build_pipeline)
+
+    args = ["run", "apples"] + ([override] if override is not None else [])
+    result = CliRunner().invoke(cli_module.cli, args)
+
+    assert result.exit_code == 0, result.output
+    load_config.assert_called_once_with("apples/pipeline.json")
+    if remote_path:
+        materialize.assert_called_once_with(remote_path)
+        expected_source = local_path
+    else:
+        materialize.assert_not_called()
+    assert build_pipeline.call_args[0][0]["source"]["src"] == expected_source
+    build_pipeline.return_value.__enter__.return_value.run.assert_called_once_with(
+        hold_image=True
+    )
+
+
+def test_project_run_prints_compact_result_table(monkeypatch):
+    config = {"version": 2, "source": {"type": "camera", "src": 0}}
+    build_pipeline = MagicMock()
+
+    def run(**_kwargs):
+        report = build_pipeline.call_args.kwargs["on_frame"]
+        report(SimpleNamespace(frame_index=0, results=[
+            {
+                "prediction": "apple", "anomaly_score": 0.917,
+                "box": np.array([0, 0, 10, 10]),
+            },
+        ]), 10)
+        report(SimpleNamespace(frame_index=1, results=[]), 5)
+
+    build_pipeline.return_value.__enter__.return_value.run.side_effect = run
+    monkeypatch.setattr(cli_module.abraia, "load_json", lambda _path: config)
+    monkeypatch.setattr(Pipeline, "from_dict", build_pipeline)
+
+    result = CliRunner().invoke(cli_module.cli, ["run", "apples"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "Frame 0 (1 result)",
+        "  prediction  anomaly_score",
+        "  ----------  -------------",
+        "  apple       0.92",
+        "Frame 1 (0 results)",
+    ]
+
+
+def test_project_run_reports_missing_dataset_input(monkeypatch):
+    config = {"version": 2, "source": {"type": "image", "src": "missing.png"}}
+    download = MagicMock(side_effect=cli_module.APIError("Input file not found", 404))
+    build_pipeline = MagicMock()
+    monkeypatch.setattr(cli_module.abraia, "load_json", lambda path: config)
+    monkeypatch.setattr(cli_module.abraia, "download_file", download)
+    monkeypatch.setattr(Pipeline, "from_dict", build_pipeline)
+
+    result = CliRunner().invoke(cli_module.cli, ["run", "apples"])
+
+    assert result.exit_code == 1
+    assert "Error: Input file not found" in result.output
+    download.assert_called_once_with("apples/missing.png")
+    build_pipeline.assert_not_called()
 
 
 @pytest.mark.parametrize(

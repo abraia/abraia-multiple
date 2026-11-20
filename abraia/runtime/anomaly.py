@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 import copy
 
-from ..utils.annotation_colors import label_color_rgb
+from ..utils.annotation_colors import anomaly_color_rgb
 
 
 DEFAULT_ANOMALY_INSPECTION = {
@@ -16,7 +16,11 @@ DEFAULT_ANOMALY_INSPECTION = {
 
 def _model_configuration(config):
     for step in config.get("steps", []) or ():
-        if not isinstance(step, Mapping) or step.get("type") != "model":
+        if (
+            not isinstance(step, Mapping)
+            or step.get("type") != "model"
+            or step.get("enabled") is False
+        ):
             continue
         model = step.get("model") or {}
         if (
@@ -75,7 +79,7 @@ def _image_score(results):
     for result in results or ():
         if not isinstance(result, Mapping):
             continue
-        if result.get("label") not in ("normal", "anomaly"):
+        if (result.get("prediction") or result.get("label")) not in ("normal", "anomaly"):
             continue
         try:
             return float(result["score"])
@@ -94,6 +98,18 @@ def _roi_mask(height, width, roi):
         polygon = np.round(np.asarray(roi)).astype(np.int32)
         cv2.fillPoly(mask, [polygon], 1)
     return mask.astype(bool)
+
+
+def mask_anomaly_heatmap(anomaly_map, frame_shape, roi):
+    """Suppress heatmap values outside the configured frame region."""
+    import numpy as np
+
+    height, width = anomaly_map.shape[:2]
+    frame_height, frame_width = frame_shape[:2]
+    polygon = [
+        [x * width / frame_width, y * height / frame_height] for x, y in roi
+    ]
+    return np.where(_roi_mask(height, width, polygon), anomaly_map, 0.5)
 
 
 def inspect_anomaly_map(
@@ -165,13 +181,57 @@ def inspect_anomaly_map(
     }
 
 
-class AnomalyInspectionRenderer:
-    """Add anomaly inspection metrics and defect overlays to a renderer."""
+def consolidate_anomaly_results(results, anomaly_map, frame_shape, inspection=None):
+    # Keep the image decision and its accepted defect regions in one record.
+    image_result = next((
+        result for result in results
+        if isinstance(result, Mapping)
+        and (result.get("prediction") or result.get("label")) in ("normal", "anomaly")
+    ), None)
+    if image_result is None:
+        return results
 
-    def __init__(self, renderer, model, configuration):
+    if anomaly_map is None:
+        regions = [
+            result for result in results
+            if isinstance(result, Mapping) and result.get("label") == "defect"
+        ]
+        prediction = (
+            "anomaly" if regions else (
+                image_result.get("prediction") or image_result["label"]
+            )
+        )
+        decision = "FAIL" if prediction == "anomaly" else "PASS"
+    else:
+        config = {"steps": [{"type": "model", "model": {
+            "kind": "anomaly", "task": "anomaly", "inspection": inspection,
+        }}]}
+        summary = inspect_anomaly_map(anomaly_map, frame_shape, [image_result], config)
+        regions = summary["defect_regions"]
+        decision = summary["decision"].upper()
+        prediction = {"PASS": "normal", "FAIL": "anomaly"}.get(decision)
+
+    record = {**image_result, "defect_regions": regions, "defect_count": len(regions)}
+    if prediction is not None:
+        record.update(
+            label=prediction, prediction=prediction,
+            class_id=int(prediction == "anomaly"), decision_result=decision,
+        )
+    return [
+        record if result is image_result else result
+        for result in results
+        if not isinstance(result, Mapping) or result.get("label") != "defect"
+    ]
+
+
+class AnomalyInspectionRenderer:
+    """Add accepted defect region overlays to a renderer."""
+
+    def __init__(self, renderer, model, configuration, *, draw_defects=True):
         self.renderer = renderer
         self.model = model
         self.configuration = configuration
+        self.draw_defects = draw_defects
 
     def __call__(self, context):
         anomaly_map = self.model.last_normalized_anomaly_map
@@ -181,31 +241,11 @@ class AnomalyInspectionRenderer:
                 if self.renderer else context.frame.copy()
             )
 
-        summary = inspect_anomaly_map(
-            anomaly_map,
-            context.frame.shape,
-            context.results,
-            self.configuration,
-        )
-        context.metrics["anomaly"] = summary
-
-        original_map = anomaly_map
         values = anomaly_inspection_configuration(self.configuration)
         if values["roi"]:
-            import cv2
-            import numpy as np
-
-            map_mask = _roi_mask(
-                anomaly_map.shape[0], anomaly_map.shape[1],
-                [[
-                    point[0] * anomaly_map.shape[1] / context.frame.shape[1],
-                    point[1] * anomaly_map.shape[0] / context.frame.shape[0],
-                ] for point in values["roi"]],
+            self.model.last_normalized_anomaly_map = mask_anomaly_heatmap(
+                anomaly_map, context.frame.shape, values["roi"],
             )
-            anomaly_map = np.where(
-                map_mask, anomaly_map, 0.5
-            ).astype(np.float32)
-            self.model.last_normalized_anomaly_map = anomaly_map
         try:
             frame = (
                 self.renderer(context)
@@ -213,8 +253,14 @@ class AnomalyInspectionRenderer:
                 else context.frame.copy()
             )
         finally:
-            self.model.last_normalized_anomaly_map = original_map
+            self.model.last_normalized_anomaly_map = anomaly_map
 
+        if not self.draw_defects:
+            return frame
+
+        summary = inspect_anomaly_map(
+            anomaly_map, context.frame.shape, context.results, self.configuration,
+        )
         import cv2
         import numpy as np
 
@@ -224,7 +270,7 @@ class AnomalyInspectionRenderer:
                 frame,
                 [points],
                 isClosed=True,
-                color=label_color_rgb({"label": "anomaly"}),
+                color=anomaly_color_rgb("defect"),
                 thickness=3,
             )
         return frame

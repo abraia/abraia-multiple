@@ -83,11 +83,12 @@ def test_abraia_loads_anomaly_labels_maps_and_regions(anomaly_onnx):
 
 
 @pytest.mark.parametrize("follow_up", [False, True])
-def test_anomaly_runs_in_abraia_pipeline(anomaly_onnx, follow_up):
+def test_anomaly_runs_in_abraia_pipeline(anomaly_onnx, follow_up, monkeypatch):
     image_path = anomaly_onnx.parent / "part.png"
     Image.fromarray(defect_image()).save(image_path)
     step = {"type": "model", "model": {
         "kind": "anomaly", "task": "anomaly", "uri": anomaly_onnx.name,
+        "inspection": {"image_threshold": 0.75},
     }}
     configuration = {
         "version": 2,
@@ -102,13 +103,45 @@ def test_anomaly_runs_in_abraia_pipeline(anomaly_onnx, follow_up):
         from abraia.runtime.rendering import AnomalyPipelineRenderer
 
         assert isinstance(pipeline.render, AnomalyPipelineRenderer)
+        assert pipeline.steps[-1].inspection == {"image_threshold": 0.75}
         context = pipeline.run()
-        assert context.results[0]["label"] == "anomaly"
-        assert context.results[1]["label"] == "defect"
+        record, = context.results
+        assert record["label"] == "anomaly"
+        assert record["decision_result"] == "FAIL"
+        assert record["defect_count"] == len(record["defect_regions"]) == 1
+        assert record["defect_regions"][0]["polygon"]
         if follow_up:
-            assert context.results[0]["result"]["items"][0]["label"] == "anomaly"
+            assert record["result"]["items"][0]["label"] == "anomaly"
+            assert record["anomaly_prediction"] == "anomaly"
+            assert record["anomaly"]["defect_regions"][0]["polygon"]
         assert json.loads(json.dumps(context.results)) == context.results
+        labels = []
+        monkeypatch.setattr(
+            "abraia.utils.draw.render_label",
+            lambda _frame, label, *_args, **_kwargs: labels.append(label),
+        )
         assert pipeline.render(context).shape == (8, 8, 3)
+        assert "ANOMALY FAIL 1.00" in labels
+
+
+def test_pipeline_preview_masks_heatmap_outside_inspection_roi(anomaly_onnx):
+    source = defect_image()
+    configuration = {
+        "version": 2,
+        "steps": [{"type": "model", "model": {
+            "kind": "anomaly", "task": "anomaly", "uri": str(anomaly_onnx),
+            "inspection": {"roi": [[0, 0], [3, 0], [3, 7], [0, 7]]},
+        }}],
+        "display": {"show": False, "render_results": False},
+    }
+    with Pipeline.from_dict(
+        configuration, input_source=[source], accelerator="cpu",
+    ) as pipeline:
+        context = pipeline.run()
+        preview = pipeline.render(context)
+
+    assert not np.array_equal(preview[3, 2], source[3, 2])
+    assert np.array_equal(preview[3, 5], source[3, 5])
 
 
 def test_anomaly_pipeline_runs_without_pytorch(anomaly_onnx):

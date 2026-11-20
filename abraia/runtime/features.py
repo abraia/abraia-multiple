@@ -9,6 +9,8 @@ from .geometry import (
     result_measurements,
 )
 
+from .results import set_anomaly_decisions
+
 
 DEFAULT_FEATURES = (
     "area_px", "perimeter_px", "centroid_px", "bounds_px",
@@ -188,12 +190,14 @@ class FeatureExtractionStep:
                 measured["measurements"] = _select_features(
                     geometry, self.features
                 )
+                measured["decision_result"] = "FAIL"
                 add_calibrated_measurements(
                     measured["measurements"], self.calibration
                 )
                 regions.append(measured)
-            context.metrics["anomaly"] = summary
-        context.metrics["feature_measurements"] = regions
+        set_anomaly_decisions(context.results)
+        context.results.extend(regions)
+        context.current = context.results
         return context
 
 

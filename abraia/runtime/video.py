@@ -53,6 +53,16 @@ class OpenCVDisplay:
         if self.display_enabled:
             self._update_display(self.window.show(frame))
 
+    def wait_for_image_preview(self, is_cancelled, *, source=None):
+        """Hold a completed single-image preview until it is dismissed."""
+        if (
+            self._display_started
+            and getattr(source, "has_images", False)
+            and getattr(source, "frames", 0) == 1
+        ):
+            while not is_cancelled() and self.window.poll(50):
+                pass
+
     def _show_bgr(self, frame):
         """Display a frame already converted to OpenCV's BGR order."""
         if self.display_enabled:
@@ -119,9 +129,7 @@ class Video(FrameSource):
             video_unpaced,
         )
         self.fps = self._input.source_fps or fps
-        self.frames = len(self._input.images) if self._input.has_images else int(
-            self._input.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-        )
+        self.frames = self._input.frames
         self.duration = round(self.frames / self.fps, 3) if self.fps > 0 else 0
         self.frame_rate = self.fps
         try:
@@ -211,6 +219,11 @@ class Video(FrameSource):
     def show_rendered(self, frame):
         """Display a writable frame returned by the built-in pipeline renderer."""
         self._show(frame, copy=False)
+
+    def wait_for_image_preview(self, is_cancelled, *, source=None):
+        """Keep a single rendered image visible until dismissed."""
+        if self._output is not None:
+            self._output.wait_for_image_preview(is_cancelled, source=self)
 
     def _show(self, frame, copy):
         t1 = time.perf_counter()

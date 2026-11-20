@@ -63,17 +63,22 @@ def register_source_factory(source_type, factory, *, suffixes=()):
         _SOURCE_SUFFIXES[suffix.lower()] = source_type
 
 
-def create_source(source, video_kwargs):
-    """Create a built-in source or a registered source by type/file suffix."""
-    source_type = normalize_source_type(video_kwargs.get("source_type"))
+def _registered_source_factory(source, source_type):
     factory = _SOURCE_FACTORIES.get(source_type)
     if factory is None and isinstance(source, str):
         registered_type = _SOURCE_SUFFIXES.get(Path(source).suffix.lower())
         factory = _SOURCE_FACTORIES.get(registered_type)
+    return factory
+
+
+def create_frame_source(source, source_kwargs):
+    """Create an input source without coupling it to a display."""
+    source_type = normalize_source_type(source_kwargs.get("source_type"))
+    factory = _registered_source_factory(source, source_type)
     if factory is not None:
-        return factory(source, **video_kwargs)
+        return factory(source, **source_kwargs)
     if source_type == "genicam":
-        if video_kwargs.get("source_options"):
+        if source_kwargs.get("source_options"):
             raise ValueError(
                 "GenICam source options are not supported. Set source.src to "
                 "a camera index or serial number, and configure the vendor "
@@ -81,14 +86,30 @@ def create_source(source, video_kwargs):
             )
         from ..media.sources.genicam import GenICamSource
 
-        return GenICamSource(
-            source,
-            fps=video_kwargs.get("fps", 30),
-        )
-    if video_kwargs.get("source_options"):
+        return GenICamSource(source, fps=source_kwargs.get("fps", 30))
+    if source_kwargs.get("source_options"):
         raise ValueError(
             f"Source type {source_type!r} does not accept source options"
         )
+    from ..media.sources.opencv import _create_input_source
+
+    return _create_input_source(
+        source,
+        source_type,
+        source_kwargs.get("resolution", (1920, 1080)),
+        source_kwargs.get("fps", 30),
+        source_kwargs.get("video_unpaced", True),
+    )
+
+
+def create_source(source, video_kwargs):
+    """Create a compatibility video facade or a registered source."""
+    source_type = normalize_source_type(video_kwargs.get("source_type"))
+    if (
+        _registered_source_factory(source, source_type) is not None
+        or source_type == "genicam"
+    ):
+        return create_frame_source(source, video_kwargs)
     from .video import Video
 
     return Video(source, **video_kwargs)
@@ -98,6 +119,7 @@ __all__ = [
     "IMAGE_SUFFIXES",
     "SOURCE_TYPE_ALIASES",
     "VIDEO_SUFFIXES",
+    "create_frame_source",
     "create_source",
     "infer_source_type",
     "normalize_source_type",

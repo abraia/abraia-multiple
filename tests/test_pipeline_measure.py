@@ -86,7 +86,7 @@ def test_configured_pipeline_builds_and_runs_measure_without_multiple():
     ]
 
     runtime_steps, _components = _build_pipeline_steps(
-        steps, [(Model(), {}, model_spec)], video=None, video_kwargs={},
+        steps, [(Model(), {}, model_spec)], source=None, video_kwargs={},
     )
     frame = np.zeros((8, 8, 3), dtype=np.uint8)
     context = FrameContext(frame, 0, 0.0, current=frame)
@@ -184,7 +184,7 @@ def test_runtime_measurement_helpers_cover_polygon_and_anomaly_maps():
     assert anomaly_values["area_px"] == 2
 
 
-def test_anomaly_renderer_publishes_json_safe_metrics():
+def test_anomaly_renderer_does_not_publish_separate_metrics():
     from types import SimpleNamespace
 
     from abraia.runtime.anomaly import AnomalyInspectionRenderer
@@ -205,5 +205,38 @@ def test_anomaly_renderer_publishes_json_safe_metrics():
     frame = renderer(context)
 
     assert frame.shape == (8, 8, 3)
-    assert context.metrics["anomaly"]["decision"] == "fail"
-    assert isinstance(context.metrics["anomaly"]["defect_regions"], list)
+    assert context.metrics == {}
+
+
+def test_anomaly_measurement_merges_defects_and_decisions_into_results():
+    from types import SimpleNamespace
+
+    from abraia.runtime.features import FeatureExtractionStep
+
+    model = SimpleNamespace(
+        last_normalized_anomaly_map=np.full((4, 4), 0.9, dtype=np.float32)
+    )
+    step = FeatureExtractionStep(
+        "measure",
+        {"features": ["area_px"]},
+        models={"anomaly": {
+            "model": model,
+            "configuration": {"kind": "anomaly", "task": "anomaly"},
+        }},
+    )
+    context = SimpleNamespace(
+        frame=np.zeros((8, 8, 3), dtype=np.uint8),
+        current=[{"label": "anomaly", "score": 0.9}],
+        results=[{"label": "anomaly", "score": 0.9}],
+        metrics={}, artifacts={},
+    )
+
+    step(context)
+
+    assert context.results[0]["decision_result"] == "FAIL"
+    assert len(context.results) == 2
+    assert context.results[1]["label"].startswith("Anomaly ")
+    assert context.results[1]["decision_result"] == "FAIL"
+    assert context.results[1]["measurements"]["area_px"] > 0
+    assert "feature_measurements" not in context.metrics
+    assert "anomaly" not in context.metrics

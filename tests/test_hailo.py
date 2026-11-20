@@ -275,7 +275,7 @@ def test_hailo_pipeline_adapter_reorders_async_results(tmp_path, with_data):
         last = Pipeline(source=frames, model=model).run()
 
     assert last.frame_index == 2
-    assert last.results == [{"value": 3}]
+    assert last.results == [{"value": 3, "prediction": 3}]
     assert model.inference.closed
     assert last.data == ({"extension_value": 2} if with_data else {})
 

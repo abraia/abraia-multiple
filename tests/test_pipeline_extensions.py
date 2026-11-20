@@ -45,9 +45,6 @@ def test_extension_receives_opaque_data_and_releases_resources(outcome):
         def __iter__(self):
             yield {"frame": image, "data": {"extension_payload": payload}}
 
-        def set_display_enabled(self, enabled):
-            assert enabled is False
-
         def close(self):
             calls.append("source closed")
 
@@ -98,7 +95,9 @@ def test_extension_receives_opaque_data_and_releases_resources(outcome):
             if outcome == "cancel":
                 assert result is None
             else:
-                assert result.results == [{"label": "extension result"}]
+                assert result.results == [{
+                    "label": "extension result", "prediction": "extension result",
+                }]
     assert calls.count("model closed") == 1
     assert calls.count("step closed") == 1
     assert "source closed" in calls
@@ -162,3 +161,26 @@ def test_registered_model_capabilities_apply_to_follow_up_validation():
     assert ModelSpec.from_config({
         "kind": "test_extension", "task": "detection",
     }).validation_error()[0] == "task"
+
+
+def test_pipeline_owns_display_separately_from_registered_frame_source(monkeypatch):
+    source = SimpleNamespace(
+        frame_rate=1,
+        width=3,
+        height=2,
+        resolution=(3, 2),
+        close=lambda: None,
+    )
+    display = SimpleNamespace(close=lambda: None)
+    register_source_factory("test_source", lambda *_args, **_kwargs: source)
+    monkeypatch.setattr("abraia.runtime.video.VideoOutput", lambda **_kwargs: display)
+    config = {
+        "version": 2,
+        "source": {"type": "test_source", "src": "input"},
+        "display": {"show": True},
+    }
+
+    with Pipeline.from_dict(config) as pipeline:
+        assert pipeline.source is source
+        assert pipeline.display is display
+        assert pipeline.source is not pipeline.display

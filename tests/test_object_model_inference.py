@@ -128,14 +128,11 @@ def test_object_models_run_in_pipeline_without_torch(kind, task, monkeypatch):
         def __iter__(self):
             return iter([np.full((4, 4, 3), 255, dtype=np.uint8)])
 
-        def set_display_enabled(self, _enabled):
-            pass
-
         def close(self):
             pass
 
     monkeypatch.setattr(
-        runtime_pipeline, "create_source", lambda *_args: Source()
+        runtime_pipeline, "create_frame_source", lambda *_args: Source()
     )
     configuration = {
         "version": 2,

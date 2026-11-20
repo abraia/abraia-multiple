@@ -6,6 +6,9 @@ from typing import Any, Iterable, Mapping, Optional
 
 from abraia.inference.geometry import point_in_polygon, segments_intersect
 
+from .anomaly import consolidate_anomaly_results, inspect_anomaly_map
+from .results import round_result_value
+
 
 _MODEL_STEP_FACTORIES = {}
 _PIPELINE_STEP_FACTORIES = {}
@@ -36,7 +39,10 @@ def create_model_step(step_id, model, spec, model_kwargs, *, primary):
     if factory is not None:
         return factory(step_id, model, model_kwargs, primary=primary)
     if primary:
-        return ModelStep(step_id, model, model_kwargs=model_kwargs)
+        step_type = PrimaryAnomalyModelStep if spec.kind == "anomaly" else ModelStep
+        return step_type(step_id, model, model_kwargs=model_kwargs)
+    if spec.kind == "anomaly":
+        return BoundAnomalyModelStep(step_id, model, model_kwargs=model_kwargs)
     return BoundModelStep(
         step_id, model, field=spec.result_field, model_kwargs=model_kwargs
     )
@@ -340,18 +346,19 @@ def _map_region_result(value, source_box):
             ]
     except (TypeError, ValueError, IndexError):
         pass
-    points = mapped.get("points")
-    if hasattr(points, "copy") and getattr(points, "ndim", 0) == 2:
-        points = points.astype(float, copy=True)
-        points[:, 0] += x
-        points[:, 1] += y
-        mapped["points"] = points
-    elif isinstance(points, list):
-        mapped["points"] = [
-            [x + float(point[0]), y + float(point[1])]
-            for point in points
-            if isinstance(point, (list, tuple)) and len(point) >= 2
-        ]
+    for field in ("points", "polygon"):
+        points = mapped.get(field)
+        if hasattr(points, "copy") and getattr(points, "ndim", 0) == 2:
+            points = points.astype(float, copy=True)
+            points[:, 0] += x
+            points[:, 1] += y
+            mapped[field] = points
+        elif isinstance(points, (list, tuple)):
+            mapped[field] = [
+                [x + float(point[0]), y + float(point[1])]
+                for point in points
+                if isinstance(point, (list, tuple)) and len(point) >= 2
+            ]
     if isinstance(mapped.get("items"), list):
         mapped["items"] = [
             _map_region_result(item, source_box)
@@ -438,12 +445,7 @@ class DecisionStep(CompositionStep):
             results = ()
             values = [context.metrics.get("object_count")]
         else:
-            feature_results = context.metrics.get("feature_measurements")
-            results = (
-                feature_results
-                if self.metric not in {"score", "confidence"} and feature_results
-                else context.results
-            ) or ()
+            results = context.results or ()
             values = []
             for result in results:
                 value = (
@@ -463,22 +465,26 @@ class DecisionStep(CompositionStep):
         evaluated = []
         for value in values:
             try:
-                evaluated.append(compare(float(value)) if value is not None else None)
+                evaluated.append(
+                    None if value is None else compare(
+                        round_result_value(self.metric, value)
+                    )
+                )
             except (TypeError, ValueError):
                 evaluated.append(None)
         if self.metric != "object_count":
             for result, passed in zip(results, evaluated):
-                result["decision_result"] = (
-                    "Not evaluated" if passed is None else "PASS" if passed else "FAIL"
-                )
+                if passed is None:
+                    result.setdefault("decision_result", "Not evaluated")
+                else:
+                    result["decision_result"] = "PASS" if passed else "FAIL"
         booleans = [passed for passed in evaluated if passed is not None]
-        status = (
-            "Not evaluated" if not booleans
-            else "PASS" if all(booleans)
-            else "FAIL"
-        )
-        context.metrics["decision"] = {
-            "status": status,
+        decision = {
+            "status": (
+                "Not evaluated" if not booleans
+                else "PASS" if all(booleans)
+                else "FAIL"
+            ),
             "metric": self.metric,
             "operator": self.operator,
             "threshold": self.threshold,
@@ -491,7 +497,8 @@ class DecisionStep(CompositionStep):
             "pass_count": sum(booleans),
             "fail_count": sum(passed is False for passed in evaluated),
         }
-        context.artifacts[f"{self.step_id}.decision"] = context.metrics["decision"]
+        context.metrics["decision"] = decision
+        context.artifacts[f"{self.step_id}.decision"] = decision
         return context
 
 
@@ -535,6 +542,20 @@ class ModelStep(CompositionStep):
 
     def close(self):
         _close_model(self.model)
+
+
+class PrimaryAnomalyModelStep(ModelStep):
+    """Publish image anomaly decisions for both regular and streaming inference."""
+
+    inspection = None
+
+    def apply_results(self, context, results):
+        if isinstance(results, list):
+            results = consolidate_anomaly_results(
+                results, self.model.last_normalized_anomaly_map,
+                context.frame.shape, self.inspection,
+            )
+        return super().apply_results(context, results)
 
 
 class BoundModelStep(CompositionStep):
@@ -606,6 +627,60 @@ class BoundModelStep(CompositionStep):
 
     def close(self):
         _close_model(self.model)
+
+
+class BoundAnomalyModelStep(BoundModelStep):
+    """Inspect each detection crop and map defect regions to the frame."""
+
+    inspection = None
+
+    def __call__(self, context):
+        values = context.current
+        if not isinstance(values, list):
+            raise ValueError(
+                f"Bound model step '{self.step_id}' requires detection results"
+            )
+        inspection = dict(self.inspection or {})
+        inspection.pop("roi", None)
+        configuration = {"steps": [{"type": "model", "model": {
+            "kind": "anomaly", "task": "anomaly", "inspection": inspection,
+        }}]}
+        started = time.perf_counter()
+        for value in values:
+            if not isinstance(value, dict) or value.get("box") is None:
+                continue
+            crop, source_box = crop_region(context.frame, value["box"])
+            predictions = self.model.run(crop, **self.model_kwargs)
+            value[self.field] = _map_region_result(
+                _region_result(predictions), source_box,
+            )
+            anomaly_map = self.model.last_normalized_anomaly_map
+            score, regions = None, []
+            if anomaly_map is not None:
+                summary = inspect_anomaly_map(
+                    anomaly_map, crop.shape, predictions, configuration,
+                )
+                score = summary["score"]
+                regions = [
+                    _map_region_result(region, source_box)
+                    for region in summary["defect_regions"]
+                ]
+            prediction, decision = "review", "review"
+            if score is not None:
+                failed = score > summary["thresholds"]["image"]
+                prediction, decision = (
+                    ("anomaly", "fail") if failed else ("normal", "pass")
+                )
+                value["decision_result"] = decision.upper()
+            value["anomaly"] = {
+                "prediction": prediction,
+                "decision": decision,
+                "score": score,
+                "defect_regions": regions,
+            }
+        _record_inference_time(context, started)
+        self._set_current(context, values, update_results=True)
+        return context
 
 
 class FilterStep(CompositionStep):

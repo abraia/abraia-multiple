@@ -67,6 +67,64 @@ def test_bound_model_step_filters_crops_and_attaches_automatically():
     assert "ocr" not in last.results[1]
 
 
+def test_pipeline_results_are_full_table_records_for_all_output_shapes():
+    frame = np.zeros((10, 12, 3), dtype=np.uint8)
+    records = [{
+        "label": "part",
+        "classification": {"label": "healthy", "score": 0.88},
+        "regression": {"prediction": 2.4, "target": 2.0, "score": 0.7},
+        "recognition": {"text": "AB-123", "text_score": 0.91},
+        "measurements": {"area_px": 12},
+        "box": [1, 2, 3, 4],
+    }]
+
+    class MultiOutput:
+        def run(self, _frame):
+            return records
+
+    pipeline = Pipeline(source=Source(frame), model=MultiOutput(), steps=[])
+    last = pipeline.run()
+
+    assert isinstance(last.results, list)
+    assert isinstance(last.results[0], dict)
+    row = last.results[0]
+    assert row["prediction"] == "part"
+    assert row["classification_label"] == "healthy"
+    assert row["classification_score"] == 0.88
+    assert row["regression_value"] == 2.4
+    assert row["regression_target"] == 2.0
+    assert row["recognition_text"] == "AB-123"
+    assert row["recognition_score"] == 0.91
+    assert row["area_px"] == 12
+    assert row["classification"] == {"label": "healthy", "score": 0.88}
+    assert row["box"] == [1, 2, 3, 4]
+
+
+def test_pipeline_results_preserve_zero_class_ids():
+    from abraia.runtime.results import result_records
+
+    record, = result_records([{"classification": {"class_id": 0}}])
+
+    assert record["prediction"] == 0
+    assert record["classification_label"] == 0
+
+
+def test_decision_step_keeps_result_and_aggregate_decisions():
+    from types import SimpleNamespace
+
+    from abraia.runtime.composition import DecisionStep
+
+    result = {"score": 0.8}
+    context = SimpleNamespace(
+        results=[result], current=[result], metrics={}, artifacts={},
+    )
+
+    DecisionStep("quality", "score", "gte", 0.8)(context)
+
+    assert result["decision_result"] == "PASS"
+    assert context.metrics["decision"]["status"] == "PASS"
+
+
 def test_composed_draft_serializes_ordered_follow_up_model_steps():
     draft = PipelineDraft(
         source_type="image",
@@ -126,9 +184,6 @@ def test_version_two_pipeline_builder_runs_composed_models():
         def __iter__(self):
             yield np.zeros((6, 6, 3), dtype=np.uint8)
 
-        def set_display_enabled(self, _enabled):
-            pass
-
         def close(self):
             self.closed = True
 
@@ -167,7 +222,7 @@ def test_version_two_pipeline_builder_runs_composed_models():
         "display": {"show": False},
     }
 
-    with patch("abraia.runtime.video.Video", Video), \
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: Video()), \
          patch("abraia.inference.models.detection.Model", Detector), \
          patch("abraia.inference.models.ocr.TextSystem", OCR):
         pipeline = Pipeline.from_dict(config)
@@ -185,9 +240,6 @@ def test_version_two_pipeline_builder_runs_automatic_follow_up_model_step():
 
         def __iter__(self):
             yield np.zeros((6, 6, 3), dtype=np.uint8)
-
-        def set_display_enabled(self, _enabled):
-            pass
 
         def close(self):
             pass
@@ -236,7 +288,7 @@ def test_version_two_pipeline_builder_runs_automatic_follow_up_model_step():
         "display": {"show": False},
     }
 
-    with patch("abraia.runtime.video.Video", Video), \
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: Video()), \
          patch("abraia.inference.models.detection.Model", Detector), \
          patch("abraia.inference.models.ocr.TextSystem", OCR):
         pipeline = Pipeline.from_dict(config)

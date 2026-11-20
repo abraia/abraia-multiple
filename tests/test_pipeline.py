@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from threading import Barrier, Event
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import numpy as np
 import pytest
@@ -178,6 +178,45 @@ def test_pipeline_stops_when_display_requests_quit():
     assert model.closed
 
 
+@pytest.mark.parametrize(
+    "hold_image, show, frame_count, expected_polls",
+    [(True, True, 1, 2), (False, True, 1, 0), (True, False, 1, 0), (True, True, 2, 0)],
+)
+def test_pipeline_holds_single_image_preview_until_quit(
+    tmp_path, monkeypatch, hold_image, show, frame_count, expected_polls
+):
+    import cv2
+
+    from abraia.media.sources.opencv import ImageSequenceSource
+    from abraia.runtime.video import VideoOutput
+
+    for index in range(frame_count):
+        image_path = tmp_path / f"{index}.png"
+        assert cv2.imwrite(str(image_path), np.zeros((32, 32, 3), np.uint8))
+    source = ImageSequenceSource(str(tmp_path))
+    display = VideoOutput(fps=source.frame_rate, size=(source.width, source.height))
+    if not show:
+        display.set_display_enabled(False)
+    waits = []
+
+    def wait_key(delay):
+        waits.append(delay)
+        return ord("q") if waits.count(50) == 2 else -1
+
+    monkeypatch.setattr(cv2, "namedWindow", lambda *_args: None)
+    monkeypatch.setattr(cv2, "imshow", lambda *_args: None)
+    monkeypatch.setattr(cv2, "getWindowProperty", lambda *_args: 1)
+    monkeypatch.setattr(cv2, "destroyWindow", lambda *_args: None)
+    monkeypatch.setattr(cv2, "waitKey", wait_key)
+
+    with Pipeline(source=source, model=None, display=display) as pipeline:
+        assert pipeline.source is not pipeline.display
+        last = pipeline.run(hold_image=hold_image)
+
+    assert last.frame_index == frame_count - 1
+    assert waits.count(50) == expected_polls
+
+
 def test_pipeline_honors_cancellation_before_processing_next_frame():
     cancelled = [False]
     released = Event()
@@ -319,14 +358,8 @@ def test_composed_pipeline_builds_stateful_processing_steps():
     class Video:
         frame_rate = 1
 
-        def __init__(self, *_args, **_kwargs):
-            self.display_enabled = True
-
         def __iter__(self):
             yield np.zeros((12, 12, 3), dtype=np.uint8)
-
-        def set_display_enabled(self, enabled):
-            self.display_enabled = enabled
 
         def close(self):
             pass
@@ -366,7 +399,7 @@ def test_composed_pipeline_builds_stateful_processing_steps():
         "display": {"show": False},
     }
 
-    with patch("abraia.runtime.video.Video", Video), \
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: Video()), \
          patch("abraia.inference.models.detection.Model", Detector), \
          patch("abraia.inference.tracker.Tracker", Tracker):
         pipeline = Pipeline.from_dict(config)
@@ -407,9 +440,6 @@ def test_pipeline_builds_source_and_model_concurrently():
         def __init__(self, *_args, **_kwargs):
             ready_together.wait(timeout=3)
 
-        def set_display_enabled(self, _enabled):
-            pass
-
         def close(self):
             pass
 
@@ -429,7 +459,7 @@ def test_pipeline_builds_source_and_model_concurrently():
         "display": {"show": False},
     }
 
-    with patch("abraia.runtime.video.Video", FakeVideo), \
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: FakeVideo()), \
          patch("abraia.inference.models.detection.Model", FakeModel):
         pipeline = Pipeline.from_dict(config, accelerator="cpu")
 
@@ -441,14 +471,11 @@ def test_pipeline_from_file_builds_components_and_resolves_paths():
     class FakeVideo:
         frame_rate = 12
 
-        def __init__(self, src, resolution, fps, dest, source_type=None):
+        def __init__(self, src, resolution, fps, source_type=None):
             self.src = src
             self.resolution = resolution
             self.fps = fps
-            self.dest = dest
-
-        def set_display_enabled(self, enabled):
-            self.display_enabled = enabled
+            self.width, self.height = resolution
 
     class FakeModel:
         def __init__(self, uri, **kwargs):
@@ -483,13 +510,18 @@ def test_pipeline_from_file_builds_components_and_resolves_paths():
             "display": {"show": False, "dest": "output.avi"},
         }))
 
-        with patch("abraia.runtime.video.Video", FakeVideo), \
+        with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda src, options: FakeVideo(
+                src, options["resolution"], options["fps"], options["source_type"]
+        )), \
+             patch("abraia.runtime.video.VideoOutput") as video_output, \
              patch("abraia.inference.models.detection.Model", FakeModel), \
              patch("abraia.inference.tracker.Tracker", FakeTracker):
             pipeline = Pipeline.from_file(str(config_path))
 
         assert pipeline.source.src == str(Path(temp_dir) / "frame.jpg")
-        assert pipeline.source.dest == str(Path(temp_dir) / "output.avi")
+        video_output.assert_called_once_with(
+            dest=str(Path(temp_dir) / "output.avi"), fps=12, size=(1920, 1080)
+        )
         assert pipeline.model.uri == "model.onnx"
         assert isinstance(pipeline.steps[1], ProcessorStep)
         assert pipeline.steps[1].operation == "tracker"
@@ -510,9 +542,6 @@ def test_pipeline_resolves_local_model_uri_relative_to_config(tmp_path):
         def __init__(self, *args, **kwargs):
             self.closed = False
 
-        def set_display_enabled(self, enabled):
-            self.display_enabled = enabled
-
         def close(self):
             self.closed = True
 
@@ -531,7 +560,7 @@ def test_pipeline_resolves_local_model_uri_relative_to_config(tmp_path):
         "display": {"show": False},
     }
 
-    with patch("abraia.runtime.video.Video", FakeVideo), \
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: FakeVideo()), \
          patch("abraia.inference.models.detection.Model", FakeModel):
         pipeline = Pipeline.from_dict(config, base_dir=tmp_path)
 
@@ -568,7 +597,7 @@ def test_pipeline_from_dict_rejects_unknown_step():
         def __init__(self, uri, **kwargs):
             pytest.fail("Invalid step must be rejected before model creation")
 
-    with patch("abraia.runtime.video.Video", FakeVideo), \
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: FakeVideo()), \
          patch("abraia.inference.models.detection.Model", FakeModel):
         try:
             Pipeline.from_dict(config)
@@ -585,9 +614,6 @@ def test_pipeline_closes_resources_if_renderer_factory_fails():
         frame_rate = 30
 
         def __init__(self, *_args, **_kwargs):
-            pass
-
-        def set_display_enabled(self, _enabled):
             pass
 
         def close(self):
@@ -612,7 +638,7 @@ def test_pipeline_closes_resources_if_renderer_factory_fails():
     def fail_renderer(_renderer, _config):
         raise RuntimeError("renderer setup failed")
 
-    with patch("abraia.runtime.video.Video", FakeVideo), \
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: FakeVideo()), \
          patch("abraia.inference.models.detection.Model", FakeModel):
         with pytest.raises(RuntimeError, match="renderer setup failed"):
             Pipeline.from_dict(
@@ -649,7 +675,7 @@ def test_pipeline_from_dict_skips_disabled_steps():
         def __init__(self, uri, **kwargs):
             pass
 
-    with patch("abraia.runtime.video.Video", FakeVideo), \
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: FakeVideo()), \
          patch("abraia.inference.models.detection.Model", FakeModel):
         pipeline = Pipeline.from_dict(config)
 
@@ -676,7 +702,7 @@ def test_pipeline_from_dict_rejects_invalid_model_spec():
         def close(self):
             pass
 
-    with patch("abraia.runtime.video.Video", FakeVideo):
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: FakeVideo()):
         with pytest.raises(ValueError, match="Unknown detector kind"):
             Pipeline.from_dict(config)
 
@@ -714,18 +740,20 @@ def test_pipeline_from_dict_keeps_camera_indices_as_camera_sources():
         }],
     }
 
-    class FakeVideo:
+    class FakeFrameSource:
         frame_rate = 30
 
-        def __init__(self, src, resolution, fps, dest, source_type=None):
+        def __init__(self, src):
             self.src = src
 
     class FakeModel:
         def __init__(self, uri, **kwargs):
             pass
 
-    with patch("abraia.runtime.video.Video", FakeVideo), \
-         patch("abraia.inference.models.detection.Model", FakeModel):
+    with patch(
+        "abraia.runtime.pipeline.create_frame_source",
+        side_effect=lambda src, _kwargs: FakeFrameSource(src),
+    ), patch("abraia.inference.models.detection.Model", FakeModel):
         pipeline = Pipeline.from_dict(config)
 
     assert pipeline.source.src == 0
@@ -870,12 +898,6 @@ def test_pipeline_from_dict_passes_pose_options_to_onnx_model():
     class FakeVideo:
         frame_rate = 30
 
-        def __init__(self, *args, **kwargs):
-            self.display_enabled = False
-
-        def set_display_enabled(self, enabled):
-            self.display_enabled = enabled
-
         def __iter__(self):
             yield np.zeros((8, 8, 3), dtype=np.uint8)
 
@@ -919,7 +941,7 @@ def test_pipeline_from_dict_passes_pose_options_to_onnx_model():
     }
 
     with patch("abraia.inference.registry._create_model_from_spec", return_value=model), \
-         patch("abraia.runtime.video.Video", FakeVideo):
+         patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: FakeVideo()):
         pipeline = Pipeline.from_dict(config)
         pipeline.run()
 
@@ -1075,21 +1097,27 @@ def test_pipeline_context_manager_closes_builtin_detector():
 def test_pipeline_keeps_file_output_enabled_when_preview_is_disabled():
     class FakeVideo:
         frame_rate = 1
-
-        def __init__(self, src, resolution, fps, dest, source_type=None):
-            self.src = src
-            self.dest = dest
-            self.show_calls = 0
-            self.display_enabled = True
-
-        def set_display_enabled(self, enabled):
-            self.display_enabled = enabled
+        width = 1
+        height = 1
+        resolution = (1, 1)
 
         def __iter__(self):
             yield np.zeros((1, 1, 3), dtype=np.uint8)
 
-        def show(self, frame):
+    class FakeVideoOutput:
+        def __init__(self, **kwargs):
+            self.options = kwargs
+            self.display_enabled = True
+            self.show_calls = 0
+
+        def set_display_enabled(self, enabled):
+            self.display_enabled = enabled
+
+        def show(self, _frame):
             self.show_calls += 1
+
+        def close(self):
+            pass
 
     class FakeModel:
         def __init__(self, uri, **kwargs):
@@ -1098,7 +1126,8 @@ def test_pipeline_keeps_file_output_enabled_when_preview_is_disabled():
         def run(self, frame, **kwargs):
             return []
 
-    with patch("abraia.runtime.video.Video", FakeVideo), \
+    with patch("abraia.runtime.pipeline.create_frame_source", side_effect=lambda *_args: FakeVideo()), \
+         patch("abraia.runtime.video.VideoOutput", FakeVideoOutput), \
          patch("abraia.inference.models.detection.Model", FakeModel):
         pipeline = Pipeline.from_dict({
             "version": 2,
@@ -1112,9 +1141,10 @@ def test_pipeline_keeps_file_output_enabled_when_preview_is_disabled():
         })
         pipeline.run()
 
-    assert pipeline.display is pipeline.source
-    assert pipeline.source.display_enabled is False
-    assert pipeline.source.show_calls == 1
+    assert pipeline.display is not pipeline.source
+    assert Path(pipeline.display.options["dest"]).name == "output.avi"
+    assert pipeline.display.display_enabled is False
+    assert pipeline.display.show_calls == 1
 
 
 def test_demo_definitions_are_pipeline_configs():
@@ -1295,7 +1325,9 @@ def test_cli_routes_project_output_to_pipeline_config():
         config = None
 
         @classmethod
-        def from_dict(cls, config, accelerator="auto"):
+        def from_dict(
+            cls, config, accelerator="auto", on_frame=None,
+        ):
             cls.config = config
             return cls()
 
@@ -1305,7 +1337,7 @@ def test_cli_routes_project_output_to_pipeline_config():
         def __exit__(self, *_args):
             return None
 
-        def run(self):
+        def run(self, *, hold_image=False):
             return None
 
     config = {
@@ -1315,6 +1347,7 @@ def test_cli_routes_project_output_to_pipeline_config():
         "display": {"show": True},
     }
     with patch.object(module.abraia, "load_json", return_value=config), \
+            patch.object(module.abraia, "download_file", return_value="/cache/input.mp4"), \
             patch("abraia.runtime.Pipeline", FakePipeline):
         result = CliRunner().invoke(
             module.cli,
@@ -1333,12 +1366,17 @@ def test_cli_run_uses_the_saved_pipeline():
         "steps": [{"model": {"kind": "yolov8", "uri": "model.onnx"}}],
     }
     with patch.object(module.abraia, "load_json", return_value=config) as load_json, \
+            patch.object(module.abraia, "download_file", return_value="/cache/saved.mp4") as materialize, \
             patch("abraia.runtime.Pipeline") as pipeline:
         module.run.callback("project", "", None, "auto")
 
     load_json.assert_called_once_with("project/pipeline.json")
-    pipeline.from_dict.assert_called_once_with(config, accelerator="auto")
-    pipeline.from_dict.return_value.__enter__.return_value.run.assert_called_once_with()
+    materialize.assert_called_once_with("project/saved.mp4")
+    assert config["source"]["src"] == "/cache/saved.mp4"
+    pipeline.from_dict.assert_called_once_with(config, accelerator="auto", on_frame=ANY)
+    pipeline.from_dict.return_value.__enter__.return_value.run.assert_called_once_with(
+        hold_image=True
+    )
 
 
 def test_cli_process_map_bounds_repeat_iterators():

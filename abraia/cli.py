@@ -425,11 +425,13 @@ def run(
             )
 
         from .runtime import Pipeline
+        from .runtime.results import table_result_records
         from .runtime.sources import infer_source_type, normalize_source_type
 
         source_override = src if src is not None else demo_or_source or None
+        project_path = project.rstrip("/")
         try:
-            pipeline_config = abraia.load_json(f"{project}/pipeline.json")
+            pipeline_config = abraia.load_json(f"{project_path}/pipeline.json")
         except APIError as error:
             if error.code != 404:
                 raise
@@ -450,13 +452,63 @@ def run(
                 and normalize_source_type(source_config.get("type")) != "genicam"
             ):
                 source_config["type"] = inferred_type
+        else:
+            source_config = pipeline_config.get("source") or {}
+            source = (
+                source_config.get("src") if isinstance(source_config, dict) else None
+            )
+            if isinstance(source, str) and source and not Path(source).is_absolute():
+                inferred_type = infer_source_type(source)
+                source_type = (
+                    normalize_source_type(source_config.get("type")) or inferred_type
+                )
+                if source_type in ("image", "video") and inferred_type != "stream":
+                    prefix = f"{project_path}/"
+                    remote_path = (
+                        source if source.startswith(prefix) else prefix + source
+                    )
+                    source_config["src"] = abraia.download_file(remote_path)
         if output is not None:
             pipeline_config.setdefault("display", {})["dest"] = output
+
+        def report(context, _elapsed_ms):
+            rows = table_result_records(context.results)
+            label = "result" if len(rows) == 1 else "results"
+            click.echo(f"Frame {context.frame_index} ({len(rows)} {label})")
+            if not rows:
+                return
+
+            columns = [
+                name for name in ("prediction", "score")
+                if any(name in row for row in rows)
+            ]
+            for row in rows:
+                for name in row:
+                    if name not in columns:
+                        columns.append(name)
+            if not columns:
+                return
+
+            widths = {
+                name: max([len(name)] + [
+                    len(str(row.get(name, ""))) for row in rows
+                ])
+                for name in columns
+            }
+            click.echo("  " + "  ".join(name.ljust(widths[name]) for name in columns))
+            click.echo("  " + "  ".join("-" * widths[name] for name in columns))
+            for row in rows:
+                click.echo("  " + "  ".join(
+                    str(row.get(name, "")).ljust(widths[name])
+                    for name in columns
+                ).rstrip())
+
         with Pipeline.from_dict(
             pipeline_config,
             accelerator=accelerator,
+            on_frame=report,
         ) as pipeline:
-            pipeline.run()
+            pipeline.run(hold_image=True)
 
     _run_operation(operation)
 

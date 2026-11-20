@@ -302,6 +302,7 @@ class FrameSource:
                 daemon=True,
             )
             self._capture_thread.start()
+        self.frames = len(self)
 
     def _prefetch_camera_frames(self):
         capture = self.cap
