@@ -321,6 +321,82 @@ def test_pipeline_renderer_shows_text_attached_by_second_model():
     assert render_box.call_args_list[-1].args[1] == [2, 2, 1, 1]
 
 
+def test_pipeline_renderer_shows_measurement_decisions_on_their_detections():
+    from abraia.runtime.composition import DecisionStep
+    from abraia.runtime.pipeline import _make_pipeline_renderer
+    from abraia.utils.annotation_colors import anomaly_color_rgb
+
+    context = FrameContext(
+        frame=np.zeros((240, 320, 3), dtype=np.uint8), frame_index=0, frame_time=0,
+        results=[
+            {"label": "strawberry", "box": [20, 40, 100, 100],
+             "measurements": {"area_mm2": 600}},
+            {"label": "strawberry", "box": [160, 40, 100, 100],
+             "measurements": {"area_mm2": 400}},
+            {"label": "strawberry", "box": [20, 150, 100, 80]},
+        ],
+    )
+    DecisionStep("size", "area_mm2", "gte", 500)(context)
+
+    with patch("abraia.utils.draw.render_label") as render_label:
+        _make_pipeline_renderer({})(context)
+
+    labels = [call.args[1:] for call in render_label.call_args_list]
+    assert [label[0] for label in labels] == ["strawberry"] * 3 + ["PASS", "FAIL"]
+    assert 20 <= labels[3][1][0] < 120
+    assert 160 <= labels[4][1][0] < 260
+    assert labels[3][2] == anomaly_color_rgb("normal")
+    assert labels[4][2] == anomaly_color_rgb("anomaly")
+
+
+def test_pipeline_renderer_shows_frame_decision_for_object_count():
+    from abraia.runtime.composition import DecisionStep
+    from abraia.runtime.pipeline import _make_pipeline_renderer
+
+    context = FrameContext(
+        frame=np.zeros((240, 320, 3), dtype=np.uint8), frame_index=0, frame_time=0,
+        metrics={"object_count": 0},
+    )
+    DecisionStep("quantity", "object_count", "gte", 1)(context)
+
+    with patch("abraia.utils.draw.render_label") as render_label:
+        _make_pipeline_renderer({})(context)
+
+    assert [call.args[1] for call in render_label.call_args_list] == ["FAIL"]
+
+
+def test_bound_anomaly_review_overrides_an_earlier_pass():
+    from abraia.inference.model_config import ModelSpec
+    from abraia.runtime.composition import create_model_step
+    from abraia.runtime.rendering import render_pipeline_results
+    from abraia.utils.annotation_colors import anomaly_color_rgb
+
+    class AnomalyModel:
+        last_normalized_anomaly_map = np.zeros((8, 8), dtype=np.float32)
+
+        def run(self, frame):
+            return [{"label": "normal", "score": None}]
+
+    context = FrameContext(
+        frame=np.zeros((120, 120, 3), dtype=np.uint8), frame_index=0, frame_time=0,
+        results=[{"label": "part", "box": [16, 16, 80, 80], "decision_result": "PASS"}],
+    )
+    spec = ModelSpec.from_config({"kind": "anomaly", "task": "anomaly"})
+    step = create_model_step("inspect", AnomalyModel(), spec, {}, primary=False)
+    step(context)
+
+    result = context.results[0]
+    assert result["decision_result"] == "REVIEW"
+    assert result["anomaly"]["decision"] == "review"
+
+    result["decision_result"] = "PASS"
+    with patch("abraia.runtime.rendering.render_region_labels") as render_labels:
+        render_pipeline_results(context.frame, context.results)
+    assert render_labels.call_args.args[1] == [
+        ("REVIEW", result["box"], anomaly_color_rgb("review")),
+    ]
+
+
 def test_filter_step_combines_label_confidence_and_region():
     frame = np.zeros((20, 20, 3), dtype=np.uint8)
     results = [

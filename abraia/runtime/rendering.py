@@ -2,8 +2,14 @@
 
 import copy
 
-from ..utils.annotation_colors import anomaly_color_rgb
+from ..utils.annotation_colors import anomaly_color_rgb, label_color_rgb
 from .anomaly import mask_anomaly_heatmap
+
+
+_DECISION_COLORS = {
+    "PASS": anomaly_color_rgb("normal"),
+    "FAIL": anomaly_color_rgb("anomaly"),
+}
 
 
 def render_region_labels(frame, labels):
@@ -45,44 +51,82 @@ def render_region_labels(frame, labels):
     return frame
 
 
-def render_anomaly_decisions(frame, results):
-    """Draw anomaly decisions and defect contours in frame coordinates."""
+def _render_decisions(frame, results, *, render_anomaly=True, frame_decision=None):
     from ..utils.draw import render_polygon
 
     frame_height, frame_width = frame.shape[:2]
+    frame_box = (0, 0, frame_width, frame_height)
     labels = []
     for result in results:
         if not isinstance(result, dict):
             continue
         anomaly = result.get("anomaly")
+        box = result.get("box")
+        box = box if box is not None and len(box) else frame_box
+        decision = result.get("decision_result")
         if isinstance(anomaly, dict):
             prediction = anomaly["prediction"]
             decision = anomaly["decision"].upper()
             score = anomaly.get("score")
             regions = anomaly.get("defect_regions", ())
-            box = result.get("box")
-            boxes = [box] if box is not None else []
+            boxes = [box]
         elif "defect_count" in result:
             prediction = result["label"]
-            decision = result.get("decision_result", "REVIEW")
+            decision = decision or "REVIEW"
             score = result.get("score")
             regions = result["defect_regions"]
             boxes = [region["box"] for region in regions] if decision == "FAIL" else []
             if not boxes:
-                boxes = [(0, 0, frame_width, frame_height)]
+                boxes = [frame_box]
         else:
+            if decision in ("PASS", "FAIL"):
+                labels.append((decision, box, _DECISION_COLORS[decision]))
+            continue
+        if not render_anomaly:
             continue
         for region in regions:
             polygon = region.get("polygon")
             if polygon is not None and len(polygon) >= 3:
                 render_polygon(frame, polygon, anomaly_color_rgb("defect"))
 
-        label = f"{prediction.upper()} {decision}"
+        label = prediction.upper()
+        if label != decision:
+            label = f"{label} {decision}"
         if score is not None:
             label += f" {float(score):.2f}"
-        color = anomaly_color_rgb(prediction)
+        color = _DECISION_COLORS.get(decision) or anomaly_color_rgb(
+            "review" if decision == "REVIEW" else prediction
+        )
         labels.extend((label, box, color) for box in boxes)
+    if frame_decision in ("PASS", "FAIL"):
+        labels.append((frame_decision, frame_box, _DECISION_COLORS[frame_decision]))
     return render_region_labels(frame, labels) if labels else frame
+
+
+def render_anomaly_decisions(frame, results):
+    """Draw anomaly decisions and defect contours in frame coordinates."""
+    return _render_decisions(frame, (
+        result for result in results if isinstance(result, dict)
+        and (isinstance(result.get("anomaly"), dict) or "defect_count" in result)
+    ))
+
+
+def render_pipeline_results(frame, results, *, render_anomaly=True, frame_decision=None):
+    """Draw model annotations and pipeline decisions over one frame."""
+    from ..utils.draw import render_results
+
+    detections = []
+    for result in results:
+        if render_anomaly and isinstance(result.get("anomaly"), dict):
+            result = dict(result)
+            result.pop("result", None)
+            if result.get("track_id") is None and "color" not in result:
+                result["color"] = "#%02X%02X%02X" % label_color_rgb(result)
+        detections.append(result)
+    frame = render_results(frame, detections)
+    return _render_decisions(
+        frame, results, render_anomaly=render_anomaly, frame_decision=frame_decision,
+    )
 
 
 class AnomalyPipelineRenderer:
@@ -136,4 +180,7 @@ class AnomalyPipelineRenderer:
         )
 
 
-__all__ = ["AnomalyPipelineRenderer", "render_anomaly_decisions", "render_region_labels"]
+__all__ = [
+    "AnomalyPipelineRenderer", "render_anomaly_decisions", "render_region_labels",
+    "render_pipeline_results",
+]

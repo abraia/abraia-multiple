@@ -98,6 +98,8 @@ class VideoOutput(OpenCVDisplay):
         self.out = self._writer.out
 
     def show(self, frame):
+        if self.out is None and not self.display_enabled:
+            return
         output = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         self._writer.write_bgr(output)
         self._show_bgr(output)
@@ -129,8 +131,6 @@ class Video(FrameSource):
             video_unpaced,
         )
         self.fps = self._input.source_fps or fps
-        self.frames = self._input.frames
-        self.duration = round(self.frames / self.fps, 3) if self.fps > 0 else 0
         self.frame_rate = self.fps
         try:
             self._output = VideoOutput(
@@ -165,6 +165,10 @@ class Video(FrameSource):
 
     def __len__(self):
         return self.frames
+
+    @property
+    def duration(self):
+        return round(self.frames / self.fps, 3) if self.fps > 0 else 0
 
     def __enter__(self):
         return self

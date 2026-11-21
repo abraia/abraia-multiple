@@ -1,5 +1,7 @@
 """Interactive image windows and annotation helpers."""
 
+import sys
+
 import cv2
 import numpy as np
 
@@ -10,6 +12,29 @@ from PIL import Image
 def show_image(img) -> None:
     """Open an image using the system's default viewer."""
     Image.fromarray(img).show()
+
+
+def _has_gui_session() -> bool:
+    if sys.platform != "darwin":
+        return True
+
+    from ctypes import CDLL, c_void_p
+
+    core_graphics = CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    current_session = core_graphics.CGSessionCopyCurrentDictionary
+    current_session.restype = c_void_p
+    session = current_session()
+    if not session:
+        return False
+
+    core_foundation = CDLL(
+        "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+    )
+    release = core_foundation.CFRelease
+    release.argtypes = [c_void_p]
+    release.restype = None
+    release(session)
+    return True
 
 
 class Sketcher:
@@ -58,18 +83,21 @@ class Sketcher:
                 self.show(res)
 
     def run(self) -> np.ndarray:
+        if not self.window.opened and self.window.error:
+            raise RuntimeError(self.window.error)
         out = self.img
-        while True:
-            ch = 0xFF & cv2.waitKey()
-            if ch in (27, ord('q')):
-                out = self.img
-                break
-            if ch == ord('r'):
-                self.load(self.img)
-            if ch == ord('s'):
-                out = self.output
-                break
-        self.window.close()
+        try:
+            while self.window.opened:
+                ch = 0xFF & cv2.waitKey()
+                if ch in (27, ord('q')):
+                    break
+                if ch == ord('r'):
+                    self.load(self.img)
+                if ch == ord('s'):
+                    out = self.output
+                    break
+        finally:
+            self.window.close()
         return out
 
 
@@ -102,6 +130,10 @@ class Window:
         """Show a frame already converted to OpenCV's BGR channel order."""
         try:
             if not self.opened:
+                # Cocoa can abort in namedWindow outside a macOS GUI session.
+                if not _has_gui_session():
+                    self.error = "No graphical session available for preview"
+                    return False
                 cv2.namedWindow(self.name, cv2.WINDOW_GUI_NORMAL)
                 self.opened = True
                 self.error = None

@@ -6,7 +6,12 @@ from typing import Any, Iterable, Mapping, Optional
 
 from abraia.inference.geometry import point_in_polygon, segments_intersect
 
-from .anomaly import consolidate_anomaly_results, inspect_anomaly_map
+from .anomaly import (
+    ANOMALY_MEASUREMENT_REGIONS,
+    _consolidate_anomaly_results,
+    _inspect_anomaly_map,
+    _regions_without_masks,
+)
 from .results import round_result_value
 
 
@@ -548,13 +553,16 @@ class PrimaryAnomalyModelStep(ModelStep):
     """Publish image anomaly decisions for both regular and streaming inference."""
 
     inspection = None
+    measure_defects = False
 
     def apply_results(self, context, results):
         if isinstance(results, list):
-            results = consolidate_anomaly_results(
+            results, regions = _consolidate_anomaly_results(
                 results, self.model.last_normalized_anomaly_map,
-                context.frame.shape, self.inspection,
+                context.frame.shape, self.inspection, measure_defects=self.measure_defects,
             )
+            if self.measure_defects:
+                context.artifacts[ANOMALY_MEASUREMENT_REGIONS] = regions
         return super().apply_results(context, results)
 
 
@@ -633,6 +641,7 @@ class BoundAnomalyModelStep(BoundModelStep):
     """Inspect each detection crop and map defect regions to the frame."""
 
     inspection = None
+    measure_defects = False
 
     def __call__(self, context):
         values = context.current
@@ -642,9 +651,7 @@ class BoundAnomalyModelStep(BoundModelStep):
             )
         inspection = dict(self.inspection or {})
         inspection.pop("roi", None)
-        configuration = {"steps": [{"type": "model", "model": {
-            "kind": "anomaly", "task": "anomaly", "inspection": inspection,
-        }}]}
+        measurement_regions = []
         started = time.perf_counter()
         for value in values:
             if not isinstance(value, dict) or value.get("box") is None:
@@ -656,28 +663,31 @@ class BoundAnomalyModelStep(BoundModelStep):
             )
             anomaly_map = self.model.last_normalized_anomaly_map
             score, regions = None, []
+            decision = "review"
             if anomaly_map is not None:
-                summary = inspect_anomaly_map(
-                    anomaly_map, crop.shape, predictions, configuration,
+                summary = _inspect_anomaly_map(
+                    anomaly_map, crop.shape, predictions, inspection,
+                    include_masks=self.measure_defects,
                 )
                 score = summary["score"]
+                decision = summary["decision"]
                 regions = [
                     _map_region_result(region, source_box)
                     for region in summary["defect_regions"]
                 ]
-            prediction, decision = "review", "review"
-            if score is not None:
-                failed = score > summary["thresholds"]["image"]
-                prediction, decision = (
-                    ("anomaly", "fail") if failed else ("normal", "pass")
-                )
-                value["decision_result"] = decision.upper()
+                if self.measure_defects:
+                    measurement_regions.extend(regions)
+                    regions = _regions_without_masks(regions)
+            prediction = {"pass": "normal", "fail": "anomaly"}.get(decision, "review")
+            value["decision_result"] = decision.upper()
             value["anomaly"] = {
                 "prediction": prediction,
                 "decision": decision,
                 "score": score,
                 "defect_regions": regions,
             }
+        if self.measure_defects:
+            context.artifacts[ANOMALY_MEASUREMENT_REGIONS] = measurement_regions
         _record_inference_time(context, started)
         self._set_current(context, values, update_results=True)
         return context

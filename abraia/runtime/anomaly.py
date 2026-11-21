@@ -1,7 +1,6 @@
 """Anomaly inspection post-processing for pipeline applications."""
 
 from collections.abc import Mapping
-import copy
 
 from ..utils.annotation_colors import anomaly_color_rgb
 
@@ -12,6 +11,8 @@ DEFAULT_ANOMALY_INSPECTION = {
     "min_area_px": 0,
     "roi": [],
 }
+
+ANOMALY_MEASUREMENT_REGIONS = "anomaly.measurement_regions"
 
 
 def _model_configuration(config):
@@ -47,8 +48,11 @@ def _points(value):
 
 def anomaly_inspection_configuration(config):
     """Return validated anomaly inspection settings from a pipeline config."""
-    model = _model_configuration(config)
-    inspection = model.get("inspection") or {}
+    return _inspection_settings(_model_configuration(config).get("inspection"))
+
+
+def _inspection_settings(inspection):
+    inspection = inspection or {}
     if not isinstance(inspection, Mapping):
         raise ValueError("Anomaly inspection settings must be an object")
     values = dict(DEFAULT_ANOMALY_INSPECTION)
@@ -115,11 +119,31 @@ def mask_anomaly_heatmap(anomaly_map, frame_shape, roi):
 def inspect_anomaly_map(
     anomaly_map, frame_shape, results, configuration, *, include_masks=False
 ):
-    """Summarize thresholded defect regions, optionally including pixel masks."""
+    """Summarize thresholded defect regions, optionally with frame-sized masks."""
+    summary = _inspect_anomaly_map(
+        anomaly_map, frame_shape, results,
+        _model_configuration(configuration).get("inspection"),
+        include_masks=include_masks,
+    )
+    if include_masks:
+        import numpy as np
+
+        for region in summary["defect_regions"]:
+            x, y, width, height = region["box"]
+            mask = np.zeros(frame_shape[:2], dtype=bool)
+            mask[y:y + height, x:x + width] = region["mask"]
+            region["mask"] = mask
+    return summary
+
+
+def _inspect_anomaly_map(
+    anomaly_map, frame_shape, results, inspection=None, *, include_masks=False
+):
+    """Inspect defects, keeping optional masks cropped to their bounding boxes."""
     import cv2
     import numpy as np
 
-    values = anomaly_inspection_configuration(configuration)
+    values = _inspection_settings(inspection)
     height, width = frame_shape[:2]
     heatmap = cv2.resize(
         np.asarray(anomaly_map, dtype=np.float32),
@@ -128,26 +152,26 @@ def inspect_anomaly_map(
     )
     valid = _roi_mask(height, width, values["roi"])
     mask = (heatmap > values["pixel_threshold"]) & valid
-    component_count, component_labels = cv2.connectedComponents(
+    component_count, component_labels, stats, _ = cv2.connectedComponentsWithStats(
         mask.astype(np.uint8), connectivity=8
     )
     regions = []
     for component_id in range(1, component_count):
-        component = component_labels == component_id
-        area = int(component.sum())
+        x, y, box_width, box_height, area = map(int, stats[component_id])
         if area < values["min_area_px"]:
             continue
+        box_slice = np.s_[y:y + box_height, x:x + box_width]
+        component = component_labels[box_slice] == component_id
         contours, _ = cv2.findContours(
             component.astype(np.uint8), cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE,
+            cv2.CHAIN_APPROX_SIMPLE, offset=(x, y),
         )
         contour = max(contours, key=cv2.contourArea)
         polygon = contour[:, 0, :].astype(int).tolist()
-        x, y, box_width, box_height = cv2.boundingRect(contour)
-        score = float(heatmap[component].max())
+        score = float(heatmap[box_slice][component].max())
         region = {
             "polygon": polygon,
-            "box": [int(x), int(y), int(box_width), int(box_height)],
+            "box": [x, y, box_width, box_height],
             "score": score,
             "area_px": area,
         }
@@ -177,20 +201,32 @@ def inspect_anomaly_map(
             "pixel": values["pixel_threshold"],
             "min_area_px": values["min_area_px"],
         },
-        "roi": copy.deepcopy(values["roi"]),
+        "roi": values["roi"],
     }
 
 
+def _regions_without_masks(regions):
+    return [{key: value for key, value in region.items() if key != "mask"} for region in regions]
+
+
 def consolidate_anomaly_results(results, anomaly_map, frame_shape, inspection=None):
-    # Keep the image decision and its accepted defect regions in one record.
+    records, _ = _consolidate_anomaly_results(results, anomaly_map, frame_shape, inspection)
+    return records
+
+
+def _consolidate_anomaly_results(
+    results, anomaly_map, frame_shape, inspection=None, *, measure_defects=False
+):
+    """Return image-level records and optional cropped masks for measurement."""
     image_result = next((
         result for result in results
         if isinstance(result, Mapping)
         and (result.get("prediction") or result.get("label")) in ("normal", "anomaly")
     ), None)
     if image_result is None:
-        return results
+        return results, []
 
+    measurement_regions = []
     if anomaly_map is None:
         regions = [
             result for result in results
@@ -203,25 +239,31 @@ def consolidate_anomaly_results(results, anomaly_map, frame_shape, inspection=No
         )
         decision = "FAIL" if prediction == "anomaly" else "PASS"
     else:
-        config = {"steps": [{"type": "model", "model": {
-            "kind": "anomaly", "task": "anomaly", "inspection": inspection,
-        }}]}
-        summary = inspect_anomaly_map(anomaly_map, frame_shape, [image_result], config)
+        summary = _inspect_anomaly_map(
+            anomaly_map, frame_shape, [image_result], inspection, include_masks=measure_defects,
+        )
         regions = summary["defect_regions"]
+        if measure_defects:
+            measurement_regions = regions
+            regions = _regions_without_masks(regions)
         decision = summary["decision"].upper()
         prediction = {"PASS": "normal", "FAIL": "anomaly"}.get(decision)
 
-    record = {**image_result, "defect_regions": regions, "defect_count": len(regions)}
+    record = {
+        **image_result, "defect_regions": regions, "defect_count": len(regions),
+        "decision_result": decision,
+    }
     if prediction is not None:
         record.update(
             label=prediction, prediction=prediction,
-            class_id=int(prediction == "anomaly"), decision_result=decision,
+            class_id=int(prediction == "anomaly"),
         )
-    return [
+    records = [
         record if result is image_result else result
         for result in results
         if not isinstance(result, Mapping) or result.get("label") != "defect"
     ]
+    return records, measurement_regions
 
 
 class AnomalyInspectionRenderer:

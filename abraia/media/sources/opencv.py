@@ -1,6 +1,9 @@
 """Image, video, camera, and stream sources backed by OpenCV."""
 
+from collections.abc import Sequence
 import logging
+import math
+from operator import index as integer_index
 import os
 import queue
 import threading
@@ -10,6 +13,7 @@ from typing import Any, Generator, List, Optional, Tuple
 
 import cv2
 
+from .sequence import ImageSequence
 from .types import (
     IMAGE_SUFFIXES,
     infer_source_type as infer_media_source_type,
@@ -221,28 +225,94 @@ CAMERA_RESOLUTION_MAP = {
 }
 
 
-def load_images(src: str) -> List[Any]:
-    """Load one image or all supported images in a directory as RGB arrays."""
-    path = Path(src)
+def _read_image(path):
     from ..images import load_image
 
-    def read_image(image_path: Path):
-        try:
-            return load_image(image_path, max_size=None)
-        except (OSError, ValueError):
-            return None
+    try:
+        return load_image(path, max_size=None)
+    except (OSError, ValueError):
+        return None
 
-    if is_image(str(path)):
-        image = read_image(path)
-        return [image] if image is not None else []
+
+def _image_sequence(src):
+    path = Path(str(src))
+    if is_image(path):
+        return ImageSequence.from_files([path], loader=_read_image)
     if path.is_dir():
-        images = [
-            read_image(image_path)
-            for image_path in sorted(path.glob("*"))
-            if is_image(str(image_path))
-        ]
-        return [image for image in images if image is not None]
-    return []
+        try:
+            return ImageSequence.from_directory(path, loader=_read_image)
+        except ValueError:
+            pass
+    return None
+
+
+def load_images(src: str) -> List[Any]:
+    """Load one image or all supported images in a directory as RGB arrays."""
+    return [image for image in _image_sequence(src) or () if image is not None]
+
+
+class _ReadableImages(Sequence):
+    """Decode readable frames on demand and reuse frames decoded for counting."""
+
+    def __init__(self, images):
+        self._images = images
+        self._readable = {}
+        self._prefetched = {}
+        self._first_index = None
+        self.first = None
+        for index in range(len(images)):
+            image = self._decode(index)
+            if image is not None:
+                self._first_index, self.first = index, image
+                break
+
+    def _decode(self, index):
+        if index == self._first_index:
+            return self.first
+        prefetched = self._prefetched.pop(index, None)
+        if prefetched is not None:
+            return prefetched
+        if self._readable.get(index) is False:
+            return None
+        image = self._images[index]
+        self._readable[index] = image is not None
+        return image
+
+    def __iter__(self):
+        for index in range(len(self._images)):
+            image = self._decode(index)
+            if image is not None:
+                yield image
+
+    def __len__(self):
+        # A bulk consumer may ask for an exact length before it starts reading.
+        # Keep those decoded frames until the consumer reads them.
+        for index in range(len(self._images)):
+            if index not in self._readable:
+                image = self._decode(index)
+                if image is not None:
+                    self._prefetched[index] = image
+        return sum(self._readable.values())
+
+    def discard_prefetched(self):
+        self._prefetched.clear()
+
+    def __getitem__(self, item):
+        if isinstance(item, slice):
+            return list(iter(self))[item]
+        remaining = integer_index(item)
+        indices = range(len(self._images))
+        if remaining < 0:
+            indices = reversed(indices)
+            remaining = -remaining - 1
+        for index in indices:
+            if remaining == 0 or index not in self._readable:
+                image = self._decode(index)
+                if remaining == 0 and image is not None:
+                    return image
+            if self._readable[index]:
+                remaining -= 1
+        raise IndexError("image index out of range")
 
 
 class FrameSource:
@@ -271,14 +341,17 @@ class FrameSource:
         self.height = None
         self.source_fps = None
         self._capture_stop = threading.Event()
+        self._capture_lock = threading.Lock()
+        self._capture_thread_lock = threading.Lock()
         self._capture_queue = None
         self._capture_thread = None
+        self._capture_error = None
 
         if self.source_type == "images":
-            self.images = load_images(str(src))
-            if not self.images:
+            self.images = _ReadableImages(_image_sequence(src) or ())
+            if self.images.first is None:
                 raise ValueError(f"No readable images found in: {src}")
-            self.height, self.width = self.images[0].shape[:2]
+            self.height, self.width = self.images.first.shape[:2]
         else:
             self.cap = open_capture(
                 src,
@@ -294,49 +367,79 @@ class FrameSource:
                 self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or self.resolution[1]
             )
         self.frame_rate = self.source_fps or fps
+        self._frame_count = 0 if self.has_images else len(self)
         if self.source_type in ("camera", "usb_camera", "rpi_camera"):
+            self._start_capture_thread(keep_latest=True)
+
+    def _start_capture_thread(self, *, keep_latest):
+        with self._capture_thread_lock:
+            if self._capture_stop.is_set() or self._capture_thread is not None:
+                return
             self._capture_queue = queue.Queue(maxsize=1)
             self._capture_thread = threading.Thread(
-                target=self._prefetch_camera_frames,
-                name="abraia-camera-capture",
+                target=self._prefetch_frames,
+                args=(keep_latest,),
+                name="abraia-frame-capture",
                 daemon=True,
             )
             self._capture_thread.start()
-        self.frames = len(self)
 
-    def _prefetch_camera_frames(self):
-        capture = self.cap
-        while not self._capture_stop.is_set() and capture is not None:
-            try:
-                ret, frame = read_rgb(capture)
-            except Exception:
+    def _prefetch_frames(self, keep_latest):
+        try:
+            while not self._capture_stop.is_set() and not self.stop_event.is_set():
+                ret, frame, _ = self._read_capture()
+                if not ret:
+                    break
+                if keep_latest:
+                    self._publish_camera_frame(frame)
+                else:
+                    while not self._capture_stop.is_set() and not self.stop_event.is_set():
+                        try:
+                            self._capture_queue.put(frame, timeout=0.1)
+                            break
+                        except queue.Full:
+                            continue
+        except Exception as error:
+            if keep_latest:
                 logger.debug("Camera frame capture failed", exc_info=True)
-                break
-            if not ret:
-                break
-            try:
-                self._capture_queue.put_nowait(frame)
-            except queue.Full:
-                try:
-                    self._capture_queue.get_nowait()
-                except queue.Empty:
-                    pass
-                try:
-                    self._capture_queue.put_nowait(frame)
-                except queue.Full:
-                    pass
+            else:
+                self._capture_error = error
+        finally:
+            self._release_capture_when_idle()
 
-    def _read_source_frame(self):
-        if self._capture_queue is None:
-            return read_rgb(self.cap)
-        while not self._capture_stop.is_set():
+    def _publish_camera_frame(self, frame):
+        try:
+            self._capture_queue.put_nowait(frame)
+        except queue.Full:
             try:
-                return True, self._capture_queue.get(timeout=0.1)
+                self._capture_queue.get_nowait()
+            except queue.Empty:
+                pass
+            self._capture_queue.put_nowait(frame)
+
+    def _read_capture(self, read_timestamp=False):
+        with self._capture_lock:
+            if self.cap is None or self._capture_stop.is_set() or self.stop_event.is_set():
+                return False, None, 0.0
+            ret, frame = read_rgb(self.cap)
+            if not ret or self._capture_stop.is_set() or self.stop_event.is_set():
+                return False, None, 0.0
+            timestamp = self.cap.get(cv2.CAP_PROP_POS_MSEC) if read_timestamp else 0.0
+            return True, frame, float(timestamp or 0.0)
+
+    def _read_source_frame(self, read_timestamp=False):
+        if self._capture_queue is None:
+            return self._read_capture(read_timestamp)
+        while not self._capture_stop.is_set() and not self.stop_event.is_set():
+            try:
+                return True, self._capture_queue.get(timeout=0.1), 0.0
             except queue.Empty:
                 thread = self._capture_thread
                 if thread is not None and not thread.is_alive():
-                    return False, None
-        return False, None
+                    if self._capture_error is not None:
+                        raise self._capture_error
+                    break
+        return False, None, 0.0
 
     @staticmethod
     def _camera_resolution(resolution) -> Tuple[int, int]:
@@ -362,14 +465,21 @@ class FrameSource:
     def has_images(self) -> bool:
         return self.images is not None
 
+    @property
+    def frames(self):
+        """Return the frame count, checking unread image files only when needed."""
+        return len(self.images) if self.has_images else self._frame_count
+
     def isOpened(self):
         if self.has_images:
             return True
-        return self.cap is not None and self.cap.isOpened()
+        with self._capture_lock:
+            return self.cap is not None and self.cap.isOpened()
 
     def get(self, prop_id: int) -> float:
-        if self.cap is not None:
-            return self.cap.get(prop_id)
+        with self._capture_lock:
+            if self.cap is not None:
+                return self.cap.get(prop_id)
         if prop_id == cv2.CAP_PROP_FRAME_WIDTH:
             return float(self.width or 0)
         if prop_id == cv2.CAP_PROP_FRAME_HEIGHT:
@@ -377,23 +487,29 @@ class FrameSource:
         if prop_id == cv2.CAP_PROP_FPS:
             return float(self.frame_rate or 0)
         if prop_id == cv2.CAP_PROP_FRAME_COUNT:
-            return float(len(self.images or []))
+            return float(self.frames) if self.has_images else 0.0
         return 0.0
 
     def set(self, prop_id: int, value: float) -> bool:
-        if self.cap is not None:
-            return self.cap.set(prop_id, value)
-        return False
+        with self._capture_lock:
+            return self.cap.set(prop_id, value) if self.cap is not None else False
 
     def _generate_frames(self) -> Generator[Any, None, None]:
         if self.has_images:
-            for image in self.images:
-                if self.stop_event.is_set() or getattr(self, "quit", False):
+            images = iter(self.images)
+            while not (
+                self._capture_stop.is_set() or self.stop_event.is_set()
+                or getattr(self, "quit", False)
+            ):
+                image = next(images, None)
+                if image is None:
                     break
                 yield image
             return
 
         source_type = self.source_type
+        if source_type == "stream":
+            self._start_capture_thread(keep_latest=False)
         camera_source = source_type in ("camera", "usb_camera", "rpi_camera", "stream")
         video_source = source_type == "video"
         target_fps = max(
@@ -414,14 +530,13 @@ class FrameSource:
         video_start_ms, wall_start_time = None, None
         next_keep_video_ms = None
         try:
-            while self.cap is not None:
+            while not self._capture_stop.is_set():
                 if self.stop_event.is_set() or getattr(self, "quit", False):
                     break
-                ret, frame = self._read_source_frame()
-                if not ret:
+                ret, frame, current_pos_ms = self._read_source_frame(should_pace)
+                if not ret or self._capture_stop.is_set() or self.stop_event.is_set():
                     break
 
-                current_pos_ms = float(self.cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0)
                 if should_pace:
                     if video_start_ms is None:
                         video_start_ms, wall_start_time = current_pos_ms, time.monotonic()
@@ -435,8 +550,9 @@ class FrameSource:
                     desired_wall_time = wall_start_time + (
                         current_pos_ms - video_start_ms
                     ) / 1000.0
-                    if time.monotonic() < desired_wall_time:
-                        time.sleep(max(0, desired_wall_time - time.monotonic()))
+                    delay = desired_wall_time - time.monotonic()
+                    if delay > 0 and self._capture_stop.wait(delay):
+                        break
 
                 if keep_period:
                     if time.monotonic() < next_keep_timestamp:
@@ -453,7 +569,10 @@ class FrameSource:
         yield from self._generate_frames()
 
     def __len__(self):
-        return int(self.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if self.has_images:
+            return self.frames
+        count = self.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        return int(count) if math.isfinite(count) and count > 0 else 0
 
     def get_frame(self, frame_num):
         if self.has_images:
@@ -461,29 +580,57 @@ class FrameSource:
                 return self.images[frame_num]
             except IndexError:
                 return None
-        if self.cap is None:
-            return None
-        if isinstance(self.cap, Camera) and getattr(self.cap, "picam2", None):
-            return None
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-        ret, frame = read_rgb(self.cap)
-        return frame if ret else None
+        with self._capture_lock:
+            if self.cap is None or self._capture_stop.is_set():
+                return None
+            if isinstance(self.cap, Camera) and self.cap.picam2:
+                return None
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+            ret, frame = read_rgb(self.cap)
+            return frame if ret else None
+
+    def stop(self):
+        """Request cancellation without releasing a capture during a native read."""
+        self._capture_stop.set()
 
     def close(self):
         self._close_capture()
+        if self.has_images:
+            self.images.discard_prefetched()
 
     def _close_capture(self):
         """Release only the input capture used by the frame iterator."""
-        self._capture_stop.set()
+        self.stop()
+        with self._capture_thread_lock:
+            thread = self._capture_thread
+            if thread is None:
+                if self._capture_lock.acquire(blocking=False):
+                    try:
+                        self._release_capture()
+                    finally:
+                        self._capture_lock.release()
+                    return
+                # The native read must release the I/O lock before cleanup.
+                thread = self._capture_thread = threading.Thread(
+                    target=self._release_capture_when_idle,
+                    name="abraia-capture-release",
+                    daemon=True,
+                )
+                thread.start()
+        if thread is not threading.current_thread():
+            thread.join(timeout=0.2)
+
+    def _release_capture_when_idle(self):
+        with self._capture_lock:
+            self._release_capture()
+
+    def _release_capture(self):
         capture, self.cap = self.cap, None
         if capture is not None:
             try:
                 capture.release()
             except Exception:
                 logger.debug("Failed to release frame source", exc_info=True)
-        thread = self._capture_thread
-        if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=0.2)
 
 
 class ImageSource(FrameSource):

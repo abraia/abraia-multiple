@@ -179,11 +179,17 @@ def test_pipeline_stops_when_display_requests_quit():
 
 
 @pytest.mark.parametrize(
-    "hold_image, show, frame_count, expected_polls",
-    [(True, True, 1, 2), (False, True, 1, 0), (True, False, 1, 0), (True, True, 2, 0)],
+    "hold_image, show, has_gui_session, frame_count, expected_polls",
+    [
+        (True, True, True, 1, 2),
+        (False, True, True, 1, 0),
+        (True, False, True, 1, 0),
+        (True, True, True, 2, 0),
+        (True, True, False, 1, 0),
+    ],
 )
 def test_pipeline_holds_single_image_preview_until_quit(
-    tmp_path, monkeypatch, hold_image, show, frame_count, expected_polls
+    tmp_path, monkeypatch, hold_image, show, has_gui_session, frame_count, expected_polls
 ):
     import cv2
 
@@ -197,13 +203,15 @@ def test_pipeline_holds_single_image_preview_until_quit(
     display = VideoOutput(fps=source.frame_rate, size=(source.width, source.height))
     if not show:
         display.set_display_enabled(False)
+    opened_windows = []
     waits = []
 
     def wait_key(delay):
         waits.append(delay)
         return ord("q") if waits.count(50) == 2 else -1
 
-    monkeypatch.setattr(cv2, "namedWindow", lambda *_args: None)
+    monkeypatch.setattr("abraia.media.display._has_gui_session", lambda: has_gui_session)
+    monkeypatch.setattr(cv2, "namedWindow", lambda name, _flags: opened_windows.append(name))
     monkeypatch.setattr(cv2, "imshow", lambda *_args: None)
     monkeypatch.setattr(cv2, "getWindowProperty", lambda *_args: 1)
     monkeypatch.setattr(cv2, "destroyWindow", lambda *_args: None)
@@ -214,6 +222,7 @@ def test_pipeline_holds_single_image_preview_until_quit(
         last = pipeline.run(hold_image=hold_image)
 
     assert last.frame_index == frame_count - 1
+    assert opened_windows == (["Video"] if show and has_gui_session else [])
     assert waits.count(50) == expected_polls
 
 

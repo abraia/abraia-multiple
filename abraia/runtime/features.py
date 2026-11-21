@@ -2,10 +2,9 @@
 
 from collections.abc import Mapping
 
-from .anomaly import anomaly_inspection_configuration, inspect_anomaly_map
+from .anomaly import ANOMALY_MEASUREMENT_REGIONS, _inspect_anomaly_map
 from .geometry import (
     add_calibrated_measurements,
-    mask_measurements,
     result_measurements,
 )
 
@@ -163,38 +162,28 @@ class FeatureExtractionStep:
         }
 
     def _measure_anomaly(self, context):
-        model_entry = self.model_entry
-        model = model_entry["model"]
-        anomaly_map = model.last_normalized_anomaly_map
-        if anomaly_map is None:
-            regions = []
-        else:
-            configuration = {"steps": [{
-                "type": "model",
-                "model": model_entry["configuration"],
-            }]}
-            summary = inspect_anomaly_map(
-                anomaly_map,
-                context.frame.shape,
-                context.results,
-                configuration,
-                include_masks=True,
-            )
-            regions = []
-            for index, region in enumerate(summary["defect_regions"]):
-                mask = region.pop("mask")
-                measured = dict(region)
-                measured["id"] = f"{self.step_id}-{index + 1}"
-                measured["label"] = f"Anomaly {index + 1}"
-                geometry = mask_measurements(mask)
-                measured["measurements"] = _select_features(
-                    geometry, self.features
-                )
-                measured["decision_result"] = "FAIL"
-                add_calibrated_measurements(
-                    measured["measurements"], self.calibration
-                )
-                regions.append(measured)
+        defects = context.artifacts.pop(ANOMALY_MEASUREMENT_REGIONS, None)
+        if defects is None:
+            defects = []
+            model_entry = self.model_entry
+            anomaly_map = model_entry["model"].last_normalized_anomaly_map
+            if anomaly_map is not None:
+                defects = _inspect_anomaly_map(
+                    anomaly_map, context.frame.shape, context.results,
+                    model_entry["configuration"].get("inspection"), include_masks=True,
+                )["defect_regions"]
+        regions = []
+        height, width = context.frame.shape[:2]
+        for index, region in enumerate(defects, 1):
+            measured = {key: value for key, value in region.items() if key != "mask"}
+            measured["id"] = f"{self.step_id}-{index}"
+            measured["label"] = f"Anomaly {index}"
+            geometry = result_measurements(region)
+            geometry["fraction"] = region["area_px"] / (height * width)
+            measured["measurements"] = _select_features(geometry, self.features)
+            measured["decision_result"] = "FAIL"
+            add_calibrated_measurements(measured["measurements"], self.calibration)
+            regions.append(measured)
         set_anomaly_decisions(context.results)
         context.results.extend(regions)
         context.current = context.results

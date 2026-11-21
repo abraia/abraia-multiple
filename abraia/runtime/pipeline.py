@@ -176,26 +176,16 @@ def _make_pipeline_renderer(
                     color=(255, 255, 0),
                 )
         if render_results:
-            from ..utils.draw import render_results as draw_results
+            from .rendering import render_pipeline_results
 
-            results = context.results
-            if render_anomaly and any(
-                "anomaly" in result or "defect_count" in result for result in results
-            ):
-                from ..utils.annotation_colors import label_color_rgb
-                from .rendering import render_anomaly_decisions
-
-                detections = []
-                for result in results:
-                    if "anomaly" in result:
-                        result = dict(result)
-                        result.pop("result", None)
-                        if result.get("track_id") is None:
-                            result.setdefault("color", "#%02X%02X%02X" % label_color_rgb(result))
-                    detections.append(result)
-                out = draw_results(out, detections)
-                return render_anomaly_decisions(out, results)
-            out = draw_results(out, results)
+            decision = context.metrics.get("decision", {})
+            frame_decision = (
+                decision.get("status") if decision.get("metric") == "object_count" else None
+            )
+            out = render_pipeline_results(
+                out, context.results, render_anomaly=render_anomaly,
+                frame_decision=frame_decision,
+            )
         return out
 
     return render
@@ -295,6 +285,7 @@ def _build_pipeline_steps(
     components = {}
     model_iter = iter(created_models)
     model_index = 0
+    model_step = None
     models = {}
     for step in steps_config:
         if not step.is_active:
@@ -334,9 +325,9 @@ def _build_pipeline_steps(
                 )
             from .features import FeatureExtractionStep
 
-            steps.append(FeatureExtractionStep(
-                step_id, measure_config, models=models
-            ))
+            if isinstance(model_step, (PrimaryAnomalyModelStep, BoundAnomalyModelStep)):
+                model_step.measure_defects = True
+            steps.append(FeatureExtractionStep(step_id, measure_config, models=models))
         elif step_type == "count":
             mode = step.get("mode", "region")
             tracker = None
