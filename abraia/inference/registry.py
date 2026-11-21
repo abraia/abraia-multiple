@@ -148,15 +148,6 @@ def _create_anomaly_model(spec, _config, base_dir, session_options):
     )
 
 
-def _create_clip_classifier(spec, _config, base_dir, session_options):
-    """Create a CLIP image-classification adapter."""
-    from .models.clip_classifier import ClipClassifier
-
-    return _create_onnx_adapter(
-        ClipClassifier, spec.uri, base_dir, session_options
-    )
-
-
 def _create_rfdetr_model(spec, _config, base_dir, session_options):
     """Create an RF-DETR ONNX adapter."""
     from .models.object_models import RFDETRONNXModel
@@ -244,7 +235,6 @@ def _create_ocr_model(spec, _config, _base_dir, session_options):
 _MODEL_FACTORIES = {
     **{kind: _create_yolo_model for kind in MODEL_ARCHITECTURES},
     "anomaly": _create_anomaly_model,
-    "clip": _create_clip_classifier,
     "rfdetr": _create_rfdetr_model,
     "dfine": _create_dfine_model,
     "resnet": _create_resnet_model,

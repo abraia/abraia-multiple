@@ -202,13 +202,9 @@ def _run_operation(operation):
 
 
 def _available_demos():
-    from .demo import CAMERA_PIPELINES, PIPELINES
+    from .demo import DEMO_TASKS, PI_CAMERA_DEMO
 
-    return tuple(dict.fromkeys(
-        tuple(PIPELINES)
-        + ("faces",)
-        + tuple(CAMERA_PIPELINES)
-    ))
+    return (*DEMO_TASKS, "faces", PI_CAMERA_DEMO)
 
 
 def _show_demos():
@@ -242,10 +238,10 @@ def _complete_demo_model(ctx, param, incomplete):
     demo_name = ctx.params.get("demo_or_source")
     if project is None and ctx.args:
         project = ctx.args[0]
-    if not demo_name and project == "demo" and len(ctx.args) > 1:
-        demo_name = ctx.args[1]
     if project != "demo":
         return []
+    if not demo_name and len(ctx.args) > 1:
+        demo_name = ctx.args[1]
     if not demo_name or demo_name == "list":
         return []
     from .demo import demo_model_options
@@ -255,13 +251,15 @@ def _complete_demo_model(ctx, param, incomplete):
 
 def _run_demo(demo_name, src=None, accelerator="auto", output=None, model=None):
     """Run one of the built-in demo pipelines."""
-    demo_name = demo_name or "detect"
+    from .demo import DEFAULT_DEMO, PI_CAMERA_DEMO
+
+    demo_name = demo_name or DEFAULT_DEMO
     if demo_name not in _available_demos():
         available = ", ".join(_available_demos())
         raise click.ClickException(
             f"Unknown demo '{demo_name}'. Available demos: {available}"
         )
-    if demo_name == "pi-camera":
+    if demo_name == PI_CAMERA_DEMO:
         if model is not None:
             raise click.ClickException("The pi-camera demo does not use a model.")
         from .demo import run_camera_pipeline
@@ -280,12 +278,16 @@ def _run_demo(demo_name, src=None, accelerator="auto", output=None, model=None):
 
         return track_faces(src, accelerator=accelerator, output=output)
 
-    from .demo import monitor_objects
+    from .demo import HAILO_AUTO_EXCLUSIONS, resolve_pipeline
+    from .utils.remote import download_file as download_shared_file
 
-    options = {"accelerator": accelerator, "output": output}
-    if model is not None:
-        options["model"] = model
-    return monitor_objects(src, demo_name, **options)
+    configuration = resolve_pipeline(demo_name, accelerator=accelerator, model=model)
+    if accelerator == "auto" and demo_name in HAILO_AUTO_EXCLUSIONS:
+        accelerator = "onnx"
+    return _run_pipeline_config(
+        configuration, src, accelerator, output, download_shared_file,
+        camera_resolution=(1280, 720),
+    )
 
 
 @cli.command("list")
@@ -405,6 +407,7 @@ def run(
 
     Use ``abraia run demo NAME [SOURCE]`` for demos or
     ``abraia run PROJECT [SOURCE]`` for saved pipelines.
+    List demos with ``abraia run demo list``.
     """
     def operation():
         if project == "demo":
@@ -412,21 +415,16 @@ def run(
                 _show_demos()
                 return
             return _run_demo(
-                demo_or_source or "detect",
+                demo_or_source,
                 src,
                 accelerator=accelerator,
                 output=output,
                 model=demo_model,
             )
-
         if demo_model is not None:
             raise click.ClickException(
                 "--model can only be used with 'abraia run demo'."
             )
-
-        from .runtime import Pipeline
-        from .runtime.results import table_result_records
-        from .runtime.sources import infer_source_type, normalize_source_type
 
         source_override = src if src is not None else demo_or_source or None
         project_path = project.rstrip("/")
@@ -443,74 +441,98 @@ def run(
             )
             return
 
-        if source_override is not None:
-            source_config = pipeline_config.setdefault("source", {})
-            source_config["src"] = source_override
-            inferred_type = infer_source_type(source_override)
-            if (
-                inferred_type
-                and normalize_source_type(source_config.get("type")) != "genicam"
-            ):
-                source_config["type"] = inferred_type
-        else:
-            source_config = pipeline_config.get("source") or {}
-            source = (
-                source_config.get("src") if isinstance(source_config, dict) else None
-            )
-            if isinstance(source, str) and source and not Path(source).is_absolute():
-                inferred_type = infer_source_type(source)
-                source_type = (
-                    normalize_source_type(source_config.get("type")) or inferred_type
-                )
-                if source_type in ("image", "video") and inferred_type != "stream":
-                    prefix = f"{project_path}/"
-                    remote_path = (
-                        source if source.startswith(prefix) else prefix + source
-                    )
-                    source_config["src"] = abraia.download_file(remote_path)
-        if output is not None:
-            pipeline_config.setdefault("display", {})["dest"] = output
+        def download_project_source(source):
+            prefix = f"{project_path}/"
+            remote_path = source if source.startswith(prefix) else prefix + source
+            return abraia.download_file(remote_path)
 
-        def report(context, _elapsed_ms):
-            rows = table_result_records(context.results)
-            label = "result" if len(rows) == 1 else "results"
-            click.echo(f"Frame {context.frame_index} ({len(rows)} {label})")
-            if not rows:
-                return
-
-            columns = [
-                name for name in ("prediction", "score")
-                if any(name in row for row in rows)
-            ]
-            for row in rows:
-                for name in row:
-                    if name not in columns:
-                        columns.append(name)
-            if not columns:
-                return
-
-            widths = {
-                name: max([len(name)] + [
-                    len(str(row.get(name, ""))) for row in rows
-                ])
-                for name in columns
-            }
-            click.echo("  " + "  ".join(name.ljust(widths[name]) for name in columns))
-            click.echo("  " + "  ".join("-" * widths[name] for name in columns))
-            for row in rows:
-                click.echo("  " + "  ".join(
-                    str(row.get(name, "")).ljust(widths[name])
-                    for name in columns
-                ).rstrip())
-
-        with Pipeline.from_dict(
-            pipeline_config,
-            accelerator=accelerator,
-            on_frame=report,
-        ) as pipeline:
-            pipeline.run(hold_image=True)
+        return _run_pipeline_config(
+            pipeline_config, source_override, accelerator, output, download_project_source,
+        )
 
     _run_operation(operation)
+
+
+def _run_pipeline_config(
+    pipeline_config, source_override, accelerator, output, download_source,
+    *, camera_resolution=None,
+):
+    """Apply CLI overrides and execute a configured pipeline."""
+    from .runtime import Pipeline
+    from .runtime.results import table_result_records
+    from .runtime.sources import infer_source_type, normalize_source_type
+
+    if source_override is not None:
+        source_config = pipeline_config.setdefault("source", {})
+        source_config["src"] = source_override
+        inferred_type = infer_source_type(source_override)
+        if (
+            inferred_type
+            and normalize_source_type(source_config.get("type")) != "genicam"
+        ):
+            source_config["type"] = inferred_type
+    else:
+        source_config = pipeline_config.get("source") or {}
+        source = (
+            source_config.get("src") if isinstance(source_config, dict) else None
+        )
+        if isinstance(source, str) and source and not Path(source).is_absolute():
+            inferred_type = infer_source_type(source)
+            source_type = (
+                normalize_source_type(source_config.get("type")) or inferred_type
+            )
+            if source_type in ("image", "video") and inferred_type != "stream":
+                source_config["src"] = download_source(source)
+    if (
+        camera_resolution
+        and isinstance(source_config, dict)
+        and source_config.get("type") == "camera"
+    ):
+        source_config.setdefault("resolution", list(camera_resolution))
+    if output is not None:
+        pipeline_config.setdefault("display", {})["dest"] = output
+
+    def report(context, _elapsed_ms):
+        rows = table_result_records(context.results)
+        label = "result" if len(rows) == 1 else "results"
+        click.echo(f"Frame {context.frame_index} ({len(rows)} {label})")
+        if not rows:
+            return
+
+        columns = [
+            name for name in ("prediction", "score")
+            if any(name in row for row in rows)
+        ]
+        for row in rows:
+            for name in row:
+                if name not in columns:
+                    columns.append(name)
+        if not columns:
+            return
+
+        widths = {
+            name: max([len(name)] + [
+                len(str(row.get(name, ""))) for row in rows
+            ])
+            for name in columns
+        }
+        click.echo("  " + "  ".join(name.ljust(widths[name]) for name in columns))
+        click.echo("  " + "  ".join("-" * widths[name] for name in columns))
+        for row in rows:
+            click.echo("  " + "  ".join(
+                str(row.get(name, "")).ljust(widths[name])
+                for name in columns
+            ).rstrip())
+
+    with Pipeline.from_dict(
+        pipeline_config,
+        accelerator=accelerator,
+        on_frame=report,
+    ) as pipeline:
+        pipeline.run(hold_image=True)
+        counter = pipeline.components.get("line_counter")
+        if counter:
+            click.echo(f"Final In: {counter.in_count}, Final Out: {counter.out_count}")
 
 
 def main():

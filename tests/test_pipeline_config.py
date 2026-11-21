@@ -1,12 +1,12 @@
 """Tests for pipeline configuration and ONNX/Hailo parity."""
 
+from copy import deepcopy
 from unittest.mock import patch
 
 import pytest
 
 from abraia.demo import (
-    PIPELINE_DEVICES,
-    PIPELINES,
+    DEMO_TASKS,
     demo_model_options,
     resolve_pipeline,
 )
@@ -18,7 +18,6 @@ from abraia.inference.model_config import (
 )
 from abraia.runtime.config import (
     SUPPORTED_MODEL_OPTIONS,
-    SUPPORTED_SECOND_STEP_MODEL_OPTIONS,
     model_control_visibility,
     model_defaults,
     model_editor_values,
@@ -33,24 +32,24 @@ def _primary_model(config):
     return {}
 
 
-@pytest.mark.parametrize(
-    "name, kind, task",
-    [
-        ("yolo9", "yolo9", "detection"),
-        ("rfdetr", "rfdetr", "detection"),
-        ("rfdetr-seg", "rfdetr", "segmentation"),
-        ("dfine", "dfine", "detection"),
-        ("dfine-seg", "dfine", "segmentation"),
-    ],
-)
-def test_builtin_model_demos_define_the_expected_model(name, kind, task):
-    model = _primary_model(PIPELINES[name])
-
-    assert (model["kind"], model["task"]) == (kind, task)
-    assert model["uri"].endswith(".onnx")
+@pytest.fixture
+def remote_demos(monkeypatch, public_demo_configs):
+    monkeypatch.setattr(
+        "abraia.demo.load_public_pipeline",
+        lambda name: deepcopy(public_demo_configs[name]),
+    )
+    return public_demo_configs
 
 
-def test_hailo_apple_demo_uses_a_bundled_segmentation_model():
+def test_model_demo_tasks_are_available_for_completion():
+    assert DEMO_TASKS["detect"] == "detection"
+    assert DEMO_TASKS["rfdetr-seg"] == "segmentation"
+    assert DEMO_TASKS["dfine-seg"] == "segmentation"
+    assert "yolov8n" in demo_model_options("detect")
+    assert "yolov8n-seg" in demo_model_options("rfdetr-seg")
+
+
+def test_hailo_apple_demo_uses_a_bundled_segmentation_model(remote_demos):
     with patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
          patch("abraia.demo._hailo_model_available", return_value=True):
         config = resolve_pipeline("apple", accelerator="hailo")
@@ -60,7 +59,8 @@ def test_hailo_apple_demo_uses_a_bundled_segmentation_model():
     assert model["uri"] == "multiple/models/yolov8n-seg_hailo8.hef"
 
 
-def test_demo_model_override_uses_a_compatible_builtin_variant():
+def test_demo_model_override_uses_a_compatible_builtin_variant(remote_demos):
+    _primary_model(remote_demos["apple"])["labels"] = ["apple"]
     config = resolve_pipeline(
         "apple", accelerator="cpu", model="yolov8n-seg"
     )
@@ -74,7 +74,8 @@ def test_demo_model_override_uses_a_compatible_builtin_variant():
     assert "yolo9t" not in demo_model_options("apple")
 
 
-def test_people_demo_can_select_yolov9_model_variant():
+def test_people_demo_can_select_yolov9_model_variant(remote_demos):
+    _primary_model(remote_demos["people"])["labels"] = ["person"]
     config = resolve_pipeline("people", accelerator="cpu", model="yolo9t")
 
     model = _primary_model(config)
@@ -84,33 +85,12 @@ def test_people_demo_can_select_yolov9_model_variant():
     assert model["labels"] == ["person"]
 
 
-def test_demo_model_override_rejects_incompatible_task_with_choices():
+def test_demo_model_override_rejects_incompatible_task_with_choices(remote_demos):
     with pytest.raises(ValueError, match="Compatible models:.*rfdetr-seg-nano"):
         resolve_pipeline("apple", accelerator="cpu", model="yolo9t")
 
 
-def test_hailo_video_demos_use_video_metadata_for_resolution_and_fps():
-    for name in ("tomato", "apple", "segment"):
-        assert PIPELINE_DEVICES[name]["source"]["type"] == "video"
-        assert "resolution" not in PIPELINE_DEVICES[name]["source"]
-        assert "fps" not in PIPELINE_DEVICES[name]["source"]
-
-    assert "resolution" not in PIPELINE_DEVICES["detect"]["source"]
-    assert "fps" not in PIPELINE_DEVICES["detect"]["source"]
-    assert "resolution" in PIPELINE_DEVICES["pose"]["source"]
-    assert "fps" in PIPELINE_DEVICES["pose"]["source"]
-
-
-def test_pipeline_devices_pair_existing_definitions_without_rewriting_them():
-    assert _primary_model(PIPELINES["tomato"])["uri"].endswith(".onnx")
-    assert all("kind" in _primary_model(config) for config in PIPELINES.values())
-    assert all(
-        "onnx" not in config and "hailo" not in config
-        for config in PIPELINE_DEVICES.values()
-    )
-
-
-def test_all_hailo_demos_are_accelerator_variants():
+def test_all_hailo_demos_are_accelerator_variants(remote_demos):
     for name in ("detect", "tomato", "apple", "segment", "pose"):
         with patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
              patch("abraia.demo._hailo_model_available", return_value=True):
@@ -121,32 +101,32 @@ def test_all_hailo_demos_are_accelerator_variants():
         assert model["uri"].endswith(".hef")
 
 
-def test_auto_accelerator_selects_hailo_when_device_and_model_are_available():
+def test_auto_accelerator_selects_hailo_when_device_and_model_are_available(remote_demos):
     with patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
          patch("abraia.demo._hailo_model_available", return_value=True):
         selected = resolve_pipeline("tomato", accelerator="auto")
 
     assert _primary_model(selected)["uri"] == "multiple/tomato/yolov8n_hailo8.hef"
-    assert _primary_model(selected)["uri"] != _primary_model(PIPELINE_DEVICES["tomato"])["uri"]
-    assert selected is not PIPELINE_DEVICES["tomato"]
+    assert _primary_model(selected)["uri"] != _primary_model(remote_demos["tomato"])["uri"]
+    assert selected is not remote_demos["tomato"]
 
 
-def test_auto_accelerator_falls_back_to_onnx_when_hailo_is_unavailable():
+def test_auto_accelerator_falls_back_to_onnx_when_hailo_is_unavailable(remote_demos):
     with patch("abraia.demo._hailo_device_arch", return_value=None):
         selected = resolve_pipeline("tomato", accelerator="auto")
 
-    assert selected == PIPELINES["tomato"]
-    assert selected is not PIPELINES["tomato"]
+    assert selected == remote_demos["tomato"]
+    assert selected is not remote_demos["tomato"]
 
 
-def test_default_detect_demo_keeps_the_generic_fallback_without_hailo():
+def test_default_detect_demo_loads_onnx_config_without_hailo(remote_demos):
     with patch("abraia.demo._hailo_device_arch", return_value=None):
         selected = resolve_pipeline("detect", accelerator="auto")
 
     assert _primary_model(selected)["uri"].endswith("yolov8n.onnx")
 
 
-def test_hailo_demo_resolves_to_bundled_architecture_specific_hef():
+def test_hailo_demo_resolves_to_bundled_architecture_specific_hef(remote_demos):
     with patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
          patch("abraia.demo._hailo_model_available", return_value=True):
         selected = resolve_pipeline("detect", accelerator="hailo")
@@ -156,15 +136,15 @@ def test_hailo_demo_resolves_to_bundled_architecture_specific_hef():
     )
 
 
-def test_auto_accelerator_does_not_use_the_unverified_apple_hef():
+def test_auto_accelerator_does_not_use_the_unverified_apple_hef(remote_demos):
     with patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
          patch("abraia.demo._hailo_model_available", return_value=True):
         selected = resolve_pipeline("apple", accelerator="auto")
 
-    assert selected == PIPELINES["apple"]
+    assert selected == remote_demos["apple"]
 
 
-def test_explicit_hailo_reports_a_missing_device():
+def test_explicit_hailo_reports_a_missing_device(remote_demos):
     with patch("abraia.demo._hailo_device_arch", return_value=None):
         with pytest.raises(RuntimeError, match="no compatible Hailo device"):
             resolve_pipeline("tomato", accelerator="hailo")
@@ -286,23 +266,16 @@ def test_model_tasks_normalize_names_and_aliases():
 
 def test_new_models_are_available_in_runtime_editor_catalog():
     options = {(option[2], option[3]) for option in SUPPORTED_MODEL_OPTIONS}
-    second_step_options = {
-        (option[2], option[3]) for option in SUPPORTED_SECOND_STEP_MODEL_OPTIONS
-    }
 
     assert {
-        ("clip", "classification"),
         ("anomaly", "anomaly"),
         ("rfdetr", "detection"),
         ("rfdetr", "segmentation"),
         ("dfine", "detection"),
         ("dfine", "segmentation"),
     } <= options
-    assert ("clip", "classification") in second_step_options
-    assert ModelSpec.from_config({"kind": "clip"}).task == "classification"
     assert ModelSpec.from_config({"kind": "anomaly"}).task == "anomaly"
     assert model_defaults("rfdetr", "detection") == (0.35, 0.7)
-    assert not model_control_visibility("clip", None)["iou"]
     anomaly_controls = model_control_visibility("anomaly", None)
     assert not anomaly_controls["labels"]
     assert not anomaly_controls["confidence"]

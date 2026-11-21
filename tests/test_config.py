@@ -8,6 +8,7 @@ from abraia.runtime.sources import normalize_source_type
 from abraia.runtime.config import (
     PipelineDraft,
     PipelineStep,
+    default_step,
     format_points,
     parse_points,
     is_valid_step_geometry,
@@ -140,14 +141,16 @@ def test_count_and_measure_require_compatible_model_outputs():
         "kind": "yolov8", "task": "detection",
     }}
     legacy_measure = {
-        "type": "measure", "source": "segmentation",
+        "type": "measure", "source": "retired-value",
         "features": ["area_px"],
     }
     draft = PipelineDraft(
         source_type="video", source="clip.mp4",
         steps=[detection, legacy_measure],
     )
-    assert draft.validation_errors() == []
+    restored = PipelineDraft.from_dict(draft.to_dict())
+    assert restored.validation_errors() == []
+    assert restored.to_dict()["steps"][-1] == legacy_measure
 
     line_count = {"type": "count", "mode": "line_crossing", "line": [
         [0, 0], [10, 10],
@@ -176,11 +179,7 @@ def test_measure_uses_nearest_model_and_rejects_non_geometry_output():
     )
 
 
-def test_measure_step_schema_keeps_legacy_source_optional():
-    import json
-    from pathlib import Path
-    from abraia.runtime.config import default_step
-
+def test_measure_step_schema_omits_legacy_source():
     schema_path = Path(__file__).parents[1] / "abraia" / "runtime" / "pipeline-v2.schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     measure_schema = next(
@@ -192,7 +191,7 @@ def test_measure_step_schema_keeps_legacy_source_optional():
         ).get("const") == "measure"
     )
 
-    assert "source" in measure_schema["properties"]
+    assert "source" not in measure_schema["properties"]
     assert "source" not in measure_schema.get("required", ())
     assert "source" not in default_step("measure")
 
@@ -259,6 +258,10 @@ def test_pipeline_schema_is_packaged_and_validates_v2_documents():
         "steps": [{
             "type": "model",
             "model": {"kind": "yolov8", "task": "detection"},
+        }, {
+            "type": "measure",
+            "features": ["area_px"],
+            "source": "retired-value",
         }],
     })
     with pytest.raises(jsonschema.ValidationError):

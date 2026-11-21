@@ -214,20 +214,8 @@ class Video(FrameSource):
 
     def show(self, frame):
         """Render runtime overlays, then write and/or display the frame."""
-        self._show(frame, copy=True)
-
-    def show_rendered(self, frame):
-        """Display a writable frame returned by the built-in pipeline renderer."""
-        self._show(frame, copy=False)
-
-    def wait_for_image_preview(self, is_cancelled, *, source=None):
-        """Keep a single rendered image visible until dismissed."""
-        if self._output is not None:
-            self._output.wait_for_image_preview(is_cancelled, source=self)
-
-    def _show(self, frame, copy):
         t1 = time.perf_counter()
-        display_frame = frame.copy() if copy else frame
+        display_frame = frame.copy()
         render_status(
             display_frame,
             fps=1 / (t1 - self.t0) if self.t0 is not None and t1 > self.t0 else 0,
@@ -235,9 +223,17 @@ class Video(FrameSource):
         )
         render_resolution(display_frame)
         self.t0 = t1
+        self.show_rendered(display_frame)
 
+    def show_rendered(self, frame):
+        """Write and display an already annotated frame."""
         if self._output is not None:
-            self._output.show(display_frame)
+            self._output.show(frame)
+
+    def wait_for_image_preview(self, is_cancelled, *, source=None):
+        """Keep a single rendered image visible until dismissed."""
+        if self._output is not None:
+            self._output.wait_for_image_preview(is_cancelled, source=self)
 
     @property
     def quit(self):

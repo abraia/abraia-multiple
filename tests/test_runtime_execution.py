@@ -21,8 +21,10 @@ def test_run_pipeline_reports_frame_events_and_closes_runtime(monkeypatch):
         def __init__(self, on_frame):
             self.model = object()
             self.on_frame = on_frame
-            self.render = lambda context: context.frame.copy()
             self.closed = False
+
+        def _render_frame(self, context):
+            return context.frame.copy()
 
         def run(self, is_cancelled):
             assert is_cancelled() is False
@@ -50,12 +52,6 @@ def test_run_pipeline_reports_frame_events_and_closes_runtime(monkeypatch):
     )
     monkeypatch.setattr(
         abraia.inference, "get_model_accelerator", lambda _model: "HAILO"
-    )
-    monkeypatch.setattr(
-        "abraia.utils.draw.render_status", lambda *_args, **_kwargs: None
-    )
-    monkeypatch.setattr(
-        "abraia.utils.draw.render_resolution", lambda *_args, **_kwargs: None
     )
 
     result = execution.run_pipeline(

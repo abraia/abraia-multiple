@@ -34,7 +34,6 @@ def test_normalize_task_applies_default_only_for_none():
         ("yolov8", "", "detection"),
         ("rtmdet", "multiple/models/rtmdet_ins_small.onnx", "segmentation"),
         ("resnet", "", "classification"),
-        ("clip", "", "classification"),
         ("anomaly", "", "anomaly"),
     ],
 )

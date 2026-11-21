@@ -32,7 +32,7 @@ class Clip:
     def __init__(
         self,
         batch_size: Optional[int] = None,
-        cache_dir: Optional[str] = 'models',
+        *,
         providers=None,
         accelerator=None,
     ):
@@ -45,7 +45,6 @@ class Clip:
                 passing them to the model. The embeddings are then concatenated
                 back together before being returned. This is necessary when
                 passing large amounts of data (perhaps ~100 or more).
-            cache_dir: If provided, the models will be downloaded to / loaded from this location
         """
 
         self.image_model = None

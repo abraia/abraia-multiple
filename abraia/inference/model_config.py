@@ -48,7 +48,7 @@ def model_default_task(kind, uri=""):
         marker in uri_name for marker in ("rtmdet_ins", "rtmdet-ins")
     ):
         return "segmentation"
-    if kind in ("resnet", "clip"):
+    if kind == "resnet":
         return "classification"
     if kind == "anomaly":
         return "anomaly"
@@ -209,10 +209,6 @@ _MODEL_DESCRIPTORS = {
     "anomaly": ModelDescriptor(
         frozenset({"anomaly"}), uri_based=True, explicit_uri=True,
         follow_up=True,
-    ),
-    "clip": ModelDescriptor(
-        frozenset({"classification"}), uri_based=True, explicit_uri=True,
-        runtime_options=True, follow_up=True,
     ),
     "rfdetr": ModelDescriptor(
         frozenset({"detection", "segmentation"}),

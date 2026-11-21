@@ -118,16 +118,16 @@ for remote file operations.
 ### Demos and saved projects
 
 ```sh
-abraia run demo [DEMO_NAME] [SOURCE] [--model MODEL]
-  [--accelerator auto] [--output FILE]
+abraia run demo NAME [SOURCE] [--model MODEL] [--accelerator auto] [--output FILE]
 abraia run PROJECT [SOURCE] [--accelerator auto] [--output FILE]
 ```
 
 Run `abraia run demo` to start detection, or use `abraia run demo list` to
-browse demos and compatible model variants. Append a local path, camera index,
-or RTSP URL to use it as the source. Sample videos
-download automatically when needed. The `pi-camera` demo publishes a Raspberry
-Pi camera stream without inference.
+browse demos. Demos are public and run without an Abraia account or API key.
+Pass a local path, camera index, or RTSP URL to override the default source.
+The CLI fetches inference demo configurations from the public `multiple/demos/`
+folder and caches sample videos and models. The `pi-camera` demo publishes a
+Raspberry Pi camera stream without inference.
 
 A project run loads `PROJECT/pipeline.json` from Abraia storage. First create
 a [pipeline configuration](#pipelines), then upload it to your project:
@@ -400,6 +400,10 @@ Use `Pipeline.from_dict(config)` to supply a Python dictionary instead of a
 file. For processing without a display window, set `display.show` to `false`;
 `display.dest` can still save the rendered video.
 
+Pipeline inference previews and rendered recordings show system stats,
+accelerator, throughput after the first frame, and frame resolution by default.
+Set `display.render_metrics` to `false` to hide the metrics overlays.
+
 Pipelines also support `filter`, `count`, `decision`, `region_filter`, and
 `region_timer`. Filters select detections; count and decision steps produce
 counts and threshold results. Applications can register custom `measure`
@@ -413,7 +417,6 @@ pipeline configuration:
 
 | `kind` | `task` | Model selection |
 | --- | --- | --- |
-| `clip` | `classification` | Explicit ONNX model `uri` with its JSON metadata sidecar |
 | `anomaly` | `anomaly` | Explicit ONNX or Hailo HEF `uri`; exported metadata supplies thresholds |
 | `rfdetr` | `detection`, `segmentation` | Built-in small, medium, or large preset, or explicit `uri` |
 | `dfine` | `detection`, `segmentation` | Built-in small, medium, or large preset, or explicit `uri` |
@@ -422,19 +425,6 @@ Anomaly models return an image-level `normal` or `anomaly` result and defect
 regions. In a pipeline, the renderer overlays the calibrated anomaly map.
 Anomaly exports must include the `task`, algorithm, and threshold metadata
 expected by the adapter.
-
-For example, classify an image with an exported CLIP model:
-
-```python
-from abraia.inference import load_model
-
-with load_model({
-    "kind": "clip",
-    "task": "classification",
-    "uri": "classifier.onnx",
-}) as model:
-    predictions = model.run(image, top_k=3)
-```
 
 The DINOv2 image encoder is available for embedding workflows. Its default
 model is downloaded and cached when first used:

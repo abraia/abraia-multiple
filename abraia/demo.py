@@ -1,372 +1,93 @@
 """Interactive demo runners backed by the shared pipeline catalog."""
 
+import json
 import os
 import time
 from copy import deepcopy
+
+from requests import RequestException
 
 from abraia.inference.models.faces import FaceRecognizer, FaceAttribute
 from abraia.inference.models.sam import InteractiveSAM
 from abraia.inference.search import ImageSearch
 from abraia.inference.models.faces import find_pose
-from abraia.runtime.composition import count_objects
 from abraia.runtime import Pipeline
 from abraia.runtime.config import is_primary_model_step
 from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
 from abraia.runtime.video import Video
 from abraia.media.images import load_image
-from abraia.utils.remote import download_url
+from abraia.utils.remote import load_url, url_path
 from abraia.inference.accelerators import (
     hailo_device_arch as _hailo_device_arch,
     hailo_model_available as _hailo_model_available,
     normalize_accelerator,
     onnx_providers,
+    paired_hailo_uri,
 )
 from abraia.inference.model_config import (
-    MODEL_SIZE_URIS,
     model_variants,
     normalize_task,
 )
 
 
-DEFAULT_PIPELINE = {
-    'version': 2,
-    'source': {'type': 'camera', 'src': 0},
-    'steps': [
-        {
-            'type': 'model',
-            'model': {
-                'task': 'detection',
-                'kind': 'yolov8',
-                'uri': 'multiple/models/yolov8n.onnx',
-            },
-        },
-        {'type': 'tracker'},
-    ],
-    'display': {'show': True},
+DEFAULT_DEMO = 'detect'
+PI_CAMERA_DEMO = 'pi-camera'
+
+
+DEMO_TASKS = {
+    DEFAULT_DEMO: 'detection',
+    'tomato': 'detection',
+    'apple': 'segmentation',
+    'strawberry': 'segmentation',
+    'grapes': 'detection',
+    'people': 'detection',
+    'queue': 'detection',
+    'escalator': 'detection',
+    'plates': 'recognition',
+    'segment': 'segmentation',
+    'pose': 'pose',
+    'yolo9': 'detection',
+    'rfdetr': 'detection',
+    'rfdetr-seg': 'segmentation',
+    'dfine': 'detection',
+    'dfine-seg': 'segmentation',
 }
 
 
-MODEL_DEMO_VIDEO = '853889-hd_1920_1080_25fps.mp4'
-
-
-def _model_demo(kind, task):
-    """Build a sample-video demo for a model family and task."""
-    return {
-        'version': 2,
-        'source': {'type': 'video', 'src': MODEL_DEMO_VIDEO},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': task,
-                    'kind': kind,
-                    'size': 'small',
-                    'uri': MODEL_SIZE_URIS[kind][task]['small'],
-                },
-            },
-            {'type': 'tracker'},
-        ],
-        'display': {'show': True},
-    }
-
-
-PIPELINES = {
-    'tomato': {
-        'version': 2,
-        'source': {'type': 'video', 'src': '10179855-hd_1280_720_30fps.mp4'},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'detection',
-                    'kind': 'yolov8',
-                    'uri': 'multiple/tomato/yolov8n.onnx',
-                    'labels': ['tomato'],
-                },
-            },
-            {'type': 'tracker'},
-            {
-                'type': 'line_counter',
-                'line': [
-                    [960, 0],
-                    [960, 720],
-                ],
-            },
-        ],
-        'display': {'show': True},
-    },
-    'apple': {
-        'version': 2,
-        'source': {'type': 'video', 'src': '5479199-hd_1280_720_25fps.mp4'},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'segmentation',
-                    'kind': 'yolov8',
-                    'uri': 'multiple/models/yolov8n-seg.onnx',
-                    'labels': ['apple'],
-                },
-            },
-            {'type': 'tracker'},
-            {
-                'type': 'line_counter',
-                'line': [
-                    [960, 0],
-                    [960, 720],
-                ],
-            },
-        ],
-        'display': {'show': True},
-    },
-    'strawberry': {
-        'version': 2,
-        'source': {'type': 'video', 'src': '9710983-hd_1920_1080_30fps.mp4'},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'segmentation',
-                    'kind': 'yolov8',
-                    'uri': 'multiple/strawberry/yolov8n-seg.onnx',
-                    'labels': ['strawberry'],
-                },
-            },
-            {'type': 'tracker'},
-            {
-                'type': 'line_counter',
-                'line': [
-                    [1280, 0],
-                    [1280, 1080],
-                ],
-            },
-        ],
-        'display': {'show': True},
-    },
-    'grapes': {
-        'version': 2,
-        'source': {'type': 'video', 'src': '5658544-hd_1366_720_24fps.mp4'},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'detection',
-                    'kind': 'yolov8',
-                    'uri': 'multiple/grapes/yolov8n.onnx',
-                    'labels': ['grapes'],
-                },
-            },
-            {'type': 'tracker'},
-        ],
-        'display': {'show': True},
-    },
-    'people': {
-        'version': 2,
-        'source': {'type': 'video', 'src': MODEL_DEMO_VIDEO},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'detection',
-                    'kind': 'yolov8',
-                    'uri': 'multiple/models/yolov8n.onnx',
-                    'labels': ['person'],
-                },
-            },
-            {
-                'type': 'region_filter',
-                'polygon': [
-                    [0, 600],
-                    [1920, 600],
-                    [1920, 700],
-                    [0, 700],
-                ],
-            },
-            {'type': 'tracker'},
-            {
-                'type': 'line_counter',
-                'line': [
-                    [0, 650],
-                    [1920, 650],
-                ],
-            },
-        ],
-        'display': {'show': True},
-    },
-    'queue': {
-        'version': 2,
-        'source': {'type': 'video', 'src': '4775505-hd_1920_1080_30fps.mp4'},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'detection',
-                    'kind': 'yolov8',
-                    'uri': 'multiple/models/yolov8n.onnx',
-                    'labels': ['person'],
-                },
-            },
-            {'type': 'tracker'},
-            {
-                'type': 'region_timer',
-                'polygon': [
-                    [10, 600],
-                    [1690, 600],
-                    [1690, 700],
-                    [10, 700],
-                ],
-            },
-        ],
-        'display': {'show': True},
-    },
-    'escalator': {
-        'version': 2,
-        'source': {'type': 'video', 'src': '14393755-hd_1920_1080_30fps.mp4'},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'detection',
-                    'kind': 'yolov8',
-                    'uri': 'multiple/models/yolov8n.onnx',
-                    'labels': ['person'],
-                },
-            },
-            {
-                'type': 'region_filter',
-                'polygon': [
-                    [0, 245],
-                    [350, 1080],
-                    [1200, 1080],
-                    [530, 0],
-                    [0, 0],
-                ],
-            },
-            {'type': 'tracker'},
-            {
-                'type': 'line_counter',
-                'line': [
-                    [950, 670],
-                    [270, 895],
-                ],
-            },
-            {
-                'type': 'region_timer',
-                'polygon': [
-                    [0, 245],
-                    [350, 1080],
-                    [1200, 1080],
-                    [530, 0],
-                    [0, 0],
-                ],
-            },
-        ],
-        'display': {'show': True},
-    },
-    'plates': {
-        'version': 2,
-        'source': {'type': 'video', 'src': 'cars.mp4'},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'recognition',
-                    'kind': 'license_plate',
-                    'params': {'threshold': 0.85, 'iou_threshold': 0.15},
-                },
-            },
-        ],
-        'display': {'show': True},
-    },
-    'detect': {**deepcopy(DEFAULT_PIPELINE)},
-    'segment': {
-        'version': 2,
-        'source': {'type': 'video', 'src': MODEL_DEMO_VIDEO},
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'segmentation',
-                    'kind': 'yolov8',
-                    'uri': 'multiple/models/yolov8n-seg.onnx',
-                },
-            },
-            {'type': 'tracker'},
-        ],
-        'display': {'show': True},
-    },
-    'pose': {
-        'version': 2,
-        'source': {
-            'type': 'camera',
-            'src': 0,
-            'resolution': [1280, 720],
-            'fps': 30,
-        },
-        'steps': [
-            {
-                'type': 'model',
-                'model': {
-                    'task': 'pose',
-                    'kind': 'yolov8',
-                    'uri': 'multiple/models/yolov8m_pose.onnx',
-                },
-            },
-            {'type': 'tracker'},
-        ],
-        'display': {'show': True},
-    },
-    'yolo9': _model_demo('yolo9', 'detection'),
-    'rfdetr': _model_demo('rfdetr', 'detection'),
-    'rfdetr-seg': _model_demo('rfdetr', 'segmentation'),
-    'dfine': _model_demo('dfine', 'detection'),
-    'dfine-seg': _model_demo('dfine', 'segmentation'),
-}
-
-
-# Camera-service presets do not run inference and therefore stay separate from
-# the model-backed demo catalog.
-CAMERA_PIPELINES = {
-    'pi-camera': {
-        'version': 2,
-        'source': {
-            'type': 'rpi_camera',
-            'src': 0,
-            'resolution': [1280, 720],
-            'fps': 30,
-        },
-        'steps': [],
-        'display': {'show': False},
-        'output': {
-            'type': 'rtsp',
-            'url': 'rtsp://127.0.0.1:8554/cam',
-            'bitrate': 4_000_000,
-        },
-    },
-}
-
-
-PIPELINE_DEVICES = PIPELINES
 MODEL_VARIANT_KINDS = ('yolov8', 'yolo9', 'rfdetr', 'dfine')
-MODEL_DEMOS = (
-    'detect', 'segment', 'pose', 'yolo9', 'rfdetr', 'rfdetr-seg', 'dfine',
-    'dfine-seg',
-)
 
 
 # The current Hailo apple entry uses a generic COCO segmentation HEF. Keep it
 # available for explicit ``accelerator='hailo'`` runs, but do not select it
 # automatically as an apple-equivalent model.
 HAILO_AUTO_EXCLUSIONS = frozenset({'apple'})
-VIDEO_URL = 'https://api.abraia.me/files/multiple/videos/{}'
+DEMO_PIPELINE_ROOT = 'multiple/demos'
+
+
+def load_public_pipeline(demo):
+    """Fetch a demo configuration without using an account or file cache."""
+    path = f'{DEMO_PIPELINE_ROOT}/{demo}.json'
+    try:
+        stream = load_url(url_path(path), timeout=(5, 10))
+    except RequestException:
+        stream = None
+    if stream is None:
+        raise ValueError(f"Could not download public demo '{demo}' from {path}")
+    with stream:
+        try:
+            configuration = json.load(stream)
+        except ValueError as error:
+            raise ValueError(f"Invalid JSON for public demo '{demo}' at {path}") from error
+    if not isinstance(configuration, dict) or configuration.get('version') != 2:
+        raise ValueError(f"Invalid version 2 pipeline for public demo '{demo}'")
+    return configuration
 
 
 def demo_model_options(demo):
     """List model variants compatible with a demo's model task."""
-    config = PIPELINES.get(demo)
-    if config is None:
+    task = DEMO_TASKS.get(demo)
+    if task is None:
         return ()
-    task = normalize_task(_primary_model_step(config)['model'].get('task'))
     variants = model_variants(MODEL_VARIANT_KINDS)
     return tuple(
         name for name, model in variants.items()
@@ -379,23 +100,23 @@ def _apply_demo_model(config, demo, model_name):
     model_name = str(model_name).strip().lower()
     variants = model_variants(MODEL_VARIANT_KINDS)
     variant = variants.get(model_name)
+    model = _primary_model_step(config)['model']
+    task = normalize_task(model.get('task'))
+    if variant is not None and variant['task'] == task:
+        model.update(variant)
+        return
+    available = ', '.join(
+        name for name, option in variants.items() if option['task'] == task
+    )
     if variant is None:
-        available = ', '.join(demo_model_options(demo))
         raise ValueError(
             f"Unknown model variant '{model_name}'. Compatible options for "
             f"'{demo}' are: {available}"
         )
-
-    model = _primary_model_step(config)['model']
-    task = normalize_task(model.get('task'))
-    if variant['task'] != task:
-        available = ', '.join(demo_model_options(demo))
-        raise ValueError(
-            f"Model '{model_name}' supports {variant['task']}, while demo "
-            f"'{demo}' uses {task}. Compatible models: {available}"
-        )
-
-    model.update(variant)
+    raise ValueError(
+        f"Model '{model_name}' supports {variant['task']}, while demo "
+        f"'{demo}' uses {task}. Compatible models: {available}"
+    )
 
 
 def _primary_model_step(config):
@@ -410,9 +131,6 @@ def _resolve_hailo_config(config, architecture):
     """Select an available architecture-specific HEF for a demo model."""
     selected = deepcopy(config)
     model = _primary_model_step(selected)['model']
-    from abraia.inference.accelerators import paired_hailo_uri
-    from abraia.inference.model_config import normalize_task
-
     onnx_uri = model.get('uri')
     kind = str(model.get('kind', '')).strip().lower()
     task = normalize_task(model.get('task'))
@@ -431,45 +149,29 @@ def _resolve_hailo_config(config, architecture):
     return selected if _hailo_model_available(selected, architecture) else None
 
 
-def _prepare_source(config, src=None, resolution=None):
-    """Apply runtime source overrides without adding camera settings to video."""
-    source = config['source']
-    source['src'] = source['src'] if src is None else src
-    source_type = source.get('type')
-    if src is not None and source_type not in ('genicam', 'rpi_camera'):
-        from abraia.runtime.sources import infer_source_type
-
-        inferred_type = infer_source_type(src)
-        if inferred_type:
-            source['type'] = inferred_type
-    if resolution is not None and source.get('type') == 'camera':
-        source['resolution'] = list(resolution)
-    return source['src']
-
-
-def _ensure_video_available(src):
-    """Download a catalog video when it is not present locally."""
-    if isinstance(src, str) and not os.path.exists(src) and src.endswith('.mp4'):
-        download_url(VIDEO_URL.format(src), src)
-
-
 def run_camera_pipeline(
-    demo='pi-camera',
     src=None,
     accelerator='auto',
     output=None,
 ):
     """Publish the Raspberry Pi camera through a managed MediaMTX server."""
-    try:
-        selected = deepcopy(CAMERA_PIPELINES[demo])
-    except KeyError as error:
-        raise ValueError(f"Unknown camera pipeline demo: {demo}") from error
-    _prepare_source(selected, src)
+    src = 0 if src is None else src
     rtsp_url = os.environ.get('ABRAIA_RTSP_URL')
     if rtsp_url:
-        selected['output']['url'] = rtsp_url
+        selected = {
+            'version': 2,
+            'source': {
+                'type': 'rpi_camera',
+                'src': src,
+                'resolution': [1280, 720],
+                'fps': 30,
+            },
+            'steps': [],
+            'display': {'show': False},
+            'output': {'type': 'rtsp', 'url': rtsp_url, 'bitrate': 4_000_000},
+        }
         if output is not None:
-            selected.setdefault('display', {})['dest'] = output
+            selected['display']['dest'] = output
         with Pipeline.from_dict(selected, accelerator=accelerator) as pipeline:
             pipeline.run()
         return
@@ -483,7 +185,7 @@ def run_camera_pipeline(
 
     from abraia.media.mediamtx import managed_pi_camera_server
 
-    with managed_pi_camera_server(src if src is not None else 0) as stream_url:
+    with managed_pi_camera_server(src) as stream_url:
         print(f"Raspberry Pi camera stream: {stream_url}")
         print("Press Ctrl+C to stop the stream.")
         try:
@@ -493,8 +195,8 @@ def run_camera_pipeline(
             pass
 
 
-def resolve_pipeline(demo='detect', accelerator='auto', model=None):
-    """Resolve a logical demo to its unchanged runtime pipeline config.
+def resolve_pipeline(demo=DEFAULT_DEMO, accelerator='auto', model=None):
+    """Load a public demo and select its runtime model.
 
     ``hailo`` is treated as an accelerator selection.  CPU, GPU, and ONNX
     selections use the regular ONNX pipeline definition; ONNX Runtime chooses
@@ -502,12 +204,9 @@ def resolve_pipeline(demo='detect', accelerator='auto', model=None):
     compatible device and model are available, then falls back to ONNX.
     """
     accelerator = normalize_accelerator(accelerator)
-    config = PIPELINES.get(demo)
-    if config is None:
-        if accelerator == 'hailo':
-            raise KeyError(f"Unknown Hailo pipeline demo: {demo}")
-        return deepcopy(DEFAULT_PIPELINE)
-    config = deepcopy(config)
+    if demo not in DEMO_TASKS:
+        raise ValueError(f"Unknown demo '{demo}'")
+    config = load_public_pipeline(demo)
     if model is not None:
         _apply_demo_model(config, demo, model)
 
@@ -540,65 +239,6 @@ def resolve_pipeline(demo='detect', accelerator='auto', model=None):
             return resolved_hailo_config
 
     return config
-
-
-def monitor_objects(
-    src=None,
-    demo='detect',
-    resolution=(1280, 720),
-    accelerator='auto',
-    output=None,
-    model=None,
-):
-    """Monitor, count, or just detect objects in a video stream."""
-    selected = resolve_pipeline(demo, accelerator=accelerator, model=model)
-    if output is not None:
-        selected.setdefault('display', {})['dest'] = output
-    src = _prepare_source(selected, src, resolution)
-    _ensure_video_available(src)
-
-    previous_frame = [None]
-
-    def report(context, elapsed_ms):
-        now = time.perf_counter()
-        throughput_fps = (
-            1 / (now - previous_frame[0])
-            if previous_frame[0] is not None and now > previous_frame[0]
-            else 0
-        )
-        previous_frame[0] = now
-        inference_ms = context.metrics.get("inference_ms")
-        inference = (
-            f"inference {inference_ms:.1f}ms "
-            f"({1000 / inference_ms:.1f} FPS equivalent)"
-            if inference_ms and inference_ms > 0
-            else "inference timing unavailable"
-        )
-        print(
-            f"#{context.frame_index} {inference} | "
-            f"frame {elapsed_ms:.1f}ms | "
-            f"throughput {throughput_fps:.1f} FPS "
-            f"{count_objects(context.results)}"
-        )
-
-    pipeline_options = {'on_frame': report}
-    requested_accelerator = normalize_accelerator(accelerator)
-    if (
-        requested_accelerator != 'auto'
-        and not str(
-            _primary_model_step(selected)['model'].get('uri', '')
-        ).lower().endswith('.hef')
-    ):
-        pipeline_options['accelerator'] = requested_accelerator
-    pipeline = Pipeline.from_dict(selected, **pipeline_options)
-    pipeline.run()
-
-    line_counter = pipeline.components.get("line_counter")
-    if line_counter:
-        print(
-            f"Final In: {line_counter.in_count}, "
-            f"Final Out: {line_counter.out_count}"
-        )
 
 
 def track_faces(src=None, resolution=(1280, 720), accelerator='auto', output=None):

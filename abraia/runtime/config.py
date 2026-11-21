@@ -21,7 +21,6 @@ from .sources import infer_source_type, normalize_source_type
 
 PIPELINE_SECOND_STEP_MODEL_PAIRS = frozenset({
     ("resnet", "classification"),
-    ("clip", "classification"),
     ("face", "recognition"),
     ("license_plate", "recognition"),
     ("ocr", "recognition"),
@@ -366,12 +365,6 @@ def validate_step_structure(steps, *, report_unsupported=True):
                     f"Step {index}: measurements require the nearest earlier model "
                     "to be a detection, segmentation, or anomaly model."
                 )
-            legacy_source = step.get("source")
-            if legacy_source is not None and (
-                not isinstance(legacy_source, str)
-                or legacy_source not in {"detection", "segmentation", "anomaly"}
-            ):
-                errors.append(f"Step {index}: unsupported legacy measurement source.")
             features = step.get("features")
             allowed_features = {
                 "area_px", "perimeter_px", "centroid_px", "bounds_px",
@@ -461,7 +454,6 @@ MODEL_DEFAULT_THRESHOLDS = {
     ("rtmdet", "detection"): (0.25, 0.7),
     ("rtmdet", "segmentation"): (0.25, 0.7),
     ("resnet", "classification"): (0.25, 0.0),
-    ("clip", "classification"): (0.25, 0.0),
     ("rfdetr", "detection"): (0.35, 0.7),
     ("rfdetr", "segmentation"): (0.35, 0.7),
     ("dfine", "detection"): (0.35, 0.7),
@@ -495,7 +487,6 @@ SUPPORTED_MODEL_OPTIONS = (
     *_sized_model_options("dfine", "D-FINE object detection", "detection"),
     *_sized_model_options("dfine", "D-FINE instance segmentation", "segmentation"),
     *_sized_model_options("resnet", "ResNet classification", "classification"),
-    ("clip_classification", "CLIP classification", "clip", "classification", ""),
     ("anomaly_detection", "Anomaly detection", "anomaly", "anomaly", ""),
     ("face_detection", "Face detection", "face", "detection", ""),
     ("face_recognition", "Face recognition", "face", "recognition", ""),

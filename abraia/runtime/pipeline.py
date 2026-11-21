@@ -12,6 +12,9 @@ import time
 from collections.abc import Mapping
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
+from numpy import ndarray
+
+from abraia.inference import get_model_accelerator
 from abraia.inference.model_config import ModelSpec
 
 from .anomaly import anomaly_inspection_configuration, consolidate_anomaly_results
@@ -549,6 +552,8 @@ class Pipeline:
         components: Optional[Dict[str, Any]] = None,
         output: Any = None,
         result_calibration: Optional[Dict[str, Any]] = None,
+        *,
+        render_metrics: bool = True,
     ):
         self.source = source
         self.model = model
@@ -564,6 +569,12 @@ class Pipeline:
         self._closed = False
         self._stop_requested = threading.Event()
         self._render_output_owned = False
+        self._render_stats = render_metrics and model is not None
+        self._accelerator_label = (
+            get_model_accelerator(model) if self._render_stats else None
+        )
+        self._last_frame_at = None
+        self._frame_fps = None
 
         frame_rate = getattr(source, "frame_rate", None)
         self.frame_rate = float(frame_rate or 0)
@@ -727,8 +738,25 @@ class Pipeline:
                 break
         return last_context
 
+    def _render_frame(self, context):
+        """Render a frame for either a local display or a preview callback."""
+        frame = self.render(context) if self.render else context.frame
+        if self._render_stats and isinstance(frame, ndarray) and frame.ndim in (2, 3):
+            from ..utils.draw import render_resolution, render_status
+
+            if not self._render_output_owned or frame is context.frame:
+                frame = frame.copy()
+            render_status(frame, fps=self._frame_fps, accelerator=self._accelerator_label)
+            render_resolution(frame)
+        return frame
+
     def _finish_frame(self, context, elapsed_ms):
         """Report, render, and display one completed frame context."""
+        if self._render_stats:
+            now = time.perf_counter()
+            if self._last_frame_at is not None and now > self._last_frame_at:
+                self._frame_fps = 1 / (now - self._last_frame_at)
+            self._last_frame_at = now
         context.results = result_records(
             context.results, calibration=self.result_calibration,
         )
@@ -738,9 +766,9 @@ class Pipeline:
             self.output.write(context.frame)
         if self.display is None:
             return True
-        output = self.render(context) if self.render else context.frame
+        output = self._render_frame(context)
         show_rendered = getattr(self.display, "show_rendered", None)
-        if self._render_output_owned and callable(show_rendered):
+        if callable(show_rendered):
             display_result = show_rendered(output)
         else:
             display_result = self.display.show(output)
@@ -831,10 +859,11 @@ class Pipeline:
                 calibration=(config.get("source") or {}).get("calibration"),
             )
             primary_model = created_models[0][0] if created_models else None
+            render_metrics = bool(display_config.get("render_metrics", True))
             renderer = _make_pipeline_renderer(
                 components,
                 render_results=display_config.get("render_results", True),
-                render_metrics=display_config.get("render_metrics", True),
+                render_metrics=render_metrics,
                 render_anomaly=renderer_factory is None,
             )
             if model_plans and model_plans[0][1].kind == "anomaly":
@@ -892,6 +921,7 @@ class Pipeline:
                 components=components,
                 output=output,
                 result_calibration=(source_config.get("calibration") or {}),
+                render_metrics=render_metrics,
             )
             pipeline._render_output_owned = renderer_factory is None
             return pipeline

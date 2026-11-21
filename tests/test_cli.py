@@ -1,3 +1,5 @@
+import json
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import ANY, MagicMock, patch
 
@@ -107,34 +109,6 @@ def test_discover_streams_command_lists_run_example(monkeypatch):
     assert "abraia run demo detect STREAM_URL" in result.output
 
 
-@pytest.mark.parametrize(
-    "source, expected_type",
-    [
-        ("1", "camera"),
-        ("rtsp://camera-address/stream", "stream"),
-        ("input.mp4", "video"),
-    ],
-)
-def test_demo_source_override_infers_camera_and_stream_types(source, expected_type):
-    from abraia.demo import _prepare_source
-
-    pipeline = {"source": {"type": "video", "src": "sample.mp4"}}
-
-    _prepare_source(pipeline, source)
-
-    assert pipeline["source"]["type"] == expected_type
-
-
-def test_demo_source_override_keeps_pi_camera_type():
-    from abraia.demo import _prepare_source
-
-    pipeline = {"source": {"type": "rpi_camera", "src": 0}}
-
-    _prepare_source(pipeline, "0")
-
-    assert pipeline["source"]["type"] == "rpi_camera"
-
-
 def test_run_demo_lists_available_demos():
     result = CliRunner().invoke(cli, ["run", "demo", "list"])
 
@@ -143,49 +117,106 @@ def test_run_demo_lists_available_demos():
     assert "apple" in result.output
 
 
-def test_run_demo_without_name_uses_default_detect_demo(monkeypatch):
+def test_run_demo_without_name_loads_public_detect_demo(monkeypatch, public_demo_configs):
     from abraia import demo as demo_module
 
-    calls = []
-    monkeypatch.setattr(
-        demo_module,
-        "monitor_objects",
-        lambda *args, **kwargs: calls.append((args, kwargs)),
-    )
+    config = public_demo_configs["detect"]
+    fetch = MagicMock(return_value=BytesIO(json.dumps(config).encode()))
+    build_pipeline = MagicMock()
+    monkeypatch.setattr(demo_module, "load_url", fetch)
+    monkeypatch.setattr(Pipeline, "from_dict", build_pipeline)
 
     result = CliRunner().invoke(cli, ["run", "demo"])
 
     assert result.exit_code == 0, result.output
-    assert calls == [(
-        (None, "detect"),
-        {"accelerator": "auto", "output": None},
-    )]
+    fetch.assert_called_once_with(
+        "https://api.abraia.me/files/multiple/demos/detect.json", timeout=ANY
+    )
+    pipeline_config = build_pipeline.call_args.args[0]
+    assert pipeline_config["source"] == {
+        "type": "camera", "src": 0, "resolution": [1280, 720],
+    }
+    assert pipeline_config["steps"] == config["steps"]
 
 
-def test_run_demo_selects_a_model_variant_explicitly(monkeypatch):
+def test_run_demo_fails_when_public_detect_config_cannot_be_fetched(monkeypatch):
+    monkeypatch.setattr("abraia.demo.load_url", lambda *args, **kwargs: None)
+    build = MagicMock()
+    monkeypatch.setattr(Pipeline, "from_dict", build)
+
+    result = CliRunner().invoke(cli, ["run", "demo"])
+
+    assert result.exit_code == 1
+    assert "Could not download public demo 'detect'" in result.output
+    build.assert_not_called()
+
+
+def test_run_demo_selects_a_model_variant_explicitly(monkeypatch, public_demo_configs):
     from abraia import demo as demo_module
 
-    calls = []
-    monkeypatch.setattr(
-        demo_module,
-        "monitor_objects",
-        lambda *args, **kwargs: calls.append((args, kwargs)),
-    )
+    payload = json.dumps(public_demo_configs["apple"]).encode()
+    fetch = MagicMock(return_value=BytesIO(payload))
+    build_pipeline = MagicMock()
+    sample = MagicMock()
+    monkeypatch.setattr(demo_module, "load_url", fetch)
+    monkeypatch.setattr("abraia.utils.remote.download_file", sample)
+    monkeypatch.setattr(Pipeline, "from_dict", build_pipeline)
 
     result = CliRunner().invoke(
         cli,
         [
             "run", "demo", "apple", "input.mp4",
-            "--model", "yolov8n-seg",
+            "--model", "yolov8m-seg",
             "--accelerator", "cpu", "--output", "out.avi",
         ],
     )
 
     assert result.exit_code == 0, result.output
-    assert calls == [(
-        ("input.mp4", "apple"),
-        {"accelerator": "cpu", "output": "out.avi", "model": "yolov8n-seg"},
-    )]
+    fetch.assert_called_once_with(
+        "https://api.abraia.me/files/multiple/demos/apple.json", timeout=ANY
+    )
+    sample.assert_not_called()
+    pipeline_config = build_pipeline.call_args.args[0]
+    assert pipeline_config["source"] == {"src": "input.mp4", "type": "video"}
+    assert pipeline_config["display"]["dest"] == "out.avi"
+    assert pipeline_config["steps"][0]["model"]["uri"].endswith("/yolov8m-seg.onnx")
+    assert build_pipeline.call_args.kwargs["accelerator"] == "cpu"
+
+
+def test_public_demo_reloads_json_and_downloads_sample_without_account(
+    monkeypatch, public_demo_configs
+):
+    from abraia import demo as demo_module
+
+    sources = ["multiple/videos/first.mp4", "multiple/videos/second.mp4"]
+    configurations = [
+        dict(public_demo_configs["apple"], source={"type": "video", "src": source})
+        for source in sources
+    ]
+    fetch = MagicMock(side_effect=[
+        BytesIO(json.dumps(configuration).encode()) for configuration in configurations
+    ])
+    download = MagicMock(side_effect=["/cached/first.mp4", "/cached/second.mp4"])
+    build_pipeline = MagicMock()
+    private_load = MagicMock()
+    monkeypatch.setattr(demo_module, "load_url", fetch)
+    monkeypatch.setattr("abraia.utils.remote.download_file", download)
+    monkeypatch.setattr(Pipeline, "from_dict", build_pipeline)
+    monkeypatch.setattr(cli_module.abraia, "load_json", private_load)
+
+    for _ in configurations:
+        result = CliRunner().invoke(cli, ["run", "demo", "apple"])
+        assert result.exit_code == 0, result.output
+
+    assert [call.args[0] for call in fetch.call_args_list] == [
+        "https://api.abraia.me/files/multiple/demos/apple.json",
+    ] * 2
+    assert [call.args[0] for call in download.call_args_list] == sources
+    assert [call.args[0]["source"]["src"] for call in build_pipeline.call_args_list] == [
+        "/cached/first.mp4", "/cached/second.mp4",
+    ]
+    assert all(call.kwargs["accelerator"] == "onnx" for call in build_pipeline.call_args_list)
+    private_load.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -195,7 +226,12 @@ def test_run_demo_selects_a_model_variant_explicitly(monkeypatch):
         (["run", "demo", "people", "--model", "yolo9"], "Unknown model variant 'yolo9'"),
     ],
 )
-def test_run_demo_rejects_aliases(args, expected):
+def test_run_demo_rejects_aliases(monkeypatch, public_demo_configs, args, expected):
+    from abraia import demo as demo_module
+
+    monkeypatch.setattr(
+        demo_module, "load_public_pipeline", lambda name: public_demo_configs[name]
+    )
     result = CliRunner().invoke(cli, args)
 
     assert result.exit_code == 1
@@ -207,8 +243,10 @@ def test_run_command_completes_demo_names_and_compatible_model_variants():
 
     demo_names = cli_module._complete_run_demo(context, None, "app")
     model_names = cli_module._complete_demo_model(context, None, "rfdetr-seg")
+    targets = cli_module._complete_run_project(context, None, "dem")
 
     assert [item.value for item in demo_names] == ["apple"]
+    assert [item.value for item in targets] == ["demo"]
     assert [item.value for item in model_names] == [
         "rfdetr-seg-nano", "rfdetr-seg-small", "rfdetr-seg-medium"
     ]
@@ -385,6 +423,7 @@ def test_project_run_prints_compact_result_table(monkeypatch):
         report(SimpleNamespace(frame_index=1, results=[]), 5)
 
     build_pipeline.return_value.__enter__.return_value.run.side_effect = run
+    build_pipeline.return_value.__enter__.return_value.components = {}
     monkeypatch.setattr(cli_module.abraia, "load_json", lambda _path: config)
     monkeypatch.setattr(Pipeline, "from_dict", build_pipeline)
 
@@ -417,7 +456,7 @@ def test_project_run_reports_missing_dataset_input(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "demo, runner", [("detect", "monitor_objects"), ("faces", "track_faces")]
+    "demo, runner", [("detect", "load_public_pipeline"), ("faces", "track_faces")]
 )
 def test_demo_errors_use_cli_error_format(monkeypatch, demo, runner):
     def fail(*_args, **_kwargs):

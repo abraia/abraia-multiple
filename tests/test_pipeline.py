@@ -217,6 +217,50 @@ def test_pipeline_holds_single_image_preview_until_quit(
     assert waits.count(50) == expected_polls
 
 
+@pytest.mark.parametrize("metrics", [{}, {"render_metrics": False}])
+def test_configured_pipeline_renders_inference_stats_in_recordings(monkeypatch, metrics):
+    frame = np.zeros((32, 48, 3), dtype=np.uint8)
+    model = CloseableModel()
+    model.accelerator = "GPU"
+    config = {
+        "version": 2,
+        "steps": [{"type": "model", "model": {"kind": "yolov8"}}],
+        "display": {
+            "show": False, "dest": "result.avi", "render_results": False, **metrics,
+        },
+    }
+    display = FakeDisplay()
+    display.set_display_enabled = lambda enabled: None
+    monkeypatch.setattr("abraia.runtime.video.VideoOutput", lambda **kwargs: display)
+    monkeypatch.setattr(
+        "abraia.inference.registry._create_model_from_spec", lambda *args, **kwargs: model
+    )
+    stats = []
+    sizes = []
+
+    def render_status(output, *, fps, accelerator):
+        stats.append((fps, accelerator))
+        output[0, 0] = 255
+
+    monkeypatch.setattr("abraia.utils.draw.render_status", render_status)
+    monkeypatch.setattr(
+        "abraia.utils.draw.render_resolution", lambda output: sizes.append(output.shape)
+    )
+
+    Pipeline.from_dict(config, input_source=[frame, frame]).run()
+
+    assert len(display.frames) == 2
+    assert not frame.any()
+    if metrics:
+        assert not stats and not sizes
+        assert not any(output.any() for output in display.frames)
+    else:
+        assert stats[0] == (None, "GPU")
+        assert stats[1][0] > 0 and stats[1][1] == "GPU"
+        assert sizes == [frame.shape, frame.shape]
+        assert all(output[0, 0].tolist() == [255, 255, 255] for output in display.frames)
+
+
 def test_pipeline_honors_cancellation_before_processing_next_frame():
     cancelled = [False]
     released = Event()
@@ -1147,101 +1191,9 @@ def test_pipeline_keeps_file_output_enabled_when_preview_is_disabled():
     assert pipeline.display.show_calls == 1
 
 
-def test_demo_definitions_are_pipeline_configs():
-    from abraia.demo import PIPELINES
-    from abraia.runtime.config import PipelineDraft
-
-    assert PIPELINES
-    for config in PIPELINES.values():
-        assert config["version"] == 2
-        assert "src" in config["source"]
-        model = next(step["model"] for step in config["steps"] if step["type"] == "model")
-        if model.get("kind") not in ("face", "license_plate", "ocr"):
-            assert "uri" in model
-        assert all("type" in step and "id" not in step for step in config["steps"])
-        assert PipelineDraft.from_dict(config).validation_errors() == []
-
-
-def test_plate_demo_is_available_to_monitor_objects():
-    from abraia import demo
-
-    class FakePipeline:
-        received = None
-        components = {}
-
-        @classmethod
-        def from_dict(cls, config, on_frame=None):
-            cls.received = config
-            return cls()
-
-        def run(self):
-            return None
-
-    with patch("abraia.demo.Pipeline", FakePipeline):
-        demo.monitor_objects("camera", demo="plates", output="rendered.avi")
-
-    assert FakePipeline.received["source"]["src"] == "camera"
-    assert FakePipeline.received["display"]["dest"] == "rendered.avi"
-    model = next(
-        step["model"] for step in FakePipeline.received["steps"]
-        if step["type"] == "model"
-    )
-    assert model == {
-        "task": "recognition",
-        "kind": "license_plate",
-        "params": {"threshold": 0.85, "iou_threshold": 0.15},
-    }
-
-
-def test_hailo_accelerator_uses_shared_pipeline():
-    from abraia import demo
-
-    class FakePipeline:
-        received = None
-        components = {}
-
-        @classmethod
-        def from_dict(cls, config, on_frame=None, accelerator=None):
-            cls.received = config
-            return cls()
-
-        def run(self):
-            return None
-
-    with patch("abraia.demo.Pipeline", FakePipeline), \
+def test_yolo9_demo_pairs_with_available_hailo_model(public_demo_configs):
+    with patch("abraia.demo.load_public_pipeline", return_value=public_demo_configs["yolo9"]), \
          patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
-         patch("abraia.demo._hailo_model_available", return_value=True):
-        demo.monitor_objects(0, demo="pose", accelerator="hailo")
-
-    model = next(
-        step["model"] for step in FakePipeline.received["steps"]
-        if step["type"] == "model"
-    )
-    assert model == {
-        "task": "pose",
-        "kind": "yolov8",
-        "uri": "multiple/models/yolov8m_pose_hailo8.hef",
-    }
-    assert FakePipeline.received["source"]["src"] == 0
-    assert any(step["type"] == "tracker" for step in FakePipeline.received["steps"])
-
-
-def test_hailo_pipeline_definitions_use_pipeline_schema():
-    from abraia.demo import PIPELINE_DEVICES
-
-    hailo_demos = ("detect", "tomato", "apple", "segment", "pose", "yolo9")
-    for name in hailo_demos:
-        config = PIPELINE_DEVICES[name]
-        assert config["version"] == 2
-        assert "source" in config
-        model = next(step["model"] for step in config["steps"] if step["type"] == "model")
-        assert model["uri"].endswith(".onnx")
-        assert "uri" in model
-        assert all("type" in step and "id" not in step for step in config["steps"])
-
-
-def test_yolo9_demo_pairs_with_available_hailo_model():
-    with patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
          patch("abraia.demo._hailo_model_available", return_value=True):
         from abraia.demo import resolve_pipeline
 
@@ -1273,17 +1225,20 @@ def test_cli_search_command_routes_to_search_images():
     search.assert_called_once_with("my-project", query="red car")
 
 
-def test_cli_routes_demo_accelerator_to_shared_monitor():
+def test_cli_routes_explicit_demo_accelerator_to_pipeline(public_demo_configs):
     from click.testing import CliRunner
     import abraia.cli as module
 
-    with patch("abraia.demo.monitor_objects") as monitor:
+    with patch("abraia.demo.load_public_pipeline", return_value=public_demo_configs["apple"]), \
+            patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
+            patch("abraia.demo._hailo_model_available", return_value=True), \
+            patch("abraia.runtime.Pipeline.from_dict") as build:
         result = CliRunner().invoke(
             module.cli,
             [
                 "run",
                 "demo",
-                "tomato",
+                "apple",
                 "video.mp4",
                 "--accelerator",
                 "hailo",
@@ -1293,12 +1248,11 @@ def test_cli_routes_demo_accelerator_to_shared_monitor():
         )
 
     assert result.exit_code == 0, result.output
-    monitor.assert_called_once_with(
-        "video.mp4",
-        "tomato",
-        accelerator="hailo",
-        output="rendered.avi",
-    )
+    config = build.call_args.args[0]
+    assert config["source"]["src"] == "video.mp4"
+    assert config["display"]["dest"] == "rendered.avi"
+    assert config["steps"][0]["model"]["uri"].endswith(".hef")
+    assert build.call_args.kwargs["accelerator"] == "hailo"
 
 
 def test_cli_routes_face_demo_output_to_tracker():
@@ -1323,6 +1277,7 @@ def test_cli_routes_project_output_to_pipeline_config():
 
     class FakePipeline:
         config = None
+        components = {}
 
         @classmethod
         def from_dict(

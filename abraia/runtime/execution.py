@@ -44,26 +44,8 @@ def run_pipeline(
         if show_display and (
             display_clock is None or now - display_clock >= 0.08
         ):
-            renderer = pipeline.render
-            display_frame = (
-                renderer(context) if renderer else context.frame.copy()
-            )
-            fps = (
-                1 / (now - display_clock)
-                if display_clock is not None and now > display_clock
-                else 0
-            )
+            display_frame = pipeline._render_frame(context)
             display_clock = now
-            from ..utils.draw import render_resolution, render_status
-
-            source_type = (runtime_config.get("source") or {}).get("type")
-            if source_type != "image":
-                render_status(
-                    display_frame,
-                    fps=fps,
-                    accelerator=accelerator_name,
-                )
-            render_resolution(display_frame)
             height, width = display_frame.shape[:2]
             scale = min(1280 / width, 720 / height, 1.0)
             if scale < 1.0:

@@ -192,7 +192,6 @@
             {
               "properties": {
                 "type": {"const": "measure"},
-                "source": {"enum": ["detection", "segmentation", "anomaly"]},
                 "features": {"type": "array", "items": {"type": "string"}},
                 "time_in_region": {"type": "boolean"},
                 "polygon": {"$ref": "#/$defs/polygon"}
