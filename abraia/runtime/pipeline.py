@@ -191,6 +191,38 @@ def _make_pipeline_renderer(
     return render
 
 
+def _make_depth_renderer(renderer):
+    """Replace the RGB frame with a colorized depth map when available."""
+    def render(context):
+        import cv2
+        import numpy as np
+
+        result = next((
+            value for value in context.results or ()
+            if value.get("depth_units") in ("m", "relative")
+            and value.get("depth_map") is not None
+        ), None)
+        if result is None:
+            return renderer(context)
+        depth = np.asarray(result["depth_map"], dtype=np.float32)
+        valid = np.isfinite(depth) & (depth > 0)
+        values = depth[valid]
+        near, far = 0.0, 10.0
+        if result["depth_units"] == "relative" and values.size:
+            near, far = float(values.min()), float(values.max())
+        intensity = np.zeros(depth.shape, dtype=np.uint8)
+        if near == far:
+            intensity[valid] = 128
+        else:
+            fraction = (np.clip(values, near, far) - near) / (far - near)
+            intensity[valid] = np.rint((1 - fraction) * 255)
+        colored = cv2.applyColorMap(intensity, cv2.COLORMAP_INFERNO)
+        colored[~valid] = 0
+        return cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
+
+    return render
+
+
 def _validate_pipeline_config(config, input_source):
     """Validate the document and return normalized runtime configuration parts."""
     if not isinstance(config, dict):
@@ -863,6 +895,8 @@ class Pipeline:
                 render_metrics=render_metrics,
                 render_anomaly=renderer_factory is None,
             )
+            if model_plans and model_plans[0][1].task == "depth":
+                renderer = _make_depth_renderer(renderer)
             if model_plans and model_plans[0][1].kind == "anomaly":
                 from .rendering import AnomalyPipelineRenderer
 

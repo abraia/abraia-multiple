@@ -8,6 +8,7 @@ from PIL import Image
 from abraia.inference import ModelSpec, load_model
 from abraia.runtime import Pipeline
 from abraia.runtime.results import table_result_records
+from abraia.inference.models.depth import _resize_dav2
 
 
 def make_depth_onnx(path, kind):
@@ -16,14 +17,21 @@ def make_depth_onnx(path, kind):
     helper = onnx.helper
     da3 = kind == "depth_anything"
     image_name = "pixel_values" if da3 else "images"
-    depth_name = "predicted_depth" if da3 else "depth"
+    depth_name = (
+        "predicted_depth"
+        if kind in ("depth_anything", "depth_anything_v2") else "depth"
+    )
     image_shape = [1, 1, 3, "h", "w"] if da3 else [1, 3, 3, 4]
-    depth_shape = [1, 1, "h", "w"] if da3 else [1, 1, 3, 4]
+    depth_shape = (
+        [1, 1, "h", "w"] if da3
+        else [1, "h", "w"] if kind == "depth_anything_v2"
+        else [1, 1, 3, 4]
+    )
     bias = onnx.numpy_helper.from_array(np.array([2], np.float32), name="bias")
     graph = helper.make_graph([
         helper.make_node(
             "ReduceMean", [image_name], ["mean"], axes=[2 if da3 else 1],
-            keepdims=0 if da3 else 1,
+            keepdims=0 if da3 or kind == "depth_anything_v2" else 1,
         ),
         helper.make_node("Add", ["mean", "bias"], [depth_name]),
     ], "depth", [
@@ -38,8 +46,15 @@ def make_depth_onnx(path, kind):
     onnx.save_model(model, path)
 
 
+def test_depth_anything_v2_resize_uses_518_long_edge():
+    resized = _resize_dav2(np.zeros((720, 1280, 3), np.uint8), ("h", "w"))
+    assert max(resized.shape[:2]) == 518
+    assert min(resized.shape[:2]) < 518
+
+
 @pytest.mark.parametrize("kind,units", [
     ("depth_anything", "relative"),
+    ("depth_anything_v2", "relative"),
     ("yolo26_depth", "m"),
 ])
 def test_depth_prediction_and_saved_pipeline(tmp_path, kind, units):
@@ -65,10 +80,17 @@ def test_depth_prediction_and_saved_pipeline(tmp_path, kind, units):
     else:
         mean = np.array([0.485, 0.456, 0.406])
         std = np.array([0.229, 0.224, 0.225])
-        np.testing.assert_allclose(depth[:, 0], 2 + np.mean(-mean / std), atol=1e-6)
-        np.testing.assert_allclose(
-            depth[:, -1], 2 + np.mean(([1, 0, 0] - mean) / std), atol=1e-6,
-        )
+        left = 2 + np.mean(-mean / std)
+        right = 2 + np.mean(([1, 0, 0] - mean) / std)
+        if kind == "depth_anything_v2":
+            np.testing.assert_allclose(depth[:, 0], left + right - left, atol=1e-6)
+            np.testing.assert_allclose(depth[:, -1], left + right - right, atol=1e-6)
+            assert depth[:, -1].mean() < depth[:, 0].mean()
+        else:
+            np.testing.assert_allclose(depth[:, 0], left, atol=1e-6)
+            np.testing.assert_allclose(depth[:, -1], right, atol=1e-6)
+    if kind == "yolo26_depth":
+        assert depth[:, -1].mean() > depth[:, 0].mean()
 
     pipeline_file = tmp_path / "pipeline.json"
     pipeline_file.write_text(json.dumps({
@@ -91,6 +113,7 @@ def test_depth_prediction_and_saved_pipeline(tmp_path, kind, units):
 
 @pytest.mark.parametrize("kind,filename,units", [
     ("depth_anything", "depth_anything_v3_small.onnx", "relative"),
+    ("depth_anything_v2", "depth_anything_v2_small.onnx", "relative"),
     ("yolo26_depth", "yolo26n-depth.onnx", "m"),
 ])
 def test_depth_models_use_the_shared_artifact_cache(

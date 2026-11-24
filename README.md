@@ -542,6 +542,7 @@ in a saved pipeline:
 | Model | Pipeline `model` object | Output |
 | --- | --- | --- |
 | Depth Anything 3 Small | `{"kind": "depth_anything", "task": "depth"}` | Relative depth |
+| Depth Anything V2 Small | `{"kind": "depth_anything_v2", "task": "depth"}` | Relative depth |
 | YOLO26n-Depth | `{"kind": "yolo26_depth", "task": "depth"}` | Estimated depth in meters |
 
 ```python
@@ -558,8 +559,11 @@ with load_model({"kind": "depth_anything"}) as model:
 The map is a `float32` NumPy array with the same height and width as the
 input RGB image. Pipeline callbacks can access it through
 `context.results[0]["depth_map"]`. The corresponding `depth_units` field is
-`"relative"` or `"m"`. Use a calibrated reference in the intended workspace
-to validate YOLO depth accuracy and repeatability before using it for guidance.
+`"relative"` or `"m"`. V2 relative maps are direction-normalized to the SDK
+convention that smaller values mean nearer surfaces. YOLO values are estimated
+camera-to-surface distances in meters, so smaller values also mean nearer
+surfaces. Use a calibrated reference in the intended workspace to validate
+YOLO depth accuracy and repeatability before using it for guidance.
 
 Run the depth demo with a webcam or save a depth preview from a video:
 
@@ -570,17 +574,20 @@ abraia run demo depth --model depth-anything-v3-small
 ```
 
 YOLO26n-Depth is the default and uses a fixed color scale from 0 to 10 meters.
-Depth Anything 3 Small scales its relative depth colors to each frame. With
-both models, brighter colors indicate nearer surfaces.
+Depth Anything models scale their relative depth colors to each frame. In all
+three visualizations, brighter colors indicate nearer surfaces.
 
-Both models download and cache their ONNX files from Abraia model storage on
-first use. Use `uri` to select a local export. The hosted DA3 file embeds the
-weights from the pinned [Apache 2.0 ONNX export][da3-onnx]. The hosted YOLO
-file is the [official Ultralytics ONNX export][yolo-depth-onnx], released under
+All models download and cache their ONNX files from Abraia model storage on
+first use. Use `uri` to select a local export. Depth Anything models return
+relative depth, not calibrated physical distances. The hosted DA3 file embeds
+weights from the pinned [Apache 2.0 ONNX export][da3-onnx], and V2 uses the
+[ONNX Community export][dav2-onnx]. The hosted YOLO file is the
+[official Ultralytics ONNX export][yolo-depth-onnx], released under
 [Ultralytics' AGPL 3.0 terms][yolo-license]. Its [pretrained checkpoint][yolo-depth-pt]
 and [exporter source][yolo-exporter] are available from Ultralytics.
 
 [da3-onnx]: https://huggingface.co/onnx-community/depth-anything-v3-small/tree/7764f5829b7429e7ecfa0a9c908a6e0facb65a24/onnx
+[dav2-onnx]: https://huggingface.co/onnx-community/depth-anything-v2-small-ONNX
 [yolo-depth-onnx]: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-depth.onnx
 [yolo-depth-pt]: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-depth.pt
 [yolo-exporter]: https://github.com/ultralytics/ultralytics/tree/v8.4.90

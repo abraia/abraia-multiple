@@ -245,6 +245,7 @@ _MODEL_FACTORIES = {
     "resnet": _create_resnet_model,
     "grounding_dino": _create_grounding_dino_model,
     "depth_anything": _create_depth_model,
+    "depth_anything_v2": _create_depth_model,
     "yolo26_depth": _create_depth_model,
     "face": _create_face_model,
     "license_plate": _create_license_plate_model,

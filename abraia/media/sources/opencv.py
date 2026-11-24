@@ -369,45 +369,36 @@ class FrameSource:
         self.frame_rate = self.source_fps or fps
         self._frame_count = 0 if self.has_images else len(self)
         if self.source_type in ("camera", "usb_camera", "rpi_camera"):
-            self._start_capture_thread(keep_latest=True)
+            self._start_capture_thread()
 
-    def _start_capture_thread(self, *, keep_latest):
+    def _start_capture_thread(self):
         with self._capture_thread_lock:
             if self._capture_stop.is_set() or self._capture_thread is not None:
                 return
             self._capture_queue = queue.Queue(maxsize=1)
             self._capture_thread = threading.Thread(
                 target=self._prefetch_frames,
-                args=(keep_latest,),
                 name="abraia-frame-capture",
                 daemon=True,
             )
             self._capture_thread.start()
 
-    def _prefetch_frames(self, keep_latest):
+    def _prefetch_frames(self):
         try:
             while not self._capture_stop.is_set() and not self.stop_event.is_set():
                 ret, frame, _ = self._read_capture()
                 if not ret:
                     break
-                if keep_latest:
-                    self._publish_camera_frame(frame)
-                else:
-                    while not self._capture_stop.is_set() and not self.stop_event.is_set():
-                        try:
-                            self._capture_queue.put(frame, timeout=0.1)
-                            break
-                        except queue.Full:
-                            continue
+                self._publish_latest_frame(frame)
         except Exception as error:
-            if keep_latest:
-                logger.debug("Camera frame capture failed", exc_info=True)
-            else:
+            if self.source_type == "stream":
                 self._capture_error = error
+            else:
+                logger.debug("Camera frame capture failed", exc_info=True)
         finally:
             self._release_capture_when_idle()
 
-    def _publish_camera_frame(self, frame):
+    def _publish_latest_frame(self, frame):
         try:
             self._capture_queue.put_nowait(frame)
         except queue.Full:
@@ -509,7 +500,7 @@ class FrameSource:
 
         source_type = self.source_type
         if source_type == "stream":
-            self._start_capture_thread(keep_latest=False)
+            self._start_capture_thread()
         camera_source = source_type in ("camera", "usb_camera", "rpi_camera", "stream")
         video_source = source_type == "video"
         target_fps = max(

@@ -187,6 +187,7 @@ def test_run_demo_selects_a_model_variant_explicitly(monkeypatch, public_demo_co
 @pytest.mark.parametrize("variant,kind,uri", [
     ("yolo26n-depth", "yolo26_depth", "multiple/models/yolo26n-depth.onnx"),
     ("depth-anything-v3-small", "depth_anything", "multiple/models/depth_anything_v3_small.onnx"),
+    ("depth-anything-v2-small", "depth_anything_v2", "multiple/models/depth_anything_v2_small.onnx"),
 ])
 def test_depth_demo_cli_uses_the_public_pipeline(
     monkeypatch, public_demo_configs, variant, kind, uri,
@@ -200,6 +201,7 @@ def test_depth_demo_cli_uses_the_public_pipeline(
     assert [item.value for item in cli_module._complete_demo_model(context, None, "")] == [
         "yolo26n-depth",
         "depth-anything-v3-small",
+        "depth-anything-v2-small",
     ]
 
     config = public_demo_configs["depth"]

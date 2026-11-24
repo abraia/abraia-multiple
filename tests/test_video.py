@@ -240,7 +240,7 @@ def test_unpaced_video_skips_timestamp_queries(monkeypatch):
     assert len(list(VideoSource("clip.mp4", video_unpaced=True))) == 1
 
 
-def test_stream_reads_all_frames_in_order_and_releases_at_end(monkeypatch):
+def test_stream_keeps_the_latest_pending_frame_and_releases_at_end(monkeypatch):
     class Capture:
         values = iter(range(5))
         releases = 0
@@ -262,8 +262,31 @@ def test_stream_reads_all_frames_in_order_and_releases_at_end(monkeypatch):
 
     source = StreamSource("rtsp://example.invalid/video")
     try:
-        assert [int(frame[0, 0, 0]) for frame in source] == list(range(5))
+        frames = [int(frame[0, 0, 0]) for frame in source]
+        assert frames
+        assert frames[-1] == 4
+        assert frames == sorted(frames)
     finally:
         source.close()
 
     assert capture.releases == 1
+
+
+def test_stream_capture_errors_reach_the_consumer(monkeypatch):
+    class Capture:
+        def get(self, prop_id):
+            return 0
+
+        def read(self):
+            raise RuntimeError("stream read failed")
+
+        def release(self):
+            pass
+
+    monkeypatch.setattr(
+        "abraia.media.sources.opencv.open_capture", lambda *_a, **_kw: Capture(),
+    )
+    source = StreamSource("rtsp://example.invalid/video")
+    with pytest.raises(RuntimeError, match="stream read failed"):
+        list(source)
+    source.close()

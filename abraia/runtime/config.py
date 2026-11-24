@@ -498,6 +498,10 @@ SUPPORTED_MODEL_OPTIONS = (
         SUPPORTED_MODEL_DEFAULT_URIS["depth_anything"]["depth"],
     ),
     (
+        "depth-anything-v2-small", "Depth Anything V2 Small", "depth_anything_v2", "depth",
+        SUPPORTED_MODEL_DEFAULT_URIS["depth_anything_v2"]["depth"],
+    ),
+    (
         "yolo26_depth", "YOLO26n-Depth", "yolo26_depth", "depth",
         SUPPORTED_MODEL_DEFAULT_URIS["yolo26_depth"]["depth"],
     ),

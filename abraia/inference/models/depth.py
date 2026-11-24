@@ -1,4 +1,4 @@
-"""ONNX inference for DA3 Small and YOLO26n-Depth."""
+"""ONNX inference for Depth Anything and YOLO26n-Depth."""
 
 import cv2
 import numpy as np
@@ -9,6 +9,7 @@ from ..session import OnnxSessionMixin
 
 
 _DA3_PROCESS_RES = 504
+_DAV2_PROCESS_RES = 518
 _DA3_PATCH_SIZE = 14
 _YOLO_PROCESS_RES = 768
 
@@ -35,6 +36,26 @@ def _resize_da3(image, input_size):
     return image
 
 
+def _resize_dav2(image, input_size):
+    """Resize Depth Anything V2 input with a 518-pixel long edge."""
+    if all(isinstance(dim, int) for dim in input_size):
+        return cv2.resize(image, input_size[::-1], interpolation=cv2.INTER_CUBIC)
+    height, width = image.shape[:2]
+    scale = _DAV2_PROCESS_RES / max(height, width)
+    scaled = (max(1, round(width * scale)), max(1, round(height * scale)))
+    if scaled != (width, height):
+        interpolation = cv2.INTER_CUBIC if scale > 1 else cv2.INTER_AREA
+        image = cv2.resize(image, scaled, interpolation=interpolation)
+    size = tuple(
+        dim if isinstance(dim, int) else (value // _DA3_PATCH_SIZE) * _DA3_PATCH_SIZE
+        for dim, value in zip(input_size[::-1], scaled)
+    )
+    size = tuple(max(_DA3_PATCH_SIZE, dim) for dim in size)
+    if size != scaled:
+        image = cv2.resize(image, size, interpolation=cv2.INTER_CUBIC)
+    return image
+
+
 def _resize_yolo_depth(depth, shape):
     """Resize using the same corner alignment as the YOLO depth predictor."""
     if depth.shape == shape:
@@ -56,8 +77,20 @@ class DepthModel(OnnxSessionMixin):
 
     def __init__(self, model_uri, *, kind, providers=None):
         self.is_da3 = kind == "depth_anything"
-        self.depth_units = "relative" if self.is_da3 else "m"
-        self._init_onnx_session(resolve_model_file(model_uri), providers=providers)
+        self.is_dav2 = kind == "depth_anything_v2"
+        self.is_relative = self.is_da3 or self.is_dav2
+        self.depth_units = "relative" if self.is_relative else "m"
+        session_options = None
+        if self.is_da3:
+            import onnxruntime as ort
+
+            session_options = ort.SessionOptions()
+            session_options.enable_mem_pattern = False
+        self._init_onnx_session(
+            resolve_model_file(model_uri),
+            providers=providers,
+            session_options=session_options,
+        )
         try:
             inputs = self.session.get_inputs()
             outputs = self.session.get_outputs()
@@ -77,6 +110,10 @@ class DepthModel(OnnxSessionMixin):
             if self.is_da3:
                 if not any(output.name == "predicted_depth" for output in outputs):
                     raise ValueError("DA3 ONNX must expose a 'predicted_depth' output")
+                self.output_name = "predicted_depth"
+            elif self.is_dav2:
+                if not any(output.name == "predicted_depth" for output in outputs):
+                    raise ValueError("DA2 ONNX must expose a 'predicted_depth' output")
                 self.output_name = "predicted_depth"
             else:
                 if len(outputs) != 1 or len(outputs[0].shape or ()) not in (3, 4):
@@ -106,6 +143,9 @@ class DepthModel(OnnxSessionMixin):
         if self.is_da3:
             resized = _resize_da3(image, self.input_size)
             tensor = np.ascontiguousarray(normalize(resized).transpose(2, 0, 1)[None, None])
+        elif self.is_dav2:
+            resized = _resize_dav2(image, self.input_size)
+            tensor = np.ascontiguousarray(normalize(resized).transpose(2, 0, 1)[None])
         else:
             resized = cv2.resize(image, self.input_size[::-1], interpolation=cv2.INTER_LINEAR)
             tensor = np.ascontiguousarray(resized.transpose(2, 0, 1)[None], dtype=np.float32)
@@ -118,6 +158,14 @@ class DepthModel(OnnxSessionMixin):
         if self.is_da3:
             if depth.shape != shape:
                 depth = cv2.resize(depth, shape[::-1], interpolation=cv2.INTER_LINEAR)
+        elif self.is_dav2:
+            if depth.shape != shape:
+                depth = cv2.resize(depth, shape[::-1], interpolation=cv2.INTER_LINEAR)
+            finite = np.isfinite(depth)
+            if finite.any():
+                minimum = float(depth[finite].min())
+                maximum = float(depth[finite].max())
+                depth[finite] = minimum + maximum - depth[finite]
         else:
             depth = _resize_yolo_depth(depth, self.input_size)
             depth = _resize_yolo_depth(depth, shape)

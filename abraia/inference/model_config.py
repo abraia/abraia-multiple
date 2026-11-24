@@ -54,7 +54,7 @@ def model_default_task(kind, uri=""):
         return "classification"
     if kind == "anomaly":
         return "anomaly"
-    if kind in ("depth_anything", "yolo26_depth"):
+    if kind in ("depth_anything", "depth_anything_v2", "yolo26_depth"):
         return "depth"
     return "detection"
 
@@ -154,6 +154,9 @@ MODEL_SIZE_URIS = {
     "depth_anything": {
         "depth": {"small": "multiple/models/depth_anything_v3_small.onnx"},
     },
+    "depth_anything_v2": {
+        "depth": {"small": "multiple/models/depth_anything_v2_small.onnx"},
+    },
     "yolo26_depth": {
         "depth": {"small": "multiple/models/yolo26n-depth.onnx"},
     },
@@ -217,6 +220,7 @@ _MODEL_DESCRIPTORS = {
         },
     ),
     "depth_anything": ModelDescriptor(frozenset({"depth"}), uri_based=True),
+    "depth_anything_v2": ModelDescriptor(frozenset({"depth"}), uri_based=True),
     "yolo26_depth": ModelDescriptor(frozenset({"depth"}), uri_based=True),
     "anomaly": ModelDescriptor(
         frozenset({"anomaly"}), uri_based=True, explicit_uri=True,

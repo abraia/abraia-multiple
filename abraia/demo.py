@@ -51,6 +51,7 @@ DEMO_TASKS = {
 
 MODEL_VARIANT_KINDS = (
     'yolov8', 'yolo9', 'rfdetr', 'dfine', 'yolo26_depth', 'depth_anything',
+    'depth_anything_v2',
 )
 
 
