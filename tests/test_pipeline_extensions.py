@@ -30,6 +30,28 @@ def isolate_extensions(monkeypatch):
     model_config._MODEL_DESCRIPTORS.update(descriptors)
 
 
+def test_replacing_a_builtin_factory_keeps_four_argument_and_legacy_options_contract():
+    from abraia.inference.registry import create_model, get_model_run_kwargs
+
+    calls = []
+    model = object()
+
+    def factory(spec, config, base_dir, session_options):
+        calls.append((spec, config, base_dir, session_options))
+        return model
+
+    register_model_factory(
+        "yolov8", factory,
+        descriptor=ModelDescriptor(frozenset({"detection"}), runtime_options=True),
+    )
+    config = {"kind": "yolov8", "top_k": 5, "prompt": "bird", "labels": []}
+    assert create_model(config, accelerator="cpu") is model
+    spec, raw_config, base_dir, session_options = calls[0]
+    assert raw_config is config and base_dir is None
+    assert session_options == {"providers": ["CPUExecutionProvider"]}
+    assert get_model_run_kwargs(config, spec) == {"top_k": 5, "prompt": "bird"}
+
+
 @pytest.mark.parametrize("outcome", ("complete", "cancel", "failure"))
 def test_extension_receives_opaque_data_and_releases_resources(outcome):
     image = np.zeros((2, 3, 3), dtype=np.uint8)

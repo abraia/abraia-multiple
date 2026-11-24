@@ -256,11 +256,17 @@ def _model_plans(steps_config):
 
 def _create_pipeline_models(model_plans, root, accelerator):
     """Construct planned models and clean up partial construction failures."""
-    from ..inference.registry import _create_model_from_spec, get_model_run_kwargs
+    from ..inference.registry import (
+        _create_model_from_spec, get_model_run_kwargs, resolve_model_backend,
+    )
 
+    selected = [
+        (config, resolve_model_backend(spec, base_dir=root, accelerator=accelerator))
+        for config, spec in model_plans
+    ]
     created = []
     try:
-        for model_config, model_spec in model_plans:
+        for model_config, model_spec in selected:
             model_kwargs = get_model_run_kwargs(model_config, model_spec)
             model = _create_model_from_spec(
                 model_spec,

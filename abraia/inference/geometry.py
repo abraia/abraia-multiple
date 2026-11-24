@@ -4,9 +4,25 @@ import cv2
 import numpy as np
 
 
-def normalize(img, mean, std):
-    """Normalize an image using mean and standard deviation."""
-    return ((img / 255 - np.array(mean)) / np.array(std)).astype(np.float32)
+_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+
+def normalize(img, mean=_IMAGENET_MEAN, std=_IMAGENET_STD):
+    """Scale an image to [0, 1] and normalize its channels in float32."""
+    image = np.array(img, dtype=np.float32, copy=True)
+    image /= 255.0
+    image -= np.asarray(mean, dtype=np.float32)
+    image /= np.asarray(std, dtype=np.float32)
+    return image
+
+
+def fit_image_size(image_shape, model_shape):
+    """Return scale, width and height for a rounded, aspect-preserving fit."""
+    image_height, image_width = image_shape
+    model_height, model_width = model_shape
+    scale = min(model_width / image_width, model_height / image_height)
+    return scale, max(1, round(image_width * scale)), max(1, round(image_height * scale))
 
 
 def sigmoid(x):

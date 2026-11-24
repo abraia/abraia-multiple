@@ -12,9 +12,9 @@ from .results import set_anomaly_decisions
 
 
 DEFAULT_FEATURES = (
-    "area_px", "perimeter_px", "centroid_px", "bounds_px",
-    "width_px", "height_px", "aspect_ratio", "orientation_deg",
-    "major_axis_px", "minor_axis_px", "compactness", "solidity",
+    "area_px", "perimeter_px", "centroid_px",
+    "width_px", "height_px", "aspect_ratio", "rotated_rectangle_px",
+    "compactness", "solidity",
 )
 
 
@@ -37,6 +37,8 @@ def model_output_source(model_configuration):
         return "detection"
     if task == "segmentation":
         return "segmentation"
+    if task == "obb":
+        return "obb"
     return None
 
 
@@ -51,7 +53,10 @@ class FeatureExtractionStep:
             if self.model_entry else {}
         )
         self.source = model_output_source(model_configuration)
-        self.features = tuple(configuration.get("features") or DEFAULT_FEATURES)
+        configured_features = configuration.get("features")
+        self.features = tuple(
+            DEFAULT_FEATURES if configured_features is None else configured_features
+        )
         self.calibration = configuration.get("calibration")
         self.time_in_region = bool(configuration.get("time_in_region"))
         self.region = configuration.get("polygon", ())
@@ -101,6 +106,10 @@ class FeatureExtractionStep:
                 _select_features(result_measurements(geometry), self.features)
                 if has_geometry else {}
             )
+            if self.source == "obb" and "rotated_rectangle_px" in measurements:
+                measurements["rotated_rectangle_px"] = record.get(
+                    "rotated_rectangle_px", measurements["rotated_rectangle_px"],
+                )
             add_calibrated_measurements(measurements, self.calibration)
             if (
                 self.time_in_region

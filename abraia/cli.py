@@ -278,15 +278,16 @@ def _run_demo(demo_name, src=None, accelerator="auto", output=None, model=None):
 
         return track_faces(src, accelerator=accelerator, output=output)
 
-    from .demo import HAILO_AUTO_EXCLUSIONS, resolve_pipeline
+    from .demo import HAILO_AUTO_EXCLUSIONS, depth_demo_renderer, resolve_pipeline
     from .utils.remote import download_file as download_shared_file
 
-    configuration = resolve_pipeline(demo_name, accelerator=accelerator, model=model)
+    configuration = resolve_pipeline(demo_name, model=model)
     if accelerator == "auto" and demo_name in HAILO_AUTO_EXCLUSIONS:
         accelerator = "onnx"
     return _run_pipeline_config(
         configuration, src, accelerator, output, download_shared_file,
         camera_resolution=(1280, 720),
+        renderer_factory=depth_demo_renderer if demo_name == "depth" else None,
     )
 
 
@@ -455,7 +456,7 @@ def run(
 
 def _run_pipeline_config(
     pipeline_config, source_override, accelerator, output, download_source,
-    *, camera_resolution=None,
+    *, camera_resolution=None, renderer_factory=None,
 ):
     """Apply CLI overrides and execute a configured pipeline."""
     from .runtime import Pipeline
@@ -524,11 +525,10 @@ def _run_pipeline_config(
                 for name in columns
             ).rstrip())
 
-    with Pipeline.from_dict(
-        pipeline_config,
-        accelerator=accelerator,
-        on_frame=report,
-    ) as pipeline:
+    pipeline_options = {"accelerator": accelerator, "on_frame": report}
+    if renderer_factory is not None:
+        pipeline_options["renderer_factory"] = renderer_factory
+    with Pipeline.from_dict(pipeline_config, **pipeline_options) as pipeline:
         pipeline.run(hold_image=True)
         counter = pipeline.components.get("line_counter")
         if counter:

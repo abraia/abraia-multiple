@@ -21,7 +21,7 @@ def preprocess(img, size=224):
     left = (width - target_width) // 2
     top = (height - target_height) // 2
     img = img[top:top + target_height, left:left + target_width]
-    img = normalize(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    img = normalize(img)
     return np.expand_dims(img.transpose((2, 0, 1)), axis=0)
 
 
@@ -74,11 +74,7 @@ def preprocess_resnet(img, input_shape=(1, 3, 224, 224), resize_size=256):
     image = cv2.resize(
         image, (target_width, target_height), interpolation=cv2.INTER_LINEAR
     )
-    image = image.astype(np.float32) / 255
-    image = (image - np.array([0.485, 0.456, 0.406])) / np.array(
-        [0.229, 0.224, 0.225]
-    )
-    return image.transpose((2, 0, 1))[None].astype(np.float32)
+    return np.ascontiguousarray(normalize(image).transpose(2, 0, 1)[None])
 
 
 class ResNetClassifier(OnnxSessionMixin):

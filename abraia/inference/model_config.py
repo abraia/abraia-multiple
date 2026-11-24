@@ -11,8 +11,10 @@ PIPELINE_TASKS = (
     "detection",
     "segmentation",
     "pose",
+    "obb",
     "recognition",
     "anomaly",
+    "depth",
 )
 HAILO_TASKS = ("detection", "segmentation", "pose")
 
@@ -52,6 +54,8 @@ def model_default_task(kind, uri=""):
         return "classification"
     if kind == "anomaly":
         return "anomaly"
+    if kind in ("depth_anything", "yolo26_depth"):
+        return "depth"
     return "detection"
 
 
@@ -69,13 +73,14 @@ def to_hailo_task(value):
 
 @dataclass(frozen=True)
 class ModelDescriptor:
-    """Static capabilities shared by editors, validation, and factories."""
+    """Static model capabilities. An explicit run_options set overrides runtime_options."""
 
     tasks: FrozenSet[str]
     uri_based: bool = False
     explicit_uri: bool = False
     runtime_options: bool = False
     follow_up: bool = False
+    run_options: Optional[FrozenSet[str]] = None
 
 
 _MODEL_ARCHITECTURE_ORDER = ("yolov5", "yolov8", "yolo9", "yolo11", "rtmdet")
@@ -95,6 +100,7 @@ MODEL_RUN_OPTIONS = (
     "box_threshold",
     "text_threshold",
 )
+_DETECTION_RUN_OPTIONS = frozenset({"labels", "conf_threshold", "iou_threshold"})
 
 
 MODEL_SIZE_URIS = {
@@ -114,6 +120,7 @@ MODEL_SIZE_URIS = {
             "medium": "multiple/models/yolov8m_pose.onnx",
             "large": "multiple/models/yolov8l_pose.onnx",
         },
+        "obb": {"small": "multiple/models/yolov8n-obb.onnx"},
     },
     "rtmdet": {
         "detection": {
@@ -143,6 +150,12 @@ MODEL_SIZE_URIS = {
     },
     "grounding_dino": {
         "detection": {"small": "multiple/models/grounding_dino_tiny.onnx"},
+    },
+    "depth_anything": {
+        "depth": {"small": "multiple/models/depth_anything_v3_small.onnx"},
+    },
+    "yolo26_depth": {
+        "depth": {"small": "multiple/models/yolo26n-depth.onnx"},
     },
     "rfdetr": {
         "detection": {
@@ -183,17 +196,10 @@ PIPELINE_HAILO_TASKS = HAILO_TASKS
 _MODEL_DESCRIPTORS = {
     **{
         kind: ModelDescriptor(
-            frozenset(
-                {"detection"}
-                if kind == "yolo9"
-                else (
-                    {"detection", "segmentation"}
-                    if kind == "rtmdet"
-                    else {"detection", "segmentation", "pose"}
-                )
-            ),
+            frozenset(MODEL_SIZE_URIS.get(kind, ("detection", "segmentation", "pose"))),
             uri_based=True,
             runtime_options=True,
+            run_options=_DETECTION_RUN_OPTIONS,
         )
         for kind in _MODEL_ARCHITECTURE_ORDER
     },
@@ -202,10 +208,16 @@ _MODEL_DESCRIPTORS = {
         uri_based=True,
         explicit_uri=True,
         runtime_options=True,
+        run_options=frozenset({"labels", "conf_threshold", "score_threshold", "top_k"}),
     ),
     "grounding_dino": ModelDescriptor(
-        frozenset({"detection"}), uri_based=True, runtime_options=True
+        frozenset({"detection"}), uri_based=True, runtime_options=True,
+        run_options=_DETECTION_RUN_OPTIONS | {
+            "prompt", "text_prompt", "box_threshold", "text_threshold",
+        },
     ),
+    "depth_anything": ModelDescriptor(frozenset({"depth"}), uri_based=True),
+    "yolo26_depth": ModelDescriptor(frozenset({"depth"}), uri_based=True),
     "anomaly": ModelDescriptor(
         frozenset({"anomaly"}), uri_based=True, explicit_uri=True,
         follow_up=True,
@@ -213,10 +225,12 @@ _MODEL_DESCRIPTORS = {
     "rfdetr": ModelDescriptor(
         frozenset({"detection", "segmentation"}),
         uri_based=True, runtime_options=True,
+        run_options=frozenset({"labels", "conf_threshold"}),
     ),
     "dfine": ModelDescriptor(
         frozenset({"detection", "segmentation"}),
         uri_based=True, runtime_options=True,
+        run_options=_DETECTION_RUN_OPTIONS,
     ),
     "face": ModelDescriptor(frozenset({"detection", "recognition"})),
     "license_plate": ModelDescriptor(frozenset({"detection", "recognition"})),
@@ -320,7 +334,8 @@ class ModelSpec:
         descriptor = self.descriptor
         if descriptor and self.task not in descriptor.tasks:
             if self.kind in MODEL_ARCHITECTURES:
-                return "task", f"{self.kind} models support detection, segmentation, or pose."
+                tasks = ", ".join(sorted(descriptor.tasks))
+                return "task", f"{self.kind} models support these tasks: {tasks}."
             message = {
                 "resnet": "Classification models require the classification task.",
                 "grounding_dino": "Grounding DINO models require the detection task.",
@@ -329,6 +344,8 @@ class ModelSpec:
             return "task", message
         if descriptor and descriptor.explicit_uri and not self.uri:
             return "uri", f"A {self.kind} model requires a model 'uri'"
+        if self.task == "depth" and self.kind in MODEL_SIZE_URIS and not self.resolved_uri:
+            return "uri", f"A {self.kind} model requires a model 'uri' for size '{self.size}'"
         return None
 
     def require_runtime_valid(self) -> None:

@@ -4,7 +4,7 @@ import numpy as np
 
 from ...media.display import Sketcher
 from ...utils.remote import download_file
-from ..geometry import mask_to_box
+from ..geometry import fit_image_size, mask_to_box
 from ..session import OnnxSessionBundle
 
 
@@ -20,13 +20,14 @@ def get_input_points(prompt):
             points.append([mark["data"][2], mark["data"][3]])
             labels.append(2)
             labels.append(3)
-    return np.array(points), np.array(labels)
+    return np.array(points).reshape(-1, 2), np.array(labels)
 
 
 class SAM:
 
     def __init__(self, providers=None, accelerator=None):
         self.image_embedding = None
+        self._encoded_image = None
         self._closed = False
         self.target_size = 1024
         self.input_size = (684, 1024)
@@ -58,28 +59,21 @@ class SAM:
     def encode(self, img):
         if self._closed:
             raise RuntimeError("SAM has already been closed")
-        scale_x = self.input_size[1] / img.shape[1]
-        scale_y = self.input_size[0] / img.shape[0]
-        scale = min(scale_x, scale_y)
-
-        transform_matrix = np.array([[scale, 0, 0],
-                                     [0, scale, 0],
-                                     [0, 0, 1]])
-
-        size = (self.input_size[1], self.input_size[0])
-        img = cv2.warpAffine(img, transform_matrix[:2], size, flags=cv2.INTER_LINEAR)
+        source = np.array(img, copy=True)
+        scale, _, _ = fit_image_size(source.shape[:2], self.input_size)
+        transform = np.array([[scale, 0, 0], [0, scale, 0]])
+        resized = cv2.warpAffine(source, transform, self.input_size[::-1], flags=cv2.INTER_LINEAR)
 
         encoder_input_name = self.encoder.get_inputs()[0].name
-        encoder_inputs = {encoder_input_name: img.astype(np.float32)}
+        encoder_inputs = {encoder_input_name: resized.astype(np.float32)}
         encoder_output = self.encoder.run(None, encoder_inputs)
         self.image_embedding = encoder_output[0]
+        self._encoded_image = source
         return self.image_embedding
 
     def decode(self, image_embedding, input_points, input_labels):
-        onnx_coord = np.concatenate([input_points, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
+        onnx_coord = np.concatenate([input_points, [[0.0, 0.0]]], axis=0)[None].astype(np.float32)
         onnx_label = np.concatenate([input_labels, np.array([-1])], axis=0)[None, :].astype(np.float32)
-        onnx_coord = np.concatenate([onnx_coord, np.ones((1, onnx_coord.shape[1], 1), dtype=np.float32)], axis=2)
-        onnx_coord = onnx_coord[:, :, :2].astype(np.float32)
 
         onnx_mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
         onnx_has_mask_input = np.zeros(1, dtype=np.float32)
@@ -98,16 +92,13 @@ class SAM:
             raise RuntimeError("SAM has already been closed")
         height, width = img.shape[:2]
 
-        scale_x = self.input_size[1] / img.shape[1]
-        scale_y = self.input_size[0] / img.shape[0]
-        scale = min(scale_x, scale_y)
-
-        transform_matrix = np.array([[scale, 0, 0],
-                                     [0, scale, 0],
-                                     [0, 0, 1]])
-
-        if self.image_embedding is None:
-            self.image_embedding = self.encode(img)
+        scale, _, _ = fit_image_size((height, width), self.input_size)
+        if (
+            self.image_embedding is None or self._encoded_image is None
+            or self._encoded_image.dtype != img.dtype
+            or not np.array_equal(self._encoded_image, img)
+        ):
+            self.encode(img)
 
         input_points, input_labels = get_input_points(prompt)
         input_points = input_points * scale
@@ -115,10 +106,10 @@ class SAM:
             self.image_embedding, input_points, input_labels
         )
 
-        inv_transform_matrix = np.linalg.inv(transform_matrix)
+        inverse = np.array([[1 / scale, 0, 0], [0, 1 / scale, 0]])
         mask = masks[int(np.argmax(scores))]
         mask = cv2.warpAffine(
-            mask, inv_transform_matrix[:2], (width, height),
+            mask, inverse, (width, height),
             flags=cv2.INTER_LINEAR,
         )
         return (mask > 0.0).astype(np.uint8) * 255
@@ -129,12 +120,13 @@ class SAM:
             return
         bundle = getattr(self, "_session_bundle", None)
         self._session_bundle = None
-        if bundle is not None:
-            bundle.close()
         self.encoder = None
         self.decoder = None
         self.image_embedding = None
+        self._encoded_image = None
         self._closed = True
+        if bundle is not None:
+            bundle.close()
 
     def __enter__(self):
         return self
@@ -148,7 +140,6 @@ class InteractiveSAM(Sketcher, SAM):
     def __init__(self, img, radius=7, providers=None, accelerator=None):
         try:
             SAM.__init__(self, providers=providers, accelerator=accelerator)
-            self.image_embedding = None
             self.encode(img)
             self.cropped_img = None
             self.selected_box = None

@@ -112,13 +112,12 @@ def result_records(values, calibration=None):
 
 
 _MEASUREMENT_FIELDS = {
-    "aspect_ratio", "orientation_deg", "compactness", "solidity", "time_in_region_s",
+    "aspect_ratio", "compactness", "solidity", "time_in_region_s",
 }
 _MEASUREMENT_FIELDS.update(
     f"{field}_{unit}"
     for field in (
         "centroid", "bounds", "width", "height", "perimeter",
-        "major_axis", "minor_axis",
     )
     for unit in ("px", "mm", "cm", "µm")
 )
@@ -183,5 +182,14 @@ def table_result_records(records, *, limit=None):
             ):
                 parts = ", ".join(_table_number(name, part) for part in value)
                 row[name] = f"({parts})"
+            elif name.startswith("rotated_rectangle_") and isinstance(value, Mapping):
+                center = value["center"]
+                size = value["size"]
+                angle = value["angle_deg"]
+                row[name] = (
+                    "center (" + ", ".join(_table_number(name, part) for part in center)
+                    + "); size (" + ", ".join(_table_number(name, part) for part in size)
+                    + "); angle " + _table_number(name, angle) + "°"
+                )
         rows.append(row)
     return rows

@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from abraia.inference.geometry import normalize
 from abraia.inference.session import OnnxSessionMixin, load_onnx_model_config
 
 
@@ -188,11 +189,7 @@ class RFDETRONNXModel(OnnxSessionMixin):
             (input_width, input_height),
             interpolation=cv2.INTER_LINEAR,
         )
-        input_tensor = resized.astype(np.float32) / 255.0
-        input_tensor = (
-            input_tensor - np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
-        ) / np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
-        input_tensor = np.ascontiguousarray(input_tensor.transpose(2, 0, 1)[None])
+        input_tensor = np.ascontiguousarray(normalize(resized).transpose(2, 0, 1)[None])
         outputs = self.session.run(None, {self.input_name: input_tensor})
         return _decode_rfdetr_outputs(
             outputs[self.boxes_index],

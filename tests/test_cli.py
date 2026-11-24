@@ -115,6 +115,7 @@ def test_run_demo_lists_available_demos():
     assert result.exit_code == 0, result.output
     assert "Available demos" in result.output
     assert "apple" in result.output
+    assert "depth" in result.output
 
 
 def test_run_demo_without_name_loads_public_detect_demo(monkeypatch, public_demo_configs):
@@ -181,6 +182,95 @@ def test_run_demo_selects_a_model_variant_explicitly(monkeypatch, public_demo_co
     assert pipeline_config["display"]["dest"] == "out.avi"
     assert pipeline_config["steps"][0]["model"]["uri"].endswith("/yolov8m-seg.onnx")
     assert build_pipeline.call_args.kwargs["accelerator"] == "cpu"
+
+
+@pytest.mark.parametrize("variant,kind,uri", [
+    ("yolo26n-depth", "yolo26_depth", "multiple/models/yolo26n-depth.onnx"),
+    ("depth-anything-v3-small", "depth_anything", "multiple/models/depth_anything_v3_small.onnx"),
+])
+def test_depth_demo_cli_uses_the_public_pipeline(
+    monkeypatch, public_demo_configs, variant, kind, uri,
+):
+    from abraia import demo as demo_module
+
+    context = SimpleNamespace(params={"project": "demo", "demo_or_source": "depth"})
+    assert [item.value for item in cli_module._complete_run_demo(context, None, "dep")] == [
+        "depth",
+    ]
+    assert [item.value for item in cli_module._complete_demo_model(context, None, "")] == [
+        "yolo26n-depth",
+        "depth-anything-v3-small",
+    ]
+
+    config = public_demo_configs["depth"]
+    config["steps"][0]["model"].pop("uri")
+    payload = json.dumps(config).encode()
+    fetch = MagicMock(side_effect=lambda *args, **kwargs: BytesIO(payload))
+    build = MagicMock()
+    monkeypatch.setattr(demo_module, "load_url", fetch)
+    monkeypatch.setattr(Pipeline, "from_dict", build)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["run", "demo", "depth", "--accelerator", "cpu"])
+    assert result.exit_code == 0, result.output
+    assert build.call_args.args[0]["source"] == {
+        "type": "camera", "src": 0, "resolution": [1280, 720],
+    }
+    assert build.call_args.args[0]["steps"] == config["steps"]
+    assert build.call_args.kwargs["renderer_factory"] is demo_module.depth_demo_renderer
+
+    result = runner.invoke(cli, [
+        "run", "demo", "depth", "input.mp4", "--accelerator", "cpu",
+        "--model", variant, "--output", "depth.avi",
+    ])
+    assert result.exit_code == 0, result.output
+    assert [call.args[0] for call in fetch.call_args_list] == [
+        "https://api.abraia.me/files/multiple/demos/depth.json",
+    ] * 2
+    selected = build.call_args.args[0]
+    assert selected["source"] == {"type": "video", "src": "input.mp4"}
+    assert selected["display"]["dest"] == "depth.avi"
+    assert selected["steps"][0]["model"]["kind"] == kind
+    assert selected["steps"][0]["model"]["uri"] == uri
+
+
+@pytest.mark.parametrize("units", ["m", "relative"])
+def test_depth_demo_colors_values_without_changing_the_map(units):
+    from abraia.demo import depth_demo_renderer
+
+    depth = np.tile([0, -1, np.nan, np.inf, 1, 5, 10, 20], (80, 40)).astype(np.float32)
+    original = depth.copy()
+    context = SimpleNamespace(
+        frame=np.full((*depth.shape, 3), 222, dtype=np.uint8),
+        results=[{"depth_units": units, "depth_map": depth}],
+    )
+    render = depth_demo_renderer(lambda context: context.frame, {})
+    image = render(context)
+    assert image.shape == context.frame.shape
+    assert image.dtype == np.uint8
+    assert not image[-1, :4].any()
+    assert image[-1, 4].sum() > image[-1, 5].sum() > image[-1, 6].sum()
+    if units == "m":
+        np.testing.assert_array_equal(image[-1, 6], image[-1, 7])
+    else:
+        assert image[-1, 6].sum() > image[-1, 7].sum()
+    np.testing.assert_array_equal(depth, original)
+    assert np.all(context.frame == 222)
+    context.results.clear()
+    assert render(context) is context.frame
+
+
+def test_explicit_hailo_does_not_launch_an_onnx_only_demo(monkeypatch, public_demo_configs):
+    monkeypatch.setattr("abraia.demo.load_public_pipeline", lambda name: public_demo_configs[name])
+    monkeypatch.setattr("abraia.runtime.pipeline.create_frame_source", MagicMock())
+    model = MagicMock()
+    monkeypatch.setattr("abraia.inference.models.depth.DepthModel", model)
+
+    result = CliRunner().invoke(cli, ["run", "demo", "depth", "--accelerator", "hailo"])
+
+    assert result.exit_code == 1
+    assert "Hailo required for model 'yolo26_depth'" in result.output
+    model.assert_not_called()
 
 
 def test_public_demo_reloads_json_and_downloads_sample_without_account(

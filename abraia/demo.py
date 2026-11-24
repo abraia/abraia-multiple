@@ -3,7 +3,6 @@
 import json
 import os
 import time
-from copy import deepcopy
 
 from requests import RequestException
 
@@ -13,17 +12,11 @@ from abraia.inference.search import ImageSearch
 from abraia.inference.models.faces import find_pose
 from abraia.runtime import Pipeline
 from abraia.runtime.config import is_primary_model_step
-from abraia.utils.draw import render_results, draw_overlay, draw_text_multiline
+from abraia.utils.draw import draw_overlay, draw_text_multiline, render_results
 from abraia.runtime.video import Video
 from abraia.media.images import load_image
 from abraia.utils.remote import load_url, url_path
-from abraia.inference.accelerators import (
-    hailo_device_arch as _hailo_device_arch,
-    hailo_model_available as _hailo_model_available,
-    normalize_accelerator,
-    onnx_providers,
-    paired_hailo_uri,
-)
+from abraia.inference.accelerators import normalize_accelerator, onnx_providers
 from abraia.inference.model_config import (
     model_variants,
     normalize_task,
@@ -46,6 +39,8 @@ DEMO_TASKS = {
     'plates': 'recognition',
     'segment': 'segmentation',
     'pose': 'pose',
+    'obb': 'obb',
+    'depth': 'depth',
     'yolo9': 'detection',
     'rfdetr': 'detection',
     'rfdetr-seg': 'segmentation',
@@ -54,7 +49,9 @@ DEMO_TASKS = {
 }
 
 
-MODEL_VARIANT_KINDS = ('yolov8', 'yolo9', 'rfdetr', 'dfine')
+MODEL_VARIANT_KINDS = (
+    'yolov8', 'yolo9', 'rfdetr', 'dfine', 'yolo26_depth', 'depth_anything',
+)
 
 
 # The current Hailo apple entry uses a generic COCO segmentation HEF. Keep it
@@ -95,6 +92,41 @@ def demo_model_options(demo):
     )
 
 
+def depth_demo_renderer(renderer, config):
+    """Colorize metric and relative depth maps for the demo."""
+    if not (config.get("display") or {}).get("render_results", True):
+        return renderer
+
+    import cv2
+    import numpy as np
+
+    def render(context):
+        result = next((
+            result for result in context.results
+            if result.get("depth_units") in ("m", "relative")
+            and result.get("depth_map") is not None
+        ), None)
+        if result is None:
+            return renderer(context)
+        depth = result["depth_map"]
+        valid = np.isfinite(depth) & (depth > 0)
+        values = depth[valid]
+        near, far = 0.0, 10.0
+        if result["depth_units"] == "relative" and values.size:
+            near, far = float(values.min()), float(values.max())
+        intensity = np.zeros(depth.shape, dtype=np.uint8)
+        if near == far:
+            intensity[valid] = 128
+        else:
+            fraction = (np.clip(values, near, far) - near) / (far - near)
+            intensity[valid] = np.rint((1 - fraction) * 255)
+        colored = cv2.applyColorMap(intensity, cv2.COLORMAP_INFERNO)
+        colored[~valid] = 0
+        return cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
+
+    return render
+
+
 def _apply_demo_model(config, demo, model_name):
     """Replace a demo's primary model with a compatible built-in variant."""
     model_name = str(model_name).strip().lower()
@@ -125,28 +157,6 @@ def _primary_model_step(config):
         step for step in config.get('steps', [])
         if is_primary_model_step(step)
     )
-
-
-def _resolve_hailo_config(config, architecture):
-    """Select an available architecture-specific HEF for a demo model."""
-    selected = deepcopy(config)
-    model = _primary_model_step(selected)['model']
-    onnx_uri = model.get('uri')
-    kind = str(model.get('kind', '')).strip().lower()
-    task = normalize_task(model.get('task'))
-    if kind not in ('yolov5', 'yolov8', 'yolo9', 'yolo11') or not task:
-        return None
-
-    hef_uri = paired_hailo_uri(
-        onnx_uri,
-        architecture,
-    )
-    if not hef_uri:
-        return None
-    model['task'] = task
-    model['kind'] = kind
-    model['uri'] = hef_uri
-    return selected if _hailo_model_available(selected, architecture) else None
 
 
 def run_camera_pipeline(
@@ -195,54 +205,24 @@ def run_camera_pipeline(
             pass
 
 
-def resolve_pipeline(demo=DEFAULT_DEMO, accelerator='auto', model=None):
-    """Load a public demo and select its runtime model.
-
-    ``hailo`` is treated as an accelerator selection.  CPU, GPU, and ONNX
-    selections use the regular ONNX pipeline definition; ONNX Runtime chooses
-    the available provider for that model.  ``auto`` prefers Hailo only when a
-    compatible device and model are available, then falls back to ONNX.
-    """
-    accelerator = normalize_accelerator(accelerator)
+def resolve_pipeline(demo=DEFAULT_DEMO, model=None):
+    """Load a public demo and apply its optional model variant."""
     if demo not in DEMO_TASKS:
         raise ValueError(f"Unknown demo '{demo}'")
     config = load_public_pipeline(demo)
     if model is not None:
         _apply_demo_model(config, demo, model)
 
-    if accelerator == 'hailo':
-        architecture = _hailo_device_arch()
-        if not architecture:
-            raise RuntimeError(
-                "Hailo accelerator requested, but no compatible Hailo device "
-                "was detected"
-            )
-        resolved_hailo_config = _resolve_hailo_config(config, architecture)
-        if resolved_hailo_config is None:
-            raise RuntimeError(
-                f"No Hailo model is available for the '{demo}' demo on "
-                f"{architecture}"
-            )
-        return resolved_hailo_config
-
-    if (
-        accelerator == 'auto'
-        and demo not in HAILO_AUTO_EXCLUSIONS
-    ):
-        architecture = _hailo_device_arch()
-        resolved_hailo_config = (
-            _resolve_hailo_config(config, architecture)
-            if architecture
-            else None
-        )
-        if resolved_hailo_config:
-            return resolved_hailo_config
-
     return config
 
 
 def track_faces(src=None, resolution=(1280, 720), accelerator='auto', output=None):
     """Track faces in a video stream from a file or webcam."""
+    if normalize_accelerator(accelerator) == 'hailo':
+        from abraia.inference.model_config import ModelSpec
+        from abraia.inference.registry import resolve_model_backend
+
+        resolve_model_backend(ModelSpec(kind='face', task='recognition'), accelerator=accelerator)
     providers = onnx_providers(accelerator)
     recognition = FaceRecognizer(providers=providers)
     attribute = FaceAttribute(providers=providers)

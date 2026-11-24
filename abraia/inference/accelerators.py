@@ -167,21 +167,7 @@ def hailo_artifact_available(uri, architecture):
     return probe_artifact(path).available
 
 
-def hailo_model_available(config, architecture):
-    """Return whether a configured Hailo model artifact is available."""
-    model = next(
-        (
-            step.get("model", {})
-            for step in config.get("steps", [])
-            if step.get("type") == "model"
-            and "input" not in step
-        ),
-        {},
-    )
-    return hailo_artifact_available(model.get("uri"), architecture)
-
-
-def paired_hailo_uri(onnx_uri, architecture=None):
+def paired_hailo_uri(onnx_uri, architecture=None, *, base_dir=None):
     """Return the exact-stem Hailo URI paired with an ONNX model URI.
 
     Abraia-managed Hailo models are addressed by their remote path and
@@ -195,12 +181,13 @@ def paired_hailo_uri(onnx_uri, architecture=None):
         return None
 
     path = Path(value)
+    local_path = Path(base_dir) / path if base_dir is not None else path
     siblings = []
     if architecture:
         siblings.append(
-            path.with_name(f"{path.stem}_{architecture}.hef")
+            local_path.with_name(f"{path.stem}_{architecture}.hef")
         )
-    siblings.append(path.with_name(f"{path.stem}.hef"))
+    siblings.append(local_path.with_suffix(".hef"))
     for sibling in siblings:
         if sibling.is_file():
             return str(sibling)
@@ -235,7 +222,6 @@ __all__ = [
     "available_accelerators",
     "hailo_artifact_available",
     "hailo_device_arch",
-    "hailo_model_available",
     "is_gpu_provider",
     "normalize_accelerator",
     "onnx_providers",

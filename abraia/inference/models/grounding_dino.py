@@ -12,7 +12,7 @@ import unicodedata
 import cv2
 import numpy as np
 
-from ..geometry import iou
+from ..geometry import fit_image_size, iou, normalize
 from ..accelerators import get_providers
 from ..session import OnnxSessionMixin
 from ...utils.filesystem import load_json
@@ -25,8 +25,6 @@ DEFAULT_INPUT_SHAPE = (1, 3, 800, 800)
 DEFAULT_MAX_TEXT_LENGTH = 256
 COREML_PROVIDER = "CoreMLExecutionProvider"
 CPU_PROVIDER = "CPUExecutionProvider"
-IMAGE_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-IMAGE_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 class _BertWordPieceTokenizer:
@@ -213,11 +211,6 @@ def _grounding_dino_providers(providers):
     return safe_providers
 
 
-def _resolve_file(uri):
-    """Resolve a local path or fetch an SDK-managed remote asset."""
-    return resolve_model_file(uri)
-
-
 def _dtype_for_input(type_name):
     """Return the NumPy dtype corresponding to an ONNX input type."""
     type_name = str(type_name).lower()
@@ -257,8 +250,10 @@ def prepare_image(
     input_shape=DEFAULT_INPUT_SHAPE,
     letterbox=True,
     force_full_pixel_mask=False,
+    *,
+    color_order="BGR",
 ):
-    """Resize a BGR image into normalized, letterboxed model inputs.
+    """Resize a BGR or RGB image into normalized, letterboxed model inputs.
 
     Returns ``(pixel_values, pixel_mask, scale, padding)``. The transform
     maps original coordinates to model coordinates. ``letterbox=False`` is
@@ -273,22 +268,25 @@ def prepare_image(
     image = image[:, :, :3]
     if image.dtype != np.uint8:
         image = np.clip(image, 0, 255).astype(np.uint8)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
     target_height, target_width = map(int, input_shape[2:4])
     image_height, image_width = image.shape[:2]
     if image_height <= 0 or image_width <= 0:
         raise ValueError("Grounding DINO cannot process an empty image")
-    scale = min(target_width / image_width, target_height / image_height)
-    resized_width = max(1, round(image_width * scale))
-    resized_height = max(1, round(image_height * scale))
-    if not letterbox:
+    color_order = color_order.upper()
+    if color_order == "BGR":
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    elif color_order != "RGB":
+        raise ValueError("Grounding DINO color_order must be 'RGB' or 'BGR'")
+    if letterbox:
+        scale, resized_width, resized_height = fit_image_size(
+            (image_height, image_width), (target_height, target_width),
+        )
+    else:
         resized_width, resized_height = target_width, target_height
         scale = (target_width / image_width, target_height / image_height)
-    resized = cv2.resize(
+    resized = normalize(cv2.resize(
         image, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR
-    ).astype(np.float32) / 255.0
-    resized = (resized - IMAGE_MEAN) / IMAGE_STD
+    ))
 
     pad_left = (target_width - resized_width) // 2 if letterbox else 0
     pad_top = (target_height - resized_height) // 2 if letterbox else 0
@@ -460,12 +458,12 @@ class GroundingDINOModel(OnnxSessionMixin):
         providers=None,
     ):
         model_uri = os.fspath(model_uri)
-        model_path = _resolve_file(model_uri)
+        model_path = resolve_model_file(model_uri)
         config_uri = f"{os.path.splitext(model_uri)[0]}.json"
         if os.path.isfile(config_uri):
             config_path = config_uri
         else:
-            config_path = _resolve_file(config_uri)
+            config_path = resolve_model_file(config_uri)
         self.config = load_json(config_path)
         self.input_shape = tuple(
             self.config.get("inputShape", DEFAULT_INPUT_SHAPE)
@@ -503,7 +501,7 @@ class GroundingDINOModel(OnnxSessionMixin):
 
     @staticmethod
     def _load_tokenizer(tokenizer_uri):
-        vocab_path = _resolve_file(tokenizer_uri)
+        vocab_path = resolve_model_file(tokenizer_uri)
         return _BertWordPieceTokenizer(vocab_path, do_lower_case=True)
 
     def _tokenize(self, prompt):
@@ -589,7 +587,7 @@ class GroundingDINOModel(OnnxSessionMixin):
         conf_threshold=None,
         iou_threshold=0.7,
     ):
-        """Detect objects described by a prompt or a list of candidate labels."""
+        """Detect objects in an RGB image using a prompt or candidate labels."""
         self._ensure_open()
         if prompt is None:
             prompt = text_prompt
@@ -614,6 +612,7 @@ class GroundingDINOModel(OnnxSessionMixin):
             self.input_shape,
             letterbox=self.letterbox,
             force_full_pixel_mask=self.force_full_pixel_mask,
+            color_order="RGB",
         )
         token_values, offsets = self._tokenize(prompt)
         inputs = self._build_inputs(pixel_values, token_values, pixel_mask)

@@ -19,7 +19,7 @@ from abraia.inference.models.detection import (
     process_pose_output,
     process_rtmdet_output,
 )
-from abraia.inference.geometry import mask_to_polygon, search_vectors, softmax
+from abraia.inference.geometry import mask_to_polygon, normalize, search_vectors, softmax
 from abraia.inference.models.ocr import BaseRecLabelDecode, TextRecognizer, TextSystem
 from abraia.inference.models.sam import SAM
 from abraia.inference.models.classification import ResNetClassifier, preprocess_resnet
@@ -241,6 +241,48 @@ def test_detection_decoder_reverses_centered_letterbox_transform():
         transform=(scale, padding),
     )
     assert result[0]["box"] == [80, 30, 40, 40]
+
+
+@pytest.mark.parametrize("task", ["detection", "segmentation", "pose"])
+def test_yolo_candidate_filter_preserves_decoder_results(task):
+    shape, size, transform = (1, 3, 100, 100), (200, 100), (0.5, (0, 25))
+    rows = np.array([
+        [25, 45, 20, 20, .75, .75],  # Tied classes choose the first one.
+        [75, 55, 20, 20, .1, .75],
+        [25, 45, 20, 20, .70, .1],  # Suppressed by the first overlapping box.
+        [50, 45, 20, 20, np.nextafter(np.float32(.5), np.float32(0)), .1],
+        [50, 65, 20, 20, .5, .1],
+    ], dtype=np.float32)
+    output = [rows.T[None]]
+    decode = process_output
+    if task == "segmentation":
+        output = [
+            np.column_stack((rows, np.ones(len(rows), dtype=np.float32))).T[None],
+            np.ones((1, 1, 10, 10), dtype=np.float32),
+        ]
+    elif task == "pose":
+        decode = process_pose_output
+        output = [np.column_stack((rows, rows[:, :2], np.full(len(rows), .8))).astype(np.float32).T[None]]
+
+    kwargs = dict(size=size, shape=shape, classes=["person", "car"], transform=transform)
+    results = decode(output, conf_threshold=.5, **kwargs)
+    assert [(r["label"], r["box"]) for r in results] == [
+        ("car", [130, 40, 40, 40]),
+        ("person", [30, 20, 40, 40]),
+        ("person", [80, 60, 40, 40]),
+    ]
+    assert [r["score"] for r in results] == [.75, .75, .5]
+    assert [r["label"] for r in decode(output, conf_threshold=.5, labels=["car"], **kwargs)] == ["car"]
+    assert decode(output, conf_threshold=np.nextafter(.75, 1.0), **kwargs) == []
+    assert decode([output[0][:, :, :0], *output[1:]], conf_threshold=.5, **kwargs) == []
+    if task == "segmentation":
+        for result in results:
+            np.testing.assert_array_equal(result["mask"], np.ones((40, 40), dtype=np.uint8))
+    elif task == "pose":
+        for result in results:
+            x, y, _, _ = result["box"]
+            np.testing.assert_array_equal(result["keypoints"], [[x + 20, y + 20]])
+            np.testing.assert_array_equal(result["joint_scores"], [float(np.float32(.8))])
 
 
 def test_rtmdet_decoder_accepts_model_run_arguments_and_filters_labels():
@@ -474,6 +516,72 @@ def test_sam_close_releases_both_sessions():
     assert sam.decoder is None
     assert sam.image_embedding is None
     assert sam._closed
+
+
+def test_sam_reencodes_only_when_image_content_changes(monkeypatch):
+    from abraia.inference.models import sam as module
+
+    encoder = Mock()
+    encoder.get_inputs.return_value = [SimpleNamespace(name="image")]
+    encoder.run.side_effect = lambda _names, inputs: [inputs["image"].mean()]
+    decoder = Mock()
+    decoder.run.side_effect = lambda _names, inputs: (
+        np.full((1, 1, 4, 4), inputs["image_embeddings"] - 100, np.float32),
+        np.array([[1]]), None,
+    )
+    bundle = Mock(sessions=(encoder, decoder))
+    monkeypatch.setattr(module, "download_file", lambda path: path)
+    monkeypatch.setattr(module, "OnnxSessionBundle", lambda *args, **kwargs: bundle)
+    image = np.zeros((4, 4, 3), np.uint8)
+    prompt = '[{"type":"point","data":[1,1],"label":1}]'
+    with SAM() as model:
+        model.input_size = (4, 4)
+        assert not model.predict(image, prompt).any()
+        assert not model.predict(image.copy(), prompt).any()
+        assert encoder.run.call_count == 1
+        image[:] = 255
+        assert (model.predict(image, prompt) == 255).all()
+        assert encoder.run.call_count == 2
+        assert not model.predict(np.zeros_like(image), prompt).any()
+        assert encoder.run.call_count == 3
+    assert model._encoded_image is None
+    bundle.close.assert_called_once()
+
+
+def test_shared_normalization_matches_reference_and_leaves_input_intact():
+    image = np.arange(24, dtype=np.uint8).reshape(2, 4, 3)
+    expected = (image / 255 - [.485, .456, .406]) / [.229, .224, .225]
+    values = normalize(image)
+    assert values.dtype == np.float32
+    np.testing.assert_allclose(values, expected, atol=2e-7)
+    np.testing.assert_array_equal(image.ravel(), np.arange(24))
+
+
+def test_grounding_dino_adapter_uses_rgb_without_changing_bgr_helper(monkeypatch):
+    from abraia.inference.models import grounding_dino as module
+
+    image = np.full((4, 8, 3), (255, 0, 0), np.uint8)
+    model = module.GroundingDINOModel.__new__(module.GroundingDINOModel)
+    model._closed = False
+    model.input_shape = (1, 3, 8, 8)
+    model.letterbox = True
+    model.force_full_pixel_mask = False
+    model._tokenize = lambda _prompt: ({"input_ids": [[0]]}, None)
+    model._build_inputs = lambda image, _tokens, mask: {"image": image, "mask": mask}
+    model.tokenizer = object()
+    model.session = Mock()
+    monkeypatch.setattr(module, "decode_outputs", Mock(return_value=[]))
+
+    assert model.run(image, labels=["object"]) == []
+    inputs = model.session.run.call_args.args[1]
+    rgb, mask, scale, padding = module.prepare_image(image, model.input_shape, color_order="RGB")
+    bgr, *_ = module.prepare_image(image[..., ::-1], model.input_shape)
+    np.testing.assert_array_equal(inputs["image"], rgb)
+    np.testing.assert_array_equal(inputs["mask"], mask)
+    np.testing.assert_array_equal(rgb, bgr)
+    assert rgb[0, 0, 2, 0] > 0 and rgb[0, 2, 2, 0] < 0
+    assert (scale, padding) == (1, (0, 2))
+    assert not mask[:, :2].any() and mask[:, 2:6].all()
 
 
 def test_resnet_preprocess_matches_training_input_shape():

@@ -81,8 +81,9 @@ abraia run demo apple --model yolov8n-seg
 abraia run demo people --model yolo9t
 ```
 
-Demo inputs download automatically when needed. The `detect` and `pose` demos
-use camera `0` by default; other demos use their configured video or camera.
+Demo inputs download automatically when needed. The `detect`, `pose`, and
+`depth` demos use camera `0` by default. Other demos use their
+configured video or camera.
 A workflow's model task must match the selected model. Use the model's
 canonical variant name after `--model`.
 
@@ -480,6 +481,7 @@ operation. Common combinations include:
 | `kind` | `task` | Model selection |
 | --- | --- | --- |
 | `yolov8` | `detection`, `segmentation`, `pose` | Built-in small, medium, or large preset, or explicit `uri` |
+| `yolov8` | `obb` | Built-in YOLOv8n-OBB preset, or a local ONNX file and JSON sidecar |
 | `yolo9` | `detection` | Built-in small, medium, or large preset, or explicit `uri` |
 | `yolov5`, `yolo11` | `detection`, `segmentation`, `pose` | Explicit `uri` |
 | `rtmdet` | `detection`, `segmentation` | Built-in small, medium, or large preset, or explicit `uri` |
@@ -521,6 +523,8 @@ To use Grounding DINO, replace a detection step's `model` object with:
 }
 ```
 
+Grounding DINO accepts RGB arrays from Abraia's image and video loaders.
+
 For face recognition, use `kind: "face"`, `task: "recognition"`, and
 `params: {"index": "faces.json", "threshold": 0.45}`. The index contains
 `name` and `vector` entries.
@@ -530,6 +534,84 @@ For face recognition, use `kind: "face"`, `task: "recognition"`, and
 The full pipeline schema is packaged at
 [`abraia/runtime/pipeline-v2.schema.json`](abraia/runtime/pipeline-v2.schema.json).
 
+### Depth estimation
+
+Use either pretrained model through `load_model` or as the first model step
+in a saved pipeline:
+
+| Model | Pipeline `model` object | Output |
+| --- | --- | --- |
+| Depth Anything 3 Small | `{"kind": "depth_anything", "task": "depth"}` | Relative depth |
+| YOLO26n-Depth | `{"kind": "yolo26_depth", "task": "depth"}` | Estimated depth in meters |
+
+```python
+from abraia.inference import load_model
+from abraia.media import load_image
+
+image = load_image("images/car.jpg")
+with load_model({"kind": "depth_anything"}) as model:
+    prediction = model.predict(image)
+    depth_map = prediction["depth_map"]
+    units = prediction["depth_units"]
+```
+
+The map is a `float32` NumPy array with the same height and width as the
+input RGB image. Pipeline callbacks can access it through
+`context.results[0]["depth_map"]`. The corresponding `depth_units` field is
+`"relative"` or `"m"`. Use a calibrated reference in the intended workspace
+to validate YOLO depth accuracy and repeatability before using it for guidance.
+
+Run the depth demo with a webcam or save a depth preview from a video:
+
+```sh
+abraia run demo depth
+abraia run demo depth input.mp4 --output depth.avi
+abraia run demo depth --model depth-anything-v3-small
+```
+
+YOLO26n-Depth is the default and uses a fixed color scale from 0 to 10 meters.
+Depth Anything 3 Small scales its relative depth colors to each frame. With
+both models, brighter colors indicate nearer surfaces.
+
+Both models download and cache their ONNX files from Abraia model storage on
+first use. Use `uri` to select a local export. The hosted DA3 file embeds the
+weights from the pinned [Apache 2.0 ONNX export][da3-onnx]. The hosted YOLO
+file is the [official Ultralytics ONNX export][yolo-depth-onnx], released under
+[Ultralytics' AGPL 3.0 terms][yolo-license]. Its [pretrained checkpoint][yolo-depth-pt]
+and [exporter source][yolo-exporter] are available from Ultralytics.
+
+[da3-onnx]: https://huggingface.co/onnx-community/depth-anything-v3-small/tree/7764f5829b7429e7ecfa0a9c908a6e0facb65a24/onnx
+[yolo-depth-onnx]: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-depth.onnx
+[yolo-depth-pt]: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-depth.pt
+[yolo-exporter]: https://github.com/ultralytics/ultralytics/tree/v8.4.90
+[yolo-license]: https://www.ultralytics.com/license
+
+### Oriented object detection
+
+```sh
+abraia run demo obb
+abraia run demo obb aerial.mp4 --model yolov8n-obb --output oriented.avi
+```
+
+Use `{"kind": "yolov8", "task": "obb"}` with `load_model` or a saved pipeline.
+Each result has a four-corner `polygon`, a `rotated_rectangle_px` with
+`center`, `size`, and `angle_deg`, and a clipped axis-aligned `box` for
+tracking and cropping. The angle is measured clockwise from the image's
+positive x-axis along the width edge, modulo 180 degrees.
+
+The pretrained model targets 15 aerial object classes. For a local override,
+export with `nms=False` and supply the adjacent JSON sidecar with `task: "obb"`,
+`inputShape`, and the ordered `classes`. Abraia hosts the
+[official YOLOv8n-OBB ONNX export][yolo-obb-onnx] under the
+[Ultralytics model terms][yolo-license]. The [pretrained checkpoint][yolo-obb-pt]
+and [exporter source][yolo-obb-exporter] are available from Ultralytics.
+The [marina sample][obb-marina] is by Enrapture Media and is available under CC0.
+
+[yolo-obb-onnx]: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n-obb.onnx
+[yolo-obb-pt]: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n-obb.pt
+[yolo-obb-exporter]: https://github.com/ultralytics/ultralytics/tree/v8.4.48
+[obb-marina]: https://commons.wikimedia.org/wiki/File:Aerial_view_of_a_marina_(Unsplash).jpg
+
 ## Hardware acceleration
 
 ### ONNX Runtime: CPU and GPU
@@ -538,6 +620,8 @@ The default installation includes the CPU build of ONNX Runtime.
 `--accelerator cpu` forces CPU execution; `onnx` uses the available ONNX Runtime providers.
 The default `auto` prefers a compatible Hailo device and model, then falls
 back to ONNX Runtime.
+An explicit `--accelerator hailo` requires a compatible HEF for every active
+model step and reports an error when a model cannot run on Hailo.
 
 For an NVIDIA GPU on Linux, replace the CPU package in the same environment:
 

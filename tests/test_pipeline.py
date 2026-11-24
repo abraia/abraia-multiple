@@ -940,6 +940,26 @@ def test_pipeline_factory_pairs_onnx_models_with_available_hailo_models():
     available.assert_called_once_with("multiple/models/yolov8n_hailo8.hef")
 
 
+def test_saved_pipeline_requires_hailo_for_each_active_model_or_uses_auto():
+    from abraia.inference.model_config import ModelSpec
+    from abraia.runtime.pipeline import _create_pipeline_models
+
+    configs = [{"kind": "yolov8"}, {"kind": "ocr"}]
+    plans = [(config, ModelSpec.from_config(config)) for config in configs]
+    with patch("abraia.inference.registry.hailo_device_arch", return_value="hailo8"), \
+         patch("abraia.inference.registry.hailo_artifact_available", return_value=True), \
+         patch("abraia.inference.hailo.pipeline.HailoPipelineModel") as hailo, \
+         patch("abraia.inference.models.ocr.TextSystem") as onnx:
+        with pytest.raises(RuntimeError, match="Hailo required for model 'ocr'"):
+            _create_pipeline_models(plans, None, "hailo")
+        hailo.assert_not_called()
+        onnx.assert_not_called()
+        models = _create_pipeline_models(plans, None, "auto")
+        assert [(entry[0], entry[2].backend) for entry in models] == [
+            (hailo.return_value, "hailo"), (onnx.return_value, "onnx"),
+        ]
+
+
 def test_pipeline_factory_requires_a_resnet_classification_model_uri():
     with pytest.raises(ValueError, match="requires a model 'uri'"):
         from abraia.inference.registry import create_model
@@ -1201,23 +1221,25 @@ def test_pipeline_keeps_file_output_enabled_when_preview_is_disabled():
 
 
 def test_yolo9_demo_pairs_with_available_hailo_model(public_demo_configs):
+    from abraia.demo import resolve_pipeline
+    from abraia.runtime.config import iter_pipeline_steps
+    from abraia.runtime.pipeline import _create_pipeline_models, _model_plans
+
+    config = public_demo_configs["yolo9"]
+    config["steps"][0]["model"].update(labels=["person"], conf_threshold=0.4)
     with patch("abraia.demo.load_public_pipeline", return_value=public_demo_configs["yolo9"]), \
-         patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
-         patch("abraia.demo._hailo_model_available", return_value=True):
-        from abraia.demo import resolve_pipeline
+         patch("abraia.inference.registry.hailo_device_arch", return_value="hailo8"), \
+         patch("abraia.inference.registry.hailo_artifact_available", return_value=True) as available, \
+         patch("abraia.inference.hailo.yolov9.HailoYOLOv9Model") as adapter:
+        selected = resolve_pipeline("yolo9")
+        plans = _model_plans(iter_pipeline_steps(selected["steps"]))
+        (_, run_options, spec), = _create_pipeline_models(plans, None, "hailo")
 
-        selected = resolve_pipeline("yolo9", accelerator="hailo")
-
-    model = next(
-        step["model"] for step in selected["steps"]
-        if step["type"] == "model"
-    )
-    assert model == {
-        "task": "detection",
-        "kind": "yolo9",
-        "size": "small",
-        "uri": "multiple/models/yolo9t_hailo8.hef",
-    }
+    uri = "multiple/models/yolo9t_hailo8.hef"
+    assert spec.uri == uri
+    assert run_options == {"labels": ["person"]}
+    adapter.assert_called_once_with(uri, score_threshold=0.4)
+    available.assert_called_once_with(uri, "hailo8")
 
 
 def test_cli_search_command_routes_to_search_images():
@@ -1234,13 +1256,12 @@ def test_cli_search_command_routes_to_search_images():
     search.assert_called_once_with("my-project", query="red car")
 
 
-def test_cli_routes_explicit_demo_accelerator_to_pipeline(public_demo_configs):
+@pytest.mark.parametrize("accelerator,expected", [("hailo", "hailo"), ("auto", "onnx")])
+def test_cli_routes_apple_demo_accelerator_to_pipeline(public_demo_configs, accelerator, expected):
     from click.testing import CliRunner
     import abraia.cli as module
 
     with patch("abraia.demo.load_public_pipeline", return_value=public_demo_configs["apple"]), \
-            patch("abraia.demo._hailo_device_arch", return_value="hailo8"), \
-            patch("abraia.demo._hailo_model_available", return_value=True), \
             patch("abraia.runtime.Pipeline.from_dict") as build:
         result = CliRunner().invoke(
             module.cli,
@@ -1250,7 +1271,7 @@ def test_cli_routes_explicit_demo_accelerator_to_pipeline(public_demo_configs):
                 "apple",
                 "video.mp4",
                 "--accelerator",
-                "hailo",
+                accelerator,
                 "--output",
                 "rendered.avi",
             ],
@@ -1260,8 +1281,8 @@ def test_cli_routes_explicit_demo_accelerator_to_pipeline(public_demo_configs):
     config = build.call_args.args[0]
     assert config["source"]["src"] == "video.mp4"
     assert config["display"]["dest"] == "rendered.avi"
-    assert config["steps"][0]["model"]["uri"].endswith(".hef")
-    assert build.call_args.kwargs["accelerator"] == "hailo"
+    assert config["steps"][0]["model"]["uri"].endswith(".onnx")
+    assert build.call_args.kwargs["accelerator"] == expected
 
 
 def test_cli_routes_face_demo_output_to_tracker():

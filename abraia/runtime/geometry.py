@@ -27,6 +27,13 @@ def add_calibrated_measurements(measurements, calibration):
             x / pixels_per_unit, y / pixels_per_unit,
             width / pixels_per_unit, height / pixels_per_unit,
         ]
+    rectangle = measurements.get("rotated_rectangle_px")
+    if rectangle is not None:
+        measurements[f"rotated_rectangle_{unit}"] = {
+            "center": [value / pixels_per_unit for value in rectangle["center"]],
+            "size": [value / pixels_per_unit for value in rectangle["size"]],
+            "angle_deg": rectangle["angle_deg"],
+        }
     return measurements
 
 
@@ -136,6 +143,11 @@ def result_measurements(result):
                     bounds[0] + x, bounds[1] + y, bounds[2], bounds[3]
                 ]
                 measurements["bounds"] = measurements["bounds_px"]
+            rectangle = measurements["rotated_rectangle_px"]
+            if rectangle is not None:
+                rectangle["center"] = [
+                    rectangle["center"][0] + x, rectangle["center"][1] + y,
+                ]
         return measurements
     if (
         isinstance(result, Mapping)
@@ -163,9 +175,11 @@ def result_measurements(result):
                     "width_px": width,
                     "height_px": height,
                     "aspect_ratio": width / height if height else 0.0,
-                    "orientation_deg": 0.0,
-                    "major_axis_px": max(width, height),
-                    "minor_axis_px": min(width, height),
+                    "rotated_rectangle_px": {
+                        "center": centroid,
+                        "size": [width, height],
+                        "angle_deg": 0.0,
+                    },
                     "compactness": (
                         4 * math.pi * area / (perimeter * perimeter)
                         if perimeter else 0.0
@@ -207,9 +221,7 @@ def _empty_measurements():
         "width_px": 0.0,
         "height_px": 0.0,
         "aspect_ratio": 0.0,
-        "orientation_deg": None,
-        "major_axis_px": 0.0,
-        "minor_axis_px": 0.0,
+        "rotated_rectangle_px": None,
         "compactness": 0.0,
         "solidity": 0.0,
         "vertex_count": 0,
@@ -230,10 +242,6 @@ def _contour_measurements(contour, *, vertex_count=None):
     (center_x, center_y), (rotated_width, rotated_height), angle = (
         cv2.minAreaRect(points)
     )
-    major_axis = max(rotated_width, rotated_height)
-    minor_axis = min(rotated_width, rotated_height)
-    if rotated_width < rotated_height:
-        angle += 90
     hull_area = float(cv2.contourArea(cv2.convexHull(points)))
     bounds = [int(x), int(y), int(width), int(height)]
     centroid = [float(center_x), float(center_y)]
@@ -247,9 +255,11 @@ def _contour_measurements(contour, *, vertex_count=None):
         "width_px": float(width),
         "height_px": float(height),
         "aspect_ratio": float(width / height) if height else 0.0,
-        "orientation_deg": float(angle % 180),
-        "major_axis_px": float(major_axis),
-        "minor_axis_px": float(minor_axis),
+        "rotated_rectangle_px": {
+            "center": [float(center_x), float(center_y)],
+            "size": [float(rotated_width), float(rotated_height)],
+            "angle_deg": float(angle),
+        },
         "compactness": (
             float(4 * math.pi * area / (perimeter * perimeter))
             if perimeter else 0.0
@@ -300,8 +310,6 @@ def mask_measurements(mask):
         ],
         "width_px": float(xs.max() - xs.min() + 1),
         "height_px": float(ys.max() - ys.min() + 1),
-        "major_axis_px": measurements["major_axis_px"] + 1,
-        "minor_axis_px": measurements["minor_axis_px"] + 1,
         "compactness": (
             float(4 * math.pi * active.sum() / (perimeter * perimeter))
             if perimeter else 0.0

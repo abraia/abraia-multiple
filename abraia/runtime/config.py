@@ -16,6 +16,7 @@ from abraia.inference.model_config import (
     normalize_task,
 )
 
+from .features import model_output_source
 from .sources import infer_source_type, normalize_source_type
 
 
@@ -317,19 +318,8 @@ def validate_step_structure(steps, *, report_unsupported=True):
             if not isinstance(model, dict):
                 errors.append(f"Step {index}: model step requires a model object.")
             else:
-                task = model.get("task")
-                object_model_seen |= (
-                    isinstance(task, str)
-                    and task in {"detection", "segmentation", "pose"}
-                )
-                if model.get("kind") == "anomaly" or task == "anomaly":
-                    measurement_source = "anomaly"
-                elif task == "segmentation":
-                    measurement_source = "segmentation"
-                elif isinstance(task, str) and task in {"detection", "pose"}:
-                    measurement_source = "detection"
-                else:
-                    measurement_source = None
+                measurement_source = model_output_source(model)
+                object_model_seen |= measurement_source in {"detection", "segmentation", "obb"}
                 if model_count > 1:
                     model_spec = ModelSpec.from_config(model)
                     if (
@@ -367,10 +357,12 @@ def validate_step_structure(steps, *, report_unsupported=True):
                 )
             features = step.get("features")
             allowed_features = {
-                "area_px", "perimeter_px", "centroid_px", "bounds_px",
-                "width_px", "height_px", "aspect_ratio", "orientation_deg",
-                "major_axis_px", "minor_axis_px", "compactness", "solidity",
+                "area_px", "perimeter_px", "centroid_px",
+                "width_px", "height_px", "aspect_ratio",
+                "compactness", "solidity",
             }
+            if measurement_source in {"segmentation", "obb"}:
+                allowed_features.add("rotated_rectangle_px")
             if step.get("time_in_region"):
                 allowed_features.add("time_in_region_s")
                 measured_features.add("time_in_region_s")
@@ -394,16 +386,25 @@ def validate_step_structure(steps, *, report_unsupported=True):
             if decision_count > 1:
                 errors.append("A pipeline can contain at most one decision step.")
             metric = step.get("metric", "object_count")
+            legacy_axis_metric = metric == "orientation_deg" or metric in {
+                f"{axis}_{unit}"
+                for axis in ("major_axis", "minor_axis")
+                for unit in ("px", "mm", "cm", "µm")
+            }
+            if legacy_axis_metric:
+                errors.append(
+                    f"Step {index}: saved decision metric '{metric}' is no "
+                    "longer supported; select another metric."
+                )
             feature_metrics = {
                 "area_px", "perimeter_px", "width_px", "height_px", "aspect_ratio",
-                "orientation_deg", "major_axis_px", "minor_axis_px",
                 "compactness", "solidity", "time_in_region_s",
             }
             for unit in ("mm", "cm", "µm"):
                 feature_metrics.add(f"area_{unit}2")
                 feature_metrics.update(
                     f"{name}_{unit}"
-                    for name in ("perimeter", "width", "height", "major_axis", "minor_axis")
+                    for name in ("perimeter", "width", "height")
                 )
             if metric == "object_count" and not count_seen:
                 errors.append(f"Step {index}: object-count decisions require an earlier count step.")
@@ -418,7 +419,10 @@ def validate_step_structure(steps, *, report_unsupported=True):
                         base_metric = metric[:-(len(unit) + 1)] + "_px"
                 if base_metric not in measured_features:
                     errors.append(f"Step {index}: decision feature must be enabled in the earlier measure step.")
-            elif metric not in feature_metrics | {"object_count", "confidence", "score"}:
+            elif (
+                metric not in feature_metrics | {"object_count", "confidence", "score"}
+                and not legacy_axis_metric
+            ):
                 errors.append(f"Step {index}: unsupported decision metric.")
             operator = step.get("operator", "gte")
             if operator not in {"gt", "gte", "lt", "lte", "eq", "range"}:
@@ -451,6 +455,7 @@ MODEL_DEFAULT_THRESHOLDS = {
     ("yolo9", "detection"): (0.25, 0.45),
     ("yolov8", "segmentation"): (0.25, 0.7),
     ("yolov8", "pose"): (0.25, 0.7),
+    ("yolov8", "obb"): (0.35, 0.45),
     ("rtmdet", "detection"): (0.25, 0.7),
     ("rtmdet", "segmentation"): (0.25, 0.7),
     ("resnet", "classification"): (0.25, 0.0),
@@ -480,6 +485,7 @@ SUPPORTED_MODEL_OPTIONS = (
     *_sized_model_options("yolo9", "YOLOv9 object detection", "detection"),
     *_sized_model_options("yolov8", "Instance segmentation", "segmentation"),
     *_sized_model_options("yolov8", "Pose estimation", "pose"),
+    *_sized_model_options("yolov8", "Oriented object detection", "obb"),
     *_sized_model_options("rtmdet", "RTMDet object detection", "detection"),
     *_sized_model_options("rtmdet", "RTMDet instance segmentation", "segmentation"),
     *_sized_model_options("rfdetr", "RF-DETR object detection", "detection"),
@@ -487,6 +493,14 @@ SUPPORTED_MODEL_OPTIONS = (
     *_sized_model_options("dfine", "D-FINE object detection", "detection"),
     *_sized_model_options("dfine", "D-FINE instance segmentation", "segmentation"),
     *_sized_model_options("resnet", "ResNet classification", "classification"),
+    (
+        "depth_anything", "Depth Anything 3 Small", "depth_anything", "depth",
+        SUPPORTED_MODEL_DEFAULT_URIS["depth_anything"]["depth"],
+    ),
+    (
+        "yolo26_depth", "YOLO26n-Depth", "yolo26_depth", "depth",
+        SUPPORTED_MODEL_DEFAULT_URIS["yolo26_depth"]["depth"],
+    ),
     ("anomaly_detection", "Anomaly detection", "anomaly", "anomaly", ""),
     ("face_detection", "Face detection", "face", "detection", ""),
     ("face_recognition", "Face recognition", "face", "recognition", ""),
@@ -520,13 +534,14 @@ def model_control_visibility(kind, task):
     descriptor = MODEL_DESCRIPTORS.get(kind)
     uses_uri = bool(descriptor and descriptor.uri_based)
     is_anomaly = kind == "anomaly" and task == "anomaly"
+    has_threshold_controls = task != "depth" and not is_anomaly
     is_classification = task == "classification"
     return {
         "uri": uses_uri,
         "index": kind == "face" and task == "recognition",
-        "labels": uses_uri and not is_anomaly,
-        "confidence": not is_anomaly,
-        "iou": not is_anomaly and not is_classification
+        "labels": uses_uri and has_threshold_controls,
+        "confidence": has_threshold_controls,
+        "iou": has_threshold_controls and not is_classification
         and kind not in ("ocr", "resnet")
         and not (kind == "face" and task == "recognition"),
         "approx": kind in MODEL_ARCHITECTURES and task == "segmentation",
@@ -652,6 +667,23 @@ class PipelineDraft:
                 "A version 2 pipeline with steps must start with a frame model step"
             )
         normalized_steps = normalize_step_ids(steps_config)
+        old_rectangle_features = {
+            "orientation_deg", "major_axis_px", "minor_axis_px",
+        }
+        normalized_steps = [dict(step) for step in normalized_steps]
+        for step in normalized_steps:
+            if step.get("type") != "measure":
+                continue
+            features = step.get("features")
+            if not isinstance(features, list) or not any(
+                feature == "bounds_px" or feature in old_rectangle_features
+                for feature in features
+            ):
+                continue
+            step["features"] = list(dict.fromkeys(
+                "rotated_rectangle_px" if feature in old_rectangle_features
+                else feature for feature in features if feature != "bounds_px"
+            ))
         source_default = "0" if source.get("type") in (None, "camera") else ""
         source_value = str(source.get("src", source_default)).strip()
         configured_source_type = source.get("type")

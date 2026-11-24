@@ -1,6 +1,7 @@
 """Configuration registry for built-in inference models."""
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict
 
@@ -18,6 +19,7 @@ from .model_config import (
 from .accelerators import (
     hailo_device_arch,
     hailo_artifact_available,
+    normalize_accelerator,
     onnx_providers,
     paired_hailo_uri,
 )
@@ -29,13 +31,13 @@ def get_model_run_kwargs(config, spec):
         if spec.kind == "yolo9" and config.get("labels"):
             return {"labels": config["labels"]}
         return {}
-    if not MODEL_DESCRIPTORS[spec.kind].runtime_options:
-        return {}
+    descriptor = MODEL_DESCRIPTORS[spec.kind]
+    options = descriptor.run_options
+    if options is None:
+        options = MODEL_RUN_OPTIONS if descriptor.runtime_options else ()
     return {
-        key: config[key]
-        for key in MODEL_RUN_OPTIONS
-        if key in config
-        and (key != "labels" or config[key])
+        key: value for key, value in config.items()
+        if key in options and (key != "labels" or value)
     }
 
 
@@ -50,32 +52,36 @@ def _resolve_model_uri(uri, base_dir=None):
     return str(candidate) if candidate.is_file() else uri
 
 
-def _select_hailo_pair(config, spec, uri, accelerator):
-    """Build a paired Hailo config when the requested hardware can use it."""
+def resolve_model_backend(spec, base_dir=None, accelerator=None):
+    """Select the artifact before the runtime extracts backend-specific options."""
+    if accelerator is not None:
+        accelerator = normalize_accelerator(accelerator)
+    if spec.backend == "hailo":
+        return spec
+    built_in_detector = _MODEL_FACTORIES.get(spec.kind) is _create_yolo_model
+    if built_in_detector and spec.params:
+        raise ValueError("Model options belong directly in 'model'")
+    if accelerator not in ("auto", "hailo"):
+        return spec
+
     if (
-        accelerator not in ("auto", "hailo")
-        or spec.kind not in HAILO_MODEL_ARCHITECTURES
+        spec.kind not in HAILO_MODEL_ARCHITECTURES or spec.task not in HAILO_TASKS
+        or not built_in_detector
     ):
-        return None
+        reason = "no automatic HEF pairing is supported for this model"
+    else:
+        architecture = hailo_device_arch()
+        if architecture is None:
+            reason = "no compatible Hailo device was detected"
+        else:
+            hef_uri = paired_hailo_uri(spec.resolved_uri, architecture, base_dir=base_dir)
+            if hef_uri and hailo_artifact_available(hef_uri, architecture):
+                return replace(spec, uri=hef_uri)
+            reason = f"no compatible HEF is available for {architecture}"
 
-    hailo_task = spec.task
-    if hailo_task not in HAILO_TASKS:
-        return None
-    architecture = hailo_device_arch()
-    if not architecture:
-        return None
-    hailo_uri = paired_hailo_uri(uri, architecture)
-    if not hailo_uri:
-        return None
-    if not hailo_artifact_available(hailo_uri, architecture):
-        return None
-
-    paired = dict(config)
-    paired["kind"] = spec.kind
-    paired["task"] = hailo_task
-    paired["uri"] = hailo_uri
-    paired["params"] = spec.params_copy()
-    return paired
+    if accelerator == "hailo":
+        raise RuntimeError(f"Hailo required for model '{spec.kind}' ({spec.task}): {reason}")
+    return spec
 
 
 def _create_hailo_model(spec, config, base_dir):
@@ -109,11 +115,12 @@ def _hailo_params(spec, config):
     return params
 
 
-def _create_onnx_adapter(adapter, uri, base_dir, session_options):
+def _create_onnx_adapter(adapter, uri, base_dir, session_options, **model_options):
     """Instantiate a URI-based adapter with the shared ONNX session policy."""
     return adapter(
         _resolve_model_uri(uri, base_dir=base_dir),
         **session_options,
+        **model_options,
     )
 
 
@@ -148,6 +155,15 @@ def _create_anomaly_model(spec, _config, base_dir, session_options):
     )
 
 
+def _create_depth_model(spec, _config, base_dir, session_options):
+    """Create the ONNX adapter for either depth model."""
+    from .models.depth import DepthModel
+
+    return _create_onnx_adapter(
+        DepthModel, spec.resolved_uri, base_dir, session_options, kind=spec.kind,
+    )
+
+
 def _create_rfdetr_model(spec, _config, base_dir, session_options):
     """Create an RF-DETR ONNX adapter."""
     from .models.object_models import RFDETRONNXModel
@@ -166,26 +182,15 @@ def _create_dfine_model(spec, _config, base_dir, session_options):
     )
 
 
-def _create_yolo_model(spec, config, base_dir, session_options, accelerator=None):
-    """Create a YOLO-family ONNX adapter, including optional Hailo pairing."""
+def _create_yolo_model(spec, _config, base_dir, session_options):
+    """Create the YOLO-family or RTMDet ONNX adapter."""
     from .models.detection import Model
 
-    uri = spec.resolved_uri
-    if spec.params:
-        raise ValueError("Model options belong directly in 'model'")
-
-    resolved_uri = _resolve_model_uri(uri, base_dir=base_dir)
-    paired = _select_hailo_pair(config, spec, resolved_uri, accelerator)
-    if paired is not None:
-        paired_spec = ModelSpec(
-            kind=spec.kind,
-            task=paired["task"],
-            uri=paired["uri"],
-            size=spec.size,
-            params=paired["params"],
-        )
-        return _create_hailo_model(paired_spec, paired, base_dir)
-    return Model(resolved_uri, kind=spec.kind, **session_options)
+    task_options = {"expected_task": "obb"} if spec.task == "obb" else {}
+    return _create_onnx_adapter(
+        Model, spec.resolved_uri, base_dir, session_options, kind=spec.kind,
+        **task_options,
+    )
 
 
 def _create_face_model(spec, _config, base_dir, session_options):
@@ -239,6 +244,8 @@ _MODEL_FACTORIES = {
     "dfine": _create_dfine_model,
     "resnet": _create_resnet_model,
     "grounding_dino": _create_grounding_dino_model,
+    "depth_anything": _create_depth_model,
+    "yolo26_depth": _create_depth_model,
     "face": _create_face_model,
     "license_plate": _create_license_plate_model,
     "ocr": _create_ocr_model,
@@ -267,6 +274,7 @@ def create_model(config: Dict[str, Any], base_dir=None, accelerator=None):
     """Create a configured model using the registered model adapters."""
     spec = ModelSpec.from_config(config)
     spec.require_runtime_valid()
+    spec = resolve_model_backend(spec, base_dir=base_dir, accelerator=accelerator)
     return _create_model_from_spec(
         spec,
         config,
@@ -276,25 +284,24 @@ def create_model(config: Dict[str, Any], base_dir=None, accelerator=None):
 
 
 def _create_model_from_spec(spec, config, base_dir=None, accelerator=None):
-    """Create an adapter from a model spec validated by its caller."""
+    """Create an adapter from a validated spec with its backend already selected."""
+    if spec.backend == "hailo":
+        try:
+            return _create_hailo_model(spec, config, base_dir)
+        except Exception as error:
+            if accelerator is not None and normalize_accelerator(accelerator) == "hailo":
+                raise RuntimeError(
+                    f"Hailo model '{spec.kind}' could not load '{spec.uri}': {error}"
+                ) from error
+            raise
+
     providers = onnx_providers(accelerator)
     session_options = {} if providers is None else {"providers": providers}
-
-    if spec.backend == "hailo":
-        return _create_hailo_model(spec, config, base_dir)
 
     try:
         factory = _MODEL_FACTORIES[spec.kind]
     except KeyError as error:
         raise AssertionError(f"Unhandled supported detector kind '{spec.kind}'") from error
-    if spec.kind in MODEL_ARCHITECTURES:
-        return factory(
-            spec,
-            config,
-            base_dir,
-            session_options,
-            accelerator=accelerator,
-        )
     return factory(spec, config, base_dir, session_options)
 
 

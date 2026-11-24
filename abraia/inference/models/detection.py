@@ -6,9 +6,12 @@ import math
 import cv2
 import numpy as np
 
-from ..geometry import non_maximum_suppression, sigmoid
+from ..geometry import fit_image_size, non_maximum_suppression, sigmoid
 from ..model_config import normalize_task
 from ..session import OnnxSessionMixin, load_onnx_model_config
+
+
+_OBB_IOU_THRESHOLD = 0.45
 
 
 def validate_model_config(config):
@@ -27,30 +30,23 @@ def validate_model_config(config):
     return task, list(input_shape), list(classes)
 
 
-def _resize_geometry(image_shape, model_shape):
-    """Return the scale and rounded size for fitting an image to a model."""
-    image_height, image_width = image_shape
-    model_height, model_width = model_shape
-    scale = min(model_width / image_width, model_height / image_height)
+def _letterbox_geometry(image_shape, shape):
+    """Return resize dimensions, scale, and centered padding for YOLO."""
+    model_height, model_width = int(shape[2]), int(shape[3])
+    scale, width, height = fit_image_size(image_shape, (model_height, model_width))
     return (
-        scale,
-        max(1, round(image_width * scale)),
-        max(1, round(image_height * scale)),
+        (width, height), scale,
+        ((model_width - width) // 2, (model_height - height) // 2),
     )
 
 
 def prepare_input(img, shape, return_transform=False):
     """Letterbox an image and optionally return its coordinate transform."""
     model_height, model_width = int(shape[2]), int(shape[3])
-    image_height, image_width = img.shape[:2]
-    scale, resized_width, resized_height = _resize_geometry(
-        (image_height, image_width), (model_height, model_width)
+    (resized_width, resized_height), scale, (pad_left, pad_top) = _letterbox_geometry(
+        img.shape[:2], shape,
     )
-    resized = cv2.resize(
-        img, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR
-    )
-    pad_left = (model_width - resized_width) // 2
-    pad_top = (model_height - resized_height) // 2
+    resized = cv2.resize(img, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
     pad_right = model_width - resized_width - pad_left
     pad_bottom = model_height - resized_height - pad_top
     padded = cv2.copyMakeBorder(
@@ -68,7 +64,7 @@ def prepare_rtmdet_input(img, shape, return_transform=False):
     """Prepare an image using the RTMDet training pipeline's fixed normalization."""
     model_height, model_width = int(shape[2]), int(shape[3])
     image_height, image_width = img.shape[:2]
-    scale, resized_width, resized_height = _resize_geometry(
+    scale, resized_width, resized_height = fit_image_size(
         (image_height, image_width), (model_height, model_width)
     )
     resized = cv2.resize(
@@ -408,7 +404,7 @@ def _transform_for_output(size, shape, transform):
     if transform is not None:
         scale, padding = transform
         return float(scale), tuple(map(float, padding))
-    scale, _resized_width, _resized_height = _resize_geometry(
+    scale, _resized_width, _resized_height = fit_image_size(
         (image_height, image_width), (model_height, model_width)
     )
     return scale, (0.0, 0.0)
@@ -448,16 +444,28 @@ def get_mask(row, box, size, output_size=None, mask_shape=None):
     return (resized > 0.5).astype(np.uint8)
 
 
+def _yolo_candidates(output, classes, conf_threshold, labels):
+    """Filter a raw YOLO head before decoding boxes, masks or keypoints."""
+    probabilities = output[4:4 + len(classes)]
+    class_ids = probabilities.argmax(axis=0)
+    scores = probabilities[class_ids, np.arange(class_ids.size)]
+    # Match the original comparison between a Python float and the threshold.
+    keep = ~(scores.astype(np.float64) < conf_threshold)
+    if labels:
+        keep &= np.asarray([label in labels for label in classes])[class_ids]
+    return zip(output[:, keep].T, class_ids[keep].tolist(), scores[keep].tolist())
+
+
 def process_output(
     outputs, size, shape, classes, conf_threshold=0.25, iou_threshold=0.7,
     approx=0.001, labels=None, transform=None,
 ):
     """Decode YOLO detection or instance-segmentation output."""
     del approx
-    output0 = np.asarray(outputs[0][0], dtype=float).transpose()
+    output0 = np.asarray(outputs[0][0], dtype=np.float32)
     is_segmentation = len(outputs) == 2
     if is_segmentation:
-        output1 = np.asarray(outputs[1][0], dtype=float)
+        output1 = np.asarray(outputs[1][0], dtype=np.float32)
         mask_shape = output1.shape[1:]
         output1 = output1.reshape(output1.shape[0], -1)
 
@@ -465,14 +473,9 @@ def process_output(
     model_width, model_height = int(shape[3]), int(shape[2])
     objects = []
     class_count = len(classes)
-    for row in output0:
-        xc, yc, width, height = row[:4]
-        probs = row[4:4 + class_count]
-        class_id = int(probs.argmax())
-        score = float(probs[class_id])
+    for row, class_id, score in _yolo_candidates(output0, classes, conf_threshold, labels):
+        xc, yc, width, height = row[:4].astype(np.float64)
         label = classes[class_id]
-        if score < conf_threshold or (labels and label not in labels):
-            continue
         obj = {
             "label": label,
             "score": score,
@@ -562,11 +565,11 @@ def process_pose_output(
 ):
     """Decode raw YOLO pose-estimation output."""
     del approx
-    output = np.asarray(outputs[0][0], dtype=float).transpose()
+    output = np.asarray(outputs[0][0], dtype=np.float32)
     scale, padding = _transform_for_output(size, shape, transform)
     class_count = len(classes)
     keypoint_start = 4 + class_count
-    keypoint_values = output.shape[1] - keypoint_start
+    keypoint_values = output.shape[0] - keypoint_start
     if keypoint_values <= 0 or keypoint_values % 3:
         raise ValueError(
             "Pose-estimation output does not contain complete keypoint triples"
@@ -575,15 +578,10 @@ def process_pose_output(
 
     objects = []
     pad_x, pad_y = padding
-    for row in output:
-        xc, yc, width, height = row[:4]
-        probs = row[4:keypoint_start]
-        class_id = int(probs.argmax())
-        score = float(probs[class_id])
+    for row, class_id, score in _yolo_candidates(output, classes, conf_threshold, labels):
+        xc, yc, width, height = row[:4].astype(np.float64)
         label = classes[class_id]
-        if score < conf_threshold or (labels and label not in labels):
-            continue
-        keypoints = row[keypoint_start:].reshape(keypoint_count, 3).copy()
+        keypoints = row[keypoint_start:].astype(np.float64).reshape(keypoint_count, 3)
         keypoints[:, 0] = (keypoints[:, 0] - pad_x) / scale
         keypoints[:, 1] = (keypoints[:, 1] - pad_y) / scale
         joint_scores = keypoints[:, 2]
@@ -602,8 +600,78 @@ def process_pose_output(
     return non_maximum_suppression(objects, iou_threshold)
 
 
+def process_obb_output(
+    outputs, size, shape, classes, conf_threshold=0.35, iou_threshold=_OBB_IOU_THRESHOLD,
+    approx=0.001, labels=None, transform=None,
+):
+    """Decode raw YOLOv8 oriented boxes and apply class-aware rotated NMS."""
+    del approx
+    expected_channels = 5 + len(classes)
+    output = np.asarray(outputs[0], dtype=np.float32) if len(outputs) == 1 else None
+    if (
+        not classes or output is None or output.ndim != 3
+        or output.shape[:2] != (1, expected_channels)
+    ):
+        raise ValueError(
+            f"YOLOv8 OBB requires one raw output of shape [1, {expected_channels}, N]"
+        )
+
+    candidates = []
+    by_class = {}
+    for row, class_id, score in _yolo_candidates(output[0], classes, conf_threshold, labels):
+        x, y, width, height = map(float, row[:4])
+        angle = math.degrees(float(row[-1]))
+        if (
+            not all(math.isfinite(v) for v in (x, y, width, height, angle, score))
+            or width <= 0 or height <= 0 or score <= 0
+        ):
+            continue
+        by_class.setdefault(class_id, []).append(len(candidates))
+        candidates.append((class_id, score, ((x, y), (width, height), angle)))
+
+    kept = []
+    for indices in by_class.values():
+        boxes = [candidates[index][2] for index in indices]
+        scores = [candidates[index][1] for index in indices]
+        selected = cv2.dnn.NMSBoxesRotated(boxes, scores, 0.0, iou_threshold)
+        kept.extend(indices[int(index)] for index in np.asarray(selected).reshape(-1))
+
+    image_width, image_height = size
+    if transform is None:
+        _, scale, (pad_x, pad_y) = _letterbox_geometry((image_height, image_width), shape)
+    else:
+        scale, (pad_x, pad_y) = transform
+
+    results = []
+    for index in sorted(kept, key=lambda index: (-candidates[index][1], index)):
+        class_id, score, ((x, y), (width, height), angle) = candidates[index]
+        center = ((x - pad_x) / scale, (y - pad_y) / scale)
+        dimensions = (width / scale, height / scale)
+        corners = cv2.boxPoints((center, dimensions, angle))
+        if not np.isfinite(corners).all():
+            continue
+        xmin, ymin = corners.min(axis=0)
+        xmax, ymax = corners.max(axis=0)
+        left, top = max(0, math.floor(xmin)), max(0, math.floor(ymin))
+        right = min(image_width, math.ceil(xmax))
+        bottom = min(image_height, math.ceil(ymax))
+        if right <= left or bottom <= top:
+            continue
+        results.append({
+            "label": classes[class_id],
+            "score": score,
+            "class_id": class_id,
+            "box": [left, top, right - left, bottom - top],
+            "polygon": corners.tolist(),
+            "rotated_rectangle_px": {
+                "center": list(center), "size": list(dimensions), "angle_deg": angle,
+            },
+        })
+    return results
+
+
 class Model(OnnxSessionMixin):
-    def __init__(self, model_uri, providers=None, accelerator=None, kind=None):
+    def __init__(self, model_uri, providers=None, accelerator=None, kind=None, *, expected_task=None):
         model_path, config = load_onnx_model_config(model_uri)
         self.task, self.input_shape, self.classes = validate_model_config(
             config
@@ -613,9 +681,13 @@ class Model(OnnxSessionMixin):
             raise ValueError(
                 "Classification ONNX models must be loaded with ResNetClassifier"
             )
-        if self.task not in ("detection", "segmentation", "pose"):
+        if expected_task is not None and self.task != expected_task:
+            raise ValueError(f"Expected ONNX metadata task '{expected_task}', got '{self.task}'")
+        if self.task == "obb" and self.kind != "yolov8":
+            raise ValueError("OBB inference requires a YOLOv8 model")
+        if self.task not in ("detection", "segmentation", "pose", "obb"):
             raise ValueError(
-                "Detection ONNX models support detection, segmentation, or pose"
+                "Detection ONNX models support detection, segmentation, pose, or obb"
             )
         self._init_onnx_session(
             model_path,
@@ -637,6 +709,8 @@ class Model(OnnxSessionMixin):
                 process_libreyolo_output,
                 classes=list(self.classes),
             )
+        elif self.task == "obb":
+            self.decoder = partial(process_obb_output, classes=self.classes)
         else:
             decoder = process_pose_output if self.task == "pose" else process_output
             self.decoder = partial(decoder, classes=list(self.classes))
@@ -645,13 +719,15 @@ class Model(OnnxSessionMixin):
         self,
         img,
         conf_threshold=0.35,
-        iou_threshold=0.7,
+        iou_threshold=None,
         approx=0.001,
         labels=None,
         top_k=1,
         score_threshold=None,
     ):
         self._ensure_open()
+        if iou_threshold is None:
+            iou_threshold = _OBB_IOU_THRESHOLD if self.task == "obb" else 0.7
         img_size = img.shape[1], img.shape[0]
         if self.kind == "rtmdet":
             input_tensor, scale, padding = prepare_rtmdet_input(
@@ -678,7 +754,7 @@ class Model(OnnxSessionMixin):
 
 __all__ = [
     "Model", "get_mask", "prepare_input", "prepare_rtmdet_input",
-    "process_output", "process_pose_output",
+    "process_output", "process_pose_output", "process_obb_output",
     "process_libreyolo_output", "process_rtmdet_output",
     "validate_model_config",
 ]

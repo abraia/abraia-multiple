@@ -75,19 +75,10 @@ def test_paired_hailo_uri_supports_uploaded_multiple_project_paths():
 
 
 def test_hailo_availability_checks_global_remote_paths():
-    from abraia.inference.accelerators import hailo_model_available
+    from abraia.inference.accelerators import hailo_artifact_available
 
-    config = {
-        "version": 2,
-        "source": {"type": "image", "src": "frame.jpg"},
-        "steps": [{
-            "id": "model",
-            "type": "model",
-            "model": {"uri": "multiple/models/yolov8n_hailo8.hef"},
-        }],
-    }
     with patch("abraia.utils.remote.remote_available", return_value=False):
-        assert not hailo_model_available(config, "hailo8")
+        assert not hailo_artifact_available("multiple/models/yolov8n_hailo8.hef", "hailo8")
 
 
 def test_hailo_format_order_recognizes_native_nms_outputs():
