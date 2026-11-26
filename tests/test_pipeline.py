@@ -1220,18 +1220,18 @@ def test_pipeline_keeps_file_output_enabled_when_preview_is_disabled():
     assert pipeline.display.show_calls == 1
 
 
-def test_yolo9_demo_pairs_with_available_hailo_model(public_demo_configs):
+def test_yolo9_demo_variant_pairs_with_available_hailo_model(public_demo_configs):
     from abraia.demo import resolve_pipeline
     from abraia.runtime.config import iter_pipeline_steps
     from abraia.runtime.pipeline import _create_pipeline_models, _model_plans
 
-    config = public_demo_configs["yolo9"]
+    config = public_demo_configs["detect"]
     config["steps"][0]["model"].update(labels=["person"], conf_threshold=0.4)
-    with patch("abraia.demo.load_public_pipeline", return_value=public_demo_configs["yolo9"]), \
+    with patch("abraia.demo.load_public_pipeline", return_value=config), \
          patch("abraia.inference.registry.hailo_device_arch", return_value="hailo8"), \
          patch("abraia.inference.registry.hailo_artifact_available", return_value=True) as available, \
          patch("abraia.inference.hailo.yolov9.HailoYOLOv9Model") as adapter:
-        selected = resolve_pipeline("yolo9")
+        selected = resolve_pipeline("detect", model="yolo9t")
         plans = _model_plans(iter_pipeline_steps(selected["steps"]))
         (_, run_options, spec), = _create_pipeline_models(plans, None, "hailo")
 

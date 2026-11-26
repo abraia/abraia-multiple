@@ -12,8 +12,8 @@ from abraia.runtime.geometry import result_measurements
 def test_measurement_geometry_is_available_from_runtime():
     values = result_measurements({"box": [2, 3, 4, 2]})
 
-    assert values["area_px"] == 8
-    assert values["centroid_px"] == [4, 4]
+    assert values["area"] == 8
+    assert values["centroid"] == [4, 4]
 
 
 def test_mask_measurements_prefer_segmentation_geometry():
@@ -22,7 +22,7 @@ def test_mask_measurements_prefer_segmentation_geometry():
         "mask": np.array([[0, 1, 0], [1, 1, 0]], dtype=np.uint8),
     })
 
-    assert result["area_px"] == 3
+    assert result["area"] == 3
     assert result["centroid"] == pytest.approx([2 / 3, 2 / 3])
     assert result["bounds"] == [0, 0, 2, 2]
 
@@ -34,7 +34,7 @@ def test_anomaly_map_measurements_report_thresholded_area():
         np.array([[0.1, 0.8, 0.0], [0.7, 0.2, 0.9]]), 0.5,
     )
 
-    assert measurements["area_px"] == 3
+    assert measurements["area"] == 3
     assert measurements["fraction"] == pytest.approx(0.5)
     assert measurements["centroid"] == pytest.approx([1.0, 2 / 3])
     assert measurements["bounds"] == [0, 0, 3, 2]
@@ -44,7 +44,7 @@ def test_anomaly_map_measurements_report_thresholded_area():
 def test_runtime_measure_step_does_not_require_multiple_registration():
     step = FeatureExtractionStep(
         "measure",
-        {"features": ["area_px", "centroid_px"]},
+        {"features": ["area", "centroid"]},
         models={"detector": {
             "configuration": {"task": "detection"},
         }},
@@ -62,8 +62,8 @@ def test_runtime_measure_step_does_not_require_multiple_registration():
     context = step(Context())
 
     assert context.results[0]["measurements"] == {
-        "area_px": 8,
-        "centroid_px": [4, 4],
+        "area": 8,
+        "centroid": [4, 4],
     }
     assert not any(name.endswith(".results") for name in context.artifacts)
 
@@ -81,7 +81,7 @@ def test_configured_pipeline_builds_and_runs_measure_without_multiple():
         }),
         PipelineStep.from_config({
             "type": "measure", "id": "measure",
-            "features": ["area_px", "centroid_px"],
+            "features": ["area", "centroid"],
         }),
     ]
 
@@ -94,8 +94,8 @@ def test_configured_pipeline_builds_and_runs_measure_without_multiple():
         context = step(context)
 
     assert context.results[0]["measurements"] == {
-        "area_px": 8,
-        "centroid_px": [4, 4],
+        "area": 8,
+        "centroid": [4, 4],
     }
 
 
@@ -103,7 +103,7 @@ def test_measure_step_measures_masks_and_applies_calibration():
     step = FeatureExtractionStep(
         "measure",
         {
-            "features": ["area_px", "width_px"],
+            "features": ["area", "obb"],
             "calibration": {"pixels_per_unit": 2, "unit": "mm"},
         },
         models={"segmenter": {
@@ -120,17 +120,22 @@ def test_measure_step_measures_masks_and_applies_calibration():
 
     context = step(Context())
 
-    assert context.results[0]["measurements"] == {
-        "area_px": 6, "width_px": 3.0, "width_mm": 1.5,
-        "area_mm2": 1.5,
-    }
+    measurements = context.results[0]["measurements"]
+    assert measurements["area"] == 6
+    *obb_geometry, angle = measurements["obb"]
+    *scaled_geometry, scaled_angle = measurements["obb_mm"]
+    assert obb_geometry == pytest.approx([1.0, 0.5, 1.0, 2.0])
+    assert angle % 180 == pytest.approx(90.0)
+    assert scaled_geometry == pytest.approx([0.5, 0.25, 0.5, 1.0])
+    assert scaled_angle == angle
+    assert measurements["area_mm2"] == 1.5
 
 
 def test_measure_step_tracks_region_time_using_existing_track_ids():
     step = FeatureExtractionStep(
         "measure",
         {
-            "features": ["area_px"],
+            "features": ["area"],
             "time_in_region": True,
             "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]],
             "tracker_max_absent_frames": 3,
@@ -180,14 +185,14 @@ def test_runtime_measurement_helpers_cover_polygon_and_anomaly_maps():
         np.array([[0.1, 0.8], [0.7, 0.2]]), 0.5
     )
 
-    assert polygon_values["area_px"] == pytest.approx(12)
-    assert anomaly_values["area_px"] == 2
+    assert polygon_values["area"] == pytest.approx(12)
+    assert anomaly_values["area"] == 2
 
 
 def test_anomaly_renderer_does_not_publish_separate_metrics():
     from types import SimpleNamespace
 
-    from abraia.runtime.anomaly import AnomalyInspectionRenderer
+    from abraia.runtime.rendering import AnomalyPipelineRenderer
 
     model = SimpleNamespace(
         last_normalized_anomaly_map=np.full((4, 4), 0.8, dtype=np.float32)
@@ -197,10 +202,7 @@ def test_anomaly_renderer_does_not_publish_separate_metrics():
         results=[{"label": "anomaly", "score": 0.9}],
         metrics={},
     )
-    renderer = AnomalyInspectionRenderer(
-        lambda current: current.frame.copy(), model,
-        {"steps": [{"type": "model", "model": {"kind": "anomaly"}}]},
-    )
+    renderer = AnomalyPipelineRenderer(lambda current: current.frame, model)
 
     frame = renderer(context)
 
@@ -218,7 +220,7 @@ def test_anomaly_measurement_merges_defects_and_decisions_into_results():
     )
     step = FeatureExtractionStep(
         "measure",
-        {"features": ["area_px"]},
+        {"features": ["area"]},
         models={"anomaly": {
             "model": model,
             "configuration": {"kind": "anomaly", "task": "anomaly"},
@@ -237,7 +239,7 @@ def test_anomaly_measurement_merges_defects_and_decisions_into_results():
     assert len(context.results) == 2
     assert context.results[1]["label"].startswith("Anomaly ")
     assert context.results[1]["decision_result"] == "FAIL"
-    assert context.results[1]["measurements"]["area_px"] > 0
+    assert context.results[1]["measurements"]["area"] > 0
     assert "feature_measurements" not in context.metrics
     assert "anomaly" not in context.metrics
 
@@ -276,7 +278,7 @@ def test_pipeline_reuses_anomaly_inspection_for_measurements(monkeypatch, bound,
         for config, _ in model_steps
     ]
     steps.append(PipelineStep.from_config({
-        "type": "measure", "id": "measure", "features": ["area_px", "centroid_px", "bounds_px"],
+        "type": "measure", "id": "measure", "features": ["area", "centroid", "bounds"],
     }))
     models = [(model, {}, ModelSpec.from_config(config)) for config, model in model_steps]
     runtime_steps, _ = _build_pipeline_steps(steps, models, source=None, video_kwargs={})
@@ -287,14 +289,14 @@ def test_pipeline_reuses_anomaly_inspection_for_measurements(monkeypatch, bound,
 
     assert calls == [(8, 8)] * (2 if bound else 1)
     measured = [result for result in context.results if "measurements" in result]
-    assert [result["bounds_px"] for result in measured] == (
+    assert [result["bounds"] for result in measured] == (
         [[4, 4, 4, 4], [14, 4, 4, 4]] if bound else [[2, 2, 4, 4]]
     )
-    assert [result["centroid_px"] for result in measured] == (
+    assert [result["centroid"] for result in measured] == (
         [[5.5, 5.5], [15.5, 5.5]] if bound else [[3.5, 3.5]]
     )
     assert all(
-        result["area_px"] == 16 and "mask" not in result and result["decision_result"] == "FAIL"
+        result["area"] == 16 and "mask" not in result and result["decision_result"] == "FAIL"
         for result in measured
     )
     assert all(
@@ -314,7 +316,7 @@ def test_inspect_anomaly_map_preserves_full_frame_masks():
     large, small = summary["defect_regions"]
     assert large["box"] == [3, 2, 3, 2]
     assert small["box"] == [11, 8, 1, 1]
-    assert large["area_px"] == 6
+    assert large["area"] == 6
     assert small["score"] == pytest.approx(0.9)
     np.testing.assert_array_equal(large["mask"], heatmap == np.float32(0.8))
     np.testing.assert_array_equal(small["mask"], heatmap == np.float32(0.9))

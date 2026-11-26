@@ -16,7 +16,7 @@ PIPELINE_TASKS = (
     "anomaly",
     "depth",
 )
-HAILO_TASKS = ("detection", "segmentation", "pose")
+HAILO_TASKS = ("detection", "segmentation", "pose", "obb", "depth")
 
 # Accepted input spellings. Callers normalize these at API boundaries and
 # serialize only the canonical values above.
@@ -31,6 +31,8 @@ HAILO_BACKEND_TASKS = {
     "detection": "detect",
     "segmentation": "segment",
     "pose": "pose",
+    "obb": "obb",
+    "depth": "depth",
 }
 
 
@@ -86,7 +88,7 @@ class ModelDescriptor:
 _MODEL_ARCHITECTURE_ORDER = ("yolov5", "yolov8", "yolo9", "yolo11", "rtmdet")
 MODEL_ARCHITECTURES = frozenset(_MODEL_ARCHITECTURE_ORDER)
 HAILO_MODEL_ARCHITECTURES = frozenset(
-    ("yolov5", "yolov8", "yolo9", "yolo11", "rtmdet")
+    ("yolov5", "yolov8", "yolo9", "yolo11", "rtmdet", "yolo26_depth")
 )
 MODEL_RUN_OPTIONS = (
     "labels",
@@ -199,7 +201,10 @@ PIPELINE_HAILO_TASKS = HAILO_TASKS
 _MODEL_DESCRIPTORS = {
     **{
         kind: ModelDescriptor(
-            frozenset(MODEL_SIZE_URIS.get(kind, ("detection", "segmentation", "pose"))),
+            frozenset(MODEL_SIZE_URIS.get(kind, (
+                ("detection", "segmentation", "pose", "obb")
+                if kind == "yolo11" else ("detection", "segmentation", "pose")
+            ))),
             uri_based=True,
             runtime_options=True,
             run_options=_DETECTION_RUN_OPTIONS,
@@ -369,6 +374,8 @@ class ModelSpec:
                 raise ValueError("Hailo models require a supported model architecture kind")
             if self.task not in HAILO_TASKS:
                 raise ValueError(f"Unsupported Hailo pipeline task: {self.task}")
+            if (self.task == "depth") != (self.kind == "yolo26_depth"):
+                raise ValueError("Hailo depth inference requires kind='yolo26_depth' and task='depth'")
         if self.kind in MODEL_ARCHITECTURES and not self.uri:
             available_sizes = MODEL_SIZE_URIS.get(self.kind, {}).get(self.task, {})
             if not available_sizes:

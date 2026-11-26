@@ -262,7 +262,11 @@ def test_stream_keeps_the_latest_pending_frame_and_releases_at_end(monkeypatch):
 
     source = StreamSource("rtsp://example.invalid/video")
     try:
-        frames = [int(frame[0, 0, 0]) for frame in source]
+        frames = []
+        for frame in source:
+            frames.append(int(frame[0, 0, 0]))
+            assert source.last_capture_index == frames[-1]
+            assert source.last_captured_at > 0
         assert frames
         assert frames[-1] == 4
         assert frames == sorted(frames)

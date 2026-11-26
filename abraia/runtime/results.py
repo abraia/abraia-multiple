@@ -113,15 +113,16 @@ def result_records(values, calibration=None):
 
 _MEASUREMENT_FIELDS = {
     "aspect_ratio", "compactness", "solidity", "time_in_region_s",
+    "area", "perimeter",
 }
 _MEASUREMENT_FIELDS.update(
     f"{field}_{unit}"
     for field in (
-        "centroid", "bounds", "width", "height", "perimeter",
+        "centroid", "bounds", "perimeter",
     )
-    for unit in ("px", "mm", "cm", "µm")
+    for unit in ("mm", "cm", "µm")
 )
-_MEASUREMENT_FIELDS.update(("area_px", "area_mm2", "area_cm2", "area_µm2"))
+_MEASUREMENT_FIELDS.update(("area_mm2", "area_cm2", "area_µm2"))
 _TABLE_EXCLUDED_FIELDS = {
     "id", "parent_id", "item_id", "box", "source_box", "points", "polygon",
     "mask", "item", "features", "details",
@@ -177,19 +178,21 @@ def table_result_records(records, *, limit=None):
                 row[name] = value if isinstance(value, bool) else int(value)
             elif isinstance(value, Real):
                 row[name] = _table_number(name, value)
+            elif (
+                (name == "obb" or name.startswith("obb_"))
+                and isinstance(value, (list, tuple))
+                and len(value) == 5
+                and all(isinstance(part, Real) for part in value)
+            ):
+                row[name] = (
+                    "center (" + ", ".join(_table_number(name, part) for part in value[:2])
+                    + "); size (" + ", ".join(_table_number(name, part) for part in value[2:4])
+                    + "); angle " + _table_number(name, value[4]) + "°"
+                )
             elif isinstance(value, (list, tuple)) and len(value) <= 4 and all(
                 isinstance(part, Real) for part in value
             ):
                 parts = ", ".join(_table_number(name, part) for part in value)
                 row[name] = f"({parts})"
-            elif name.startswith("rotated_rectangle_") and isinstance(value, Mapping):
-                center = value["center"]
-                size = value["size"]
-                angle = value["angle_deg"]
-                row[name] = (
-                    "center (" + ", ".join(_table_number(name, part) for part in center)
-                    + "); size (" + ", ".join(_table_number(name, part) for part in size)
-                    + "); angle " + _table_number(name, angle) + "°"
-                )
         rows.append(row)
     return rows

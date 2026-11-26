@@ -3,6 +3,7 @@
 import numpy as np
 from PIL import Image
 
+from ..geometry import mask_to_polygons
 from abraia.inference.session import OnnxSessionMixin
 from abraia.utils.remote import resolve_model_file
 
@@ -133,8 +134,6 @@ class AnomalyModel(OnnxSessionMixin):
 
     def run(self, image, prediction=None):
         """Return pipeline results: image classification and defect polygons."""
-        import cv2
-
         if prediction is None:
             prediction = self.predict(image)
         anomaly_map = prediction["anomaly_map"]
@@ -148,20 +147,17 @@ class AnomalyModel(OnnxSessionMixin):
             "box": [0, 0, width, height],
         }]
         mask = (anomaly_map > self.pixel_threshold).astype(np.uint8)
-        contours, _ = cv2.findContours(
-            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
         scale = np.array([width / mask.shape[1], height / mask.shape[0]])
-        for contour in contours:
-            if len(contour) < 3:
-                continue
-            polygon = np.round(contour[:, 0] * scale).astype(int)
+        for small_polygon in mask_to_polygons(mask):
+            small_polygon = np.asarray(small_polygon)
+            min_x, min_y = small_polygon.min(axis=0)
+            max_x, max_y = small_polygon.max(axis=0)
+            score = float(anomaly_map[min_y:max_y + 1, min_x:max_x + 1].max())
+            polygon = np.round(np.asarray(small_polygon) * scale).astype(int)
             polygon[:, 0] = polygon[:, 0].clip(0, width - 1)
             polygon[:, 1] = polygon[:, 1].clip(0, height - 1)
             left, top = polygon.min(axis=0)
             right, bottom = polygon.max(axis=0)
-            x, y, box_width, box_height = cv2.boundingRect(contour)
-            score = float(anomaly_map[y:y + box_height, x:x + box_width].max())
             results.append({
                 "label": "defect", "score": score, "class_id": 1,
                 "box": [

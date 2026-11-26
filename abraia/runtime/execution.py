@@ -44,7 +44,7 @@ def run_pipeline(
         if show_display and (
             display_clock is None or now - display_clock >= 0.08
         ):
-            display_frame = pipeline._render_frame(context)
+            display_frame = pipeline.render_frame(context)
             display_clock = now
             height, width = display_frame.shape[:2]
             scale = min(1280 / width, 720 / height, 1.0)
@@ -56,6 +56,8 @@ def run_pipeline(
                     (round(width * scale), round(height * scale)),
                     interpolation=cv2.INTER_AREA,
                 )
+            else:
+                display_frame = display_frame.copy()
         event = {
             "frame": context.frame_index,
             "detections": len(context.results or []),

@@ -1,6 +1,10 @@
 import json
+from importlib.util import module_from_spec, spec_from_file_location
 import shutil
+import sys
+from types import SimpleNamespace
 
+import cv2
 import numpy as np
 import pytest
 from PIL import Image
@@ -9,6 +13,133 @@ from abraia.inference import ModelSpec, load_model
 from abraia.runtime import Pipeline
 from abraia.runtime.results import table_result_records
 from abraia.inference.models.depth import _resize_dav2
+
+
+@pytest.fixture
+def hailo_depth_backend(monkeypatch, request):
+    """Exercise model routing and decoding with only the HailoRT boundary mocked."""
+    from abraia.inference.hailo import pipeline, toolbox
+
+    monkeypatch.setitem(sys.modules, "hailo_platform", SimpleNamespace(
+        HEF=object, VDevice=object, FormatType=object, HailoSchedulingAlgorithm=object,
+    ))
+    spec = spec_from_file_location("abraia.inference.hailo._test_toolbox", toolbox.__file__)
+    backend = module_from_spec(spec)
+    spec.loader.exec_module(backend)
+    opened, closed, submitted = [], [], []
+    has_nms = getattr(request, "param", False)
+
+    def open_model(self, path, batch_size, *, input_type, output_type):
+        opened.append((path, batch_size, input_type, output_type))
+        self.nms_postprocess_enabled = has_nms
+
+    def submit(self, inputs, callback):
+        submitted.extend(inputs)
+        bindings = [
+            SimpleNamespace(
+                _output_names=["depth"],
+                output=lambda: SimpleNamespace(
+                    get_buffer=lambda: np.array([[[-8.0], [7.0]]], np.float32),
+                ),
+            )
+            for _ in inputs
+        ]
+        callback(SimpleNamespace(exception=None), bindings_list=bindings)
+
+    monkeypatch.setattr(backend.HailoInfer, "__init__", open_model)
+    monkeypatch.setattr(backend.HailoInfer, "get_input_shape", lambda self: (4, 6, 3))
+    monkeypatch.setattr(backend.HailoInfer, "run", submit)
+    monkeypatch.setattr(backend.HailoInfer, "wait", lambda self: None)
+    monkeypatch.setattr(backend.HailoInfer, "close", lambda self: closed.append(self))
+    monkeypatch.setattr(pipeline, "HAILO_AVAILABLE", True)
+    monkeypatch.setattr(pipeline, "ModelInference", backend.ModelInference)
+    return opened, closed, submitted
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_yolo26_hailo_depth_saved_pipeline(tmp_path, hailo_depth_backend, live):
+    opened, closed, submitted = hailo_depth_backend
+    hef = tmp_path / "yolo26n-depth_hailo8.hef"
+    hef.touch()
+    hef.with_suffix(".json").write_text(json.dumps({
+        "format": "hailo", "kind": "yolo26_depth", "task": "depth",
+        "cal_a": 0.5, "cal_b": 0.25,
+    }))
+    image = np.full((3, 10, 3), [20, 80, 200], dtype=np.uint8)
+    Image.fromarray(image).save(tmp_path / "frame.png")
+
+    class LiveSource:
+        is_live = True
+
+        def __iter__(self):
+            yield image
+
+    pipeline = Pipeline.from_dict(
+        {
+            "version": 2,
+            "source": {"type": "image", "src": "frame.png"},
+            "steps": [{"type": "model", "model": {
+                "kind": "yolo26_depth", "task": "depth", "uri": hef.name,
+            }}],
+            "display": {"show": False},
+        },
+        base_dir=tmp_path,
+        accelerator="hailo",
+        input_source=LiveSource() if live else None,
+    )
+    context = pipeline.run()
+    assert opened == [(hef, 1, "UINT8", "FLOAT32")]
+    assert len(closed) == 1
+    assert pipeline.model.accelerator == "HAILO"
+    np.testing.assert_array_equal(submitted[0], cv2.resize(image, (6, 4)))
+    result, = context.results
+    assert result["depth_units"] == "m"
+    assert result["depth_map"].dtype == np.float32
+    expected = np.linspace(np.exp(-1.75), np.exp(2.75), image.shape[1])
+    np.testing.assert_allclose(
+        result["depth_map"], np.broadcast_to(expected, image.shape[:2]), rtol=1e-6,
+    )
+    assert not np.array_equal(pipeline.render_frame(context), image)
+
+
+@pytest.mark.parametrize("metadata,key", [
+    ({"cal_b": 0}, "cal_a"),
+    ({"cal_a": 1}, "cal_b"),
+    ({"cal_a": True, "cal_b": 0}, "cal_a"),
+    ({"cal_a": 1, "cal_b": float("inf")}, "cal_b"),
+])
+def test_yolo26_hailo_depth_rejects_invalid_json_before_opening_device(
+    tmp_path, hailo_depth_backend, metadata, key,
+):
+    hef = tmp_path / "yolo26n-depth_hailo8.hef"
+    hef.touch()
+    hef.with_suffix(".json").write_text(json.dumps(metadata))
+    with pytest.raises(ValueError, match=f"finite numeric {key}"):
+        load_model({"kind": "yolo26_depth", "uri": str(hef)})
+    assert hailo_depth_backend[0] == []
+
+
+@pytest.mark.parametrize("hailo_depth_backend", [True], indirect=True)
+def test_yolo26_hailo_depth_rejects_nms_hef_and_closes_device(tmp_path, hailo_depth_backend):
+    hef = tmp_path / "detector_hailo8.hef"
+    hef.touch()
+    hef.with_suffix(".json").write_text('{"cal_a": 1, "cal_b": 0}')
+
+    with pytest.raises(ValueError, match="depth logits instead of NMS outputs"):
+        load_model({"kind": "yolo26_depth", "uri": str(hef)})
+
+    opened, closed, _ = hailo_depth_backend
+    assert len(opened) == len(closed) == 1
+
+
+@pytest.mark.parametrize("shape", [(2, 2), (2, 2, 3), (0, 2, 1)])
+def test_yolo26_hailo_depth_rejects_invalid_output_shape(shape):
+    from abraia.inference.hailo.postprocess import yolo26_depth_postprocess
+
+    with pytest.raises(ValueError, match="one HWC depth logit map"):
+        yolo26_depth_postprocess(
+            np.zeros(shape), (4, 4), (2, 2), {"cal_a": 1, "cal_b": 0},
+        )
 
 
 def make_depth_onnx(path, kind):

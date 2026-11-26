@@ -10,30 +10,28 @@ def add_calibrated_measurements(measurements, calibration):
         return measurements
     pixels_per_unit = float(calibration["pixels_per_unit"])
     unit = str(calibration["unit"])
-    for name in ("width", "height", "perimeter", "major_axis", "minor_axis"):
-        key = f"{name}_px"
-        if measurements.get(key) is not None:
-            measurements[f"{name}_{unit}"] = measurements[key] / pixels_per_unit
-    if measurements.get("area_px") is not None:
-        measurements[f"area_{unit}2"] = measurements["area_px"] / pixels_per_unit ** 2
-    if measurements.get("centroid_px") is not None:
+    if measurements.get("perimeter") is not None:
+        measurements[f"perimeter_{unit}"] = measurements["perimeter"] / pixels_per_unit
+    if measurements.get("area") is not None:
+        measurements[f"area_{unit}2"] = measurements["area"] / pixels_per_unit ** 2
+    if measurements.get("centroid") is not None:
         measurements[f"centroid_{unit}"] = [
             coordinate / pixels_per_unit
-            for coordinate in measurements["centroid_px"]
+            for coordinate in measurements["centroid"]
         ]
-    if measurements.get("bounds_px") is not None:
-        x, y, width, height = measurements["bounds_px"]
+    if measurements.get("bounds") is not None:
+        x, y, width, height = measurements["bounds"]
         measurements[f"bounds_{unit}"] = [
             x / pixels_per_unit, y / pixels_per_unit,
             width / pixels_per_unit, height / pixels_per_unit,
         ]
-    rectangle = measurements.get("rotated_rectangle_px")
+    rectangle = measurements.get("obb")
     if rectangle is not None:
-        measurements[f"rotated_rectangle_{unit}"] = {
-            "center": [value / pixels_per_unit for value in rectangle["center"]],
-            "size": [value / pixels_per_unit for value in rectangle["size"]],
-            "angle_deg": rectangle["angle_deg"],
-        }
+        center_x, center_y, width, height, angle = rectangle
+        measurements[f"obb_{unit}"] = [
+            center_x / pixels_per_unit, center_y / pixels_per_unit,
+            width / pixels_per_unit, height / pixels_per_unit, angle,
+        ]
     return measurements
 
 
@@ -131,23 +129,20 @@ def result_measurements(result):
                 x, y = float(box[0]), float(box[1])
             except (TypeError, ValueError):
                 return measurements
-            centroid = measurements["centroid_px"]
-            bounds = measurements["bounds_px"]
+            centroid = measurements["centroid"]
+            bounds = measurements["bounds"]
             if centroid is not None:
-                measurements["centroid_px"] = [
+                measurements["centroid"] = [
                     centroid[0] + x, centroid[1] + y
                 ]
-                measurements["centroid"] = measurements["centroid_px"]
             if bounds is not None:
-                measurements["bounds_px"] = [
+                measurements["bounds"] = [
                     bounds[0] + x, bounds[1] + y, bounds[2], bounds[3]
                 ]
-                measurements["bounds"] = measurements["bounds_px"]
-            rectangle = measurements["rotated_rectangle_px"]
-            if rectangle is not None:
-                rectangle["center"] = [
-                    rectangle["center"][0] + x, rectangle["center"][1] + y,
-                ]
+            obb = measurements["obb"]
+            if obb is not None:
+                obb[0] += x
+                obb[1] += y
         return measurements
     if (
         isinstance(result, Mapping)
@@ -165,21 +160,14 @@ def result_measurements(result):
                 perimeter = 2 * (max(0.0, width) + max(0.0, height))
                 bounds = [x, y, width, height]
                 centroid = [x + width / 2, y + height / 2]
+                obb = [*centroid, width, height, 0.0]
                 return {
-                    "area_px": area,
-                    "perimeter_px": perimeter,
-                    "centroid_px": centroid,
+                    "area": area,
+                    "perimeter": perimeter,
                     "centroid": centroid,
-                    "bounds_px": bounds,
                     "bounds": bounds,
-                    "width_px": width,
-                    "height_px": height,
-                    "aspect_ratio": width / height if height else 0.0,
-                    "rotated_rectangle_px": {
-                        "center": centroid,
-                        "size": [width, height],
-                        "angle_deg": 0.0,
-                    },
+                    "aspect_ratio": obb[2] / obb[3] if obb[3] else 0.0,
+                    "obb": obb,
                     "compactness": (
                         4 * math.pi * area / (perimeter * perimeter)
                         if perimeter else 0.0
@@ -189,39 +177,40 @@ def result_measurements(result):
                 }
     polygon = result_polygon(result)
     if polygon:
+        import cv2
         import numpy as np
 
+        contour = np.asarray(polygon, dtype=np.float32).reshape((-1, 1, 2))
         measurements = _contour_measurements(
-            np.asarray(polygon, dtype=np.float32).reshape((-1, 1, 2)),
+            contour,
             vertex_count=len(polygon),
         )
-        centroid = polygon_centroid(polygon)
+        moments = cv2.moments(contour)
+        centroid = (
+            [moments["m10"] / moments["m00"], moments["m01"] / moments["m00"]]
+            if moments["m00"] else polygon_centroid(polygon)
+        )
+        if centroid is not None:
+            centroid = list(centroid)
         xs, ys = zip(*polygon)
         width = max(xs) - min(xs)
         height = max(ys) - min(ys)
-        measurements["centroid_px"] = list(centroid) if centroid else None
-        measurements["centroid"] = measurements["centroid_px"]
-        measurements["bounds_px"] = [min(xs), min(ys), width, height]
-        measurements["bounds"] = measurements["bounds_px"]
-        measurements["width_px"] = float(width)
-        measurements["height_px"] = float(height)
-        measurements["aspect_ratio"] = float(width / height) if height else 0.0
+        measurements["centroid"] = centroid
+        measurements["bounds"] = [min(xs), min(ys), width, height]
+        obb = measurements["obb"]
+        measurements["aspect_ratio"] = obb[2] / obb[3] if obb[3] else 0.0
         return measurements
     return _empty_measurements()
 
 
 def _empty_measurements():
     return {
-        "area_px": 0,
-        "perimeter_px": 0.0,
-        "centroid_px": None,
+        "area": 0,
+        "perimeter": 0.0,
         "centroid": None,
-        "bounds_px": None,
         "bounds": None,
-        "width_px": 0.0,
-        "height_px": 0.0,
         "aspect_ratio": 0.0,
-        "rotated_rectangle_px": None,
+        "obb": None,
         "compactness": 0.0,
         "solidity": 0.0,
         "vertex_count": 0,
@@ -245,21 +234,15 @@ def _contour_measurements(contour, *, vertex_count=None):
     hull_area = float(cv2.contourArea(cv2.convexHull(points)))
     bounds = [int(x), int(y), int(width), int(height)]
     centroid = [float(center_x), float(center_y)]
+    obb = [float(center_x), float(center_y), float(rotated_width),
+           float(rotated_height), float(angle)]
     return {
-        "area_px": area,
-        "perimeter_px": perimeter,
-        "centroid_px": centroid,
+        "area": area,
+        "perimeter": perimeter,
         "centroid": centroid,
-        "bounds_px": bounds,
         "bounds": bounds,
-        "width_px": float(width),
-        "height_px": float(height),
-        "aspect_ratio": float(width / height) if height else 0.0,
-        "rotated_rectangle_px": {
-            "center": [float(center_x), float(center_y)],
-            "size": [float(rotated_width), float(rotated_height)],
-            "angle_deg": float(angle),
-        },
+        "aspect_ratio": float(rotated_width / rotated_height) if rotated_height else 0.0,
+        "obb": obb,
         "compactness": (
             float(4 * math.pi * area / (perimeter * perimeter))
             if perimeter else 0.0
@@ -271,62 +254,58 @@ def _contour_measurements(contour, *, vertex_count=None):
 
 def mask_measurements(mask):
     """Return pixel measurements for a binary segmentation mask."""
+    import cv2
     import numpy as np
 
     values = np.asarray(mask)
     if values.ndim != 2:
         raise ValueError("Segmentation masks must be two-dimensional")
-    active = values.astype(bool)
-    if not active.any():
+    binary = values.astype(bool).astype(np.uint8)
+    area = cv2.countNonZero(binary) if binary.size else 0
+    if not area:
         return {**_empty_measurements(), "fraction": 0.0}
-    import cv2
 
-    contours, _ = cv2.findContours(
-        active.astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
-    )
-    points = np.concatenate(contours, axis=0)
-    measurements = _contour_measurements(max(contours, key=cv2.contourArea))
-    ys, xs = np.nonzero(active)
-    hull = cv2.convexHull(points)
-    hull_mask = np.zeros(active.shape, dtype=np.uint8)
+    contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    largest = max(contours, key=cv2.contourArea)
+    obb, vertex_count = None, 0
+    if len(largest) >= 3:
+        center, size, angle = cv2.minAreaRect(largest)
+        obb = [*center, *size, angle]
+        vertex_count = len(largest)
+    x, y, width, height = cv2.boundingRect(binary)
+    hull = cv2.convexHull(np.concatenate(contours, axis=0))
+    hull_area = area
     if len(hull) >= 3:
-        cv2.fillConvexPoly(hull_mask, hull.astype(np.int32), 1)
-        hull_area = int(hull_mask.sum())
-    else:
-        hull_area = int(active.sum())
-    padded = np.pad(active, 1)
-    perimeter = int(
-        np.count_nonzero(active & ~padded[:-2, 1:-1])
-        + np.count_nonzero(active & ~padded[2:, 1:-1])
-        + np.count_nonzero(active & ~padded[1:-1, :-2])
-        + np.count_nonzero(active & ~padded[1:-1, 2:])
+        hull_mask = np.zeros_like(binary)
+        cv2.fillConvexPoly(hull_mask, hull, 1)
+        hull_area = cv2.countNonZero(hull_mask)
+    perimeter_kernel = np.array(
+        [[0, -1, 0], [-1, 4, -1], [0, -1, 0]], dtype=np.int16,
     )
-    measurements.update({
-        "area_px": int(active.sum()),
-        "perimeter_px": float(perimeter),
-        "bounds_px": [
-            int(xs.min()), int(ys.min()),
-            int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1),
+    perimeter_map = cv2.filter2D(
+        binary, cv2.CV_16S, perimeter_kernel, borderType=cv2.BORDER_CONSTANT,
+    )
+    perimeter = int(cv2.sumElems(cv2.bitwise_and(
+        perimeter_map, perimeter_map, mask=binary,
+    ))[0])
+    moments = cv2.moments(binary, binaryImage=True)
+    return {
+        "area": area,
+        "perimeter": float(perimeter),
+        "centroid": [
+            moments["m10"] / moments["m00"], moments["m01"] / moments["m00"],
         ],
-        "width_px": float(xs.max() - xs.min() + 1),
-        "height_px": float(ys.max() - ys.min() + 1),
+        "bounds": [x, y, width, height],
+        "aspect_ratio": obb[2] / obb[3] if obb and obb[3] else width / height,
+        "obb": obb,
         "compactness": (
-            float(4 * math.pi * active.sum() / (perimeter * perimeter))
+            float(4 * math.pi * area / (perimeter * perimeter))
             if perimeter else 0.0
         ),
-        "solidity": min(1.0, float(active.sum() / hull_area)) if hull_area else 0.0,
-    })
-    measurements["aspect_ratio"] = (
-        measurements["width_px"] / measurements["height_px"]
-        if measurements["height_px"] else 0.0
-    )
-    measurements["centroid_px"] = [
-        float(value) for value in np.mean(np.argwhere(active)[:, ::-1], axis=0)
-    ]
-    measurements["centroid"] = measurements["centroid_px"]
-    measurements["bounds"] = measurements["bounds_px"]
-    measurements["fraction"] = float(active.mean())
-    return measurements
+        "solidity": min(1.0, float(area / hull_area)) if hull_area else 0.0,
+        "vertex_count": vertex_count,
+        "fraction": area / binary.size,
+    }
 
 
 def anomaly_map_measurements(anomaly_map, threshold):

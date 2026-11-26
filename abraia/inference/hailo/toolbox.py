@@ -193,7 +193,9 @@ if HAILO_AVAILABLE:
                 self.pending_jobs.popleft().wait(10000)
 
             bindings_list = self._create_bindings(self.configured_model, input_batch)
-            self.configured_model.wait_for_async_ready(timeout_ms=10000)
+            self.configured_model.wait_for_async_ready(
+                timeout_ms=10000, frames_count=len(input_batch),
+            )
 
             # Launch async inference and attach the result handler
             inference_started = time.perf_counter()
@@ -320,6 +322,8 @@ if HAILO_AVAILABLE:
             # invalid for host-side softmax, box decoding, and NMS. Hailo's
             # byte-mask NMS path is still handled by HailoInfer itself.
             input_type = "FLOAT32" if model_type == "rtmdet" else None
+            if task == "depth":
+                input_type = "UINT8"
             super().__init__(
                 hef_path,
                 batch_size,
@@ -333,11 +337,29 @@ if HAILO_AVAILABLE:
             self.iou_threshold = iou_threshold
             self.model_type = model_type
             self.model_config = model_config or {}
+            if task == "depth":
+                try:
+                    height, width, channels = self.get_input_shape()
+                    if channels != 3 or height <= 0 or width <= 0:
+                        raise ValueError("YOLO26-Depth HEF requires a static HWC RGB input")
+                    if self.is_nms_postprocess_enabled():
+                        raise ValueError("YOLO26-Depth HEF must expose depth logits instead of NMS outputs")
+                    self._depth_input_shape = (height, width)
+                except Exception:
+                    self.close()
+                    raise
             self._postprocessors = {
                 "detect": self._process_detect_results,
                 "segment": self._process_segment_results,
                 "pose": self._process_pose_results,
+                "obb": self._process_obb_results,
+                "depth": self._process_depth_results,
             }
+
+        def _process_depth_results(self, output, image):
+            return postprocess.yolo26_depth_postprocess(
+                output, image.shape[:2], self._depth_input_shape, self.model_config,
+            )
 
         def _label(self, class_id):
             class_id = int(class_id)
@@ -551,6 +573,19 @@ if HAILO_AVAILABLE:
                         'keypoints': mapped_kpts, 'joint_scores': sigmoid(x[idx, 5:].reshape(17, 3)[..., 2]), 'class_id': 0
                     })
             return detections
+
+        def _process_obb_results(self, result, image):
+            if self.model_type != "yolo11_obb":
+                raise ValueError("Hailo OBB inference requires a YOLO11 OBB model")
+            return postprocess.yolo11_obb_postprocess(
+                result,
+                image,
+                self.get_input_shape(),
+                self.labels,
+                self.model_config,
+                conf_threshold=self.score_threshold,
+                iou_threshold=self.iou_threshold,
+            )
 
         def _inference_callback(
             self,

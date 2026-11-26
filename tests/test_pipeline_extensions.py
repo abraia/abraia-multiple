@@ -1,5 +1,6 @@
 """Exercise extensions through the SDK public API without application imports."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -194,12 +195,21 @@ def test_pipeline_owns_display_separately_from_registered_frame_source(monkeypat
         close=lambda: None,
     )
     display = SimpleNamespace(close=lambda: None)
-    register_source_factory("test_source", lambda *_args, **_kwargs: source)
-    monkeypatch.setattr("abraia.runtime.video.VideoOutput", lambda **_kwargs: display)
+
+    def create_source(_path, **source_kwargs):
+        assert "dest" not in source_kwargs
+        return source
+
+    def create_display(**output_kwargs):
+        assert Path(output_kwargs["dest"]).name == "preview.avi"
+        return display
+
+    register_source_factory("test_source", create_source)
+    monkeypatch.setattr("abraia.runtime.video.VideoOutput", create_display)
     config = {
         "version": 2,
         "source": {"type": "test_source", "src": "input"},
-        "display": {"show": True},
+        "display": {"show": True, "dest": "preview.avi"},
     }
 
     with Pipeline.from_dict(config) as pipeline:

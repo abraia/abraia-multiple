@@ -510,9 +510,10 @@ class DecisionStep(CompositionStep):
 class ModelStep(CompositionStep):
     """Run a model on the frame or on each input region."""
 
-    def __init__(self, step_id, model, model_kwargs=None):
+    def __init__(self, step_id, model, model_kwargs=None, *, _raw_results=False):
         super().__init__(step_id)
         _initialize_model_step(self, model, model_kwargs)
+        self._raw_results = _raw_results
 
     def __call__(self, context):
         inputs = context.current
@@ -538,6 +539,9 @@ class ModelStep(CompositionStep):
 
     def apply_results(self, context, results):
         """Store precomputed frame results from a streaming model adapter."""
+        if self._raw_results:
+            self._set_current(context, results, update_results=True)
+            return context
         output = _normalize_results(results, self.step_id)
         if isinstance(output, list):
             self._set_current(context, output, update_results=True)

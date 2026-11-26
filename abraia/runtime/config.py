@@ -73,7 +73,7 @@ PIPELINE_STEP_DEFINITIONS = {
         "category": "fields",
         "default": {
             "type": "measure",
-            "features": ["area_px", "width_px", "height_px"],
+            "features": ["area", "obb"],
             "time_in_region": False,
         },
     },
@@ -357,12 +357,11 @@ def validate_step_structure(steps, *, report_unsupported=True):
                 )
             features = step.get("features")
             allowed_features = {
-                "area_px", "perimeter_px", "centroid_px",
-                "width_px", "height_px", "aspect_ratio",
+                "area", "perimeter", "centroid", "bounds",
+                "aspect_ratio",
                 "compactness", "solidity",
             }
-            if measurement_source in {"segmentation", "obb"}:
-                allowed_features.add("rotated_rectangle_px")
+            allowed_features.add("obb")
             if step.get("time_in_region"):
                 allowed_features.add("time_in_region_s")
                 measured_features.add("time_in_region_s")
@@ -386,26 +385,13 @@ def validate_step_structure(steps, *, report_unsupported=True):
             if decision_count > 1:
                 errors.append("A pipeline can contain at most one decision step.")
             metric = step.get("metric", "object_count")
-            legacy_axis_metric = metric == "orientation_deg" or metric in {
-                f"{axis}_{unit}"
-                for axis in ("major_axis", "minor_axis")
-                for unit in ("px", "mm", "cm", "µm")
-            }
-            if legacy_axis_metric:
-                errors.append(
-                    f"Step {index}: saved decision metric '{metric}' is no "
-                    "longer supported; select another metric."
-                )
             feature_metrics = {
-                "area_px", "perimeter_px", "width_px", "height_px", "aspect_ratio",
+                "area", "perimeter", "aspect_ratio",
                 "compactness", "solidity", "time_in_region_s",
             }
             for unit in ("mm", "cm", "µm"):
                 feature_metrics.add(f"area_{unit}2")
-                feature_metrics.update(
-                    f"{name}_{unit}"
-                    for name in ("perimeter", "width", "height")
-                )
+                feature_metrics.add(f"perimeter_{unit}")
             if metric == "object_count" and not count_seen:
                 errors.append(f"Step {index}: object-count decisions require an earlier count step.")
             elif metric in feature_metrics and not measure_seen:
@@ -414,14 +400,13 @@ def validate_step_structure(steps, *, report_unsupported=True):
                 base_metric = metric
                 for unit in ("mm", "cm", "µm"):
                     if metric == f"area_{unit}2":
-                        base_metric = "area_px"
+                        base_metric = "area"
                     elif metric.endswith(f"_{unit}"):
-                        base_metric = metric[:-(len(unit) + 1)] + "_px"
+                        base_metric = metric[:-(len(unit) + 1)]
                 if base_metric not in measured_features:
                     errors.append(f"Step {index}: decision feature must be enabled in the earlier measure step.")
             elif (
                 metric not in feature_metrics | {"object_count", "confidence", "score"}
-                and not legacy_axis_metric
             ):
                 errors.append(f"Step {index}: unsupported decision metric.")
             operator = step.get("operator", "gte")
@@ -671,23 +656,7 @@ class PipelineDraft:
                 "A version 2 pipeline with steps must start with a frame model step"
             )
         normalized_steps = normalize_step_ids(steps_config)
-        old_rectangle_features = {
-            "orientation_deg", "major_axis_px", "minor_axis_px",
-        }
         normalized_steps = [dict(step) for step in normalized_steps]
-        for step in normalized_steps:
-            if step.get("type") != "measure":
-                continue
-            features = step.get("features")
-            if not isinstance(features, list) or not any(
-                feature == "bounds_px" or feature in old_rectangle_features
-                for feature in features
-            ):
-                continue
-            step["features"] = list(dict.fromkeys(
-                "rotated_rectangle_px" if feature in old_rectangle_features
-                else feature for feature in features if feature != "bounds_px"
-            ))
         source_default = "0" if source.get("type") in (None, "camera") else ""
         source_value = str(source.get("src", source_default)).strip()
         configured_source_type = source.get("type")

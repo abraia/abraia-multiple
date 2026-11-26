@@ -1,4 +1,7 @@
+import sys
+from threading import Event
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -21,6 +24,38 @@ def test_genicam_numeric_serial_is_distinguished_from_device_index():
         "serial_number": "123"
     }
     assert GenICamSource._device_selector("1", [device]) == 1
+
+
+def test_genicam_keeps_latest_frame_and_its_metadata(tmp_path, monkeypatch):
+    acquirer = Mock(remote_device=SimpleNamespace(node_map=SimpleNamespace()))
+    harvester = Mock(device_info_list=[SimpleNamespace(serial_number="123")])
+    harvester.create.return_value = acquirer
+    monkeypatch.setitem(sys.modules, "harvesters.core", SimpleNamespace(Harvester=lambda: harvester))
+    monkeypatch.setattr(
+        "abraia.media.sources.genicam.find_genicam_producers", lambda: [tmp_path / "vendor.cti"],
+    )
+    resume_capture = Event()
+
+    def acquire(_source):
+        yield {"frame": "first", "data": {"frame_id": 10}}
+        assert resume_capture.wait(2)
+        yield {"frame": "old", "data": {"frame_id": 11}}
+        yield {"frame": "latest", "data": {"frame_id": 12}}
+
+    monkeypatch.setattr(GenICamSource, "_read_frames", acquire)
+    with GenICamSource("123") as source:
+        frames = iter(source)
+        try:
+            assert next(frames) == {"frame": "first", "data": {"frame_id": 10}}
+            assert source.last_capture_index == 0
+            resume_capture.set()
+            source._capture_thread.join(timeout=2)
+            assert not source._capture_thread.is_alive()
+            assert list(frames) == [{"frame": "latest", "data": {"frame_id": 12}}]
+            assert source.last_capture_index == 2
+        finally:
+            resume_capture.set()
+    acquirer.destroy.assert_called_once()
 
 
 @pytest.mark.parametrize(

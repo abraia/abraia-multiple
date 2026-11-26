@@ -17,12 +17,13 @@ from numpy import ndarray
 from abraia.inference import get_model_accelerator
 from abraia.inference.model_config import ModelSpec
 
-from .anomaly import anomaly_inspection_configuration, consolidate_anomaly_results
+from .anomaly import anomaly_inspection_configuration
 from .composition import (
     BoundAnomalyModelStep,
     DecisionStep,
     FilterStep,
     LineCounter,
+    ModelStep,
     ObjectCountStep,
     PrimaryAnomalyModelStep,
     ProcessorStep,
@@ -43,6 +44,7 @@ from .sources import create_frame_source, infer_source_type, normalize_source_ty
 
 
 logger = logging.getLogger(__name__)
+_UNRENDERED = object()
 
 
 def _close_resources(resources: Iterable) -> None:
@@ -192,7 +194,7 @@ def _make_pipeline_renderer(
 
 
 def _make_depth_renderer(renderer):
-    """Replace the RGB frame with a colorized depth map when available."""
+    """Overlay a colorized depth map on the RGB frame when available."""
     def render(context):
         import cv2
         import numpy as np
@@ -217,8 +219,10 @@ def _make_depth_renderer(renderer):
             fraction = (np.clip(values, near, far) - near) / (far - near)
             intensity[valid] = np.rint((1 - fraction) * 255)
         colored = cv2.applyColorMap(intensity, cv2.COLORMAP_INFERNO)
-        colored[~valid] = 0
-        return cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
+        colored = cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
+        blended = cv2.addWeighted(context.frame, 0.35, colored, 0.65, 0)
+        cv2.copyTo(context.frame, (~valid).astype(np.uint8), blended)
+        return blended
 
     return render
 
@@ -598,6 +602,7 @@ class Pipeline:
         self._closed = False
         self._stop_requested = threading.Event()
         self._render_output_owned = False
+        self._frame_render = None
         self._render_stats = render_metrics and model is not None
         self._accelerator_label = (
             get_model_accelerator(model) if self._render_stats else None
@@ -664,33 +669,33 @@ class Pipeline:
     def _run_frames(self, is_cancelled):
         """Run inference and ordered steps over each source frame."""
         last_context = None
-        first_step = self.steps[0] if self.steps else None
-        inference_model = (
-            getattr(first_step, "model", None)
-            if first_step is not None
-            else self.model
-        )
+        steps = self.steps
+        single_model = not steps and self.model is not None
+        if single_model:
+            from ..inference.models.anomaly import AnomalyModel
+
+            step_type = (
+                PrimaryAnomalyModelStep if isinstance(self.model, AnomalyModel)
+                else ModelStep
+            )
+            step = step_type("model", self.model, _raw_results=True)
+            step.model_kwargs = self.model_kwargs
+            steps = (step,)
+        first_step = steps[0] if steps else None
+        inference_model = getattr(first_step, "model", None)
         stream_inference = getattr(inference_model, "iter_inference", None)
         streaming = callable(stream_inference)
         if streaming:
             from .inference import FrameResult
 
-            model_kwargs = (
-                first_step.model_kwargs
-                if first_step is not None
-                else self.model_kwargs
-            )
-            frame_results = stream_inference(self.source, **model_kwargs)
+            frame_results = stream_inference(self.source, **first_step.model_kwargs)
             frames = enumerate(frame_results)
+            steps = () if single_model else self._stream_steps
         else:
             frames = enumerate(self.source)
 
-        single_model = not self.steps and self.model is not None
-        single_anomaly_model = False
-        if single_model:
-            from ..inference.models.anomaly import AnomalyModel
-
-            single_anomaly_model = isinstance(self.model, AnomalyModel)
+        live = getattr(self.source, "is_live", False)
+        first_capture_at = None
         for source_index, item in frames:
             if self._stop_requested.is_set() or is_cancelled():
                 self.stop()
@@ -716,6 +721,22 @@ class Pipeline:
                 if self.frame_rate > 0
                 else float(frame_index)
             )
+            if live:
+                captured_at = (
+                    item.record.captured_at if streaming
+                    else getattr(self.source, "last_captured_at", None)
+                )
+                capture_index = (
+                    item.record.capture_index if streaming
+                    else getattr(self.source, "last_capture_index", None)
+                )
+                if captured_at is None:
+                    captured_at = item.record.started if streaming else time.perf_counter()
+                if first_capture_at is None:
+                    first_capture_at = captured_at
+                frame_time = captured_at - first_capture_at
+                frame_index = source_index
+                data = {**data, "capture_index": capture_index, "captured_at": captured_at}
             context = FrameContext(
                 frame,
                 frame_index,
@@ -727,35 +748,21 @@ class Pipeline:
                 context.metrics["inference_ms"] = inference_ms
 
             started = time.perf_counter()
-            if streaming and first_step is not None:
+            if streaming:
                 first_step.apply_results(context, item.results)
-                _update_pipeline_results(context, [], first_step)
-                steps = self._stream_steps
-            elif single_model:
-                if streaming:
-                    results = item.results
-                else:
-                    inference_started = time.perf_counter()
-                    results = self.model.run(frame, **self.model_kwargs)
-                    inference_ms = (time.perf_counter() - inference_started) * 1000
-                    context.metrics["inference_ms"] = inference_ms
-                if single_anomaly_model and isinstance(results, list):
-                    results = consolidate_anomaly_results(
-                        results, self.model.last_normalized_anomaly_map, frame.shape,
-                    )
-                context.results = results
-                context.current = results
-                steps = ()
-            else:
-                steps = self.steps
+                if not single_model:
+                    _update_pipeline_results(context, [], first_step)
 
             for step in steps:
                 previous_results = context.results
                 context = step(context) or context
-                _update_pipeline_results(context, previous_results, step)
+                if not single_model:
+                    _update_pipeline_results(context, previous_results, step)
             step_elapsed_ms = (time.perf_counter() - started) * 1000
             if single_model:
-                elapsed_ms = stream_elapsed_ms if streaming else inference_ms
+                elapsed_ms = (
+                    stream_elapsed_ms if streaming else context.metrics.get("inference_ms")
+                )
             elif streaming:
                 elapsed_ms = (stream_elapsed_ms or 0) + step_elapsed_ms
             else:
@@ -767,8 +774,15 @@ class Pipeline:
                 break
         return last_context
 
-    def _render_frame(self, context):
-        """Render a frame for either a local display or a preview callback."""
+    def render_frame(self, context: FrameContext):
+        """Return a rendered frame, shared with local output during on_frame.
+
+        Copy the returned image before modifying it.
+        """
+        in_frame = self._frame_render is not None and self._frame_render[0] is context
+        if in_frame and self._frame_render[1] is not _UNRENDERED:
+            return self._frame_render[1]
+
         frame = self.render(context) if self.render else context.frame
         if self._render_stats and isinstance(frame, ndarray) and frame.ndim in (2, 3):
             from ..utils.draw import render_resolution, render_status
@@ -777,6 +791,8 @@ class Pipeline:
                 frame = frame.copy()
             render_status(frame, fps=self._frame_fps, accelerator=self._accelerator_label)
             render_resolution(frame)
+        if in_frame:
+            self._frame_render = (context, frame)
         return frame
 
     def _finish_frame(self, context, elapsed_ms):
@@ -789,22 +805,26 @@ class Pipeline:
         context.results = result_records(
             context.results, calibration=self.result_calibration,
         )
-        if self.on_frame is not None:
-            self.on_frame(context, elapsed_ms)
-        if self.output is not None:
-            self.output.write(context.frame)
-        if self.display is None:
+        self._frame_render = (context, _UNRENDERED)
+        try:
+            if self.on_frame is not None:
+                self.on_frame(context, elapsed_ms)
+            if self.output is not None:
+                self.output.write(context.frame)
+            if self.display is None:
+                return True
+            output = self.render_frame(context)
+            show_rendered = getattr(self.display, "show_rendered", None)
+            if callable(show_rendered):
+                display_result = show_rendered(output)
+            else:
+                display_result = self.display.show(output)
+            if display_result is False or getattr(self.display, "quit", False):
+                self.stop()
+                return False
             return True
-        output = self._render_frame(context)
-        show_rendered = getattr(self.display, "show_rendered", None)
-        if callable(show_rendered):
-            display_result = show_rendered(output)
-        else:
-            display_result = self.display.show(output)
-        if display_result is False or getattr(self.display, "quit", False):
-            self.stop()
-            return False
-        return True
+        finally:
+            self._frame_render = None
 
     @classmethod
     def from_file(
@@ -843,9 +863,10 @@ class Pipeline:
         model_plans = _model_plans(steps_config)
 
         root = Path(base_dir or os.getcwd())
-        source, video_kwargs = prepare_source(
+        source, source_kwargs = prepare_source(
             source_config, display_config, root, input_source=input_source
         )
+        dest = source_kwargs.pop("dest")
         frame_source = None
         display = None
         output = None
@@ -858,7 +879,7 @@ class Pipeline:
             # serially while keeping each resource owned by this build operation.
             with ThreadPoolExecutor(max_workers=2) as executor:
                 source_future = (
-                    executor.submit(create_frame_source, source, video_kwargs)
+                    executor.submit(create_frame_source, source, source_kwargs)
                     if input_source is None else None
                 )
                 models_future = executor.submit(
@@ -884,18 +905,19 @@ class Pipeline:
                     raise
 
             steps, components = _build_pipeline_steps(
-                steps_config, created_models, frame_source, video_kwargs,
+                steps_config, created_models, frame_source, source_kwargs,
                 calibration=(config.get("source") or {}).get("calibration"),
             )
             primary_model = created_models[0][0] if created_models else None
+            render_results = display_config.get("render_results", True)
             render_metrics = bool(display_config.get("render_metrics", True))
             renderer = _make_pipeline_renderer(
                 components,
-                render_results=display_config.get("render_results", True),
+                render_results=render_results,
                 render_metrics=render_metrics,
                 render_anomaly=renderer_factory is None,
             )
-            if model_plans and model_plans[0][1].task == "depth":
+            if render_results and model_plans and model_plans[0][1].task == "depth":
                 renderer = _make_depth_renderer(renderer)
             if model_plans and model_plans[0][1].kind == "anomaly":
                 from .rendering import AnomalyPipelineRenderer
@@ -905,39 +927,31 @@ class Pipeline:
                     if renderer_factory is None else ()
                 )
                 renderer = AnomalyPipelineRenderer(renderer, primary_model, roi=roi)
-            if output_config is not None:
-                from ..media.outputs import RTSPOutput
-
-                resolution = getattr(frame_source, "resolution", None) or video_kwargs.get(
+            show_display = bool(display_config.get("show", True))
+            if output_config is not None or show_display or dest:
+                resolution = getattr(frame_source, "resolution", None) or source_kwargs.get(
                     "resolution", (1920, 1080)
                 )
                 output_size = (
                     int(getattr(frame_source, "width", 0) or resolution[0]),
                     int(getattr(frame_source, "height", 0) or resolution[1]),
                 )
+                output_fps = getattr(frame_source, "frame_rate", None) or source_kwargs.get(
+                    "fps", 30
+                )
+            if output_config is not None:
+                from ..media.outputs import RTSPOutput
+
                 output = RTSPOutput(
                     url=output_config["url"],
-                    fps=getattr(frame_source, "frame_rate", None)
-                    or video_kwargs.get("fps", 30),
+                    fps=output_fps,
                     size=output_size,
                     bitrate=output_config.get("bitrate", 4_000_000),
                 )
-            show_display = bool(display_config.get("show", True))
-            if show_display or video_kwargs.get("dest"):
+            if show_display or dest:
                 from .video import VideoOutput
 
-                resolution = getattr(frame_source, "resolution", None) or video_kwargs.get(
-                    "resolution", (1920, 1080)
-                )
-                display = VideoOutput(
-                    dest=video_kwargs.get("dest"),
-                    fps=getattr(frame_source, "frame_rate", None)
-                    or video_kwargs.get("fps", 30),
-                    size=(
-                        int(getattr(frame_source, "width", 0) or resolution[0]),
-                        int(getattr(frame_source, "height", 0) or resolution[1]),
-                    ),
-                )
+                display = VideoOutput(dest=dest, fps=output_fps, size=output_size)
                 if not show_display:
                     display.set_display_enabled(False)
             if renderer_factory is not None:

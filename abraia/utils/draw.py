@@ -345,7 +345,7 @@ def render_results(img, results, thickness=None, text_scale=None):
         mask = result.get('mask')
         keypoints = result.get('keypoints')
         if polygon is not None and len(polygon):
-            render_polygon(img, polygon, color, thickness)
+            draw_polygon(img, polygon, color, thickness)
         elif mask is not None and box is not None and len(box):
             render_mask_contour(img, mask, box, color, thickness)
         elif keypoints is not None and len(keypoints):

@@ -1,5 +1,6 @@
 """Interactive demo runners backed by the shared pipeline catalog."""
 
+from contextlib import ExitStack
 import json
 import os
 import time
@@ -12,8 +13,11 @@ from abraia.inference.search import ImageSearch
 from abraia.inference.models.faces import find_pose
 from abraia.runtime import Pipeline
 from abraia.runtime.config import is_primary_model_step
-from abraia.utils.draw import draw_overlay, draw_text_multiline, render_results
-from abraia.runtime.video import Video
+from abraia.runtime.sources import create_frame_source
+from abraia.runtime.video import VideoOutput
+from abraia.utils.draw import (
+    draw_overlay, draw_text_multiline, render_resolution, render_results, render_status,
+)
 from abraia.media.images import load_image
 from abraia.utils.remote import load_url, url_path
 from abraia.inference.accelerators import normalize_accelerator, onnx_providers
@@ -41,11 +45,6 @@ DEMO_TASKS = {
     'pose': 'pose',
     'obb': 'obb',
     'depth': 'depth',
-    'yolo9': 'detection',
-    'rfdetr': 'detection',
-    'rfdetr-seg': 'segmentation',
-    'dfine': 'detection',
-    'dfine-seg': 'segmentation',
 }
 
 
@@ -91,41 +90,6 @@ def demo_model_options(demo):
         name for name, model in variants.items()
         if model['task'] == task
     )
-
-
-def depth_demo_renderer(renderer, config):
-    """Colorize metric and relative depth maps for the demo."""
-    if not (config.get("display") or {}).get("render_results", True):
-        return renderer
-
-    import cv2
-    import numpy as np
-
-    def render(context):
-        result = next((
-            result for result in context.results
-            if result.get("depth_units") in ("m", "relative")
-            and result.get("depth_map") is not None
-        ), None)
-        if result is None:
-            return renderer(context)
-        depth = result["depth_map"]
-        valid = np.isfinite(depth) & (depth > 0)
-        values = depth[valid]
-        near, far = 0.0, 10.0
-        if result["depth_units"] == "relative" and values.size:
-            near, far = float(values.min()), float(values.max())
-        intensity = np.zeros(depth.shape, dtype=np.uint8)
-        if near == far:
-            intensity[valid] = 128
-        else:
-            fraction = (np.clip(values, near, far) - near) / (far - near)
-            intensity[valid] = np.rint((1 - fraction) * 255)
-        colored = cv2.applyColorMap(intensity, cv2.COLORMAP_INFERNO)
-        colored[~valid] = 0
-        return cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
-
-    return render
 
 
 def _apply_demo_model(config, demo, model_name):
@@ -229,8 +193,15 @@ def track_faces(src=None, resolution=(1280, 720), accelerator='auto', output=Non
     attribute = FaceAttribute(providers=providers)
     index = []
     src = src or 0
-    with Video(src, resolution=resolution, dest=output) as video:
-        for frame in video:
+    with ExitStack() as resources:
+        source = create_frame_source(src, {"resolution": resolution})
+        resources.callback(source.close)
+        display = VideoOutput(
+            dest=output, fps=source.frame_rate, size=(source.width, source.height),
+        )
+        resources.callback(display.close)
+        last_frame_at = None
+        for frame in source:
             results = recognition.detect_faces(frame)
             faces = recognition.extract_faces(frame, results)
             results = recognition.identify_faces(frame, results, index)
@@ -247,7 +218,17 @@ def track_faces(src=None, resolution=(1280, 720), accelerator='auto', output=Non
                 print(f"{gender[0]} {age}, {score}")
                 result['label'] = f"{gender[0]} {age} ({result['label']})"
             frame = render_results(frame, results)
-            video.show(frame)
+            now = time.perf_counter()
+            fps = (
+                1 / (now - last_frame_at)
+                if last_frame_at is not None and now > last_frame_at else 0
+            )
+            render_status(frame, fps=fps)
+            render_resolution(frame)
+            display.show(frame)
+            last_frame_at = now
+            if display.quit:
+                break
 
 
 def search_images(project, query="man with red shirt"):

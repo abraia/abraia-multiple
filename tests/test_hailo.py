@@ -1,4 +1,5 @@
 import json
+from threading import Event
 
 import numpy as np
 import pytest
@@ -17,6 +18,7 @@ def test_resolve_model_type_uses_kind_and_task():
         ("yolov8", "detection", "v8"),
         ("yolov8", "segmentation", "v8"),
         ("yolo11", "pose", "v8"),
+        ("yolo11", "obb", "yolo11_obb"),
         ("rtmdet", "detection", "rtmdet"),
         ("rtmdet", "segmentation", "rtmdet"),
     ):
@@ -25,6 +27,33 @@ def test_resolve_model_type_uses_kind_and_task():
         resolve_model_type("unknown", "detection")
     with pytest.raises(ValueError, match="Unsupported Hailo task"):
         resolve_model_type("yolov8", "classification")
+    with pytest.raises(ValueError, match="YOLO11 model"):
+        resolve_model_type("yolov8", "obb")
+
+
+def test_yolo11_obb_postprocess_decodes_mapped_raw_hailo_heads():
+    size_by_stride = {8: 4, 16: 2, 32: 1}
+    outputs = {}
+    output_map = {}
+    for branch in ("cv2", "cv3", "cv4"):
+        for index, stride in enumerate((8, 16, 32)):
+            output_name = f"{branch}_{stride}"
+            output_map[output_name] = f"model.22.{branch}.{index}"
+            height = size_by_stride[stride]
+            channels = 64 if branch == "cv2" else 1
+            outputs[output_name] = np.zeros(
+                (1, height, height, channels), dtype=np.float32,
+            )
+
+    image = np.zeros((24, 32, 3), dtype=np.uint8)
+    result = postprocess.yolo11_obb_postprocess(
+        outputs, image, (32, 32, 3), ["object"],
+        {"oriented_postprocess": {"obb_model_input_map": output_map}},
+    )
+
+    assert result
+    assert all(item["label"] == "object" for item in result)
+    assert all(len(item["obb"]) == 5 for item in result)
 
 
 def test_hailo_device_adapter_parses_cli_architecture():
@@ -271,6 +300,62 @@ def test_hailo_pipeline_adapter_reorders_async_results(tmp_path, with_data):
     assert last.data == ({"extension_value": 2} if with_data else {})
 
 
+def test_live_hailo_pipeline_skips_waiting_results_and_preserves_capture_time(tmp_path):
+    from abraia.inference.hailo import pipeline as hailo_pipeline
+    from abraia.runtime import Pipeline
+
+    hef_path = tmp_path / "fake.hef"
+    hef_path.with_suffix(".json").write_text('{"task": "detection", "classes": ["person"]}')
+    resume_capture = Event()
+    final_inference = Event()
+    observed = []
+
+    class Source:
+        is_live = True
+        frame_rate = 30
+
+        def __iter__(self):
+            for index in range(3):
+                if index == 1:
+                    assert resume_capture.wait(2)
+                self.last_capture_index = index * 4
+                self.last_captured_at = 10.0 + index * 0.25
+                yield np.full((2, 2, 3), index, dtype=np.uint8)
+
+        def stop(self):
+            resume_capture.set()
+
+    class FakeInference:
+        def __init__(self, *args, **kwargs):
+            assert kwargs["batch_size"] == 1
+
+        def get_input_shape(self):
+            return 2, 2, 3
+
+        def infer_batch(self, inputs, emit, stop_event, image_batch=None):
+            assert len(inputs) == 1
+            index = int(image_batch[0][0, 0, 0])
+            emit(0, [{"value": index}])
+            if index == 2:
+                final_inference.set()
+
+    def on_frame(context, _elapsed_ms):
+        observed.append((
+            context.frame_index, context.data["capture_index"],
+            context.frame_time, context.results[0]["value"],
+        ))
+        if context.frame_index == 0:
+            resume_capture.set()
+            assert final_inference.wait(2)
+
+    with patch.object(hailo_pipeline, "HAILO_AVAILABLE", True), \
+         patch.object(hailo_pipeline, "ModelInference", FakeInference):
+        model = hailo_pipeline.HailoPipelineModel(str(hef_path))
+        Pipeline(source=Source(), model=model, on_frame=on_frame).run()
+
+    assert observed == [(0, 0, 0.0, 0), (1, 8, 0.5, 2)]
+
+
 def test_hailo_pipeline_adapter_uses_model_json_labels(tmp_path):
     from abraia.inference.hailo import pipeline as hailo_pipeline
 
@@ -412,7 +497,6 @@ def test_hailo_anomaly_loads_flat_patchcore_state_sidecar(tmp_path):
         "postprocessing": "patchcore_cpu",
         "postprocessingState": state_name,
         "featureShape": [1, 2, 1, 1],
-        "featureRecipe": "legacy",
     }
     (tmp_path / "patchcore-run.json").write_text(json.dumps({
         "model": "patchcore",

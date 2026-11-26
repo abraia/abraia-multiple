@@ -2,7 +2,10 @@
 
 from collections.abc import Mapping
 
-from ..utils.annotation_colors import anomaly_color_rgb
+import cv2
+import numpy as np
+
+from ..inference.geometry import mask_to_polygons
 
 
 DEFAULT_ANOMALY_INSPECTION = {
@@ -140,9 +143,6 @@ def _inspect_anomaly_map(
     anomaly_map, frame_shape, results, inspection=None, *, include_masks=False
 ):
     """Inspect defects, keeping optional masks cropped to their bounding boxes."""
-    import cv2
-    import numpy as np
-
     values = _inspection_settings(inspection)
     height, width = frame_shape[:2]
     heatmap = cv2.resize(
@@ -152,35 +152,33 @@ def _inspect_anomaly_map(
     )
     valid = _roi_mask(height, width, values["roi"])
     mask = (heatmap > values["pixel_threshold"]) & valid
-    component_count, component_labels, stats, _ = cv2.connectedComponentsWithStats(
+    _, component_labels, stats, _ = cv2.connectedComponentsWithStats(
         mask.astype(np.uint8), connectivity=8
     )
     regions = []
-    for component_id in range(1, component_count):
+    for polygon in mask_to_polygons(mask):
+        point_x, point_y = polygon[0]
+        component_id = int(component_labels[int(point_y), int(point_x)])
+        if not component_id:
+            continue
         x, y, box_width, box_height, area = map(int, stats[component_id])
         if area < values["min_area_px"]:
             continue
         box_slice = np.s_[y:y + box_height, x:x + box_width]
         component = component_labels[box_slice] == component_id
-        contours, _ = cv2.findContours(
-            component.astype(np.uint8), cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE, offset=(x, y),
-        )
-        contour = max(contours, key=cv2.contourArea)
-        polygon = contour[:, 0, :].astype(int).tolist()
         score = float(heatmap[box_slice][component].max())
         region = {
             "polygon": polygon,
             "box": [x, y, box_width, box_height],
             "score": score,
-            "area_px": area,
+            "area": area,
         }
         if include_masks:
             region["mask"] = component
         regions.append(region)
-    regions.sort(key=lambda region: region["area_px"], reverse=True)
+    regions.sort(key=lambda region: region["area"], reverse=True)
     score = _image_score(results)
-    defect_area = sum(region["area_px"] for region in regions)
+    defect_area = sum(region["area"] for region in regions)
     inspected_area = int(valid.sum())
     if score is None:
         decision = "review"
@@ -192,7 +190,7 @@ def _inspect_anomaly_map(
         "decision": decision,
         "score": score,
         "defect_regions": regions,
-        "defect_area_px": defect_area,
+        "defect_area": defect_area,
         "defect_fraction": (
             float(defect_area / inspected_area) if inspected_area else 0.0
         ),
@@ -207,11 +205,6 @@ def _inspect_anomaly_map(
 
 def _regions_without_masks(regions):
     return [{key: value for key, value in region.items() if key != "mask"} for region in regions]
-
-
-def consolidate_anomaly_results(results, anomaly_map, frame_shape, inspection=None):
-    records, _ = _consolidate_anomaly_results(results, anomaly_map, frame_shape, inspection)
-    return records
 
 
 def _consolidate_anomaly_results(
@@ -266,60 +259,7 @@ def _consolidate_anomaly_results(
     return records, measurement_regions
 
 
-class AnomalyInspectionRenderer:
-    """Add accepted defect region overlays to a renderer."""
-
-    def __init__(self, renderer, model, configuration, *, draw_defects=True):
-        self.renderer = renderer
-        self.model = model
-        self.configuration = configuration
-        self.draw_defects = draw_defects
-
-    def __call__(self, context):
-        anomaly_map = self.model.last_normalized_anomaly_map
-        if anomaly_map is None:
-            return (
-                self.renderer(context)
-                if self.renderer else context.frame.copy()
-            )
-
-        values = anomaly_inspection_configuration(self.configuration)
-        if values["roi"]:
-            self.model.last_normalized_anomaly_map = mask_anomaly_heatmap(
-                anomaly_map, context.frame.shape, values["roi"],
-            )
-        try:
-            frame = (
-                self.renderer(context)
-                if self.renderer
-                else context.frame.copy()
-            )
-        finally:
-            self.model.last_normalized_anomaly_map = anomaly_map
-
-        if not self.draw_defects:
-            return frame
-
-        summary = inspect_anomaly_map(
-            anomaly_map, context.frame.shape, context.results, self.configuration,
-        )
-        import cv2
-        import numpy as np
-
-        for region in summary["defect_regions"]:
-            points = np.asarray(region["polygon"], dtype="int32")
-            cv2.polylines(
-                frame,
-                [points],
-                isClosed=True,
-                color=anomaly_color_rgb("defect"),
-                thickness=3,
-            )
-        return frame
-
-
 __all__ = [
-    "AnomalyInspectionRenderer",
     "DEFAULT_ANOMALY_INSPECTION",
     "anomaly_inspection_configuration",
     "inspect_anomaly_map",

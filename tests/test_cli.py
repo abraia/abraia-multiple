@@ -116,6 +116,8 @@ def test_run_demo_lists_available_demos():
     assert "Available demos" in result.output
     assert "apple" in result.output
     assert "depth" in result.output
+    for alias in ("yolo9", "rfdetr", "dfine", "rfdetr-seg", "dfine-seg"):
+        assert alias not in result.output
 
 
 def test_run_demo_without_name_loads_public_detect_demo(monkeypatch, public_demo_configs):
@@ -219,7 +221,7 @@ def test_depth_demo_cli_uses_the_public_pipeline(
         "type": "camera", "src": 0, "resolution": [1280, 720],
     }
     assert build.call_args.args[0]["steps"] == config["steps"]
-    assert build.call_args.kwargs["renderer_factory"] is demo_module.depth_demo_renderer
+    assert "renderer_factory" not in build.call_args.kwargs
 
     result = runner.invoke(cli, [
         "run", "demo", "depth", "input.mp4", "--accelerator", "cpu",
@@ -237,8 +239,8 @@ def test_depth_demo_cli_uses_the_public_pipeline(
 
 
 @pytest.mark.parametrize("units", ["m", "relative"])
-def test_depth_demo_colors_values_without_changing_the_map(units):
-    from abraia.demo import depth_demo_renderer
+def test_runtime_depth_renderer_overlays_colors_without_changing_the_map(units):
+    from abraia.runtime.pipeline import _make_depth_renderer
 
     depth = np.tile([0, -1, np.nan, np.inf, 1, 5, 10, 20], (80, 40)).astype(np.float32)
     original = depth.copy()
@@ -246,11 +248,12 @@ def test_depth_demo_colors_values_without_changing_the_map(units):
         frame=np.full((*depth.shape, 3), 222, dtype=np.uint8),
         results=[{"depth_units": units, "depth_map": depth}],
     )
-    render = depth_demo_renderer(lambda context: context.frame, {})
+    render = _make_depth_renderer(lambda context: context.frame)
     image = render(context)
     assert image.shape == context.frame.shape
     assert image.dtype == np.uint8
-    assert not image[-1, :4].any()
+    np.testing.assert_array_equal(image[-1, :4], context.frame[-1, :4])
+    assert not np.array_equal(image[-1, 4], context.frame[-1, 4])
     assert image[-1, 4].sum() > image[-1, 5].sum() > image[-1, 6].sum()
     if units == "m":
         np.testing.assert_array_equal(image[-1, 6], image[-1, 7])

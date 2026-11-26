@@ -1,4 +1,5 @@
 import json
+from threading import Event
 from types import SimpleNamespace
 
 import cv2
@@ -19,7 +20,9 @@ from abraia.inference.models.detection import (
     process_pose_output,
     process_rtmdet_output,
 )
-from abraia.inference.geometry import mask_to_polygon, normalize, search_vectors, softmax
+from abraia.inference.geometry import (
+    mask_to_box, mask_to_polygon, mask_to_polygons, normalize, search_vectors, softmax,
+)
 from abraia.inference.models.ocr import BaseRecLabelDecode, TextRecognizer, TextSystem
 from abraia.inference.models.sam import SAM
 from abraia.inference.models.classification import ResNetClassifier, preprocess_resnet
@@ -138,6 +141,86 @@ def test_async_runner_propagates_frame_errors():
         list(runner)
 
 
+def test_live_async_runner_keeps_newest_result_without_waiting_for_consumer():
+    first_consumed = Event()
+    completed = Event()
+    submitted = []
+
+    def source():
+        yield 0
+        assert first_consumed.wait(2)
+        yield from range(1, 4)
+
+    pending = {}
+
+    def inference(batch, emit, stop_event):
+        record, = batch.records
+        submitted.append(record.index)
+        if record.index in (0, 1):
+            emit(FrameResult(record, record.frame))
+        else:
+            pending[record.index] = record
+            if record.index == 3:
+                for index in (3, 2):
+                    emit(FrameResult(pending[index], index))
+        if record.index == 3:
+            completed.set()
+
+    runner = AsyncInferenceRunner(
+        source(), inference, lambda frame: frame, live_max_in_flight_frames=2,
+    )
+    frames = iter(runner)
+    try:
+        assert next(frames).record.index == 0
+        first_consumed.set()
+        assert completed.wait(2)
+        assert [result.record.index for result in frames] == [3]
+        assert submitted == [0, 1, 2, 3]
+    finally:
+        first_consumed.set()
+        frames.close()
+
+
+def test_live_async_runner_stops_a_blocked_capture_on_close():
+    stopped = Event()
+
+    class Source:
+        def __iter__(self):
+            yield 0
+            assert stopped.wait(2)
+
+        def stop(self):
+            stopped.set()
+
+    def inference(batch, emit, stop_event):
+        emit(FrameResult(batch.records[0], []))
+
+    runner = AsyncInferenceRunner(
+        Source(), inference, lambda frame: frame, live_max_in_flight_frames=1,
+    )
+    frames = iter(runner)
+    assert next(frames).record.index == 0
+    frames.close()
+    assert stopped.is_set()
+
+
+@pytest.mark.parametrize("failure_stage", ["capture", "inference"])
+def test_live_async_runner_propagates_errors(failure_stage):
+    def source():
+        if failure_stage == "capture":
+            raise ValueError("live capture failed")
+        yield 0
+
+    def inference(batch, emit, stop_event):
+        emit(FrameResult(batch.records[0], None, error=ValueError("live inference failed")))
+
+    runner = AsyncInferenceRunner(
+        source(), inference, lambda frame: frame, live_max_in_flight_frames=1,
+    )
+    with pytest.raises(ValueError, match=f"live {failure_stage} failed"):
+        list(runner)
+
+
 def test_ocr_decoder_returns_zero_confidence_for_blank_text():
     decoder = BaseRecLabelDecode.__new__(BaseRecLabelDecode)
 
@@ -195,6 +278,20 @@ def test_mask_to_polygon_selects_largest_outer_component_by_area():
 
     assert (min(xs), max(xs), min(ys), max(ys)) == (10, 99, 10, 99)
     assert len(polygon) > 4
+    assert mask_to_box(mask) == (10, 10, 90, 90)
+    assert mask_to_box(np.zeros_like(mask)) == (0, 0, 0, 0)
+
+
+def test_mask_to_polygons_returns_all_objects_and_filters_small_components():
+    mask = np.zeros((64, 64), dtype=np.uint8)
+    mask[5:25, 5:25] = 1
+    mask[35:55, 35:55] = 1
+    mask[60:62, 60:62] = 1
+
+    polygons = mask_to_polygons(mask, min_area=16)
+
+    assert len(polygons) == 2
+    assert len(mask_to_polygons(mask)) == 3
 
 
 from abraia.runtime.video import load_images

@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from ..geometry import nms, sigmoid, softmax
+from ..models.depth import restore_yolo_depth
 from ..models.detection import (
     _rtmdet_mask_to_original,
     prepare_rtmdet_input,
@@ -152,10 +153,127 @@ def default_preprocess(image: np.ndarray, model_w: int, model_h: int) -> np.ndar
     return padded_image
 
 
+def yolo26_depth_postprocess(output, image_shape, input_shape, model_config):
+    """Decode one Hailo logit map and restore metric depth at source size."""
+    logits = np.asarray(output)
+    if logits.ndim != 3 or logits.shape[-1] != 1 or not logits.size:
+        raise ValueError(f"YOLO26-Depth HEF must return one HWC depth logit map, got {logits.shape}")
+    depth = np.clip(logits[..., 0].astype(np.float32, copy=False), -4.0, 5.0)
+    depth = np.exp(model_config["cal_a"] * depth + model_config["cal_b"]).astype(
+        np.float32, copy=False,
+    )
+    depth = restore_yolo_depth(depth, input_shape, image_shape)
+    return [{"depth_map": depth, "depth_units": "m"}]
+
+
 def rtmdet_preprocess(image, model_w, model_h):
     """Apply RTMDet's fixed preprocessing and return an HWC Hailo input."""
     tensor = prepare_rtmdet_input(image, (1, 3, model_h, model_w))
     return tensor[0].transpose((1, 2, 0))
+
+
+def yolo11_obb_postprocess(outputs, image, input_shape, labels, config,
+                           conf_threshold=0.25, iou_threshold=0.7):
+    """Decode raw YOLO11 OBB feature maps emitted by a Hailo HEF.
+
+    Hailo's YOLO11 OBB HEFs expose the three DFL, angle, and class heads at
+    strides 8, 16, and 32. Sidecar ``oriented_postprocess.obb_model_input_map``
+    maps Hailo output names to the corresponding ONNX head names.
+    """
+    from ..models.detection import process_obb_output
+
+    options = config.get("oriented_postprocess", {})
+    output_map = options.get("obb_model_input_map", {})
+    class_count = options.get("cls_num", len(labels))
+    if class_count != len(labels):
+        raise ValueError("YOLO11 OBB cls_num does not match the classes metadata")
+    if not isinstance(output_map, dict) or len(output_map) != 9:
+        raise ValueError(
+            "YOLO11 OBB Hailo metadata must define all nine outputs in "
+            "oriented_postprocess.obb_model_input_map"
+        )
+    mapped = {}
+    for hailo_name, onnx_name in output_map.items():
+        if hailo_name not in outputs:
+            raise ValueError(f"Missing YOLO11 OBB Hailo output: {hailo_name}")
+        name = str(onnx_name).lower()
+        branch = next((key for key in ("cv2", "cv3", "cv4") if key in name), None)
+        if branch is None:
+            raise ValueError(f"Unrecognized YOLO11 OBB head name: {onnx_name}")
+        # Hailo's YOLO11 OBB postprocessor treats cv2 as DFL boxes, cv3 as
+        # class scores, and cv4 as angle predictions.
+        head = {"cv2": "boxes", "cv3": "classes", "cv4": "angles"}[branch]
+        mapped.setdefault(head, []).append(
+            np.asarray(outputs[hailo_name], dtype=np.float32)
+        )
+    if any(len(mapped.get(head, ())) != 3 for head in ("boxes", "classes", "angles")):
+        raise ValueError("YOLO11 OBB metadata must map three outputs per head type")
+
+    # Order maps by feature-map size, independent of output binding order.
+    def feature_map_area(tensor):
+        if tensor.ndim == 4 and tensor.shape[0] == 1:
+            height, width = tensor.shape[1:3]
+        elif tensor.ndim == 3:
+            height, width = tensor.shape[:2]
+        else:
+            raise ValueError("YOLO11 OBB Hailo heads must be HWC tensors")
+        return height * width
+
+    heads = {}
+    for head, tensors in mapped.items():
+        tensors.sort(key=feature_map_area, reverse=True)
+        heads[head] = tensors
+    model_h, model_w = input_shape[:2]
+    strides = (8, 16, 32)
+    reg_max = 16
+    decoded_boxes, class_scores, angles = [], [], []
+    for index, stride in enumerate(strides):
+        box = heads["boxes"][index]
+        score = heads["classes"][index]
+        angle = heads["angles"][index]
+        if box.ndim == 4 and box.shape[0] == 1:
+            box, score, angle = box[0], score[0], angle[0]
+        if box.ndim != 3 or score.ndim != 3 or angle.ndim != 3:
+            raise ValueError("YOLO11 OBB Hailo heads must be HWC tensors")
+        height, width = box.shape[:2]
+        if (height, width) != (model_h // stride, model_w // stride):
+            raise ValueError("YOLO11 OBB Hailo head shapes do not match inputShape")
+        if (
+            box.shape[-1] != 4 * reg_max
+            or score.shape[:2] != (height, width)
+            or score.shape[-1] != len(labels)
+            or angle.shape != (height, width, 1)
+        ):
+            raise ValueError("YOLO11 OBB Hailo head channels do not match metadata")
+
+        box = box.reshape(height, width, 4, reg_max)
+        box = softmax(box, axis=-1) @ np.arange(reg_max, dtype=np.float32)
+        left, top, right, bottom = np.moveaxis(box, -1, 0)
+        angle = (sigmoid(angle[..., 0]) - 0.25) * np.pi
+        yy, xx = np.mgrid[:height, :width]
+        dx = ((right - left) / 2) * np.cos(angle) - ((bottom - top) / 2) * np.sin(angle)
+        dy = ((right - left) / 2) * np.sin(angle) + ((bottom - top) / 2) * np.cos(angle)
+        cx = ((xx + 0.5) + dx) * stride
+        cy = ((yy + 0.5) + dy) * stride
+        w = (left + right) * stride
+        h = (top + bottom) * stride
+        decoded_boxes.append(np.stack((cx, cy, w, h), axis=-1).reshape(-1, 4))
+        class_scores.append(sigmoid(score).reshape(-1, len(labels)))
+        angles.append(angle.reshape(-1, 1))
+
+    raw = np.concatenate((
+        np.concatenate(decoded_boxes, axis=0),
+        np.concatenate(class_scores, axis=0),
+        np.concatenate(angles, axis=0),
+    ), axis=1).T[None]
+    transform = LetterboxTransform.from_dimensions(image.shape[:2], (model_h, model_w))
+    return process_obb_output(
+        [raw], (image.shape[1], image.shape[0]),
+        [1, 3, model_h, model_w], labels,
+        conf_threshold=float(options.get("scores_th", conf_threshold)),
+        iou_threshold=float(options.get("nms_iou_th", iou_threshold)),
+        transform=(transform.scale, (transform.pad_x, transform.pad_y)),
+    )
 
 
 def resize_mask_to_unpadded_box(mask_1d, box_on_input_image, box_on_padded_image):

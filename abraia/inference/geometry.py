@@ -182,15 +182,23 @@ def polygon_to_box(polygon):
     return cv2.boundingRect(np.array(polygon, dtype=np.int32))
 
 
-def mask_to_polygon(
+def mask_to_polygons(
     mask, origin=(0, 0), approx=0.001, min_hole_area=16,
-    min_hole_ratio=0.0015,
+    min_hole_ratio=0.0015, min_area=0,
 ):
-    """Convert the largest mask component to a polygon, filling tiny holes.
+    """Convert every significant mask component to a polygon.
 
     A hole is filled when its contour area is below the larger of
     ``min_hole_area`` and ``min_hole_ratio`` times its containing object area.
+    Components below ``min_area`` are discarded. Results are ordered by
+    descending outer-contour area.
     """
+    return list(_iter_mask_polygons(
+        mask, origin, approx, min_hole_area, min_hole_ratio, min_area,
+    ))
+
+
+def _iter_mask_polygons(mask, origin, approx, min_hole_area, min_hole_ratio, min_area):
     mask = np.asarray(mask)
     if mask.ndim > 2:
         mask = np.squeeze(mask)
@@ -201,38 +209,40 @@ def mask_to_polygon(
         mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
     )
     if not contours:
-        return []
-    small_holes = set()
-    for index, (contour, hierarchy) in enumerate(zip(contours, hierarchies[0])):
-        parent = int(hierarchy[3])
+        return
+    hierarchy = hierarchies[0]
+    holes = {}
+    outer_areas = np.zeros(len(contours))
+    for index, (contour, item) in enumerate(zip(contours, hierarchy)):
+        parent = int(item[3])
         if parent < 0:
+            outer_areas[index] = cv2.contourArea(contour)
+        else:
+            holes.setdefault(parent, []).append(contour)
+    offset = np.asarray(origin)
+    for index in np.argsort(outer_areas)[::-1]:
+        if not (outer_areas[index] >= min_area and hierarchy[index][3] < 0):
             continue
-        threshold = max(
-            min_hole_area, cv2.contourArea(contours[parent]) * min_hole_ratio
-        )
-        if cv2.contourArea(contour) < threshold:
-            small_holes.add(index)
-    outer_areas = [
-        cv2.contourArea(contour) if hierarchy[3] < 0 else 0.0
-        for contour, hierarchy in zip(contours, hierarchies[0])
-    ]
-    contours = [approx_contour(contour, approx) for contour in contours]
-    parent_indexes = [int(hierarchy[3]) for hierarchy in hierarchies[0]]
-    parents = [
-        contour if parent < 0 and len(contour) >= 3 else []
-        for contour, parent in zip(contours, parent_indexes)
-    ]
-    for index, (contour, parent) in enumerate(zip(contours, parent_indexes)):
-        if index in small_holes:
-            continue
-        if parent >= 0 and len(contour) >= 3 and len(parents[parent]):
-            parents[parent] = merge_with_parent(parents[parent], contour)
-    if max(outer_areas) <= 0:
-        return []
-    selected = int(np.argmax(outer_areas))
-    if len(parents[selected]) < 3:
-        return []
-    return (parents[selected] + np.array(origin)).tolist()
+        polygon = approx_contour(contours[index], approx)
+        threshold = max(min_hole_area, outer_areas[index] * min_hole_ratio)
+        for contour in holes.get(index, ()):
+            if cv2.contourArea(contour) < threshold:
+                continue
+            hole = approx_contour(contour, approx)
+            if len(hole) >= 3 and len(polygon):
+                polygon = merge_with_parent(polygon, hole)
+        if len(polygon):
+            yield (polygon + offset).tolist()
+
+
+def mask_to_polygon(
+    mask, origin=(0, 0), approx=0.001, min_hole_area=16,
+    min_hole_ratio=0.0015,
+):
+    """Convert the largest mask component to a polygon."""
+    return next(_iter_mask_polygons(
+        mask, origin, approx, min_hole_area, min_hole_ratio, 0,
+    ), [])
 
 
 def mask_to_box(mask):
@@ -240,7 +250,7 @@ def mask_to_box(mask):
     polygon = mask_to_polygon(mask)
     if not polygon:
         return (0, 0, 0, 0)
-    return cv2.boundingRect(np.array(polygon, dtype=np.int32))
+    return polygon_to_box(polygon)
 
 
 def search_vector(vector, index, max_results=1):
@@ -287,7 +297,8 @@ __all__ = [
     "search_vector",
     "search_vectors",
     "iou", "mask_to_box", "mask_to_polygon", "nms",
-    "non_maximum_suppression", "normalize", "sigmoid", "softmax",
+    "mask_to_polygons", "non_maximum_suppression", "normalize",
+    "sigmoid", "softmax",
     "approx_contour", "approximate_polygon", "get_merge_point_idx",
     "is_clockwise", "merge_contours", "merge_with_parent", "point_in_polygon",
     "polygon_to_box", "segments_intersect", "triplet_orientation",

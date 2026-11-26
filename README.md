@@ -79,13 +79,17 @@ be selected for compatible workflows; for example:
 abraia run demo apple
 abraia run demo apple --model yolov8n-seg
 abraia run demo people --model yolo9t
+abraia run demo detect --model rfdetr-nano
+abraia run demo segment --model dfine-seg-n
 ```
 
 Demo inputs download automatically when needed. The `detect`, `pose`, and
 `depth` demos use camera `0` by default. Other demos use their
 configured video or camera.
 A workflow's model task must match the selected model. Use the model's
-canonical variant name after `--model`.
+canonical variant name after `--model`. Choose an architecture with `--model`
+on `detect` or `segment` rather than selecting a separate architecture-named
+demo.
 
 `--output` saves rendered video locally. `--accelerator` selects `auto`, `onnx`,
 `cpu`, `gpu`, or `hailo`; the default is `auto`. See
@@ -482,6 +486,7 @@ operation. Common combinations include:
 | --- | --- | --- |
 | `yolov8` | `detection`, `segmentation`, `pose` | Built-in small, medium, or large preset, or explicit `uri` |
 | `yolov8` | `obb` | Built-in YOLOv8n-OBB preset, or a local ONNX file and JSON sidecar |
+| `yolo11` | `obb` | Explicit ONNX file and JSON sidecar, or a YOLO11 OBB Hailo HEF with metadata |
 | `yolo9` | `detection` | Built-in small, medium, or large preset, or explicit `uri` |
 | `yolov5`, `yolo11` | `detection`, `segmentation`, `pose` | Explicit `uri` |
 | `rtmdet` | `detection`, `segmentation` | Built-in small, medium, or large preset, or explicit `uri` |
@@ -577,9 +582,9 @@ YOLO26n-Depth is the default and uses a fixed color scale from 0 to 10 meters.
 Depth Anything models scale their relative depth colors to each frame. In all
 three visualizations, brighter colors indicate nearer surfaces.
 
-All models download and cache their ONNX files from Abraia model storage on
-first use. Use `uri` to select a local export. Depth Anything models return
-relative depth, not calibrated physical distances. The hosted DA3 file embeds
+The built-in depth models download and cache their ONNX files from Abraia
+model storage on first use. Use `uri` to select a local export. Depth Anything
+models return relative depth, not calibrated physical distances. The hosted DA3 file embeds
 weights from the pinned [Apache 2.0 ONNX export][da3-onnx], and V2 uses the
 [ONNX Community export][dav2-onnx]. The hosted YOLO file is the
 [official Ultralytics ONNX export][yolo-depth-onnx], released under
@@ -593,6 +598,36 @@ and [exporter source][yolo-exporter] are available from Ultralytics.
 [yolo-exporter]: https://github.com/ultralytics/ultralytics/tree/v8.4.90
 [yolo-license]: https://www.ultralytics.com/license
 
+#### YOLO26-Depth on Hailo-8
+
+Use a YOLO26n-Depth HEF compiled specifically for Hailo-8 in the primary
+model step of a saved pipeline:
+
+```json
+{
+  "kind": "yolo26_depth",
+  "task": "depth",
+  "uri": "yolo26n-depth_hailo8.hef"
+}
+```
+
+Place `yolo26n-depth_hailo8.json` beside the HEF. Set `kind` to
+`yolo26_depth`, `task` to `depth`, and `format` to `hailo`. Copy the
+numeric `cal_a` and `cal_b` values from the same Ultralytics export's
+`metadata.yaml` into the JSON. Abraia uses those coefficients to decode
+metric depth from the HEF logits. A depth model does not need `classes`.
+
+Compile the HEF on a Linux x86-64 host with Hailo DFC 3.x using an
+Ultralytics release that supports Hailo depth export:
+
+```sh
+yolo export model=yolo26n-depth.pt format=hailo name=hailo8 imgsz=768
+```
+
+Name the compiled artifact `yolo26n-depth_hailo8.hef` and keep it with its
+matching JSON. Run the saved pipeline with `--accelerator hailo`. The built-in
+depth demo uses ONNX.
+
 ### Oriented object detection
 
 ```sh
@@ -601,9 +636,9 @@ abraia run demo obb aerial.mp4 --model yolov8n-obb --output oriented.avi
 ```
 
 Use `{"kind": "yolov8", "task": "obb"}` with `load_model` or a saved pipeline.
-Each result has a four-corner `polygon`, a `rotated_rectangle_px` with
-`center`, `size`, and `angle_deg`, and a clipped axis-aligned `box` for
-tracking and cropping. The angle is measured clockwise from the image's
+Each result has a five-value `obb` (`[center_x, center_y, width, height, angle_deg]`)
+and a four-corner `polygon`, plus a clipped axis-aligned `box` for tracking and
+cropping. The angle is measured clockwise from the image's
 positive x-axis along the width edge, modulo 180 degrees.
 
 The pretrained model targets 15 aerial object classes. For a local override,
@@ -655,6 +690,20 @@ must be compiled for the device's architecture, such as Hailo-8 or Hailo-8L.
 The SDK accepts local HEF files, Hailo export directories, and Abraia storage
 paths. Model metadata uses JSON sidecars; YAML metadata is no longer read.
 
+Live cameras and RTSP inputs retain only the newest unread capture. With
+asynchronous Hailo inference, the pipeline can process one result while the
+accelerator works on the next frame. If multiple results finish before
+downstream processing is ready, only the newest waits. File inputs retain
+ordered processing and process every frame selected by the source.
+
+Live Hailo defaults to one frame per inference batch and one batch in flight.
+To compare deeper overlap, set `model.params.live_max_in_flight_frames` to
+`2` with `model.params.batch_size` set to `1`. An explicit batch size still
+applies and the frame budget must accommodate at least one batch. Pipeline
+callbacks can read `context.data["capture_index"]` and
+`context.data["captured_at"]` on built-in live sources. The latter uses
+`time.perf_counter()` at SDK capture, so it excludes upstream buffering.
+
 For a supported demo, select Hailo explicitly:
 
 ```sh
@@ -664,6 +713,12 @@ abraia run demo people input.mp4 --accelerator hailo
 Hailo-compiled YOLOv9 detection models are also supported by the pipeline
 runtime when supplied as explicit HEF artifacts with the Multiple YOLOv9
 metadata sidecar.
+
+YOLO11 OBB HEFs use the Hailo raw-head output map in their JSON sidecar under
+`oriented_postprocess.obb_model_input_map`. Set `kind` to `yolo11`, `task` to
+`obb`, and provide the model's `classes` and output-name map. The sidecar can
+also set `oriented_postprocess.cls_num`, `scores_th`, and `nms_iou_th` for
+the compiled model.
 
 For a custom pipeline, replace its `model` object with a compatible HEF, for
 example:

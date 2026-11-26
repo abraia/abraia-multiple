@@ -604,7 +604,7 @@ def process_obb_output(
     outputs, size, shape, classes, conf_threshold=0.35, iou_threshold=_OBB_IOU_THRESHOLD,
     approx=0.001, labels=None, transform=None,
 ):
-    """Decode raw YOLOv8 oriented boxes and apply class-aware rotated NMS."""
+    """Decode raw YOLO oriented boxes and apply class-aware rotated NMS."""
     del approx
     expected_channels = 5 + len(classes)
     output = np.asarray(outputs[0], dtype=np.float32) if len(outputs) == 1 else None
@@ -613,7 +613,7 @@ def process_obb_output(
         or output.shape[:2] != (1, expected_channels)
     ):
         raise ValueError(
-            f"YOLOv8 OBB requires one raw output of shape [1, {expected_channels}, N]"
+            f"YOLO OBB requires one raw output of shape [1, {expected_channels}, N]"
         )
 
     candidates = []
@@ -661,11 +661,9 @@ def process_obb_output(
             "label": classes[class_id],
             "score": score,
             "class_id": class_id,
+            "obb": [*center, *dimensions, angle],
             "box": [left, top, right - left, bottom - top],
             "polygon": corners.tolist(),
-            "rotated_rectangle_px": {
-                "center": list(center), "size": list(dimensions), "angle_deg": angle,
-            },
         })
     return results
 
@@ -683,8 +681,8 @@ class Model(OnnxSessionMixin):
             )
         if expected_task is not None and self.task != expected_task:
             raise ValueError(f"Expected ONNX metadata task '{expected_task}', got '{self.task}'")
-        if self.task == "obb" and self.kind != "yolov8":
-            raise ValueError("OBB inference requires a YOLOv8 model")
+        if self.task == "obb" and self.kind not in ("yolov8", "yolo11"):
+            raise ValueError("OBB inference requires a YOLOv8 or YOLO11 model")
         if self.task not in ("detection", "segmentation", "pose", "obb"):
             raise ValueError(
                 "Detection ONNX models support detection, segmentation, pose, or obb"

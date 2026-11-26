@@ -12,8 +12,8 @@ from .results import set_anomaly_decisions
 
 
 DEFAULT_FEATURES = (
-    "area_px", "perimeter_px", "centroid_px",
-    "width_px", "height_px", "aspect_ratio", "rotated_rectangle_px",
+    "area", "perimeter", "centroid",
+    "aspect_ratio", "obb",
     "compactness", "solidity",
 )
 
@@ -106,10 +106,11 @@ class FeatureExtractionStep:
                 _select_features(result_measurements(geometry), self.features)
                 if has_geometry else {}
             )
-            if self.source == "obb" and "rotated_rectangle_px" in measurements:
-                measurements["rotated_rectangle_px"] = record.get(
-                    "rotated_rectangle_px", measurements["rotated_rectangle_px"],
-                )
+            if self.source == "obb":
+                if "obb" in measurements:
+                    measurements["obb"] = record.get(
+                        "obb", measurements["obb"],
+                    )
             add_calibrated_measurements(measurements, self.calibration)
             if (
                 self.time_in_region
@@ -188,7 +189,7 @@ class FeatureExtractionStep:
             measured["id"] = f"{self.step_id}-{index}"
             measured["label"] = f"Anomaly {index}"
             geometry = result_measurements(region)
-            geometry["fraction"] = region["area_px"] / (height * width)
+            geometry["fraction"] = region["area"] / (height * width)
             measured["measurements"] = _select_features(geometry, self.features)
             measured["decision_result"] = "FAIL"
             add_calibrated_measurements(measured["measurements"], self.calibration)

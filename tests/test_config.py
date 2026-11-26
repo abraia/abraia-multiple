@@ -142,7 +142,7 @@ def test_count_and_measure_require_compatible_model_outputs():
     }}
     legacy_measure = {
         "type": "measure", "source": "retired-value",
-        "features": ["area_px"],
+        "features": ["area"],
     }
     draft = PipelineDraft(
         source_type="video", source="clip.mp4",
@@ -170,7 +170,7 @@ def test_measure_uses_nearest_model_and_rejects_non_geometry_output():
         "kind": "resnet", "task": "classification",
     }}
     measure = {
-        "type": "measure", "source": "detection", "features": ["area_px"],
+        "type": "measure", "source": "detection", "features": ["area"],
     }
     draft = PipelineDraft(steps=[detection, classifier, measure])
 
@@ -260,7 +260,7 @@ def test_pipeline_schema_is_packaged_and_validates_v2_documents():
             "model": {"kind": "yolov8", "task": "detection"},
         }, {
             "type": "measure",
-            "features": ["area_px"],
+            "features": ["area"],
             "source": "retired-value",
         }],
     })

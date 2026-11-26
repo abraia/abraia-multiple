@@ -44,10 +44,15 @@ def remote_demos(monkeypatch, public_demo_configs):
 
 def test_model_demo_tasks_are_available_for_completion():
     assert DEMO_TASKS["detect"] == "detection"
-    assert DEMO_TASKS["rfdetr-seg"] == "segmentation"
-    assert DEMO_TASKS["dfine-seg"] == "segmentation"
+    assert "yolo9" not in DEMO_TASKS
+    assert "rfdetr" not in DEMO_TASKS
+    assert "dfine" not in DEMO_TASKS
     assert "yolov8n" in demo_model_options("detect")
-    assert "yolov8n-seg" in demo_model_options("rfdetr-seg")
+    assert "yolo9t" in demo_model_options("detect")
+    assert "rfdetr-nano" in demo_model_options("detect")
+    assert "dfine-n" in demo_model_options("detect")
+    assert "rfdetr-seg-nano" in demo_model_options("segment")
+    assert "dfine-seg-n" in demo_model_options("segment")
 
 
 def test_demo_model_override_uses_a_compatible_builtin_variant(remote_demos):
@@ -79,7 +84,7 @@ def test_demo_model_override_rejects_incompatible_task_with_choices(remote_demos
         resolve_pipeline("apple", model="yolo9t")
 
 
-@pytest.mark.parametrize("demo", ["detect", "tomato", "apple", "segment", "pose", "yolo9"])
+@pytest.mark.parametrize("demo", ["detect", "tomato", "apple", "segment", "pose"])
 def test_public_demo_models_use_the_shared_hef_resolver(remote_demos, demo):
     config = resolve_pipeline(demo)
     spec = ModelSpec.from_config(_primary_model(config))
@@ -130,8 +135,20 @@ def test_hailo_capabilities_are_explicitly_narrower_than_generic_catalog():
         "detection",
         "segmentation",
         "pose",
+        "obb",
+        "depth",
     }
     assert set(HAILO_TASKS) < set(PIPELINE_TASKS)
+
+
+@pytest.mark.parametrize("kind,task", [
+    ("yolov8", "depth"),
+    ("yolo26_depth", "detection"),
+])
+def test_hailo_depth_requires_yolo26_depth_kind_and_task(kind, task):
+    spec = ModelSpec.from_config({"kind": kind, "task": task, "uri": "model.hef"})
+    with pytest.raises(ValueError, match="Hailo depth inference requires"):
+        spec.require_runtime_valid()
 
 
 def test_model_spec_normalizes_defaults_and_resolves_builtin_uri():

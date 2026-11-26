@@ -12,7 +12,6 @@ def public_demo_configs():
         "segment": ("yolov8", "segmentation", "multiple/models/yolov8n-seg.onnx"),
         "pose": ("yolov8", "pose", "multiple/models/yolov8m_pose.onnx"),
         "depth": ("yolo26_depth", "depth", "multiple/models/yolo26n-depth.onnx"),
-        "yolo9": ("yolo9", "detection", "multiple/models/yolo9t.onnx"),
     }
     return {
         name: {

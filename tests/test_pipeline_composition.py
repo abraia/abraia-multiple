@@ -74,7 +74,7 @@ def test_pipeline_results_are_full_table_records_for_all_output_shapes():
         "classification": {"label": "healthy", "score": 0.88},
         "regression": {"prediction": 2.4, "target": 2.0, "score": 0.7},
         "recognition": {"text": "AB-123", "text_score": 0.91},
-        "measurements": {"area_px": 12},
+        "measurements": {"area": 12},
         "box": [1, 2, 3, 4],
     }]
 
@@ -82,9 +82,15 @@ def test_pipeline_results_are_full_table_records_for_all_output_shapes():
         def run(self, _frame):
             return records
 
-    pipeline = Pipeline(source=Source(frame), model=MultiOutput(), steps=[])
+    callbacks = []
+    pipeline = Pipeline(
+        source=Source(frame), model=MultiOutput(), steps=[],
+        on_frame=lambda context, elapsed: callbacks.append((context, elapsed)),
+    )
     last = pipeline.run()
 
+    assert last.current is records
+    assert callbacks == [(last, last.metrics["inference_ms"])]
     assert isinstance(last.results, list)
     assert isinstance(last.results[0], dict)
     row = last.results[0]
@@ -95,7 +101,7 @@ def test_pipeline_results_are_full_table_records_for_all_output_shapes():
     assert row["regression_target"] == 2.0
     assert row["recognition_text"] == "AB-123"
     assert row["recognition_score"] == 0.91
-    assert row["area_px"] == 12
+    assert row["area"] == 12
     assert row["classification"] == {"label": "healthy", "score": 0.88}
     assert row["box"] == [1, 2, 3, 4]
 

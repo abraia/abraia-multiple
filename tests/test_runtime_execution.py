@@ -23,7 +23,7 @@ def test_run_pipeline_reports_frame_events_and_closes_runtime(monkeypatch):
             self.on_frame = on_frame
             self.closed = False
 
-        def _render_frame(self, context):
+        def render_frame(self, context):
             return context.frame.copy()
 
         def run(self, is_cancelled):
@@ -74,3 +74,41 @@ def test_run_pipeline_reports_frame_events_and_closes_runtime(monkeypatch):
     assert result["events"][0]["display_frame"].shape == (8, 8, 3)
     assert status_messages and "Model and source ready" in status_messages[0]
     assert pipeline.closed
+
+
+def test_run_pipeline_shares_render_between_callback_preview_and_recording(monkeypatch):
+    rendered = []
+    recorded = []
+    previews = []
+    monkeypatch.setattr(execution, "time", SimpleNamespace(monotonic=lambda: 0))
+    monkeypatch.setattr(
+        "abraia.runtime.video.VideoOutput",
+        lambda **kwargs: SimpleNamespace(
+            show=lambda frame: recorded.append(frame.copy()),
+            set_display_enabled=lambda enabled: None,
+            close=lambda: None,
+        ),
+    )
+
+    def create_renderer(_renderer, _config):
+        def render(context):
+            rendered.append(context.frame_index)
+            return np.full_like(context.frame, context.frame_index + 10)
+        return render
+
+    def on_frame(event):
+        preview = event["display_frame"]
+        previews.append(preview)
+        if preview is not None:
+            preview[:] = 0
+
+    execution.run_pipeline(
+        {"version": 2, "display": {"show": True, "dest": "preview.avi"}},
+        input_source=[np.zeros((8, 8, 3), dtype=np.uint8) for _ in range(2)],
+        renderer_factory=create_renderer,
+        frame_callback=on_frame,
+    )
+
+    assert rendered == [0, 1]
+    assert previews[0] is not None and previews[1] is None
+    assert [frame[0, 0, 0] for frame in recorded] == [10, 11]

@@ -27,6 +27,10 @@ def resolve_model_type(kind, task):
             f"Unsupported Hailo task: {task}. Use {', '.join(HAILO_TASKS)}"
         )
     kind = str(kind or "").strip().lower()
+    if task == "depth" or kind == "yolo26_depth":
+        if (kind, task) != ("yolo26_depth", "depth"):
+            raise ValueError("Hailo depth inference requires kind='yolo26_depth' and task='depth'")
+        return "yolo26_depth"
     model_type = {
         "yolov5": "v5",
         "yolov8": "v8",
@@ -35,6 +39,10 @@ def resolve_model_type(kind, task):
     }.get(kind)
     if model_type is None:
         raise ValueError(f"Unsupported Hailo model kind: {kind}")
+    if task == "obb":
+        if kind != "yolo11":
+            raise ValueError("Hailo OBB inference requires a YOLO11 model")
+        return "yolo11_obb"
     return "v8" if task == "pose" and model_type == "v5" else model_type
 
 

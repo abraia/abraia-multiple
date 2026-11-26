@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 import queue
 import threading
@@ -20,6 +20,8 @@ class FrameRecord:
     index: int
     frame: Any
     started: float
+    capture_index: Optional[int] = None
+    captured_at: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -74,11 +76,17 @@ class AsyncInferenceRunner:
         output_queue_size: int = 4,
         join_timeout: Optional[float] = 2.0,
         flush: Optional[Callable[[], None]] = None,
+        live_max_in_flight_frames: Optional[int] = None,
     ):
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
         if input_queue_size < 1 or output_queue_size < 1:
             raise ValueError("queue sizes must be at least 1")
+        if live_max_in_flight_frames is not None and (
+            not isinstance(live_max_in_flight_frames, int)
+            or live_max_in_flight_frames < batch_size
+        ):
+            raise ValueError("Live inference frame budget must be an integer that accommodates one batch")
 
         self.source = source
         self.inference = inference
@@ -89,6 +97,10 @@ class AsyncInferenceRunner:
         self.output_queue_size = output_queue_size
         self.join_timeout = join_timeout
         self.flush = flush
+        self.live_max_in_flight_frames = live_max_in_flight_frames
+        self._live_condition = (
+            threading.Condition() if live_max_in_flight_frames is not None else None
+        )
 
         self._closed = False
         self._started = False
@@ -194,6 +206,121 @@ class AsyncInferenceRunner:
     def __iter__(self):
         return self.iter_inference()
 
+    def _iter_live(self):
+        """Overlap inference with consumption, retaining the newest ready result."""
+        condition = self._live_condition
+        frame_budget = self.live_max_in_flight_frames
+        in_flight = set()
+        latest = None
+        newest_index = -1
+        error = None
+        done = False
+
+        def emit(result):
+            nonlocal latest, newest_index, error
+            with condition:
+                if self.stop_event.is_set() or error is not None:
+                    return False
+                if not isinstance(result, FrameResult) or result.record.index not in in_flight:
+                    error = RuntimeError("Live inference emitted an unexpected frame result")
+                else:
+                    index = result.record.index
+                    in_flight.remove(index)
+                    if result.error is not None:
+                        error = result.error
+                    elif index > newest_index:
+                        newest_index = index
+                        latest = result if result.elapsed_ms is not None else replace(
+                            result, elapsed_ms=(time.perf_counter() - result.record.started) * 1000,
+                        )
+                condition.notify_all()
+                return error is None
+
+        def submit_frames():
+            nonlocal error, done
+            try:
+                frames = iter(self.source)
+                index = 0
+                while True:
+                    with condition:
+                        condition.wait_for(
+                            lambda: self.stop_event.is_set() or error is not None
+                            or len(in_flight) + self.batch_size <= frame_budget,
+                            timeout=0.1,
+                        )
+                        if self.stop_event.is_set() or error is not None:
+                            break
+                        if len(in_flight) + self.batch_size > frame_budget:
+                            continue
+                    records = []
+                    for _ in range(self.batch_size):
+                        if self.stop_event.is_set():
+                            break
+                        try:
+                            frame = next(frames)
+                        except StopIteration:
+                            break
+                        records.append(FrameRecord(
+                            index, frame, time.perf_counter(),
+                            getattr(self.source, "last_capture_index", None),
+                            getattr(self.source, "last_captured_at", None),
+                        ))
+                        index += 1
+                    if not records or self.stop_event.is_set():
+                        break
+                    processed = tuple(self.preprocess(record.frame) for record in records)
+                    with condition:
+                        if self.stop_event.is_set() or error is not None:
+                            break
+                        in_flight.update(record.index for record in records)
+                    self.inference(FrameBatch(tuple(records), processed), emit, self.stop_event)
+                    if len(records) < self.batch_size:
+                        break
+            except Exception as exc:
+                with condition:
+                    if error is None and not self.stop_event.is_set():
+                        error = exc
+                    condition.notify_all()
+            finally:
+                try:
+                    if self.flush is not None:
+                        self.flush()
+                except Exception as exc:
+                    with condition:
+                        if error is None:
+                            error = exc
+                finally:
+                    with condition:
+                        if in_flight and error is None and not self.stop_event.is_set():
+                            error = RuntimeError("Live inference ended before all frames completed")
+                        done = True
+                        condition.notify_all()
+
+        worker = threading.Thread(
+            target=submit_frames, name="abraia-live-inference", daemon=True,
+        )
+        self._active_threads = (worker,)
+        worker.start()
+        try:
+            while True:
+                with condition:
+                    condition.wait_for(
+                        lambda: latest is not None or done or error is not None
+                        or self.stop_event.is_set(),
+                        timeout=0.1,
+                    )
+                    if error is not None:
+                        raise error
+                    if self.stop_event.is_set():
+                        break
+                    result, latest = latest, None
+                    if result is None and done:
+                        break
+                if result is not None:
+                    yield result
+        finally:
+            self.close()
+
     def iter_inference(self):
         """Yield :class:`FrameResult` objects in source order."""
         if self._closed:
@@ -201,6 +328,9 @@ class AsyncInferenceRunner:
         if self._started:
             raise RuntimeError("Async inference runner can only be iterated once")
         self._started = True
+        if self._live_condition is not None:
+            yield from self._iter_live()
+            return
 
         input_queue = queue.Queue(self.input_queue_size)
         output_queue = queue.Queue(self.output_queue_size)
@@ -283,6 +413,16 @@ class AsyncInferenceRunner:
             return
         self._closed = True
         self.stop_event.set()
+        if self._live_condition is not None:
+            with self._live_condition:
+                self._live_condition.notify_all()
+            if any(thread.is_alive() for thread in self._active_threads):
+                stop_source = getattr(self.source, "stop", None)
+                if callable(stop_source):
+                    try:
+                        stop_source()
+                    except Exception:
+                        logger.warning("Failed to stop live inference source", exc_info=True)
         if self._input_queue is not None:
             self._put_sentinel(self._input_queue, self.stop_event)
         for thread in self._active_threads:

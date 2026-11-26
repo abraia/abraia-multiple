@@ -330,6 +330,7 @@ class FrameSource:
     ):
         self.src = src
         self.source_type = self._source_type(src, source_type)
+        self.is_live = self.source_type in ("camera", "usb_camera", "rpi_camera", "stream")
         self.resolution = self._camera_resolution(resolution)
         self.requested_fps = fps
         self.target_fps = target_fps
@@ -385,11 +386,13 @@ class FrameSource:
 
     def _prefetch_frames(self):
         try:
+            index = 0
             while not self._capture_stop.is_set() and not self.stop_event.is_set():
                 ret, frame, _ = self._read_capture()
                 if not ret:
                     break
-                self._publish_latest_frame(frame)
+                self._publish_latest_frame((frame, index, time.perf_counter()))
+                index += 1
         except Exception as error:
             if self.source_type == "stream":
                 self._capture_error = error
@@ -423,7 +426,10 @@ class FrameSource:
             return self._read_capture(read_timestamp)
         while not self._capture_stop.is_set() and not self.stop_event.is_set():
             try:
-                return True, self._capture_queue.get(timeout=0.1), 0.0
+                frame, self.last_capture_index, self.last_captured_at = (
+                    self._capture_queue.get(timeout=0.1)
+                )
+                return True, frame, 0.0
             except queue.Empty:
                 thread = self._capture_thread
                 if thread is not None and not thread.is_alive():

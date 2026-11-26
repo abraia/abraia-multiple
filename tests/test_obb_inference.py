@@ -33,10 +33,7 @@ def test_obb_reverses_letterbox_and_preserves_rectangle():
     assert result["class_id"] == 0 and result["label"] == "ship"
     assert result["score"] == pytest.approx(.9)
     assert result["box"] == [77, 31, 46, 38]
-    rectangle = result["rotated_rectangle_px"]
-    assert rectangle["center"] == [100, 50]
-    assert rectangle["size"] == [40, 20]
-    assert rectangle["angle_deg"] == pytest.approx(30)
+    assert result["obb"] == pytest.approx([100, 50, 40, 20, 30])
     v1 = np.array([math.sqrt(3) * 10, 10])
     v2 = np.array([-5, math.sqrt(3) * 5])
     expected = sorted((np.array([100, 50]) + x * v1 + y * v2).tolist()
@@ -65,8 +62,8 @@ def test_obb_nms_respects_rotation_classes_and_filters():
     assert [result["label"] for result in results] == ["ship", "ship", "harbor"]
     assert [result["score"] for result in results] == pytest.approx([.95, .88, .82])
     assert results[0]["box"] == results[1]["box"]
-    assert results[0]["rotated_rectangle_px"]["angle_deg"] > 0
-    assert results[1]["rotated_rectangle_px"]["angle_deg"] < 0
+    assert results[0]["obb"][4] > 0
+    assert results[1]["obb"][4] < 0
     assert len(_decode(rows, labels=["harbor"])) == 1
     assert _decode(rows, conf_threshold=1) == []
     assert _decode([]) == []
@@ -128,21 +125,24 @@ def test_obb_uses_the_default_managed_graph_and_sidecar(tmp_path, obb_model, mon
     with create_model({"kind": "yolov8", "task": "obb"}, accelerator="cpu") as model:
         result, = model.run(image)
         assert len(model.run(image, iou_threshold=.7)) == 2
-    assert result["rotated_rectangle_px"]["angle_deg"] == pytest.approx(30)
+    assert result["obb"][4] == pytest.approx(30)
     assert downloaded == [
         remote.url_path("multiple/models/yolov8n-obb.onnx"),
         remote.url_path("multiple/models/yolov8n-obb.json"),
     ]
 
 
-def test_obb_saved_pipeline_preserves_rotation_and_counts_objects(tmp_path, obb_model):
+@pytest.mark.parametrize("kind", ["yolov8", "yolo11"])
+def test_obb_saved_pipeline_preserves_rotation_and_counts_objects(
+    tmp_path, obb_model, kind,
+):
     Image.new("RGB", (200, 100)).save(tmp_path / "frame.png")
     config = {
         "version": 2, "source": {"type": "image", "src": "frame.png"},
         "steps": [
-            {"type": "model", "model": {"kind": "yolov8", "task": "obb", "uri": obb_model.name}},
+            {"type": "model", "model": {"kind": kind, "task": "obb", "uri": obb_model.name}},
             {"type": "tracker"},
-            {"type": "measure", "features": ["area_px", "rotated_rectangle_px"]},
+            {"type": "measure", "features": ["area", "obb"]},
             {"type": "count", "mode": "region", "polygon": [[0, 0], [190, 0], [190, 90], [0, 90]]},
         ],
         "display": {"show": False, "render_metrics": False},
@@ -153,8 +153,9 @@ def test_obb_saved_pipeline_preserves_rotation_and_counts_objects(tmp_path, obb_
     record, = context.results
     assert context.metrics["object_count"] == 1
     assert record["track_id"] is not None
-    assert record["area_px"] == pytest.approx(800, abs=.001)
-    assert record["rotated_rectangle_px"]["angle_deg"] == pytest.approx(30)
+    assert record["area"] == pytest.approx(800, abs=.001)
+    assert record["obb"][4] == pytest.approx(30)
+    assert record["measurements"]["obb"] == pytest.approx(record["obb"])
     for x, y in np.rint(record["polygon"]).astype(int):
         assert rendered[y, x].any()
     assert not rendered[68, 122].any()

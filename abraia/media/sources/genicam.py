@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import threading
+import time
 from typing import Any, Dict, Iterable, Iterator
 
 
@@ -30,6 +31,8 @@ class GenICamSource:
     the ``GENICAM_GENTL64_PATH`` environment variable.
     """
 
+    is_live = True
+
     def __init__(self, src, fps=30):
         self.src = src
         self.timeout = 0.2
@@ -38,6 +41,11 @@ class GenICamSource:
         self.height = 0
         self.device_info = {}
         self._stop_event = threading.Event()
+        self._capture_condition = threading.Condition()
+        self._capture_thread = None
+        self._capture_done = False
+        self._capture_error = None
+        self._pending_frame = None
         self._harvester = None
         self._acquirer = None
         self._acquiring = False
@@ -215,7 +223,7 @@ class GenICamSource:
             frame = frame[:, :, ::-1]
         return np.array(frame, copy=True, order="C"), pixel_format
 
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
+    def _read_frames(self) -> Iterator[Dict[str, Any]]:
         if self._closed or self._acquirer is None:
             return
         while not self._stop_event.is_set():
@@ -253,9 +261,51 @@ class GenICamSource:
                 raise RuntimeError("Unable to convert GenICam image buffer") from error
             yield {"frame": frame, "data": data}
 
+    def _capture_latest(self):
+        try:
+            for index, item in enumerate(self._read_frames()):
+                captured_at = time.perf_counter()
+                with self._capture_condition:
+                    self._pending_frame = (item, index, captured_at)
+                    self._capture_condition.notify_all()
+        except Exception as error:
+            with self._capture_condition:
+                self._capture_error = error
+        finally:
+            with self._capture_condition:
+                self._capture_done = True
+                self._capture_condition.notify_all()
+
+    def __iter__(self) -> Iterator[Dict[str, Any]]:
+        with self._capture_condition:
+            if self._closed or self._stop_event.is_set():
+                return
+            if self._capture_thread is None:
+                self._capture_thread = threading.Thread(
+                    target=self._capture_latest, name="abraia-genicam-capture", daemon=True,
+                )
+                self._capture_thread.start()
+        while True:
+            with self._capture_condition:
+                self._capture_condition.wait_for(
+                    lambda: self._pending_frame is not None or self._capture_done
+                    or self._stop_event.is_set()
+                )
+                if self._stop_event.is_set():
+                    return
+                pending, self._pending_frame = self._pending_frame, None
+                if pending is None:
+                    if self._capture_error is not None:
+                        raise self._capture_error
+                    return
+                item, self.last_capture_index, self.last_captured_at = pending
+            yield item
+
     def stop(self) -> None:
         """Stop acquisition so a concurrent frame fetch can finish."""
         self._stop_event.set()
+        with self._capture_condition:
+            self._capture_condition.notify_all()
         if self._acquiring and self._acquirer is not None:
             try:
                 self._acquirer.stop()
@@ -269,6 +319,9 @@ class GenICamSource:
             return
         self._closed = True
         self.stop()
+        if self._capture_thread is not None:
+            self._capture_thread.join()
+        self._pending_frame = None
         if self._acquirer is not None:
             try:
                 self._acquirer.destroy()

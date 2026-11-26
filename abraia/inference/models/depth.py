@@ -72,6 +72,11 @@ def _resize_yolo_depth(depth, shape):
     return rows[y0] * (1 - wy) + rows[y1] * wy
 
 
+def restore_yolo_depth(depth, input_shape, image_shape):
+    """Restore the model input resolution, then resize to the original image."""
+    return _resize_yolo_depth(_resize_yolo_depth(depth, input_shape), image_shape)
+
+
 class DepthModel(OnnxSessionMixin):
     """Predict relative or metric depth from a single uint8 RGB image."""
 
@@ -167,8 +172,7 @@ class DepthModel(OnnxSessionMixin):
                 maximum = float(depth[finite].max())
                 depth[finite] = minimum + maximum - depth[finite]
         else:
-            depth = _resize_yolo_depth(depth, self.input_size)
-            depth = _resize_yolo_depth(depth, shape)
+            depth = restore_yolo_depth(depth, self.input_size, shape)
         return {"depth_map": depth, "depth_units": self.depth_units}
 
     def run(self, image):
