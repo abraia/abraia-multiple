@@ -1,9 +1,0 @@
-#!/usr/bin/env python
-"""Compatibility launcher for :mod:`abraia.cli`."""
-
-from abraia.cli import *
-from abraia.cli import main
-
-
-if __name__ == "__main__":
-    main()

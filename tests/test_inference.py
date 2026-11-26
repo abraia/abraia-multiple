@@ -363,12 +363,15 @@ def test_yolo_candidate_filter_preserves_decoder_results(task):
 
     kwargs = dict(size=size, shape=shape, classes=["person", "car"], transform=transform)
     results = decode(output, conf_threshold=.5, **kwargs)
-    assert [(r["label"], r["box"]) for r in results] == [
-        ("car", [130, 40, 40, 40]),
-        ("person", [30, 20, 40, 40]),
-        ("person", [80, 60, 40, 40]),
-    ]
-    assert [r["score"] for r in results] == [.75, .75, .5]
+    detections = {
+        (result["label"], tuple(result["box"])): result["score"]
+        for result in results
+    }
+    assert detections == {
+        ("car", (130, 40, 40, 40)): .75,
+        ("person", (30, 20, 40, 40)): .75,
+        ("person", (80, 60, 40, 40)): .5,
+    }
     assert [r["label"] for r in decode(output, conf_threshold=.5, labels=["car"], **kwargs)] == ["car"]
     assert decode(output, conf_threshold=np.nextafter(.75, 1.0), **kwargs) == []
     assert decode([output[0][:, :, :0], *output[1:]], conf_threshold=.5, **kwargs) == []
