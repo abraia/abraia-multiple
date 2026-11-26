@@ -41,6 +41,13 @@ def _background_remover():
 
 
 @lru_cache(maxsize=1)
+def _ben2_background_remover():
+    from .removebg import BEN2BackgroundRemover
+
+    return BEN2BackgroundRemover()
+
+
+@lru_cache(maxsize=1)
 def _upscaler():
     from .upscale import Upscaler
 
@@ -92,9 +99,15 @@ def anonymize_image(img):
     return draw.draw_blurred_mask(img, build_mask(img, plates, faces))
 
 
-def remove_background(img):
-    """Remove the background from an RGB image."""
-    return _background_remover().remove(img)
+def remove_background(img, model="ben2"):
+    """Remove an RGB image background with BEN2 by default or RMBG-1.4."""
+    if model == "rmbg14":
+        remover = _background_remover()
+    elif model == "ben2":
+        remover = _ben2_background_remover()
+    else:
+        raise ValueError("model must be 'rmbg14' or 'ben2'")
+    return remover.remove(img)
 
 
 def blur_background(img):

@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 
 from ..utils.remote import download_file
+from ..inference.accelerators import CPU_PROVIDER, get_providers, onnx_providers
 from ..inference.session import OnnxSessionMixin
 
 
@@ -54,10 +55,14 @@ class BackgroundRemover(OnnxSessionMixin):
         return np.expand_dims(img, axis=0)
     
     def postprocess(self, out, size):
-        pred = out.reshape(self.image_size)
-        mask = (np.clip(pred, 0, 1) * 255).astype(np.uint8)
-        mask = cv2.resize(mask, size, interpolation=cv2.INTER_LINEAR)
-        return mask
+        pred = out.reshape(self.image_size).astype(np.float32)
+        pred = cv2.resize(pred, size, interpolation=cv2.INTER_LINEAR)
+        minimum, maximum = float(pred.min()), float(pred.max())
+        if maximum > minimum:
+            pred = (pred - minimum) / (maximum - minimum)
+        else:
+            pred = np.zeros_like(pred)
+        return (np.clip(pred, 0, 1) * 255).astype(np.uint8)
 
     def predict(self, img):
         self._ensure_open()
@@ -71,6 +76,56 @@ class BackgroundRemover(OnnxSessionMixin):
         mask = self.predict(img)
         if post_process_mask:
             mask = post_process(mask)
-        mask[mask < 127] = 0
         img = np.array(naive_cutout(Image.fromarray(img), Image.fromarray(mask)))
         return img
+
+
+class BEN2BackgroundRemover(BackgroundRemover):
+    """BEN2 ONNX background remover (FP16 export)."""
+
+    def __init__(self, providers=None, accelerator=None):
+        self.image_size = (1024, 1024)
+        self.input_mean = (0.485, 0.456, 0.406)
+        self.input_std = (0.229, 0.224, 0.225)
+        if providers is None:
+            providers = onnx_providers(accelerator) or get_providers()
+        providers = [
+            provider for provider in providers
+            if (
+                provider[0] if isinstance(provider, (tuple, list)) else provider
+            ) != "CoreMLExecutionProvider"
+        ]
+        if not any(
+            (provider[0] if isinstance(provider, (tuple, list)) else provider)
+            == CPU_PROVIDER
+            for provider in providers
+        ):
+            providers.append(CPU_PROVIDER)
+        model_src = download_file('multiple/models/editing/ben2_fp16.onnx')
+        self._init_onnx_session(
+            model_src, providers=providers,
+        )
+        self.input_name = self.session.get_inputs()[0].name
+
+    def preprocess(self, img):
+        img = np.asarray(img)
+        if img.ndim != 3 or img.shape[2] != 3:
+            raise ValueError('Background removal expects an RGB image')
+        img = np.asarray(
+            Image.fromarray(img).resize(self.image_size, resample=Image.LANCZOS),
+            dtype=np.float32,
+        ) / 255.0
+        img = (img - np.array(self.input_mean, dtype=np.float32)) / np.array(
+            self.input_std, dtype=np.float32
+        )
+        return np.expand_dims(img.transpose((2, 0, 1)), axis=0)
+
+    def postprocess(self, out, size):
+        pred = out.reshape(self.image_size).astype(np.float32)
+        pred = cv2.resize(pred, size, interpolation=cv2.INTER_LINEAR)
+        minimum, maximum = float(pred.min()), float(pred.max())
+        if maximum > minimum:
+            pred = (pred - minimum) / (maximum - minimum)
+        else:
+            pred = np.zeros_like(pred)
+        return (np.clip(pred, 0, 1) * 255).astype(np.uint8)

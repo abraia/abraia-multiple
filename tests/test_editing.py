@@ -70,6 +70,91 @@ def test_background_remover_preprocess_uses_fixed_scaling():
     assert not np.array_equal(black, gray)
 
 
+def test_background_remover_postprocess_resizes_before_normalizing():
+    remover = BackgroundRemover.__new__(BackgroundRemover)
+    remover.image_size = (2, 2)
+    prediction = np.array([[0, 0], [0, 1]], dtype=np.float32)
+
+    mask = remover.postprocess(prediction, (1, 1))
+
+    np.testing.assert_array_equal(mask, np.zeros((1, 1), dtype=np.uint8))
+
+
+def test_ben2_preprocess_uses_reference_resize_and_normalization():
+    from PIL import Image
+
+    from abraia.editing.removebg import BEN2BackgroundRemover
+
+    image = np.zeros((1, 2, 3), dtype=np.uint8)
+    image[:, 1] = 255
+    remover = BEN2BackgroundRemover.__new__(BEN2BackgroundRemover)
+    remover.image_size = (5, 5)
+    remover.input_mean = (0.485, 0.456, 0.406)
+    remover.input_std = (0.229, 0.224, 0.225)
+
+    resized = np.asarray(
+        Image.fromarray(image).resize((5, 5), resample=Image.LANCZOS),
+        dtype=np.float32,
+    ) / 255.0
+    expected = (resized - np.array(remover.input_mean, dtype=np.float32)) / np.array(
+        remover.input_std, dtype=np.float32
+    )
+
+    np.testing.assert_array_equal(remover.preprocess(image)[0], expected.transpose(2, 0, 1))
+
+
+def test_ben2_postprocess_resizes_before_mask_normalization():
+    from abraia.editing.removebg import BEN2BackgroundRemover
+
+    remover = BEN2BackgroundRemover.__new__(BEN2BackgroundRemover)
+    remover.image_size = (2, 2)
+    prediction = np.array([[0, 0], [0, 1]], dtype=np.float32)
+
+    mask = remover.postprocess(prediction, (1, 1))
+
+    np.testing.assert_array_equal(mask, np.zeros((1, 1), dtype=np.uint8))
+
+
+def test_ben2_remove_preserves_soft_alpha_mask():
+    from abraia.editing.removebg import BEN2BackgroundRemover
+
+    remover = BEN2BackgroundRemover.__new__(BEN2BackgroundRemover)
+    mask = np.array([[0, 64], [128, 255]], dtype=np.uint8)
+    remover.predict = lambda _image: mask.copy()
+
+    output = remover.remove(np.full((2, 2, 3), 100, dtype=np.uint8))
+
+    np.testing.assert_array_equal(output[:, :, 3], mask)
+
+
+def test_ben2_excludes_coreml_from_default_providers(monkeypatch):
+    from types import SimpleNamespace
+
+    import abraia.editing.removebg as removebg
+
+    selected = {}
+    monkeypatch.setattr(removebg, 'download_file', lambda _path: 'ben2.onnx')
+    monkeypatch.setattr(
+        removebg,
+        'get_providers',
+        lambda: ['CoreMLExecutionProvider', 'CPUExecutionProvider'],
+    )
+
+    def initialize(_self, _path, providers=None, accelerator=None):
+        selected['providers'] = providers
+        _self.session = SimpleNamespace(
+            get_inputs=lambda: [SimpleNamespace(name='input')]
+        )
+
+    monkeypatch.setattr(
+        removebg.BEN2BackgroundRemover, '_init_onnx_session', initialize
+    )
+
+    removebg.BEN2BackgroundRemover()
+
+    assert selected['providers'] == ['CPUExecutionProvider']
+
+
 def test_best_crop_area_falls_back_for_empty_candidate_set():
     saliency = np.zeros((32, 32), dtype=np.uint8)
 
